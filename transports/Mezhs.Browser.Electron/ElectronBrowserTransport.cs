@@ -40,6 +40,8 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
             (await File.ReadAllTextAsync(pathFile, cancellationToken)).Trim());
         if (!File.Exists(executable))
             throw new FileNotFoundException("Electron executable was not found.", executable);
+        if (!File.Exists(options.ModulePath))
+            throw new FileNotFoundException("Browser integration module was not found.", options.ModulePath);
 
         var startInfo = new ProcessStartInfo
         {
@@ -53,8 +55,8 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         startInfo.ArgumentList.Add(".");
         startInfo.Environment["MEZHS_PROFILE_DIRECTORY"] = Path.GetFullPath(options.ProfileDirectory);
         startInfo.Environment["MEZHS_SHOW_BROWSER"] = options.ShowBrowser ? "1" : "0";
-        startInfo.Environment["MEZHS_AUTOMATION_ID"] = options.AutomationId;
-        startInfo.Environment["MEZHS_REQUIRE_LOGIN"] = options.RequireLogin ? "1" : "0";
+        startInfo.Environment["MEZHS_BROWSER_MODULE"] = Path.GetFullPath(options.ModulePath);
+        startInfo.Environment["MEZHS_REQUIRE_AUTHORIZATION"] = options.RequireAuthorization ? "1" : "0";
         startInfo.Environment["MEZHS_PARENT_PROCESS_ID"] = Environment.ProcessId.ToString();
 
         _process = Process.Start(startInfo)

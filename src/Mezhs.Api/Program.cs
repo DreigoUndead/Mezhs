@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 using Mezhs.Configuration;
+using Mezhs.Integrations;
 using Mezhs.Models;
-using Mezhs.Providers;
 using Mezhs.Services;
 
 var configPath = FindConfigPath(GetOption(args, "--config"));
@@ -16,7 +16,8 @@ builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<ChatStore>();
 builder.Services.AddSingleton<FileStore>();
-builder.Services.AddSingleton<ProviderRegistry>();
+builder.Services.AddSingleton<IIntegrationHost, IntegrationHost>();
+builder.Services.AddSingleton<IntegrationRegistry>();
 builder.Services.AddSingleton<MessageService>();
 
 var app = builder.Build();
@@ -34,12 +35,12 @@ app.MapGet("/", () => Results.Ok(new
 }));
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
-app.MapGet("/v1/connections", (ProviderRegistry providers) =>
-    Results.Ok(providers.GetConnections()));
+app.MapGet("/v1/connections", (IntegrationRegistry integrations) =>
+    Results.Ok(integrations.GetConnections()));
 
 app.MapPost("/v1/files", async (
     HttpRequest request,
-    ProviderRegistry providers,
+    IntegrationRegistry integrations,
     FileStore files,
     CancellationToken cancellationToken) =>
 {
@@ -52,14 +53,14 @@ app.MapPost("/v1/files", async (
         var connectionId = form["connectionId"].ToString();
         if (string.IsNullOrWhiteSpace(connectionId))
             return Results.BadRequest(new { error = "connectionId is required." });
-        var provider = providers.Get(connectionId);
-        if (!provider.Capabilities.FileInput)
+        var integration = integrations.Get(connectionId);
+        if (!integration.Capabilities.FileInput)
             return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support file input." });
         var upload = form.Files.GetFile("file");
         if (upload is null)
             return Results.BadRequest(new { error = "file is required." });
         if (upload.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) &&
-            !provider.Capabilities.ImageInput)
+            !integration.Capabilities.ImageInput)
             return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support image input." });
 
         await using var content = upload.OpenReadStream();
@@ -70,12 +71,6 @@ app.MapPost("/v1/files", async (
             content,
             FileSource.User,
             cancellationToken);
-        await provider.UploadFileAsync(new ProviderInputFile(
-            file.FileId,
-            files.GetContentPath(file),
-            file.Name,
-            file.ContentType,
-            file.Size), cancellationToken);
         return Results.Created($"/v1/files/{file.FileId}", FileStore.ToApi(file));
     }
     catch (KeyNotFoundException ex)
@@ -121,22 +116,17 @@ app.MapGet("/v1/chats", (string? connectionId, ChatStore chats) =>
 
 app.MapPost("/v1/chats", async (
     CreateChatRequest request,
-    ProviderRegistry providers,
+    IntegrationRegistry integrations,
     ChatStore chats,
     CancellationToken cancellationToken) =>
 {
     try
     {
-        var provider = providers.Get(request.ConnectionId);
+        integrations.Get(request.ConnectionId);
         var chat = await chats.CreateChatAsync(
             request.ConnectionId,
             request.CategoryId,
             cancellationToken);
-        var providerChat = await provider.CreateChatAsync(chat, cancellationToken);
-        chat.RemoteChatUrl = providerChat.RemoteChatUrl;
-        chat.RemoteConversationId = providerChat.RemoteConversationId;
-        chat.RemoteParentMessageId = providerChat.RemoteParentMessageId;
-        await chats.SaveChatAsync(chat, cancellationToken);
         return Results.Created($"/v1/chats/{chat.ChatId}", new
         {
             chat.ChatId,
@@ -213,21 +203,16 @@ app.MapDelete("/v1/categories/{categoryId}", async (
 
 app.MapPost("/v1/connections/{connectionId}/login", async (
     string connectionId,
-    ProviderRegistry providers,
+    IntegrationRegistry integrations,
     CancellationToken cancellationToken) =>
 {
-    if (!providers.TryGet(connectionId, out var provider))
+    if (!integrations.TryGet(connectionId, out var integration))
         return Results.NotFound(new { error = $"Connection '{connectionId}' was not found." });
+    if (integration.Login is null)
+        return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support login." });
 
-    try
-    {
-        await provider.InitializeAsync(showBrowser: true, cancellationToken);
-        return Results.Ok(new { connectionId, status = "ready" });
-    }
-    catch (NotSupportedException ex)
-    {
-        return Results.BadRequest(new { error = ex.Message });
-    }
+    await integration.Login.LoginAsync(cancellationToken);
+    return Results.Ok(new { connectionId, status = "ready" });
 });
 
 app.MapPost("/v1/messages", async (
@@ -308,29 +293,6 @@ app.MapGet("/v1/chats/{chatId}/messages", (string chatId, ChatStore chats) =>
     if (chats.GetChat(chatId) is null)
         return Results.NotFound(new { error = $"Chat '{chatId}' was not found." });
     return Results.Ok(chats.GetMessages(chatId));
-});
-
-app.MapPost("/v1/chats/{chatId}/stop", async (
-    string chatId,
-    string? requestId,
-    ChatStore chats,
-    ProviderRegistry providers,
-    CancellationToken cancellationToken) =>
-{
-    var chat = chats.GetChat(chatId);
-    if (chat is null)
-        return Results.NotFound(new { error = $"Chat '{chatId}' was not found." });
-    await providers.Get(chat.ConnectionId).StopGenerationAsync(
-        chatId,
-        requestId,
-        cancellationToken);
-    return Results.Accepted();
-});
-
-app.Lifetime.ApplicationStopping.Register(() =>
-{
-    app.Services.GetRequiredService<ProviderRegistry>().DisposeAsync()
-        .AsTask().GetAwaiter().GetResult();
 });
 
 Console.WriteLine($"MEŽS config: {configPath}");

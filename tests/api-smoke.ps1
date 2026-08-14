@@ -46,6 +46,17 @@ try {
 
     if ($health.status -ne 'ok') { throw 'Health endpoint failed.' }
 
+    $connections = Invoke-RestMethod -Uri "$baseUrl/v1/connections"
+    $plainConnection = $connections | Where-Object { $_.id -eq 'test' }
+    $loginConnection = $connections | Where-Object { $_.id -eq 'test-login' }
+    if ($plainConnection.requiresLogin) { throw 'Login capability was advertised without a login module.' }
+    if (-not $loginConnection.requiresLogin) { throw 'Login module was not advertised by connection metadata.' }
+    if ($plainConnection.integration -ne 'mock' -or $loginConnection.integration -ne 'mock-login') {
+        throw 'Connection integration metadata was invalid.'
+    }
+    $login = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/connections/test-login/login"
+    if ($login.status -ne 'ready') { throw 'Login module endpoint did not complete.' }
+
     $category = Invoke-RestMethod `
         -Method Post `
         -Uri "$baseUrl/v1/categories" `
@@ -125,9 +136,9 @@ try {
     } while ($true)
 
     $echoedFile = $attachmentCompleted.reply.files | Select-Object -First 1
-    if ($echoedFile.name -ne 'echo-attachment-smoke.txt') { throw 'Provider output file was not imported.' }
+    if ($echoedFile.name -ne 'echo-attachment-smoke.txt') { throw 'Integration output file was not imported.' }
     $echoedContent = (Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl$($echoedFile.contentUrl)").Content
-    if ($echoedContent -notlike '*MEZHS-ATTACHMENT-SMOKE*') { throw 'Provider output file content did not match.' }
+    if ($echoedContent -notlike '*MEZHS-ATTACHMENT-SMOKE*') { throw 'Integration output file content did not match.' }
 
     $chatList = Invoke-RestMethod -Uri "$baseUrl/v1/chats"
     $listedChat = $chatList | Where-Object { $_.chatId -eq $created.chatId }
@@ -163,7 +174,7 @@ try {
         -Body '{"categoryId":null}' | Out-Null
     Invoke-RestMethod -Method Delete -Uri "$baseUrl/v1/categories/$($category.categoryId)"
 
-    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) categories=ok files=ok"
+    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) categories=ok files=ok login=ok"
 }
 finally {
     if (-not $process.HasExited) {

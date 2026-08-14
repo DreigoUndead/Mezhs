@@ -3,7 +3,7 @@ const http = require("node:http");
 const path = require("node:path");
 
 let window = null;
-let automation = null;
+let browserModule = null;
 let activeSession = null;
 let keepVisible = false;
 let shuttingDown = false;
@@ -33,31 +33,32 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function loadAutomation(id) {
-  if (!/^[a-z0-9_-]+$/i.test(id || ""))
-    throw new Error(`Invalid browser automation id '${id}'.`);
-  const implementation = require(path.join(__dirname, "providers", `${id}.js`));
+function loadBrowserModule(modulePath) {
+  if (!modulePath)
+    throw new Error("Browser module path is required.");
+  const resolved = path.resolve(modulePath);
+  const implementation = require(resolved);
   if (!implementation?.homeUrl || typeof implementation.sendPrompt !== "function")
-    throw new Error(`Browser automation '${id}' is incomplete.`);
+    throw new Error(`Browser module '${resolved}' is incomplete.`);
   return implementation;
 }
 
-async function initialize({ profileDirectory, showBrowser, automationId, loginRequired }) {
+async function initialize({ profileDirectory, showBrowser, modulePath, requireAuthorization }) {
   await app.whenReady();
-  automation = loadAutomation(automationId);
+  browserModule = loadBrowserModule(modulePath);
   keepVisible = Boolean(showBrowser);
   const persistentSession = session.fromPath(path.resolve(profileDirectory));
   activeSession = persistentSession;
 
   console.error(
-    `Initializing ${automation.name} window ` +
-    `(visible=${keepVisible}, login=${Boolean(loginRequired)}, profile=${profileDirectory})`
+    `Initializing ${browserModule.name} window ` +
+    `(visible=${keepVisible}, authorization=${Boolean(requireAuthorization)}, profile=${profileDirectory})`
   );
   window = new BrowserWindow({
     width: 1200,
     height: 850,
     show: keepVisible,
-    title: `MEŽS - ${automation.name}`,
+    title: `MEŽS - ${browserModule.name}`,
     webPreferences: {
       session: persistentSession,
       contextIsolation: true,
@@ -81,7 +82,7 @@ async function initialize({ profileDirectory, showBrowser, automationId, loginRe
   });
   window.webContents.on("console-message", (_event, level, message, line, sourceId) => {
     if (level >= 2)
-      console.error(`${automation.name} renderer: ${message} (${sourceId}:${line})`);
+      console.error(`${browserModule.name} renderer: ${message} (${sourceId}:${line})`);
   });
   window.once("ready-to-show", () => {
     if (keepVisible) {
@@ -90,39 +91,36 @@ async function initialize({ profileDirectory, showBrowser, automationId, loginRe
     }
   });
 
-  await window.loadURL(automation.homeUrl);
-  console.error(`${automation.name} navigation completed at ${window.webContents.getURL()}`);
+  await window.loadURL(browserModule.homeUrl);
+  console.error(`${browserModule.name} navigation completed at ${window.webContents.getURL()}`);
 
-  if (loginRequired) {
-    if (typeof automation.isAuthorized !== "function")
-      throw new Error(`Browser automation '${automationId}' does not support authorization.`);
-    if (!await automation.isAuthorized(window) && !window.isVisible()) {
-      console.error(`${automation.name} requires authorization; showing the browser window.`);
-      window.show();
-      window.focus();
-    }
-    while (!await automation.isAuthorized(window))
+  if (requireAuthorization) {
+    if (typeof browserModule.isAuthorized !== "function")
+      throw new Error(`Browser module '${modulePath}' does not support authorization.`);
+    if (!await browserModule.isAuthorized(window) && !keepVisible)
+      throw new Error(`${browserModule.name} authorization is required. Use the connection login action.`);
+    while (!await browserModule.isAuthorized(window))
       await sleep(1000);
     await persistentSession.flushStorageData();
     await persistentSession.cookies.flushStore();
-    console.error(`${automation.name} authorization confirmed and persisted.`);
+    console.error(`${browserModule.name} authorization confirmed and persisted.`);
   }
 
-  if (typeof automation.afterInitialize === "function")
-    await automation.afterInitialize({ window, session: persistentSession, sleep });
+  if (typeof browserModule.afterInitialize === "function")
+    await browserModule.afterInitialize({ window, session: persistentSession, sleep });
   if (!keepVisible) window.hide();
   return { ready: true };
 }
 
 async function sendPrompt(request) {
-  if (!window || !automation) throw new Error("Electron browser is not initialized.");
-  const result = await automation.sendPrompt({ window, request, sleep });
+  if (!window || !browserModule) throw new Error("Electron browser is not initialized.");
+  const result = await browserModule.sendPrompt({ window, request, sleep });
   result.chatUrl = result.chatUrl || window.webContents.getURL();
   return result;
 }
 
 async function sendWebRequest({ url, method, headers, body, base64Response }) {
-  if (!window || !automation) throw new Error("Electron browser is not initialized.");
+  if (!window || !browserModule) throw new Error("Electron browser is not initialized.");
   const requestSource = JSON.stringify({
     url: String(url),
     method: String(method || "GET"),
@@ -130,8 +128,8 @@ async function sendWebRequest({ url, method, headers, body, base64Response }) {
     body: body === null || body === undefined ? null : String(body),
     base64Response: Boolean(base64Response)
   });
-  const prepareSource = typeof automation.prepareWebRequest === "function"
-    ? `await ({${automation.prepareWebRequest.toString()}}).prepareWebRequest({ target, headers });`
+  const prepareSource = typeof browserModule.prepareWebRequest === "function"
+    ? `await ({${browserModule.prepareWebRequest.toString()}}).prepareWebRequest({ target, headers });`
     : "";
   return window.webContents.executeJavaScript(`
     (async () => {
@@ -232,8 +230,8 @@ async function start() {
       await initialize({
         profileDirectory: process.env.MEZHS_PROFILE_DIRECTORY,
         showBrowser: process.env.MEZHS_SHOW_BROWSER === "1",
-        automationId: process.env.MEZHS_AUTOMATION_ID,
-        loginRequired: process.env.MEZHS_REQUIRE_LOGIN === "1"
+        modulePath: process.env.MEZHS_BROWSER_MODULE,
+        requireAuthorization: process.env.MEZHS_REQUIRE_AUTHORIZATION === "1"
       });
       const address = server.address();
       process.stdout.write(`${JSON.stringify({ event: "ready", port: address.port })}\n`);

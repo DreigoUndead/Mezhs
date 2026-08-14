@@ -21,9 +21,9 @@ public interface IChatBrowserTransport : IAsyncDisposable
 
 public sealed record BrowserTransportOptions(
     string ProfileDirectory,
-    string AutomationId,
+    string ModulePath,
     bool ShowBrowser = false,
-    bool RequireLogin = true);
+    bool RequireAuthorization = false);
 
 public sealed record BrowserPromptRequest(
     string Prompt,
