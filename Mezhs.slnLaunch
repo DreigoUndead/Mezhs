@@ -1,0 +1,24 @@
+[
+  {
+    "Name": "API + Web",
+    "Projects": [
+      {
+        "Path": "src\\Mezhs.Api\\Mezhs.Api.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "src\\Mezhs.Web\\Mezhs.Web.csproj",
+        "Action": "Start"
+      }
+    ]
+  },
+  {
+    "Name": "API only",
+    "Projects": [
+      {
+        "Path": "src\\Mezhs.Api\\Mezhs.Api.csproj",
+        "Action": "Start"
+      }
+    ]
+  }
+]

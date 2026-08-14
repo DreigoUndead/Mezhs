@@ -1,0 +1,45 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Api", "src\Mezhs.Api\Mezhs.Api.csproj", "{94D76B09-F6C1-41DC-B503-07225404269C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Web", "src\Mezhs.Web\Mezhs.Web.csproj", "{9A27915D-1118-4D44-93E6-A64E03437462}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Browser.Abstractions", "transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj", "{A61908C8-820F-49A1-9CC5-C5D53407EA63}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Browser.Electron", "transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj", "{E73D28CC-EF0D-464C-A56F-FC73A5DF97F5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Browser.WebView2", "transports\Mezhs.Browser.WebView2\Mezhs.Browser.WebView2.csproj", "{B0447E7F-A040-4EEB-A09D-077457CC0746}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{94D76B09-F6C1-41DC-B503-07225404269C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{94D76B09-F6C1-41DC-B503-07225404269C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{94D76B09-F6C1-41DC-B503-07225404269C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{94D76B09-F6C1-41DC-B503-07225404269C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9A27915D-1118-4D44-93E6-A64E03437462}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9A27915D-1118-4D44-93E6-A64E03437462}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9A27915D-1118-4D44-93E6-A64E03437462}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9A27915D-1118-4D44-93E6-A64E03437462}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A61908C8-820F-49A1-9CC5-C5D53407EA63}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A61908C8-820F-49A1-9CC5-C5D53407EA63}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A61908C8-820F-49A1-9CC5-C5D53407EA63}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A61908C8-820F-49A1-9CC5-C5D53407EA63}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E73D28CC-EF0D-464C-A56F-FC73A5DF97F5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E73D28CC-EF0D-464C-A56F-FC73A5DF97F5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E73D28CC-EF0D-464C-A56F-FC73A5DF97F5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E73D28CC-EF0D-464C-A56F-FC73A5DF97F5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B0447E7F-A040-4EEB-A09D-077457CC0746}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B0447E7F-A040-4EEB-A09D-077457CC0746}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B0447E7F-A040-4EEB-A09D-077457CC0746}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B0447E7F-A040-4EEB-A09D-077457CC0746}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

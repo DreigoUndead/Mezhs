@@ -1,0 +1,17 @@
+version: 1
+
+server:
+  listen: http://127.0.0.1:5198
+
+transport:
+  type: electron
+  idleMinutes: 1
+  electronDirectory: ../electron
+
+storage:
+  root: data
+
+connections:
+  - id: test
+    name: Deterministic test provider
+    provider: mock

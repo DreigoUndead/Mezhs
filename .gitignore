@@ -1,0 +1,13 @@
+bin/
+obj/
+**/bin/
+**/obj/
+electron/node_modules/
+src/Mezhs.Web/ClientApp/node_modules/
+src/Mezhs.Web/ClientApp/dist/
+profiles/
+*.log
+chatgpt-auth.json
+data/
+tests/data/
+/.vs

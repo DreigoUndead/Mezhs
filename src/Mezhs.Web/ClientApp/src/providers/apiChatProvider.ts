@@ -1,0 +1,105 @@
+import {
+  ApiFile,
+  Chat,
+  ChatMessageInput,
+  ChatProvider,
+  ChatResponse,
+  Connection,
+  CreateChatOptions,
+  DownloadedFile,
+  FileInput,
+  SendOptions,
+  UploadedFile,
+  UploadOptions,
+} from "./contracts";
+
+export abstract class ApiChatProvider implements ChatProvider {
+  abstract readonly name: string;
+
+  constructor(
+    readonly connection: Connection,
+    protected readonly apiBase: string,
+  ) {}
+
+  async initialize(): Promise<void> {
+    if (!this.connection.requiresLogin) return;
+    await expectJson(await fetch(
+      `${this.apiBase}/v1/connections/${encodeURIComponent(this.connection.id)}/login`,
+      { method: "POST" },
+    ));
+  }
+
+  async getChat(chatId: string): Promise<Chat> {
+    const [chat, messages] = await Promise.all([
+      expectJson<Chat>(await fetch(`${this.apiBase}/v1/chats/${encodeURIComponent(chatId)}`)),
+      expectJson<Chat["messages"]>(await fetch(
+        `${this.apiBase}/v1/chats/${encodeURIComponent(chatId)}/messages`,
+      )),
+    ]);
+    return { ...chat, messages: messages || [] };
+  }
+
+  async createChat(options?: CreateChatOptions): Promise<Chat> {
+    return expectJson<Chat>(await fetch(`${this.apiBase}/v1/chats`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        connectionId: this.connection.id,
+        categoryId: options?.categoryId || null,
+      }),
+    }));
+  }
+
+  async sendMessage(
+    chatId: string | null,
+    message: ChatMessageInput,
+    options?: SendOptions,
+  ): Promise<ChatResponse> {
+    const body = chatId
+      ? {
+          chatId,
+          content: message.content,
+          fileIds: (message.files || []).map(file => file.fileId),
+        }
+      : {
+          connectionId: this.connection.id,
+          content: message.content,
+          categoryId: options?.categoryId || null,
+          fileIds: (message.files || []).map(file => file.fileId),
+        };
+    return expectJson<ChatResponse>(await fetch(`${this.apiBase}/v1/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }));
+  }
+
+  async uploadFile(file: FileInput, _options?: UploadOptions): Promise<UploadedFile> {
+    const form = new FormData();
+    form.append("connectionId", this.connection.id);
+    form.append("file", file, file.name);
+    return expectJson<UploadedFile>(await fetch(`${this.apiBase}/v1/files`, {
+      method: "POST",
+      body: form,
+    }));
+  }
+
+  async downloadFile(_chatId: string, fileId: string): Promise<DownloadedFile> {
+    const file = await expectJson<ApiFile>(await fetch(
+      `${this.apiBase}/v1/files/${encodeURIComponent(fileId)}`,
+    ));
+    const response = await fetch(`${this.apiBase}${file.downloadUrl}`);
+    if (!response.ok) throw new Error(`Download failed (${response.status}).`);
+    return { file, content: await response.blob() };
+  }
+
+  dispose(): void {}
+}
+
+export async function expectJson<T = unknown>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(body.error || `Request failed (${response.status})`);
+  }
+  return response.json() as Promise<T>;
+}

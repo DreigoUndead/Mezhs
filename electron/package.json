@@ -1,0 +1,12 @@
+{
+  "name": "mezhs-browser-electron-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "34.5.8"
+  }
+}

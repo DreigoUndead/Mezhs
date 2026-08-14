@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" Version="16.3.0" />
+    <ProjectReference Include="..\..\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj" />
+    <ProjectReference Include="..\..\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\mezhs.yaml" Link="mezhs.yaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

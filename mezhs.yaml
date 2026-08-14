@@ -1,0 +1,29 @@
+version: 1
+
+server:
+  listen: http://127.0.0.1:5050
+
+transport:
+  type: electron
+  idleMinutes: 15
+  electronDirectory: electron
+
+storage:
+  root: data
+
+connections:
+  - id: chatgpt-sub
+    name: ChatGPT Subscription
+    provider: chatgpt-web-subscription
+
+  - id: chatgpt-free
+    name: ChatGPT Free
+    provider: chatgpt-web-free
+
+  - id: chatgpt-guest
+    name: ChatGPT Guest
+    provider: chatgpt-web
+
+  - id: gemini-guest
+    name: Gemini Guest
+    provider: gemini-web
