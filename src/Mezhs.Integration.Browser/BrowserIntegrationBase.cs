@@ -19,13 +19,11 @@ public abstract class BrowserIntegrationBase(
     protected BrowserTransportOptions TransportOptions(
         string profileDirectory,
         bool showBrowser,
-        bool requireAuthorization,
-        bool disableWebAuthn = false) => new(
+        bool requireAuthorization) => new(
             profileDirectory,
             GetBrowserModulePath(),
             showBrowser,
-            requireAuthorization,
-            disableWebAuthn);
+            requireAuthorization);
 
     protected async Task<IntegrationSendResult> SendAnonymousAsync(
         IntegrationSendContext context,
