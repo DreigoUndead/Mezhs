@@ -54,6 +54,12 @@ $coreIntegrationContract = Get-Content (Join-Path $root "src/Mezhs.Integration.A
 if ($coreIntegrationProject -match 'Browser' -or $coreIntegrationContract -match 'IChatBrowserTransport|BrowserIdleMinutes|CreateBrowserTransport') {
     throw "Core integration abstractions still depend on browser hosting."
 }
+if ($coreIntegrationContract -match 'IIntegrationFactory|IntegrationFactory') {
+    throw "Core integration abstractions still expose the obsolete factory layer."
+}
+if ($coreIntegrationContract -notmatch 'IntegrationAttribute') {
+    throw "Concrete integration registration metadata is missing from the core contract."
+}
 
 $runtimeJavascript = Get-ChildItem (Join-Path $root "integrations") -Filter "*.js" -File -Recurse
 if ($runtimeJavascript) {
@@ -92,6 +98,50 @@ $registry = Get-Content (Join-Path $root "src/Mezhs.Api/Services/IntegrationRegi
 if ($registry -notmatch 'Mezhs\.Integrations\.\*\.dll' -or $registry -notmatch 'AssemblyLoadContext') {
     throw "Integration registry is not discovering integration DLLs dynamically."
 }
+if ($registry -notmatch 'GetCustomAttributes<IntegrationAttribute>' -or $registry -match 'IIntegrationFactory|DiscoverFactories') {
+    throw "Integration registry is not discovering concrete attributed integrations directly."
+}
+if ($registry -match 'integrationName') {
+    throw "Connection metadata still exposes redundant integrationName."
+}
+
+$integrationSources = Get-ChildItem (Join-Path $root "integrations") -Filter "*.cs" -File -Recurse |
+    ForEach-Object { Get-Content $_.FullName -Raw }
+if (($integrationSources -join "`n") -match 'IntegrationFactory') {
+    throw "An integration still contains a factory wrapper."
+}
+
+$browserContract = Get-Content (Join-Path $root "src/Mezhs.Integration.Browser/BrowserModule.d.ts") -Raw
+if ($browserContract -match 'MezhsBrowser') {
+    throw "Browser TypeScript contract names still carry redundant MezhsBrowser prefixes."
+}
+
+$chatStore = Get-Content (Join-Path $root "src/Mezhs.Api/Services/ChatStore.cs") -Raw
+if ($chatStore -match 'SemaphoreSlim|ReadAllTextAsync|ReadAllLinesAsync|WriteAllTextAsync|AppendAllTextAsync') {
+    throw "ChatStore still uses unnecessary async file-I/O machinery."
+}
+
+$fileStore = Get-Content (Join-Path $root "src/Mezhs.Api/Services/FileStore.cs") -Raw
+if ($fileStore -match 'GetForConnection|belongs to another connection') {
+    throw "Local files are still connection-owned instead of reusable across connections."
+}
+
+$messageService = Get-Content (Join-Path $root "src/Mezhs.Api/Services/MessageService.cs") -Raw
+if ($messageService -match 'Task\.Run') {
+    throw "MessageService still launches unowned fire-and-forget Task.Run work."
+}
+if ($messageService -notmatch 'BackgroundService' -or $messageService -notmatch 'Channel<StoredMessage>') {
+    throw "MessageService does not own message processing through a host-managed queue."
+}
+
+$models = Get-Content (Join-Path $root "src/Mezhs.Api/Models/ApiModels.cs") -Raw
+$chatRecord = [regex]::Match($models, '(?s)public sealed class ChatRecord.*?(?=public sealed class ChatConnectionState)').Value
+if ($chatRecord -match 'ConnectionId') {
+    throw "ChatRecord still owns a single connection."
+}
+if ($models -notmatch 'ChatConnectionState' -or $models -notmatch 'RemoteStates') {
+    throw "Per-chat/per-connection remote continuation state is missing."
+}
 
 $chatGpt = Get-Content (Join-Path $root "integrations/Mezhs.Integrations.ChatGpt/ChatGptIntegration.cs") -Raw
 if ($chatGpt -notmatch 'ChatGptAccountIntegration\s*:\s*ChatGptWebIntegration') {
@@ -99,6 +149,15 @@ if ($chatGpt -notmatch 'ChatGptAccountIntegration\s*:\s*ChatGptWebIntegration') 
 }
 if ($chatGpt -notmatch 'ILoginModule') {
     throw "ChatGPT account login is not exposed as a login module."
+}
+if ($chatGpt -match 'Task\.Run') {
+    throw "ChatGPT idle disposal still wraps its timer in Task.Run."
+}
+
+$app = Get-Content (Join-Path $root "src/Mezhs.Web/ClientApp/src/App.tsx") -Raw
+$changeConnection = [regex]::Match($app, '(?s)function changeConnection\(id: string\).*?\n  }').Value
+if ($changeConnection -match 'newChat') {
+    throw "Changing the selected connection still discards the active local chat."
 }
 
 $config = Get-Content (Join-Path $root "mezhs.yaml") -Raw
@@ -109,4 +168,4 @@ if ($config -match 'chatgpt-web-free|chatgpt-web-subscription') {
     throw "Obsolete ChatGPT free/subscription integration types are still configured."
 }
 
-Write-Host "PASS: integrations are dynamic, browser hosting is optional, and integration-specific behavior does not leak into Electron, API core, or React."
+Write-Host "PASS: chats are connection-neutral, message processing is owned, integrations register directly, browser contracts are concise, and provider-specific behavior stays outside core."

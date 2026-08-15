@@ -4,11 +4,15 @@ using Mezhs.Integrations.Browser;
 
 namespace Mezhs.Integrations.ChatGpt;
 
-public class ChatGptWebIntegration(
-    IntegrationConnection connection,
-    IBrowserIntegrationHost host) : BrowserIntegrationBase(connection, host)
+[Integration("chatgpt-web")]
+public class ChatGptWebIntegration : BrowserIntegrationBase
 {
-    public override string Name => "ChatGPT Web";
+    public ChatGptWebIntegration(
+        IntegrationConnection connection,
+        IIntegrationHost host) : base(Validate(connection), host)
+    {
+    }
+
     protected override Assembly BrowserModuleAssembly => typeof(ChatGptWebIntegration).Assembly;
     protected override string BrowserModuleResourceName => "Mezhs.Integrations.ChatGpt.BrowserModule";
 
@@ -16,24 +20,34 @@ public class ChatGptWebIntegration(
         IntegrationSendContext context,
         CancellationToken cancellationToken = default) =>
         SendAnonymousAsync(context, cancellationToken);
+
+    private static IntegrationConnection Validate(IntegrationConnection connection)
+    {
+        if (connection.Type.Equals("chatgpt-web", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(connection.GetSetting("workspace")))
+            throw new InvalidOperationException(
+                $"workspace is not supported by connection '{connection.Id}'.");
+        return connection;
+    }
 }
 
+[Integration("chatgpt-web-account")]
 public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ILoginModule _login;
     private IChatBrowserTransport? _transport;
     private CancellationTokenSource? _idleCancellation;
+    private Task? _idleTask;
     private bool _disposed;
 
     public ChatGptAccountIntegration(
         IntegrationConnection connection,
-        IBrowserIntegrationHost host) : base(connection, host)
+        IIntegrationHost host) : base(connection, host)
     {
         _login = new LoginModule(this);
     }
 
-    public override string Name => "ChatGPT Account";
     public override IntegrationCapabilities Capabilities => new(
         FileInput: true,
         ImageInput: true,
@@ -51,13 +65,12 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
             ThrowIfDisposed();
             CancelIdle();
             await EnsureAuthorizedTransportAsync(cancellationToken);
+            var newChat = string.IsNullOrWhiteSpace(context.Chat.RemoteChatUrl);
             var response = await _transport!.SendPromptAsync(new BrowserPromptRequest(
-                context.Message.Content,
-                NewChat: string.IsNullOrWhiteSpace(context.Chat.RemoteChatUrl),
+                newChat ? ComposeConversation(context) : context.Message.Content,
+                NewChat: newChat,
                 ChatUrl: context.Chat.RemoteChatUrl,
-                Workspace: string.IsNullOrWhiteSpace(context.Chat.RemoteChatUrl)
-                    ? Connection.GetSetting("workspace")
-                    : null,
+                Workspace: newChat ? Connection.GetSetting("workspace") : null,
                 FilePaths: context.Files.Select(file => file.Path).ToArray()), cancellationToken);
             if (!response.Ok)
                 throw new InvalidOperationException(response.Error ?? "Chat request failed.");
@@ -76,7 +89,12 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
     {
         if (_disposed) return;
         _disposed = true;
+        var idleTask = _idleTask;
         CancelIdle();
+        if (idleTask is not null)
+            await idleTask;
+        _idleTask = null;
+
         await _gate.WaitAsync();
         try
         {
@@ -210,34 +228,40 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         if (Host.BrowserIdleMinutes == 0 || _disposed) return;
         var cancellation = new CancellationTokenSource();
         _idleCancellation = cancellation;
-        _ = Task.Run(async () =>
+        _idleTask = DisposeWhenIdleAsync(cancellation);
+    }
+
+    private async Task DisposeWhenIdleAsync(CancellationTokenSource cancellation)
+    {
+        try
         {
+            await Task.Delay(TimeSpan.FromMinutes(Host.BrowserIdleMinutes), cancellation.Token);
+            await _gate.WaitAsync(cancellation.Token);
             try
             {
-                await Task.Delay(TimeSpan.FromMinutes(Host.BrowserIdleMinutes), cancellation.Token);
-                await _gate.WaitAsync(cancellation.Token);
-                try
+                if (ReferenceEquals(_idleCancellation, cancellation) && _transport is not null)
                 {
-                    if (ReferenceEquals(_idleCancellation, cancellation) && _transport is not null)
-                    {
-                        await _transport.DisposeAsync();
-                        _transport = null;
-                        _idleCancellation = null;
-                    }
-                }
-                finally
-                {
-                    _gate.Release();
+                    await _transport.DisposeAsync();
+                    _transport = null;
                 }
             }
-            catch (OperationCanceledException) { }
             finally
             {
-                if (ReferenceEquals(_idleCancellation, cancellation))
-                    _idleCancellation = null;
-                cancellation.Dispose();
+                _gate.Release();
             }
-        });
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(_idleCancellation, cancellation))
+            {
+                _idleCancellation = null;
+                _idleTask = null;
+            }
+            cancellation.Dispose();
+        }
     }
 
     private void CancelIdle()
@@ -266,30 +290,5 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
     {
         public Task LoginAsync(CancellationToken cancellationToken = default) =>
             owner.LoginAsync(cancellationToken);
-    }
-}
-
-public sealed class ChatGptIntegrationFactory()
-    : IntegrationFactory("chatgpt-web", "chatgpt-web-account")
-{
-    public override void Validate(IntegrationConnection connection)
-    {
-        if (connection.Type.Equals("chatgpt-web", StringComparison.OrdinalIgnoreCase) &&
-            !string.IsNullOrWhiteSpace(connection.GetSetting("workspace")))
-            throw new InvalidOperationException(
-                $"workspace is not supported by connection '{connection.Id}'.");
-    }
-
-    public override IChatIntegration Create(
-        IntegrationConnection connection,
-        IIntegrationHost host)
-    {
-        var browserHost = BrowserIntegrationHost.Require(host);
-        return connection.Type.ToLowerInvariant() switch
-        {
-            "chatgpt-web" => new ChatGptWebIntegration(connection, browserHost),
-            "chatgpt-web-account" => new ChatGptAccountIntegration(connection, browserHost),
-            _ => throw new InvalidOperationException($"Unsupported ChatGPT integration type '{connection.Type}'.")
-        };
     }
 }

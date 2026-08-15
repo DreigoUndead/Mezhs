@@ -437,7 +437,7 @@ export default function App() {
       <main className="main-panel">
         <header className="chat-header">
           <div>
-            <span className="eyebrow">{selectedProvider?.name || selectedConnection?.integrationName || "MEŽS"}</span>
+            <span className="eyebrow">{selectedProvider?.name || selectedConnection?.name || "MEŽS"}</span>
             <h1>{activeChat?.title || "New conversation"}</h1>
           </div>
           <div className="header-actions">
