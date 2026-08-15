@@ -26,8 +26,7 @@ public sealed record BrowserTransportOptions(
     string ProfileDirectory,
     string ModulePath,
     bool ShowBrowser = false,
-    bool RequireAuthorization = false,
-    bool DisableWebAuthn = false);
+    bool RequireAuthorization = false);
 
 public sealed record BrowserPromptRequest(
     string Prompt,
