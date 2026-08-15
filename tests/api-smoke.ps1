@@ -92,6 +92,29 @@ try {
 
     if ($completed.reply.content -ne 'Echo: hello') { throw 'Unexpected reply.' }
 
+    # Backward-compatible follow-up: an existing chat may omit connectionId and
+    # continues through the connection used by its latest message.
+    $implicitFollowUp = Invoke-RestMethod `
+        -Method Post `
+        -Uri "$baseUrl/v1/messages" `
+        -ContentType 'application/json' `
+        -Body (ConvertTo-Json @{
+            chatId = $created.chatId
+            content = 'implicit same connection'
+        })
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+    do {
+        $implicitCompleted = Invoke-RestMethod -Uri "$baseUrl/v1/messages/$($implicitFollowUp.messageId)"
+        if ($implicitCompleted.status -eq 'Completed') { break }
+        if ($implicitCompleted.status -eq 'Failed') { throw $implicitCompleted.error }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Implicit follow-up polling timed out.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+    if ($implicitCompleted.connectionId -ne 'test' -or $implicitCompleted.reply.connectionId -ne 'test') {
+        throw 'Existing chat did not inherit its latest connection when connectionId was omitted.'
+    }
+
     $uploadPath = Join-Path $PSScriptRoot 'attachment-smoke.txt'
     [IO.File]::WriteAllText($uploadPath, 'MEZHS-ATTACHMENT-SMOKE', [Text.Encoding]::UTF8)
     $http = [Net.Http.HttpClient]::new()
@@ -200,10 +223,10 @@ try {
     }
 
     $history = Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($created.chatId)/messages"
-    if ($history.Count -ne 6) { throw "Expected 6 logged messages, got $($history.Count)." }
+    if ($history.Count -ne 8) { throw "Expected 8 logged messages, got $($history.Count)." }
     $userConnections = @($history | Where-Object { $_.role -eq 'user' } | ForEach-Object { $_.connectionId })
-    if (($userConnections -join ',') -ne 'test,test-login,test') {
-        throw "Expected alternating user connections test,test-login,test; got $($userConnections -join ',')."
+    if (($userConnections -join ',') -ne 'test,test,test-login,test') {
+        throw "Expected user connections test,test,test-login,test; got $($userConnections -join ',')."
     }
 
     $replay = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/messages/$($created.messageId)/replay"
@@ -217,7 +240,7 @@ try {
         -Body '{"categoryId":null}' | Out-Null
     Invoke-RestMethod -Method Delete -Uri "$baseUrl/v1/categories/$($category.categoryId)"
 
-    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) multi-connection=ok categories=ok files=ok login=ok"
+    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) implicit-follow-up=ok multi-connection=ok categories=ok files=ok login=ok"
 }
 finally {
     if (-not $process.HasExited) {
