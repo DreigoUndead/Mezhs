@@ -125,7 +125,7 @@ storage:
   root: data
 
 connections:
-  - id: chatgpt-account
+  - id: chatgpt-sub
     name: ChatGPT Account
     integration: chatgpt-web-account
 
@@ -137,6 +137,8 @@ connections:
     name: Gemini Guest
     integration: gemini-web
 ```
+
+Connection IDs are durable storage identities. Persistent browser profiles live under the connection ID, so change the display `name` freely but do not rename an existing `id` unless its stored profile/data is intentionally being migrated.
 
 The configuration parser is strict: unknown YAML properties fail instead of silently falling back to defaults.
 
@@ -212,7 +214,7 @@ Connections advertise file/image support through integration capabilities. Uploa
 POST /v1/files
 Content-Type: multipart/form-data
 
-connectionId=chatgpt-account
+connectionId=chatgpt-sub
 file=@report.pdf
 ```
 
@@ -235,6 +237,8 @@ dotnet build Mezhs.sln -c Release
 powershell -ExecutionPolicy Bypass -File tests/integration-resources.ps1
 powershell -ExecutionPolicy Bypass -File tests/architecture.ps1
 powershell -ExecutionPolicy Bypass -File tests/api-smoke.ps1
+powershell -ExecutionPolicy Bypass -File tests/account-login-flow.ps1
+powershell -ExecutionPolicy Bypass -File tests/profile-identity.ps1
 ```
 
 The browser integration sources are also typechecked against `src/Mezhs.Integration.Browser/BrowserModule.d.ts` in CI. The architecture test verifies that integration-specific behavior does not leak back into Electron, API core, or React and that the core integration contract remains browser-free.
