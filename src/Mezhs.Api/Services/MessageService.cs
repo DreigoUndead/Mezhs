@@ -21,16 +21,27 @@ public sealed class MessageService(
         var requestedFileIds = request.FileIds ?? [];
         if (string.IsNullOrWhiteSpace(request.Content) && requestedFileIds.Count == 0)
             throw new ArgumentException("content or at least one file is required.");
-        if (string.IsNullOrWhiteSpace(request.ConnectionId))
-            throw new ArgumentException("connectionId is required.");
 
-        var connectionId = request.ConnectionId.Trim();
-        var integration = integrations.Get(connectionId);
-        var chat = string.IsNullOrWhiteSpace(request.ChatId)
-            ? store.CreateChat(request.CategoryId)
-            : store.GetChat(request.ChatId)
+        ChatRecord chat;
+        string connectionId;
+        if (string.IsNullOrWhiteSpace(request.ChatId))
+        {
+            if (string.IsNullOrWhiteSpace(request.ConnectionId))
+                throw new ArgumentException("connectionId is required when chatId is not provided.");
+            connectionId = request.ConnectionId.Trim();
+            chat = store.CreateChat(request.CategoryId);
+        }
+        else
+        {
+            chat = store.GetChat(request.ChatId)
                 ?? throw new KeyNotFoundException($"Chat '{request.ChatId}' was not found.");
+            connectionId = !string.IsNullOrWhiteSpace(request.ConnectionId)
+                ? request.ConnectionId.Trim()
+                : store.GetMessages(chat.ChatId).LastOrDefault()?.ConnectionId
+                    ?? throw new ArgumentException("connectionId is required for an empty chat.");
+        }
 
+        var integration = integrations.Get(connectionId);
         if (requestedFileIds.Count > 0 && !integration.Capabilities.FileInput)
             throw new ArgumentException($"Connection '{connectionId}' does not support file input.");
         var attachedFiles = files.GetMany(requestedFileIds);
