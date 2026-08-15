@@ -1,13 +1,13 @@
 using System.Collections.Concurrent;
+using Mezhs.Integrations;
 using Mezhs.Models;
-using Mezhs.Providers;
 
 namespace Mezhs.Services;
 
 public sealed class MessageService(
     ChatStore store,
     FileStore files,
-    ProviderRegistry providers)
+    IntegrationRegistry integrations)
 {
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _chatGates =
         new(StringComparer.OrdinalIgnoreCase);
@@ -25,7 +25,7 @@ public sealed class MessageService(
         {
             if (string.IsNullOrWhiteSpace(request.ConnectionId))
                 throw new ArgumentException("connectionId is required when chatId is not provided.");
-            providers.Get(request.ConnectionId);
+            integrations.Get(request.ConnectionId);
             chat = await store.CreateChatAsync(
                 request.ConnectionId,
                 request.CategoryId,
@@ -40,12 +40,12 @@ public sealed class MessageService(
                 throw new ArgumentException("connectionId does not match the existing chat.");
         }
 
-        var provider = providers.Get(chat.ConnectionId);
-        if (requestedFileIds.Count > 0 && !provider.Capabilities.FileInput)
+        var integration = integrations.Get(chat.ConnectionId);
+        if (requestedFileIds.Count > 0 && !integration.Capabilities.FileInput)
             throw new ArgumentException($"Connection '{chat.ConnectionId}' does not support file input.");
         var attachedFiles = files.GetForConnection(requestedFileIds, chat.ConnectionId);
         if (attachedFiles.Any(file => file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) &&
-            !provider.Capabilities.ImageInput)
+            !integration.Capabilities.ImageInput)
             throw new ArgumentException($"Connection '{chat.ConnectionId}' does not support image input.");
 
         var message = await CreateMessageAsync(
@@ -117,17 +117,27 @@ public sealed class MessageService(
                 ?? throw new KeyNotFoundException($"Chat '{message.ChatId}' was not found.");
             var history = store.GetMessages(message.ChatId)
                 .Where(item => item.MessageId != message.MessageId && item.CreatedAt <= message.CreatedAt)
+                .Select(ToIntegrationMessage)
                 .ToArray();
             var inputFiles = files.GetForConnection(message.FileIds, chat.ConnectionId)
-                .Select(file => new ProviderInputFile(
+                .Select(file => new IntegrationInputFile(
                     file.FileId,
                     files.GetContentPath(file),
                     file.Name,
                     file.ContentType,
                     file.Size))
                 .ToArray();
-            var result = await providers.Get(chat.ConnectionId).SendMessageAsync(
-                new ProviderSendContext(chat, message, history, inputFiles),
+            var result = await integrations.Get(chat.ConnectionId).SendMessageAsync(
+                new IntegrationSendContext(
+                    new IntegrationChatContext(
+                        chat.ChatId,
+                        chat.ConnectionId,
+                        chat.RemoteChatUrl,
+                        chat.RemoteConversationId,
+                        chat.RemoteParentMessageId),
+                    ToIntegrationMessage(message),
+                    history,
+                    inputFiles),
                 CancellationToken.None);
 
             var replyFileIds = new List<string>();
@@ -150,7 +160,7 @@ public sealed class MessageService(
                         try { File.Delete(output.Path); }
                         catch (Exception ex)
                         {
-                            Console.Error.WriteLine($"Could not remove provider output '{output.Path}': {ex.Message}");
+                            Console.Error.WriteLine($"Could not remove integration output '{output.Path}': {ex.Message}");
                         }
                     }
                 }
@@ -172,9 +182,7 @@ public sealed class MessageService(
             await store.SaveMessageAsync(reply);
 
             if (!string.IsNullOrWhiteSpace(result.RemoteChatUrl))
-            {
                 chat.RemoteChatUrl = result.RemoteChatUrl;
-            }
             if (!string.IsNullOrWhiteSpace(result.RemoteConversationId))
                 chat.RemoteConversationId = result.RemoteConversationId;
             if (!string.IsNullOrWhiteSpace(result.RemoteParentMessageId))
@@ -201,6 +209,13 @@ public sealed class MessageService(
             gate.Release();
         }
     }
+
+    private static IntegrationMessageContext ToIntegrationMessage(StoredMessage message) => new(
+        message.MessageId,
+        message.Role,
+        message.Content,
+        message.Status == MessageStatus.Completed,
+        message.CreatedAt);
 
     private ApiMessage ToApi(StoredMessage message)
     {

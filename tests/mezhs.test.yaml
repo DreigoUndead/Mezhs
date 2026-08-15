@@ -13,5 +13,9 @@ storage:
 
 connections:
   - id: test
-    name: Deterministic test provider
-    provider: mock
+    name: Deterministic test integration
+    integration: mock
+
+  - id: test-login
+    name: Deterministic login integration
+    integration: mock-login

@@ -1,19 +1,18 @@
-export type ProviderCapabilities = {
+export type IntegrationCapabilities = {
   fileInput: boolean;
   imageInput: boolean;
   fileOutput: boolean;
   imageOutput: boolean;
-  stopGeneration?: boolean;
 };
 
 export type Connection = {
   id: string;
   name: string;
-  provider: string;
-  providerName: string;
+  integration: string;
+  integrationName: string;
   requiresLogin: boolean;
   workspace?: string;
-  capabilities: ProviderCapabilities;
+  capabilities: IntegrationCapabilities;
 };
 
 export type ApiFile = {
@@ -75,11 +74,5 @@ export interface ChatProvider {
   ): Promise<ChatResponse>;
   uploadFile(file: FileInput, options?: UploadOptions): Promise<UploadedFile>;
   downloadFile(chatId: string, fileId: string): Promise<DownloadedFile>;
-  stopGeneration?(chatId: string, requestId?: string): Promise<void>;
   dispose(): void;
-}
-
-export interface ChatProviderModule {
-  readonly types: readonly string[];
-  create(connection: Connection, apiBase: string): ChatProvider;
 }

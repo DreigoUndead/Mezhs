@@ -13,17 +13,13 @@ storage:
 
 connections:
   - id: chatgpt-sub
-    name: ChatGPT Subscription
-    provider: chatgpt-web-subscription
-
-  - id: chatgpt-free
-    name: ChatGPT Free
-    provider: chatgpt-web-free
+    name: ChatGPT Account
+    integration: chatgpt-web-account
 
   - id: chatgpt-guest
     name: ChatGPT Guest
-    provider: chatgpt-web
+    integration: chatgpt-web
 
   - id: gemini-guest
     name: Gemini Guest
-    provider: gemini-web
+    integration: gemini-web
