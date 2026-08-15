@@ -15,6 +15,7 @@ connections:
   - id: chatgpt-sub
     name: ChatGPT Account
     integration: chatgpt-web-account
+    project: Mezhs
 
   - id: chatgpt-guest
     name: ChatGPT Guest
