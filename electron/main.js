@@ -16,8 +16,6 @@ app.commandLine.appendSwitch("disable-software-rasterizer");
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
-if (process.env.MEZHS_DISABLE_WEBAUTHN === "1")
-  app.commandLine.appendSwitch("disable-features", "WebAuthentication");
 app.disableHardwareAcceleration();
 
 if (parentProcessId > 0) {
