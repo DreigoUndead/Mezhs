@@ -23,7 +23,8 @@ public sealed class ChatStore(MezhsOptions options)
     public void Initialize()
     {
         Directory.CreateDirectory(_root);
-        Directory.CreateDirectory(Path.Combine(_root, "connections"));
+        var connectionsRoot = Path.Combine(_root, "connections");
+        Directory.CreateDirectory(connectionsRoot);
         Directory.CreateDirectory(Path.Combine(_root, "chats"));
         LoadCategories();
 
@@ -33,11 +34,16 @@ public sealed class ChatStore(MezhsOptions options)
                      SearchOption.AllDirectories))
             LoadChat(chatFile);
 
-        foreach (var chatFile in Directory.EnumerateFiles(
-                     Path.Combine(_root, "connections"),
-                     "chat.json",
-                     SearchOption.AllDirectories))
-            MigrateLegacyChat(chatFile);
+        foreach (var connectionDirectory in Directory.EnumerateDirectories(connectionsRoot))
+        {
+            var legacyChatsRoot = Path.Combine(connectionDirectory, "chats");
+            if (!Directory.Exists(legacyChatsRoot)) continue;
+            foreach (var chatFile in Directory.EnumerateFiles(
+                         legacyChatsRoot,
+                         "chat.json",
+                         SearchOption.AllDirectories))
+                MigrateLegacyChat(chatFile);
+        }
 
         foreach (var interrupted in _messages.Values.Where(message =>
                      message.Role == "user" &&

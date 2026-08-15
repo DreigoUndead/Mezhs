@@ -22,22 +22,27 @@ public sealed class FileStore(MezhsOptions options)
     {
         var connectionsRoot = Path.Combine(_root, "connections");
         Directory.CreateDirectory(connectionsRoot);
-        foreach (var metadataPath in Directory.EnumerateFiles(
-                     connectionsRoot,
-                     "file.json",
-                     SearchOption.AllDirectories))
+        foreach (var connectionDirectory in Directory.EnumerateDirectories(connectionsRoot))
         {
-            try
+            var filesRoot = Path.Combine(connectionDirectory, "files");
+            if (!Directory.Exists(filesRoot)) continue;
+            foreach (var metadataPath in Directory.EnumerateFiles(
+                         filesRoot,
+                         "file.json",
+                         SearchOption.AllDirectories))
             {
-                var file = JsonSerializer.Deserialize<StoredFile>(
-                    File.ReadAllText(metadataPath),
-                    JsonOptions);
-                if (file is not null && File.Exists(GetContentPath(file)))
-                    _files[file.FileId] = file;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Could not load file metadata '{metadataPath}': {ex.Message}");
+                try
+                {
+                    var file = JsonSerializer.Deserialize<StoredFile>(
+                        File.ReadAllText(metadataPath),
+                        JsonOptions);
+                    if (file is not null && File.Exists(GetContentPath(file)))
+                        _files[file.FileId] = file;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Could not load file metadata '{metadataPath}': {ex.Message}");
+                }
             }
         }
     }

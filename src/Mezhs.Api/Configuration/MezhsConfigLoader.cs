@@ -41,7 +41,7 @@ public static partial class MezhsConfigLoader
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var connection in options.Connections)
         {
-            connection.Id = connection.Id.Trim();
+            connection.Id = connection.Id?.Trim() ?? string.Empty;
             if (!SafeId().IsMatch(connection.Id))
                 throw new InvalidOperationException(
                     $"Connection id '{connection.Id}' must contain only letters, numbers, '-' or '_'.");
@@ -54,10 +54,10 @@ public static partial class MezhsConfigLoader
             if (!names.Add(connection.Name))
                 throw new InvalidOperationException($"Duplicate connection name '{connection.Name}'.");
 
-            connection.Integration = connection.Integration.Trim();
             if (string.IsNullOrWhiteSpace(connection.Integration))
                 throw new InvalidOperationException(
                     $"Integration is required on connection '{connection.Id}'.");
+            connection.Integration = connection.Integration.Trim();
         }
     }
 
