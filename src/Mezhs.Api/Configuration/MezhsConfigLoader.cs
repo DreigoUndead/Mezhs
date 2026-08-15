@@ -13,7 +13,6 @@ public static partial class MezhsConfigLoader
 
         var deserializer = new DeserializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
-            .IgnoreUnmatchedProperties()
             .Build();
         var options = deserializer.Deserialize<MezhsOptions>(File.ReadAllText(path))
             ?? throw new InvalidOperationException("MEŽS configuration is empty.");
@@ -48,9 +47,9 @@ public static partial class MezhsConfigLoader
                 throw new InvalidOperationException($"Duplicate connection id '{connection.Id}'.");
             if (string.IsNullOrWhiteSpace(connection.Name))
                 connection.Name = connection.Id;
-            if (string.IsNullOrWhiteSpace(connection.Provider))
+            if (string.IsNullOrWhiteSpace(connection.Integration))
                 throw new InvalidOperationException(
-                    $"Provider is required on connection '{connection.Id}'.");
+                    $"Integration is required on connection '{connection.Id}'.");
         }
     }
 

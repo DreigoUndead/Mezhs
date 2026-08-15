@@ -1,44 +1,110 @@
 # MEŽS
 
-MEŽS exposes logged-in and anonymous web AI sessions through one asynchronous HTTP API and a separate React frontend. The current providers are ChatGPT Web and Gemini Web, with Electron as the global cross-platform browser transport. The original WebView2 implementation remains as a Windows-only backup.
+MEŽS exposes multiple AI integrations through one asynchronous HTTP API and one React frontend. Integrations may use a browser session, a native/local runtime, or a direct service API; the MEŽS core does not assume which transport an integration needs.
 
-## Solution
+Current built-in integrations are ChatGPT Web, ChatGPT Account, and Gemini Web. A deterministic Mock integration is used by the test suite.
+
+## Architecture
+
+```text
+React UI
+   |
+   v
+MEŽS HTTP API
+   |
+   +-- chats / messages / history / files
+   +-- IntegrationRegistry
+   |      `-- discovers Mezhs.Integrations.*.dll
+   |
+   `-- integration contracts
+          |
+          +-- ChatGPT integration DLL
+          |     +-- ChatGPT Web
+          |     +-- ChatGPT Account + login module
+          |     `-- embedded browser module
+          |
+          +-- Gemini integration DLL
+          |     `-- embedded browser module
+          |
+          `-- future API/local integrations
+
+Browser integrations
+   |
+   v
+IBrowserIntegrationHost
+   |
+   v
+Electron transport
+   |
+   `-- loads the browser module supplied by the integration
+```
+
+The important boundaries are:
+
+- **Core** owns chats, messages, history, files, configuration, HTTP endpoints, and dynamic integration discovery.
+- **Integration DLLs** own service-specific behavior, connection modes, capabilities, authentication modules, and any browser module they need.
+- **Electron** owns only generic browser mechanics: BrowserWindow lifetime, profiles/cookies, visibility, module execution, and the localhost bridge. Electron contains no ChatGPT/Gemini code.
+- **React** is integration-neutral. It renders behavior from server-provided connection metadata and capabilities; adding a new integration does not require a matching frontend provider class.
+
+`Mezhs.Integration.Abstractions` deliberately has no browser dependency. A local-model integration can implement the core contract without referencing Electron or browser types. Browser integrations opt into the separate `Mezhs.Integration.Browser` helper layer.
+
+## Projects
 
 ```text
 Mezhs.sln
-|- src/Mezhs.Api                  ASP.NET Core API
-|- src/Mezhs.Web                  React UI with a small ASP.NET host
+|- src/Mezhs.Api
+|- src/Mezhs.Web
+|- src/Mezhs.Integration.Abstractions
+|- src/Mezhs.Integration.Browser
 |- transports/Mezhs.Browser.Abstractions
 |- transports/Mezhs.Browser.Electron
-`- transports/Mezhs.Browser.WebView2
+|- integrations/Mezhs.Integrations.ChatGpt
+|- integrations/Mezhs.Integrations.Gemini
+`- integrations/Mezhs.Integrations.Mock
 ```
 
-The UI includes connection selection, browser login, global conversation history,
-connection labels, search, persistent groups, asynchronous response polling, chat
-continuation, and request replay. Models remain out of the UI until the provider
-model contract is added. Supported connections also expose attachment selection,
-image previews, and file downloads in the composer and message history.
+The API discovers integration factories from `Mezhs.Integrations.*.dll` files in its application directory. Built-in integrations are project references so their DLLs are included with the application, while the runtime discovery mechanism does not reference concrete integration types.
 
-## Provider architecture
+## Browser integration contract
+
+Browser-specific automation belongs to the integration, not Electron.
+
+For example:
 
 ```text
-IChatProvider                         neutral C# contract
-├── ChatGptSubscriptionProvider      one C# implementation per chat type
-├── ChatGptFreeProvider
-├── ChatGptGuestProvider
-└── GeminiGuestProvider
-
-ChatProvider                          neutral TypeScript contract
-├── chatgptSubscription.provider.ts  one TypeScript module per chat type
-├── chatgptFree.provider.ts
-├── chatgptGuest.provider.ts
-└── geminiGuest.provider.ts
+integrations/Mezhs.Integrations.ChatGpt/
+|- ChatGptIntegration.cs
+`- browser/
+   |- chatgpt.ts
+   `- tsconfig.json
 ```
 
-Both registries discover provider implementations automatically. Core API, browser transport,
-Electron, and React files contain no provider-specific AI references. Logged ChatGPT
-connections keep persistent browser profiles and remember remote chat URLs. Anonymous
-providers create fresh browser sessions and reconstruct conversations from MEŽS's local log.
+`src/Mezhs.Integration.Browser/BrowserModule.d.ts` defines the TypeScript contract between an integration browser module and the generic browser host.
+
+The integration's `.ts` file is the single source of truth. Browser modules currently use JavaScript-compatible TypeScript syntax, are typechecked against the shared contract, and are embedded directly into their integration DLL. When a browser session is needed, MEŽS extracts that embedded source into the connection data directory with a `.js` filename and Electron loads it as a CommonJS module. There is deliberately no second committed generated `.js` copy to drift out of sync.
+
+## ChatGPT connection modes
+
+MEŽS no longer distinguishes a "Free" account from a "Subscription" account. Those are remote account limits, not different MEŽS integrations.
+
+Two ChatGPT modes remain:
+
+- `chatgpt-web` — anonymous/transient web use. It creates a temporary browser profile for each request, never opens interactive login, reconstructs local conversation history into the prompt, and deletes the temporary session afterward.
+- `chatgpt-web-account` — persistent account use. It extends the common ChatGPT web mechanics with a persistent profile, remote chat continuation, file/image capabilities, artifact import, and an explicit login module.
+
+Account sends start hidden. If the account is not authorized, the integration invokes its login module, opens the browser interactively, waits for authorization, and then continues the original send. Electron only reports the authorization requirement; the integration owns the decision to request login.
+
+## Login modules
+
+Login is an optional integration module, not a boolean plus an unrelated initialization method.
+
+The connection metadata endpoint reports `requiresLogin: true` when an integration exposes `ILoginModule`. The generic route is:
+
+```http
+POST /v1/connections/{connectionId}/login
+```
+
+Integrations without a login module do not advertise login capability. This keeps capability discovery tied to the implementation that actually provides the behavior.
 
 ## Configuration
 
@@ -60,35 +126,29 @@ storage:
 
 connections:
   - id: chatgpt-sub
-    name: ChatGPT Subscription
-    provider: chatgpt-web-subscription
-
-  - id: chatgpt-free
-    name: ChatGPT Free
-    provider: chatgpt-web-free
+    name: ChatGPT Account
+    integration: chatgpt-web-account
 
   - id: chatgpt-guest
     name: ChatGPT Guest
-    provider: chatgpt-web
+    integration: chatgpt-web
 
   - id: gemini-guest
     name: Gemini Guest
-    provider: gemini-web
+    integration: gemini-web
 ```
 
-`workspace` is optional provider-specific configuration. For a logged ChatGPT connection it
-is the exact name of the workspace/project in which new chats should be created. There is
-deliberately no general project API.
+Connection IDs are durable storage identities. Persistent browser profiles live under the connection ID, so change the display `name` freely but do not rename an existing `id` unless its stored profile/data is intentionally being migrated.
+
+The configuration parser is strict: unknown YAML properties fail instead of silently falling back to defaults.
+
+`workspace` is currently an optional ChatGPT Account setting. For a new remote chat it is the exact workspace/project name to select.
 
 ## Run in Visual Studio
 
-Open `Mezhs.sln`. On current Visual Studio versions, select the shared
-`API + Web` solution launch profile and press `F5`. If the profile selector is
-not available, right-click the solution, choose **Configure Startup Projects**,
-select **Multiple startup projects**, and set both `Mezhs.Api` and `Mezhs.Web`
-to **Start**.
+Open `Mezhs.sln`. Select the shared `API + Web` solution launch profile and press `F5`. If the profile selector is unavailable, configure both `Mezhs.Api` and `Mezhs.Web` as startup projects.
 
-The applications use:
+Default development addresses:
 
 ```text
 Web UI: http://127.0.0.1:5173
@@ -118,20 +178,6 @@ Use another configuration:
 dotnet run --project src/Mezhs.Api/Mezhs.Api.csproj -- --config path\to\mezhs.yaml
 ```
 
-The API enables CORS so a separately hosted React application can call it directly during development.
-
-## Login
-
-Open and authorize a persistent ChatGPT connection:
-
-```http
-POST /v1/connections/chatgpt-sub/login
-```
-
-The request completes when the Electron profile is authenticated. Cookies and browser
-storage are flushed to `data/connections/{connectionId}/profile`, so authorization is
-reused after Electron or the API restarts.
-
 ## Messages
 
 Create a new chat and submit its first message:
@@ -146,45 +192,23 @@ Content-Type: application/json
 }
 ```
 
-The API immediately returns HTTP `202 Accepted`:
-
-```json
-{
-  "messageId": "msg_...",
-  "chatId": "chat_...",
-  "status": "Queued"
-}
-```
-
-Continue an existing chat:
-
-```http
-POST /v1/messages
-Content-Type: application/json
-
-{
-  "chatId": "chat_...",
-  "content": "Continue"
-}
-```
-
-Poll the request and retrieve its reply:
+The API immediately returns `202 Accepted` with a message ID and chat ID. Poll:
 
 ```http
 GET /v1/messages/{messageId}
 ```
 
-Statuses are `Queued`, `Running`, `Completed`, `Failed`, and `Cancelled`. A completed user message contains a separately addressable assistant message in `reply`.
+Statuses are `Queued`, `Running`, `Completed`, `Failed`, and `Cancelled`.
 
-Replay a request:
+Continue an existing chat by posting `chatId` instead of `connectionId`. Replay a previous user request with:
 
 ```http
 POST /v1/messages/{messageId}/replay
 ```
 
-## Files and images
+## Files
 
-Upload a file to a connection before posting the message:
+Connections advertise file/image support through integration capabilities. Upload a file before sending:
 
 ```http
 POST /v1/files
@@ -194,18 +218,7 @@ connectionId=chatgpt-sub
 file=@report.pdf
 ```
 
-Reference the returned ID from a message. A message may contain only files uploaded
-for the same connection:
-
-```json
-{
-  "connectionId": "chatgpt-sub",
-  "content": "Summarize this report",
-  "fileIds": ["file_..."]
-}
-```
-
-File metadata and content are separately addressable:
+Then include its ID in the message request. Stored file metadata/content are available through:
 
 ```text
 GET /v1/files/{fileId}
@@ -213,73 +226,19 @@ GET /v1/files/{fileId}/content
 GET /v1/files/{fileId}/content?download=true
 ```
 
-Logged-in ChatGPT connections support file and image input. The Electron transport
-places the local file into ChatGPT's real composer so ChatGPT's current browser-side
-upload and Sentinel flow remains intact. Guest connections report file/image input as
-unsupported, and the UI disables their attachment control. Assistant download links
-and generated images found in the response are copied into MEZHS storage when their
-browser URLs remain available.
-
-Other endpoints:
-
-```text
-GET /health
-GET /v1/connections
-GET /v1/chats?connectionId={connectionId}
-GET /v1/categories
-POST /v1/files
-GET /v1/files/{fileId}
-GET /v1/files/{fileId}/content
-POST /v1/categories
-PUT /v1/categories/{categoryId}
-DELETE /v1/categories/{categoryId}
-PATCH /v1/chats/{chatId}
-GET /v1/messages/{messageId}
-GET /v1/chats/{chatId}
-GET /v1/chats/{chatId}/messages
-```
-
-## Persistence
-
-Chats and append-only message snapshots are separated by connection:
-
-```text
-data/connections/{connectionId}/chats/{chatId}/chat.json
-data/connections/{connectionId}/chats/{chatId}/messages.jsonl
-data/connections/{connectionId}/files/{fileId}/file.json
-data/connections/{connectionId}/files/{fileId}/content
-```
-
-On startup, MEŽS rebuilds its message index from these files. Requests interrupted by a restart are marked failed rather than left permanently running.
-
-## Anonymous sessions
-
-ChatGPT and Gemini guest connections use a fresh temporary browser profile for each
-request. MEŽS rebuilds the conversation from its local message log, then removes the
-temporary profile. ChatGPT guest mode is covered by the live transport check as well as
-the deterministic API suite.
+ChatGPT Account passes local file paths to its browser module so the integration can use ChatGPT's real browser-side upload flow. Assistant artifacts discovered by the integration are imported into MEŽS storage.
 
 ## Tests
 
-Build everything:
+The deterministic suite uses `Mezhs.Integrations.Mock.dll`, which is discovered through the same runtime plugin mechanism as production integrations. A second mock connection exposes a no-op login module so login discovery/routing can be verified without a real browser.
 
 ```powershell
-dotnet build
-dotnet build transports/Mezhs.Browser.WebView2/Mezhs.Browser.WebView2.csproj
-```
-
-Run the deterministic HTTP smoke test:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tests/api-smoke.ps1
-```
-
-Run the provider-boundary architecture test:
-
-```powershell
+dotnet build Mezhs.sln -c Release
+powershell -ExecutionPolicy Bypass -File tests/integration-resources.ps1
 powershell -ExecutionPolicy Bypass -File tests/architecture.ps1
+powershell -ExecutionPolicy Bypass -File tests/api-smoke.ps1
+powershell -ExecutionPolicy Bypass -File tests/account-login-flow.ps1
+powershell -ExecutionPolicy Bypass -File tests/profile-identity.ps1
 ```
 
-The smoke test covers server startup, health, new-chat creation, asynchronous polling,
-chat continuation, persisted request/reply history, replay linkage, multipart upload,
-inline download, and provider-returned file import.
+The browser integration sources are also typechecked against `src/Mezhs.Integration.Browser/BrowserModule.d.ts` in CI. The architecture test verifies that integration-specific behavior does not leak back into Electron, API core, or React and that the core integration contract remains browser-free.

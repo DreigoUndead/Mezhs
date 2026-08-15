@@ -13,13 +13,15 @@ import {
   UploadOptions,
 } from "./contracts";
 
-export abstract class ApiChatProvider implements ChatProvider {
-  abstract readonly name: string;
+export class ApiChatProvider implements ChatProvider {
+  readonly name: string;
 
   constructor(
     readonly connection: Connection,
     protected readonly apiBase: string,
-  ) {}
+  ) {
+    this.name = connection.name;
+  }
 
   async initialize(): Promise<void> {
     if (!this.connection.requiresLogin) return;

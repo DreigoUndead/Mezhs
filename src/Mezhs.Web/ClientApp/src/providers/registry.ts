@@ -1,32 +1,13 @@
-import { ChatProvider, ChatProviderModule, Connection } from "./contracts";
-
-type ProviderModuleExport = { chatProviderModule?: ChatProviderModule };
+import { ApiChatProvider } from "./apiChatProvider";
+import { ChatProvider, Connection } from "./contracts";
 
 export class ChatProviderRegistry {
-  private readonly modules = new Map<string, ChatProviderModule>();
   private readonly providers = new Map<string, ChatProvider>();
-
-  constructor() {
-    const exports = import.meta.globEager<ProviderModuleExport>("./*.provider.ts");
-    for (const loaded of Object.values(exports)) {
-      const module = loaded.chatProviderModule;
-      if (!module) continue;
-      for (const type of module.types) {
-        if (this.modules.has(type))
-          throw new Error(`Duplicate TypeScript chat provider '${type}'.`);
-        this.modules.set(type, module);
-      }
-    }
-  }
 
   configure(apiBase: string, connections: Connection[]) {
     this.dispose();
-    for (const connection of connections) {
-      const module = this.modules.get(connection.provider);
-      if (!module)
-        throw new Error(`No TypeScript chat provider for '${connection.provider}'.`);
-      this.providers.set(connection.id, module.create(connection, apiBase));
-    }
+    for (const connection of connections)
+      this.providers.set(connection.id, new ApiChatProvider(connection, apiBase));
   }
 
   get(connectionId: string): ChatProvider {

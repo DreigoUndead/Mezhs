@@ -6,8 +6,11 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
-    <ProjectReference Include="..\..\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj" />
+    <ProjectReference Include="..\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj" />
     <ProjectReference Include="..\..\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj" />
+    <ProjectReference Include="..\..\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj" />
+    <ProjectReference Include="..\..\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj" />
+    <ProjectReference Include="..\..\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\mezhs.yaml" Link="mezhs.yaml" CopyToOutputDirectory="PreserveNewest" />
