@@ -97,8 +97,11 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
   if (requireAuthorization) {
     if (typeof browserModule.isAuthorized !== "function")
       throw new Error(`Browser module '${modulePath}' does not support authorization.`);
-    if (!await browserModule.isAuthorized(window) && !keepVisible)
-      throw new Error(`${browserModule.name} authorization is required. Use the connection login action.`);
+    if (!await browserModule.isAuthorized(window) && !keepVisible) {
+      const error = new Error(`${browserModule.name} authorization is required.`);
+      error.code = "authorization_required";
+      throw error;
+    }
     while (!await browserModule.isAuthorized(window))
       await sleep(1000);
     await persistentSession.flushStorageData();
@@ -238,6 +241,7 @@ async function start() {
     } catch (error) {
       process.stdout.write(`${JSON.stringify({
         event: "error",
+        code: error?.code || null,
         error: String(error?.stack ?? error)
       })}\n`);
       server.close(() => app.quit());

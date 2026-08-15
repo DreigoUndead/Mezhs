@@ -13,7 +13,7 @@ if (-not (Test-Path -LiteralPath $executable)) {
     throw "Electron executable was not found: $executable"
 }
 
-$temp = Join-Path $env:RUNNER_TEMP ('mezhs-hidden-auth-' + [Guid]::NewGuid().ToString('N'))
+$temp = Join-Path $env:RUNNER_TEMP ('mezhs-login-visibility-' + [Guid]::NewGuid().ToString('N'))
 $profile = Join-Path $temp 'profile'
 $modulePath = Join-Path $temp 'integration.js'
 $stdoutPath = Join-Path $temp 'stdout.log'
@@ -21,8 +21,8 @@ $stderrPath = Join-Path $temp 'stderr.log'
 New-Item -ItemType Directory -Path $profile -Force | Out-Null
 @'
 module.exports = {
-  name: "Hidden Authorization Test",
-  homeUrl: "data:text/html,<html><body>hidden</body></html>",
+  name: "Login Visibility Test",
+  homeUrl: "data:text/html,<html><body>login</body></html>",
   async isAuthorized() { return false; },
   async sendPrompt() { return { ok: true, text: "unused" }; }
 };
@@ -31,7 +31,7 @@ module.exports = {
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
-public static class NativeWindow {
+public static class NativeLoginWindow {
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hWnd);
 }
@@ -48,7 +48,7 @@ $process = $null
 
 try {
     $env:MEZHS_PROFILE_DIRECTORY = $profile
-    $env:MEZHS_SHOW_BROWSER = '0'
+    $env:MEZHS_SHOW_BROWSER = '1'
     $env:MEZHS_BROWSER_MODULE = $modulePath
     $env:MEZHS_REQUIRE_AUTHORIZATION = '1'
     $env:MEZHS_PARENT_PROCESS_ID = $PID.ToString()
@@ -61,43 +61,34 @@ try {
         -PassThru
 
     $visibleSeen = $false
-    $errorSeen = $false
-    $stdout = ''
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(15)
     while ([DateTimeOffset]::UtcNow -lt $deadline) {
         foreach ($candidate in Get-Process electron -ErrorAction SilentlyContinue) {
-            if ($candidate.MainWindowHandle -ne 0 -and [NativeWindow]::IsWindowVisible($candidate.MainWindowHandle)) {
+            if ($candidate.MainWindowHandle -ne 0 -and [NativeLoginWindow]::IsWindowVisible($candidate.MainWindowHandle)) {
                 $visibleSeen = $true
-                Write-Host "VISIBLE ELECTRON WINDOW: pid=$($candidate.Id) title=$($candidate.MainWindowTitle)"
+                Write-Host "VISIBLE LOGIN WINDOW: pid=$($candidate.Id) title=$($candidate.MainWindowTitle)"
+                break
             }
         }
-
-        $stdout = Get-Content $stdoutPath -Raw -ErrorAction SilentlyContinue
-        if ($stdout -match '"event":"error"') {
-            $errorSeen = $true
-            break
-        }
+        if ($visibleSeen) { break }
         if ($process.HasExited) { break }
         Start-Sleep -Milliseconds 50
         $process.Refresh()
     }
 
-    if ($visibleSeen) {
-        throw 'A hidden authorization check exposed a visible Electron window.'
-    }
-
+    $stdout = Get-Content $stdoutPath -Raw -ErrorAction SilentlyContinue
     $stderr = Get-Content $stderrPath -Raw -ErrorAction SilentlyContinue
-    if (-not $errorSeen) {
-        throw "Hidden authorization test timed out waiting for Electron's initialization error contract. stdout=$stdout stderr=$stderr"
+    if (-not $visibleSeen) {
+        throw "Interactive authorization did not expose a visible Electron window. stdout=$stdout stderr=$stderr"
     }
-    if ($stdout -notmatch '"code":"authorization_required"') {
-        throw "Electron did not return the typed authorization-required code. stdout=$stdout"
+    if ($process.HasExited) {
+        throw "Electron exited while interactive authorization was still pending. stdout=$stdout stderr=$stderr"
     }
-    if ($stdout -notmatch 'authorization is required') {
-        throw "Electron authorization-required error did not contain a useful message. stdout=$stdout"
+    if ($stdout -match '"event":"error"') {
+        throw "Interactive authorization returned an initialization error instead of waiting for login. stdout=$stdout"
     }
 
-    Write-Host 'PASS: hidden authorization stays hidden and returns a typed authorization-required result.'
+    Write-Host 'PASS: interactive authorization opens a visible Electron window and waits for login.'
 }
 finally {
     $env:MEZHS_PROFILE_DIRECTORY = $previous.PROFILE

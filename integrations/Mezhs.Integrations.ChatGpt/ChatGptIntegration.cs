@@ -50,10 +50,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         {
             ThrowIfDisposed();
             CancelIdle();
-            await EnsureTransportAsync(
-                showBrowser: false,
-                requireAuthorization: true,
-                cancellationToken);
+            await EnsureAuthorizedTransportAsync(cancellationToken);
             var response = await _transport!.SendPromptAsync(new BrowserPromptRequest(
                 context.Message.Content,
                 NewChat: string.IsNullOrWhiteSpace(context.Chat.RemoteChatUrl),
@@ -101,15 +98,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         {
             ThrowIfDisposed();
             CancelIdle();
-            if (_transport is not null)
-            {
-                await _transport.DisposeAsync();
-                _transport = null;
-            }
-            await EnsureTransportAsync(
-                showBrowser: true,
-                requireAuthorization: true,
-                cancellationToken);
+            await EnsureInteractiveLoginAsync(cancellationToken);
         }
         finally
         {
@@ -117,6 +106,34 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 ScheduleIdle();
             _gate.Release();
         }
+    }
+
+    private async Task EnsureAuthorizedTransportAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await EnsureTransportAsync(
+                showBrowser: false,
+                requireAuthorization: true,
+                cancellationToken);
+        }
+        catch (BrowserAuthorizationRequiredException)
+        {
+            await EnsureInteractiveLoginAsync(cancellationToken);
+        }
+    }
+
+    private async Task EnsureInteractiveLoginAsync(CancellationToken cancellationToken)
+    {
+        if (_transport is not null)
+        {
+            await _transport.DisposeAsync();
+            _transport = null;
+        }
+        await EnsureTransportAsync(
+            showBrowser: true,
+            requireAuthorization: true,
+            cancellationToken);
     }
 
     private async Task EnsureTransportAsync(

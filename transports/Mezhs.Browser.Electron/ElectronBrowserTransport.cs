@@ -174,8 +174,20 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
                     if (eventName == "ready" && root.TryGetProperty("port", out var port))
                         _ready.TrySetResult(new Uri($"http://127.0.0.1:{port.GetInt32()}/"));
                     else if (eventName == "error")
-                        _ready.TrySetException(new InvalidOperationException(
-                            root.GetProperty("error").GetString()));
+                    {
+                        var message = root.TryGetProperty("error", out var errorValue)
+                            ? errorValue.GetString() ?? "Electron initialization failed."
+                            : "Electron initialization failed.";
+                        var code = root.TryGetProperty("code", out var codeValue)
+                            ? codeValue.GetString()
+                            : null;
+                        _ready.TrySetException(string.Equals(
+                            code,
+                            "authorization_required",
+                            StringComparison.OrdinalIgnoreCase)
+                            ? new BrowserAuthorizationRequiredException(message)
+                            : new InvalidOperationException(message));
+                    }
                 }
             }
 

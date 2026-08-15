@@ -92,7 +92,7 @@ Two ChatGPT modes remain:
 - `chatgpt-web` — anonymous/transient web use. It creates a temporary browser profile for each request, never opens interactive login, reconstructs local conversation history into the prompt, and deletes the temporary session afterward.
 - `chatgpt-web-account` — persistent account use. It extends the common ChatGPT web mechanics with a persistent profile, remote chat continuation, file/image capabilities, artifact import, and an explicit login module.
 
-A normal message send is never allowed to become an interactive login operation. If an account connection needs authorization, the hidden send fails and the user must invoke the explicit login action. Only that login action may show the browser window.
+Account sends start hidden. If the account is not authorized, the integration invokes its login module, opens the browser interactively, waits for authorization, and then continues the original send. Electron only reports the authorization requirement; the integration owns the decision to request login.
 
 ## Login modules
 
