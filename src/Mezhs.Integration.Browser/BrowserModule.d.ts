@@ -1,4 +1,4 @@
-interface MezhsBrowserPromptRequest {
+interface PromptRequest {
   prompt: string;
   newChat?: boolean;
   chatUrl?: string | null;
@@ -6,23 +6,23 @@ interface MezhsBrowserPromptRequest {
   filePaths?: readonly string[] | null;
 }
 
-interface MezhsBrowserArtifact {
+interface Artifact {
   url: string;
   name: string;
   contentType?: string | null;
   localPath?: string | null;
 }
 
-interface MezhsBrowserSendResult {
+interface SendResult {
   ok: boolean;
   text?: string;
   error?: string;
   chatUrl?: string;
-  artifacts?: MezhsBrowserArtifact[];
+  artifacts?: Artifact[];
   [key: string]: unknown;
 }
 
-interface MezhsBrowserWindow {
+interface BrowserWindow {
   loadURL(url: string): Promise<unknown>;
   isVisible(): boolean;
   show(): void;
@@ -31,32 +31,32 @@ interface MezhsBrowserWindow {
   webContents: any;
 }
 
-interface MezhsBrowserSendContext {
-  window: MezhsBrowserWindow;
-  request: MezhsBrowserPromptRequest;
+interface SendContext {
+  window: BrowserWindow;
+  request: PromptRequest;
   sleep(ms: number): Promise<void>;
 }
 
-interface MezhsBrowserInitializationContext {
-  window: MezhsBrowserWindow;
+interface InitializationContext {
+  window: BrowserWindow;
   session: any;
   sleep(ms: number): Promise<void>;
 }
 
-interface MezhsBrowserWebRequestContext {
+interface WebRequestContext {
   target: string;
   headers: Headers;
 }
 
-interface MezhsBrowserModule {
+interface BrowserModule {
   readonly name: string;
   readonly homeUrl: string;
 
-  isAuthorized?(window: MezhsBrowserWindow): Promise<boolean>;
-  afterInitialize?(context: MezhsBrowserInitializationContext): Promise<void>;
-  prepareWebRequest?(context: MezhsBrowserWebRequestContext): Promise<void>;
-  sendPrompt(context: MezhsBrowserSendContext): Promise<MezhsBrowserSendResult>;
+  isAuthorized?(window: BrowserWindow): Promise<boolean>;
+  afterInitialize?(context: InitializationContext): Promise<void>;
+  prepareWebRequest?(context: WebRequestContext): Promise<void>;
+  sendPrompt(context: SendContext): Promise<SendResult>;
 }
 
-declare const module: { exports: MezhsBrowserModule };
+declare const module: { exports: BrowserModule };
 declare function require(name: string): any;

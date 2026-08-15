@@ -57,18 +57,13 @@ export class ApiChatProvider implements ChatProvider {
     message: ChatMessageInput,
     options?: SendOptions,
   ): Promise<ChatResponse> {
-    const body = chatId
-      ? {
-          chatId,
-          content: message.content,
-          fileIds: (message.files || []).map(file => file.fileId),
-        }
-      : {
-          connectionId: this.connection.id,
-          content: message.content,
-          categoryId: options?.categoryId || null,
-          fileIds: (message.files || []).map(file => file.fileId),
-        };
+    const body = {
+      connectionId: this.connection.id,
+      chatId: chatId || undefined,
+      content: message.content,
+      categoryId: chatId ? undefined : options?.categoryId || null,
+      fileIds: (message.files || []).map(file => file.fileId),
+    };
     return expectJson<ChatResponse>(await fetch(`${this.apiBase}/v1/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

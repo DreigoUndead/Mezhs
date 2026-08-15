@@ -26,10 +26,15 @@ public interface ILoginModule
     Task LoginAsync(CancellationToken cancellationToken = default);
 }
 
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
+public sealed class IntegrationAttribute(string type) : Attribute
+{
+    public string Type { get; } = type;
+}
+
 public interface IChatIntegration : IAsyncDisposable
 {
     IntegrationConnection Connection { get; }
-    string Name { get; }
     IntegrationCapabilities Capabilities { get; }
     ILoginModule? Login { get; }
 
@@ -41,7 +46,6 @@ public interface IChatIntegration : IAsyncDisposable
 public abstract class ChatIntegrationBase(IntegrationConnection connection) : IChatIntegration
 {
     public IntegrationConnection Connection { get; } = connection;
-    public abstract string Name { get; }
     public virtual IntegrationCapabilities Capabilities => new();
     public virtual ILoginModule? Login => null;
 
@@ -50,20 +54,6 @@ public abstract class ChatIntegrationBase(IntegrationConnection connection) : IC
         CancellationToken cancellationToken = default);
 
     public virtual ValueTask DisposeAsync() => ValueTask.CompletedTask;
-}
-
-public interface IIntegrationFactory
-{
-    IReadOnlyCollection<string> Types { get; }
-    void Validate(IntegrationConnection connection);
-    IChatIntegration Create(IntegrationConnection connection, IIntegrationHost host);
-}
-
-public abstract class IntegrationFactory(params string[] types) : IIntegrationFactory
-{
-    public IReadOnlyCollection<string> Types { get; } = types;
-    public virtual void Validate(IntegrationConnection connection) { }
-    public abstract IChatIntegration Create(IntegrationConnection connection, IIntegrationHost host);
 }
 
 public sealed record IntegrationChatContext(

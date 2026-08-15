@@ -5,11 +5,11 @@ namespace Mezhs.Integrations.Browser;
 
 public abstract class BrowserIntegrationBase(
     IntegrationConnection connection,
-    IBrowserIntegrationHost host) : ChatIntegrationBase(connection)
+    IIntegrationHost host) : ChatIntegrationBase(connection)
 {
     private string? _browserModulePath;
 
-    protected IBrowserIntegrationHost Host { get; } = host;
+    protected IBrowserIntegrationHost Host { get; } = BrowserIntegrationHost.Require(host);
     protected abstract Assembly BrowserModuleAssembly { get; }
     protected abstract string BrowserModuleResourceName { get; }
 

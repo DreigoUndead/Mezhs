@@ -13,10 +13,10 @@ public sealed class IntegrationRegistry : IAsyncDisposable
         MezhsOptions options,
         IIntegrationHost host)
     {
-        var factories = DiscoverFactories();
+        var registrations = DiscoverRegistrations();
         _integrations = options.Connections.ToDictionary(
             connection => connection.Id,
-            connection => Create(connection, host, factories),
+            connection => Create(connection, host, registrations),
             StringComparer.OrdinalIgnoreCase);
     }
 
@@ -33,7 +33,6 @@ public sealed class IntegrationRegistry : IAsyncDisposable
         id = integration.Connection.Id,
         name = integration.Connection.Name,
         integration = integration.Connection.Type,
-        integrationName = integration.Name,
         requiresLogin = integration.Login is not null,
         workspace = integration.Connection.GetSetting("workspace"),
         capabilities = integration.Capabilities
@@ -48,7 +47,7 @@ public sealed class IntegrationRegistry : IAsyncDisposable
     private static IChatIntegration Create(
         ConnectionOptions configured,
         IIntegrationHost host,
-        IReadOnlyDictionary<string, IIntegrationFactory> factories)
+        IReadOnlyDictionary<string, Type> registrations)
     {
         var settings = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         if (!string.IsNullOrWhiteSpace(configured.Workspace))
@@ -59,28 +58,37 @@ public sealed class IntegrationRegistry : IAsyncDisposable
             configured.Integration,
             settings);
 
-        if (!factories.TryGetValue(connection.Type, out var factory))
+        if (!registrations.TryGetValue(connection.Type, out var integrationType))
             throw new InvalidOperationException(
                 $"Unsupported integration '{connection.Type}' on connection '{connection.Id}'.");
-        factory.Validate(connection);
-        return factory.Create(connection, host);
+
+        try
+        {
+            return Activator.CreateInstance(integrationType, connection, host) as IChatIntegration
+                ?? throw new InvalidOperationException(
+                    $"Integration '{connection.Type}' could not be constructed.");
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is not null)
+        {
+            throw new InvalidOperationException(
+                $"Connection '{connection.Id}' is invalid: {ex.InnerException.Message}",
+                ex.InnerException);
+        }
     }
 
-    private static IReadOnlyDictionary<string, IIntegrationFactory> DiscoverFactories()
+    private static IReadOnlyDictionary<string, Type> DiscoverRegistrations()
     {
-        var result = new Dictionary<string, IIntegrationFactory>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
         foreach (var assembly in DiscoverIntegrationAssemblies())
         {
             foreach (var type in GetLoadableTypes(assembly)
-                         .Where(type => !type.IsAbstract && typeof(IIntegrationFactory).IsAssignableFrom(type)))
+                         .Where(type => !type.IsAbstract && typeof(IChatIntegration).IsAssignableFrom(type)))
             {
-                if (Activator.CreateInstance(type) is not IIntegrationFactory factory)
-                    continue;
-                foreach (var integrationType in factory.Types)
+                foreach (var registration in type.GetCustomAttributes<IntegrationAttribute>())
                 {
-                    if (!result.TryAdd(integrationType, factory))
+                    if (!result.TryAdd(registration.Type, type))
                         throw new InvalidOperationException(
-                            $"Multiple integration factories registered type '{integrationType}'.");
+                            $"Multiple integrations registered type '{registration.Type}'.");
                 }
             }
         }

@@ -19,13 +19,14 @@ builder.Services.AddSingleton<FileStore>();
 builder.Services.AddSingleton<IIntegrationHost, IntegrationHost>();
 builder.Services.AddSingleton<IntegrationRegistry>();
 builder.Services.AddSingleton<MessageService>();
+builder.Services.AddHostedService<MessageService>(services => services.GetRequiredService<MessageService>());
 
 var app = builder.Build();
 app.UseCors();
 var store = app.Services.GetRequiredService<ChatStore>();
-await store.InitializeAsync();
+store.Initialize();
 var fileStore = app.Services.GetRequiredService<FileStore>();
-await fileStore.InitializeAsync();
+fileStore.Initialize();
 
 app.MapGet("/", () => Results.Ok(new
 {
@@ -103,34 +104,33 @@ app.MapGet("/v1/files/{fileId}/content", (
 });
 
 app.MapGet("/v1/chats", (string? connectionId, ChatStore chats) =>
-    Results.Ok(chats.GetChats(connectionId).Select(chat => new
+    Results.Ok(chats.GetChats(connectionId).Select(chat =>
     {
-        chat.ChatId,
-        chat.ConnectionId,
-        chat.CategoryId,
-        chat.CreatedAt,
-        chat.UpdatedAt,
-        title = chats.GetMessages(chat.ChatId)
-            .FirstOrDefault(message => message.Role == "user")?.Content ?? "New chat"
+        var messages = chats.GetMessages(chat.ChatId);
+        return new
+        {
+            chat.ChatId,
+            ConnectionId = messages.LastOrDefault()?.ConnectionId ?? string.Empty,
+            chat.CategoryId,
+            chat.CreatedAt,
+            chat.UpdatedAt,
+            title = messages.FirstOrDefault(message => message.Role == "user")?.Content ?? "New chat"
+        };
     })));
 
-app.MapPost("/v1/chats", async (
+app.MapPost("/v1/chats", (
     CreateChatRequest request,
     IntegrationRegistry integrations,
-    ChatStore chats,
-    CancellationToken cancellationToken) =>
+    ChatStore chats) =>
 {
     try
     {
         integrations.Get(request.ConnectionId);
-        var chat = await chats.CreateChatAsync(
-            request.ConnectionId,
-            request.CategoryId,
-            cancellationToken);
+        var chat = chats.CreateChat(request.CategoryId);
         return Results.Created($"/v1/chats/{chat.ChatId}", new
         {
             chat.ChatId,
-            chat.ConnectionId,
+            request.ConnectionId,
             chat.CategoryId,
             chat.CreatedAt,
             chat.UpdatedAt,
@@ -146,14 +146,11 @@ app.MapPost("/v1/chats", async (
 app.MapGet("/v1/categories", (ChatStore chats) =>
     Results.Ok(chats.GetCategories()));
 
-app.MapPost("/v1/categories", async (
-    CreateCategoryRequest request,
-    ChatStore chats,
-    CancellationToken cancellationToken) =>
+app.MapPost("/v1/categories", (CreateCategoryRequest request, ChatStore chats) =>
 {
     try
     {
-        var category = await chats.CreateCategoryAsync(request.Name, cancellationToken);
+        var category = chats.CreateCategory(request.Name);
         return Results.Created($"/v1/categories/{category.CategoryId}", category);
     }
     catch (ArgumentException ex)
@@ -162,18 +159,14 @@ app.MapPost("/v1/categories", async (
     }
 });
 
-app.MapPut("/v1/categories/{categoryId}", async (
+app.MapPut("/v1/categories/{categoryId}", (
     string categoryId,
     UpdateCategoryRequest request,
-    ChatStore chats,
-    CancellationToken cancellationToken) =>
+    ChatStore chats) =>
 {
     try
     {
-        return Results.Ok(await chats.RenameCategoryAsync(
-            categoryId,
-            request.Name,
-            cancellationToken));
+        return Results.Ok(chats.RenameCategory(categoryId, request.Name));
     }
     catch (ArgumentException ex)
     {
@@ -185,14 +178,11 @@ app.MapPut("/v1/categories/{categoryId}", async (
     }
 });
 
-app.MapDelete("/v1/categories/{categoryId}", async (
-    string categoryId,
-    ChatStore chats,
-    CancellationToken cancellationToken) =>
+app.MapDelete("/v1/categories/{categoryId}", (string categoryId, ChatStore chats) =>
 {
     try
     {
-        await chats.DeleteCategoryAsync(categoryId, cancellationToken);
+        chats.DeleteCategory(categoryId);
         return Results.NoContent();
     }
     catch (KeyNotFoundException ex)
@@ -215,14 +205,11 @@ app.MapPost("/v1/connections/{connectionId}/login", async (
     return Results.Ok(new { connectionId, status = "ready" });
 });
 
-app.MapPost("/v1/messages", async (
-    PostMessageRequest request,
-    MessageService messages,
-    CancellationToken cancellationToken) =>
+app.MapPost("/v1/messages", (PostMessageRequest request, MessageService messages) =>
 {
     try
     {
-        var message = await messages.PostAsync(request, cancellationToken);
+        var message = messages.Post(request);
         return Results.Accepted($"/v1/messages/{message.MessageId}", message);
     }
     catch (ArgumentException ex)
@@ -235,14 +222,11 @@ app.MapPost("/v1/messages", async (
     }
 });
 
-app.MapPost("/v1/messages/{messageId}/replay", async (
-    string messageId,
-    MessageService messages,
-    CancellationToken cancellationToken) =>
+app.MapPost("/v1/messages/{messageId}/replay", (string messageId, MessageService messages) =>
 {
     try
     {
-        var message = await messages.ReplayAsync(messageId, cancellationToken);
+        var message = messages.Replay(messageId);
         return Results.Accepted($"/v1/messages/{message.MessageId}", message);
     }
     catch (KeyNotFoundException ex)
@@ -264,23 +248,27 @@ app.MapGet("/v1/messages/{messageId}", (
 app.MapGet("/v1/chats/{chatId}", (string chatId, ChatStore chats) =>
 {
     var chat = chats.GetChat(chatId);
-    return chat is null
-        ? Results.NotFound(new { error = $"Chat '{chatId}' was not found." })
-        : Results.Ok(chat);
+    if (chat is null)
+        return Results.NotFound(new { error = $"Chat '{chatId}' was not found." });
+    var messages = chats.GetMessages(chat.ChatId);
+    return Results.Ok(new
+    {
+        chat.ChatId,
+        ConnectionId = messages.LastOrDefault()?.ConnectionId ?? string.Empty,
+        chat.CategoryId,
+        chat.CreatedAt,
+        chat.UpdatedAt
+    });
 });
 
-app.MapPatch("/v1/chats/{chatId}", async (
+app.MapPatch("/v1/chats/{chatId}", (
     string chatId,
     UpdateChatRequest request,
-    ChatStore chats,
-    CancellationToken cancellationToken) =>
+    ChatStore chats) =>
 {
     try
     {
-        return Results.Ok(await chats.SetChatCategoryAsync(
-            chatId,
-            request.CategoryId,
-            cancellationToken));
+        return Results.Ok(chats.SetChatCategory(chatId, request.CategoryId));
     }
     catch (KeyNotFoundException ex)
     {

@@ -54,6 +54,9 @@ try {
     if ($plainConnection.integration -ne 'mock' -or $loginConnection.integration -ne 'mock-login') {
         throw 'Connection integration metadata was invalid.'
     }
+    if ($null -ne $plainConnection.integrationName) {
+        throw 'Connection metadata still exposes redundant integrationName.'
+    }
     $login = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/connections/test-login/login"
     if ($login.status -ne 'ready') { throw 'Login module endpoint did not complete.' }
 
@@ -88,6 +91,29 @@ try {
     } while ($true)
 
     if ($completed.reply.content -ne 'Echo: hello') { throw 'Unexpected reply.' }
+
+    # Backward-compatible follow-up: an existing chat may omit connectionId and
+    # continues through the connection used by its latest message.
+    $implicitFollowUp = Invoke-RestMethod `
+        -Method Post `
+        -Uri "$baseUrl/v1/messages" `
+        -ContentType 'application/json' `
+        -Body (ConvertTo-Json @{
+            chatId = $created.chatId
+            content = 'implicit same connection'
+        })
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+    do {
+        $implicitCompleted = Invoke-RestMethod -Uri "$baseUrl/v1/messages/$($implicitFollowUp.messageId)"
+        if ($implicitCompleted.status -eq 'Completed') { break }
+        if ($implicitCompleted.status -eq 'Failed') { throw $implicitCompleted.error }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Implicit follow-up polling timed out.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+    if ($implicitCompleted.connectionId -ne 'test' -or $implicitCompleted.reply.connectionId -ne 'test') {
+        throw 'Existing chat did not inherit its latest connection when connectionId was omitted.'
+    }
 
     $uploadPath = Join-Path $PSScriptRoot 'attachment-smoke.txt'
     [IO.File]::WriteAllText($uploadPath, 'MEZHS-ATTACHMENT-SMOKE', [Text.Encoding]::UTF8)
@@ -140,17 +166,17 @@ try {
     $echoedContent = (Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl$($echoedFile.contentUrl)").Content
     if ($echoedContent -notlike '*MEZHS-ATTACHMENT-SMOKE*') { throw 'Integration output file content did not match.' }
 
-    $chatList = Invoke-RestMethod -Uri "$baseUrl/v1/chats"
-    $listedChat = $chatList | Where-Object { $_.chatId -eq $created.chatId }
-    if ($listedChat.categoryId -ne $category.categoryId) {
-        throw 'Global chat list did not preserve category assignment.'
-    }
-
+    # Same local chat, different connection, reusing a file uploaded through the first connection.
     $second = Invoke-RestMethod `
         -Method Post `
         -Uri "$baseUrl/v1/messages" `
         -ContentType 'application/json' `
-        -Body (ConvertTo-Json @{ chatId = $created.chatId; content = 'again' })
+        -Body (ConvertTo-Json @{
+            connectionId = 'test-login'
+            chatId = $created.chatId
+            content = 'again through the other connection'
+            fileIds = @($uploaded.fileId)
+        })
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
     do {
@@ -160,12 +186,52 @@ try {
         if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Second message polling timed out.' }
         Start-Sleep -Milliseconds 50
     } while ($true)
+    if ($secondCompleted.connectionId -ne 'test-login' -or $secondCompleted.reply.connectionId -ne 'test-login') {
+        throw 'Existing chat did not switch to the selected second connection.'
+    }
+    if (($secondCompleted.reply.files | Select-Object -First 1).name -ne 'echo-attachment-smoke.txt') {
+        throw 'A local upload could not be reused through another connection.'
+    }
+
+    # Switch the same local chat back to the original connection.
+    $third = Invoke-RestMethod `
+        -Method Post `
+        -Uri "$baseUrl/v1/messages" `
+        -ContentType 'application/json' `
+        -Body (ConvertTo-Json @{
+            connectionId = 'test'
+            chatId = $created.chatId
+            content = 'back again'
+        })
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+    do {
+        $thirdCompleted = Invoke-RestMethod -Uri "$baseUrl/v1/messages/$($third.messageId)"
+        if ($thirdCompleted.status -eq 'Completed') { break }
+        if ($thirdCompleted.status -eq 'Failed') { throw $thirdCompleted.error }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Third message polling timed out.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+    if ($thirdCompleted.connectionId -ne 'test' -or $thirdCompleted.reply.connectionId -ne 'test') {
+        throw 'Existing chat did not switch back to the original connection.'
+    }
+
+    $chatList = Invoke-RestMethod -Uri "$baseUrl/v1/chats"
+    $listedChat = $chatList | Where-Object { $_.chatId -eq $created.chatId }
+    if ($listedChat.categoryId -ne $category.categoryId) {
+        throw 'Global chat list did not preserve category assignment.'
+    }
 
     $history = Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($created.chatId)/messages"
-    if ($history.Count -ne 4) { throw "Expected 4 logged messages, got $($history.Count)." }
+    if ($history.Count -ne 8) { throw "Expected 8 logged messages, got $($history.Count)." }
+    $userConnections = @($history | Where-Object { $_.role -eq 'user' } | ForEach-Object { $_.connectionId })
+    if (($userConnections -join ',') -ne 'test,test,test-login,test') {
+        throw "Expected user connections test,test,test-login,test; got $($userConnections -join ',')."
+    }
 
     $replay = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/messages/$($created.messageId)/replay"
     if ($replay.replayOfMessageId -ne $created.messageId) { throw 'Replay linkage failed.' }
+    if ($replay.connectionId -ne 'test') { throw 'Replay did not retain the original request connection.' }
 
     Invoke-RestMethod `
         -Method Patch `
@@ -174,7 +240,7 @@ try {
         -Body '{"categoryId":null}' | Out-Null
     Invoke-RestMethod -Method Delete -Uri "$baseUrl/v1/categories/$($category.categoryId)"
 
-    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) categories=ok files=ok login=ok"
+    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) implicit-follow-up=ok multi-connection=ok categories=ok files=ok login=ok"
 }
 finally {
     if (-not $process.HasExited) {

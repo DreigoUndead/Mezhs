@@ -18,26 +18,31 @@ public sealed class FileStore(MezhsOptions options)
     private readonly ConcurrentDictionary<string, StoredFile> _files =
         new(StringComparer.OrdinalIgnoreCase);
 
-    public async Task InitializeAsync()
+    public void Initialize()
     {
         var connectionsRoot = Path.Combine(_root, "connections");
         Directory.CreateDirectory(connectionsRoot);
-        foreach (var metadataPath in Directory.EnumerateFiles(
-                     connectionsRoot,
-                     "file.json",
-                     SearchOption.AllDirectories))
+        foreach (var connectionDirectory in Directory.EnumerateDirectories(connectionsRoot))
         {
-            try
+            var filesRoot = Path.Combine(connectionDirectory, "files");
+            if (!Directory.Exists(filesRoot)) continue;
+            foreach (var metadataPath in Directory.EnumerateFiles(
+                         filesRoot,
+                         "file.json",
+                         SearchOption.AllDirectories))
             {
-                var file = JsonSerializer.Deserialize<StoredFile>(
-                    await File.ReadAllTextAsync(metadataPath),
-                    JsonOptions);
-                if (file is not null && File.Exists(GetContentPath(file)))
-                    _files[file.FileId] = file;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Could not load file metadata '{metadataPath}': {ex.Message}");
+                try
+                {
+                    var file = JsonSerializer.Deserialize<StoredFile>(
+                        File.ReadAllText(metadataPath),
+                        JsonOptions);
+                    if (file is not null && File.Exists(GetContentPath(file)))
+                        _files[file.FileId] = file;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Could not load file metadata '{metadataPath}': {ex.Message}");
+                }
             }
         }
     }
@@ -45,17 +50,13 @@ public sealed class FileStore(MezhsOptions options)
     public StoredFile? Get(string fileId) =>
         _files.TryGetValue(fileId, out var file) ? file : null;
 
-    public IReadOnlyList<StoredFile> GetForConnection(
-        IEnumerable<string>? fileIds,
-        string connectionId)
+    public IReadOnlyList<StoredFile> GetMany(IEnumerable<string>? fileIds)
     {
         var result = new List<StoredFile>();
         foreach (var fileId in (fileIds ?? []).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var file = Get(fileId)
                 ?? throw new KeyNotFoundException($"File '{fileId}' was not found.");
-            if (!string.Equals(file.ConnectionId, connectionId, StringComparison.OrdinalIgnoreCase))
-                throw new ArgumentException($"File '{fileId}' belongs to another connection.");
             result.Add(file);
         }
         return result;
@@ -101,7 +102,7 @@ public sealed class FileStore(MezhsOptions options)
             Size = new FileInfo(contentPath).Length,
             Source = source
         };
-        await SaveMetadataAsync(file, cancellationToken);
+        SaveMetadata(file);
         _files[file.FileId] = file;
         return file;
     }
@@ -147,16 +148,13 @@ public sealed class FileStore(MezhsOptions options)
     private string GetFileDirectory(string connectionId, string fileId) =>
         Path.Combine(_root, "connections", connectionId, "files", fileId);
 
-    private async Task SaveMetadataAsync(StoredFile file, CancellationToken cancellationToken)
+    private void SaveMetadata(StoredFile file)
     {
         var directory = GetFileDirectory(file.ConnectionId, file.FileId);
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "file.json");
         var temporaryPath = path + ".tmp";
-        await File.WriteAllTextAsync(
-            temporaryPath,
-            JsonSerializer.Serialize(file, JsonOptions),
-            cancellationToken);
+        File.WriteAllText(temporaryPath, JsonSerializer.Serialize(file, JsonOptions));
         File.Move(temporaryPath, path, overwrite: true);
     }
 }

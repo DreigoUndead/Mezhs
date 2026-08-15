@@ -1,8 +1,14 @@
 namespace Mezhs.Integrations.Mock;
 
-public class MockIntegration(IntegrationConnection connection) : ChatIntegrationBase(connection)
+[Integration("mock")]
+public class MockIntegration : ChatIntegrationBase
 {
-    public override string Name => "Mock";
+    public MockIntegration(IntegrationConnection connection, IIntegrationHost host) : base(connection)
+    {
+        _ = host;
+        Validate(connection);
+    }
+
     public override IntegrationCapabilities Capabilities => new(
         FileInput: true,
         ImageInput: true,
@@ -21,13 +27,25 @@ public class MockIntegration(IntegrationConnection connection) : ChatIntegration
             DeleteAfterImport: false)).ToArray();
         return new IntegrationSendResult($"Echo: {context.Message.Content}", Files: outputFiles);
     }
+
+    protected static void Validate(IntegrationConnection connection)
+    {
+        if (!string.IsNullOrWhiteSpace(connection.GetSetting("workspace")))
+            throw new InvalidOperationException(
+                $"workspace is not supported by connection '{connection.Id}'.");
+    }
 }
 
-public sealed class MockLoginIntegration(IntegrationConnection connection) : MockIntegration(connection)
+[Integration("mock-login")]
+public sealed class MockLoginIntegration : MockIntegration
 {
     private static readonly ILoginModule LoginModule = new NoOpLoginModule();
 
-    public override string Name => "Mock Login";
+    public MockLoginIntegration(IntegrationConnection connection, IIntegrationHost host)
+        : base(connection, host)
+    {
+    }
+
     public override ILoginModule Login => LoginModule;
 
     private sealed class NoOpLoginModule : ILoginModule
@@ -35,23 +53,4 @@ public sealed class MockLoginIntegration(IntegrationConnection connection) : Moc
         public Task LoginAsync(CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
     }
-}
-
-public sealed class MockIntegrationFactory() : IntegrationFactory("mock", "mock-login")
-{
-    public override void Validate(IntegrationConnection connection)
-    {
-        if (!string.IsNullOrWhiteSpace(connection.GetSetting("workspace")))
-            throw new InvalidOperationException(
-                $"workspace is not supported by connection '{connection.Id}'.");
-    }
-
-    public override IChatIntegration Create(
-        IntegrationConnection connection,
-        IIntegrationHost host) => connection.Type.ToLowerInvariant() switch
-        {
-            "mock" => new MockIntegration(connection),
-            "mock-login" => new MockLoginIntegration(connection),
-            _ => throw new InvalidOperationException($"Unsupported mock integration type '{connection.Type}'.")
-        };
 }
