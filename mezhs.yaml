@@ -12,7 +12,7 @@ storage:
   root: data
 
 connections:
-  - id: chatgpt-account
+  - id: chatgpt-sub
     name: ChatGPT Account
     integration: chatgpt-web-account
 
