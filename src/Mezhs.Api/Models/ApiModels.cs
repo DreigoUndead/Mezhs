@@ -18,13 +18,19 @@ public enum FileSource
 public sealed class ChatRecord
 {
     public required string ChatId { get; init; }
+    public List<ChatConnectionState> RemoteStates { get; init; } = [];
+    public string? CategoryId { get; set; }
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class ChatConnectionState
+{
     public required string ConnectionId { get; init; }
     public string? RemoteChatUrl { get; set; }
     public string? RemoteConversationId { get; set; }
     public string? RemoteParentMessageId { get; set; }
-    public string? CategoryId { get; set; }
-    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
-    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string? LastLocalMessageId { get; set; }
 }
 
 public sealed class CategoryRecord

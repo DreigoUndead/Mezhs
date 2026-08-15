@@ -1,63 +1,52 @@
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 using Mezhs.Integrations;
 using Mezhs.Models;
+using Microsoft.Extensions.Hosting;
 
 namespace Mezhs.Services;
 
 public sealed class MessageService(
     ChatStore store,
     FileStore files,
-    IntegrationRegistry integrations)
+    IntegrationRegistry integrations) : BackgroundService
 {
+    private readonly Channel<StoredMessage> _queue = Channel.CreateUnbounded<StoredMessage>(
+        new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _chatGates =
         new(StringComparer.OrdinalIgnoreCase);
 
-    public async Task<ApiMessage> PostAsync(
-        PostMessageRequest request,
-        CancellationToken cancellationToken)
+    public ApiMessage Post(PostMessageRequest request)
     {
         var requestedFileIds = request.FileIds ?? [];
         if (string.IsNullOrWhiteSpace(request.Content) && requestedFileIds.Count == 0)
             throw new ArgumentException("content or at least one file is required.");
+        if (string.IsNullOrWhiteSpace(request.ConnectionId))
+            throw new ArgumentException("connectionId is required.");
 
-        ChatRecord chat;
-        if (string.IsNullOrWhiteSpace(request.ChatId))
-        {
-            if (string.IsNullOrWhiteSpace(request.ConnectionId))
-                throw new ArgumentException("connectionId is required when chatId is not provided.");
-            integrations.Get(request.ConnectionId);
-            chat = await store.CreateChatAsync(
-                request.ConnectionId,
-                request.CategoryId,
-                cancellationToken);
-        }
-        else
-        {
-            chat = store.GetChat(request.ChatId)
+        var connectionId = request.ConnectionId.Trim();
+        var integration = integrations.Get(connectionId);
+        var chat = string.IsNullOrWhiteSpace(request.ChatId)
+            ? store.CreateChat(request.CategoryId)
+            : store.GetChat(request.ChatId)
                 ?? throw new KeyNotFoundException($"Chat '{request.ChatId}' was not found.");
-            if (!string.IsNullOrWhiteSpace(request.ConnectionId) &&
-                !string.Equals(request.ConnectionId, chat.ConnectionId, StringComparison.OrdinalIgnoreCase))
-                throw new ArgumentException("connectionId does not match the existing chat.");
-        }
 
-        var integration = integrations.Get(chat.ConnectionId);
         if (requestedFileIds.Count > 0 && !integration.Capabilities.FileInput)
-            throw new ArgumentException($"Connection '{chat.ConnectionId}' does not support file input.");
-        var attachedFiles = files.GetForConnection(requestedFileIds, chat.ConnectionId);
+            throw new ArgumentException($"Connection '{connectionId}' does not support file input.");
+        var attachedFiles = files.GetMany(requestedFileIds);
         if (attachedFiles.Any(file => file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) &&
             !integration.Capabilities.ImageInput)
-            throw new ArgumentException($"Connection '{chat.ConnectionId}' does not support image input.");
+            throw new ArgumentException($"Connection '{connectionId}' does not support image input.");
 
-        var message = await CreateMessageAsync(
+        return ToApi(CreateMessage(
             chat,
+            connectionId,
             request.Content ?? string.Empty,
             attachedFiles.Select(file => file.FileId).ToArray(),
-            replayOf: null,
-            cancellationToken);
-        return ToApi(message);
+            replayOf: null));
     }
 
-    public async Task<ApiMessage> ReplayAsync(string messageId, CancellationToken cancellationToken)
+    public ApiMessage Replay(string messageId)
     {
         var original = store.GetMessage(messageId)
             ?? throw new KeyNotFoundException($"Message '{messageId}' was not found.");
@@ -65,13 +54,12 @@ public sealed class MessageService(
             throw new KeyNotFoundException("Only user request messages can be replayed.");
         var chat = store.GetChat(original.ChatId)
             ?? throw new KeyNotFoundException($"Chat '{original.ChatId}' was not found.");
-        var replay = await CreateMessageAsync(
+        return ToApi(CreateMessage(
             chat,
+            original.ConnectionId,
             original.Content,
             original.FileIds,
-            original.MessageId,
-            cancellationToken);
-        return ToApi(replay);
+            original.MessageId));
     }
 
     public ApiMessage? Get(string messageId)
@@ -80,27 +68,63 @@ public sealed class MessageService(
         return message is null ? null : ToApi(message);
     }
 
-    private async Task<StoredMessage> CreateMessageAsync(
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _ = stoppingToken;
+        var running = new HashSet<Task>();
+        try
+        {
+            await foreach (var message in _queue.Reader.ReadAllAsync())
+            {
+                foreach (var completed in running.Where(task => task.IsCompleted).ToArray())
+                {
+                    await completed;
+                    running.Remove(completed);
+                }
+                running.Add(ProcessAsync(message));
+            }
+        }
+        finally
+        {
+            if (running.Count > 0)
+                await Task.WhenAll(running);
+        }
+    }
+
+    public override Task StopAsync(CancellationToken cancellationToken)
+    {
+        _queue.Writer.TryComplete();
+        return base.StopAsync(cancellationToken);
+    }
+
+    private StoredMessage CreateMessage(
         ChatRecord chat,
+        string connectionId,
         string content,
         IReadOnlyList<string> fileIds,
-        string? replayOf,
-        CancellationToken cancellationToken)
+        string? replayOf)
     {
         var message = new StoredMessage
         {
             MessageId = ChatStore.NewId("msg"),
             ChatId = chat.ChatId,
-            ConnectionId = chat.ConnectionId,
+            ConnectionId = connectionId,
             Role = "user",
             Content = content,
             FileIds = fileIds,
             ReplayOfMessageId = replayOf,
             Status = MessageStatus.Queued
         };
-        await store.SaveMessageAsync(message, cancellationToken);
-        _ = Task.Run(() => ProcessAsync(message));
-        return message;
+        store.SaveMessage(message);
+        store.SaveChat(chat);
+        if (_queue.Writer.TryWrite(message))
+            return message;
+
+        message.Status = MessageStatus.Failed;
+        message.Error = "MEŽS is shutting down and cannot accept more messages.";
+        message.CompletedAt = DateTimeOffset.UtcNow;
+        store.SaveMessage(message);
+        throw new InvalidOperationException(message.Error);
     }
 
     private async Task ProcessAsync(StoredMessage message)
@@ -111,15 +135,18 @@ public sealed class MessageService(
         {
             message.Status = MessageStatus.Running;
             message.StartedAt = DateTimeOffset.UtcNow;
-            await store.SaveMessageAsync(message);
+            store.SaveMessage(message);
 
             var chat = store.GetChat(message.ChatId)
                 ?? throw new KeyNotFoundException($"Chat '{message.ChatId}' was not found.");
-            var history = store.GetMessages(message.ChatId)
-                .Where(item => item.MessageId != message.MessageId && item.CreatedAt <= message.CreatedAt)
-                .Select(ToIntegrationMessage)
-                .ToArray();
-            var inputFiles = files.GetForConnection(message.FileIds, chat.ConnectionId)
+            var historyMessages = BuildHistory(message);
+            var remoteState = chat.RemoteStates.FirstOrDefault(state =>
+                string.Equals(state.ConnectionId, message.ConnectionId, StringComparison.OrdinalIgnoreCase));
+            var lastHistoryMessageId = historyMessages.LastOrDefault()?.MessageId;
+            var continueRemote = remoteState is not null &&
+                !string.IsNullOrWhiteSpace(remoteState.LastLocalMessageId) &&
+                string.Equals(remoteState.LastLocalMessageId, lastHistoryMessageId, StringComparison.OrdinalIgnoreCase);
+            var inputFiles = files.GetMany(message.FileIds)
                 .Select(file => new IntegrationInputFile(
                     file.FileId,
                     files.GetContentPath(file),
@@ -127,16 +154,16 @@ public sealed class MessageService(
                     file.ContentType,
                     file.Size))
                 .ToArray();
-            var result = await integrations.Get(chat.ConnectionId).SendMessageAsync(
+            var result = await integrations.Get(message.ConnectionId).SendMessageAsync(
                 new IntegrationSendContext(
                     new IntegrationChatContext(
                         chat.ChatId,
-                        chat.ConnectionId,
-                        chat.RemoteChatUrl,
-                        chat.RemoteConversationId,
-                        chat.RemoteParentMessageId),
+                        message.ConnectionId,
+                        continueRemote ? remoteState!.RemoteChatUrl : null,
+                        continueRemote ? remoteState!.RemoteConversationId : null,
+                        continueRemote ? remoteState!.RemoteParentMessageId : null),
                     ToIntegrationMessage(message),
-                    history,
+                    historyMessages.Select(ToIntegrationMessage).ToArray(),
                     inputFiles),
                 CancellationToken.None);
 
@@ -146,7 +173,7 @@ public sealed class MessageService(
                 try
                 {
                     var imported = await files.ImportAsync(
-                        chat.ConnectionId,
+                        message.ConnectionId,
                         output.Path,
                         output.Name,
                         output.ContentType,
@@ -170,7 +197,7 @@ public sealed class MessageService(
             {
                 MessageId = ChatStore.NewId("msg"),
                 ChatId = chat.ChatId,
-                ConnectionId = chat.ConnectionId,
+                ConnectionId = message.ConnectionId,
                 Role = "assistant",
                 Content = result.Text,
                 FileIds = replyFileIds,
@@ -179,35 +206,95 @@ public sealed class MessageService(
                 StartedAt = message.StartedAt,
                 CompletedAt = DateTimeOffset.UtcNow
             };
-            await store.SaveMessageAsync(reply);
+            store.SaveMessage(reply);
 
-            if (!string.IsNullOrWhiteSpace(result.RemoteChatUrl))
-                chat.RemoteChatUrl = result.RemoteChatUrl;
-            if (!string.IsNullOrWhiteSpace(result.RemoteConversationId))
-                chat.RemoteConversationId = result.RemoteConversationId;
-            if (!string.IsNullOrWhiteSpace(result.RemoteParentMessageId))
-                chat.RemoteParentMessageId = result.RemoteParentMessageId;
-            if (!string.IsNullOrWhiteSpace(result.RemoteChatUrl) ||
-                !string.IsNullOrWhiteSpace(result.RemoteConversationId) ||
-                !string.IsNullOrWhiteSpace(result.RemoteParentMessageId))
-                await store.SaveChatAsync(chat);
+            UpdateRemoteState(chat, message.ConnectionId, remoteState, continueRemote, result, reply.MessageId);
+            store.SaveChat(chat);
 
             message.ReplyMessageId = reply.MessageId;
             message.Status = MessageStatus.Completed;
             message.CompletedAt = reply.CompletedAt;
-            await store.SaveMessageAsync(message);
+            store.SaveMessage(message);
         }
         catch (Exception ex)
         {
             message.Status = MessageStatus.Failed;
             message.Error = ex.Message;
             message.CompletedAt = DateTimeOffset.UtcNow;
-            await store.SaveMessageAsync(message);
+            store.SaveMessage(message);
         }
         finally
         {
             gate.Release();
         }
+    }
+
+    private IReadOnlyList<StoredMessage> BuildHistory(StoredMessage current)
+    {
+        var messages = store.GetMessages(current.ChatId);
+        var byId = messages.ToDictionary(message => message.MessageId, StringComparer.OrdinalIgnoreCase);
+        var history = new List<StoredMessage>();
+        foreach (var request in messages.Where(message =>
+                     message.Role == "user" &&
+                     message.Status == MessageStatus.Completed &&
+                     ComesBefore(message, current)))
+        {
+            history.Add(request);
+            if (!string.IsNullOrWhiteSpace(request.ReplyMessageId) &&
+                byId.TryGetValue(request.ReplyMessageId, out var reply) &&
+                reply.Status == MessageStatus.Completed)
+                history.Add(reply);
+        }
+        return history;
+    }
+
+    private static bool ComesBefore(StoredMessage candidate, StoredMessage current)
+    {
+        var time = candidate.CreatedAt.CompareTo(current.CreatedAt);
+        return time < 0 ||
+               (time == 0 && string.CompareOrdinal(candidate.MessageId, current.MessageId) < 0);
+    }
+
+    private static void UpdateRemoteState(
+        ChatRecord chat,
+        string connectionId,
+        ChatConnectionState? state,
+        bool continued,
+        IntegrationSendResult result,
+        string lastLocalMessageId)
+    {
+        var hasRemoteState = !string.IsNullOrWhiteSpace(result.RemoteChatUrl) ||
+                             !string.IsNullOrWhiteSpace(result.RemoteConversationId) ||
+                             !string.IsNullOrWhiteSpace(result.RemoteParentMessageId);
+        if (!hasRemoteState)
+        {
+            if (!continued && state is not null)
+                chat.RemoteStates.Remove(state);
+            return;
+        }
+
+        if (state is null)
+        {
+            state = new ChatConnectionState { ConnectionId = connectionId };
+            chat.RemoteStates.Add(state);
+        }
+
+        if (continued)
+        {
+            if (!string.IsNullOrWhiteSpace(result.RemoteChatUrl))
+                state.RemoteChatUrl = result.RemoteChatUrl;
+            if (!string.IsNullOrWhiteSpace(result.RemoteConversationId))
+                state.RemoteConversationId = result.RemoteConversationId;
+            if (!string.IsNullOrWhiteSpace(result.RemoteParentMessageId))
+                state.RemoteParentMessageId = result.RemoteParentMessageId;
+        }
+        else
+        {
+            state.RemoteChatUrl = result.RemoteChatUrl;
+            state.RemoteConversationId = result.RemoteConversationId;
+            state.RemoteParentMessageId = result.RemoteParentMessageId;
+        }
+        state.LastLocalMessageId = lastLocalMessageId;
     }
 
     private static IntegrationMessageContext ToIntegrationMessage(StoredMessage message) => new(
@@ -230,7 +317,7 @@ public sealed class MessageService(
             message.ConnectionId,
             message.Role,
             message.Content,
-            files.GetForConnection(message.FileIds, message.ConnectionId)
+            files.GetMany(message.FileIds)
                 .Select(FileStore.ToApi)
                 .ToArray(),
             message.Status,

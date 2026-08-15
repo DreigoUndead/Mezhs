@@ -157,7 +157,6 @@ export default function App() {
 
   function changeConnection(id: string) {
     setConnectionId(id);
-    newChat(newChatCategoryId);
   }
 
   async function submit(event?: FormEvent) {
