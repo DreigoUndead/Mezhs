@@ -1,0 +1,32 @@
+name: Profile Regression CI
+
+on:
+  push:
+    branches:
+      - agent/integration-architecture
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build
+        run: dotnet build Mezhs.sln -c Release
+      - name: Account login flow
+        run: powershell -ExecutionPolicy Bypass -File tests/account-login-flow.ps1
+      - name: Stable profile identity
+        run: powershell -ExecutionPolicy Bypass -File tests/profile-identity.ps1
+      - name: Architecture
+        run: powershell -ExecutionPolicy Bypass -File tests/architecture.ps1
+      - name: API smoke
+        run: powershell -ExecutionPolicy Bypass -File tests/api-smoke.ps1
+      - name: Install Electron
+        run: npm ci --prefix electron
+      - name: Login window visibility
+        run: powershell -ExecutionPolicy Bypass -File tests/electron-login-visibility.ps1
