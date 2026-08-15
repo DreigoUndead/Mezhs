@@ -10,6 +10,8 @@
   <ItemGroup>
     <Content Remove="ClientApp\**" />
     <None Include="ClientApp\**" Exclude="ClientApp\node_modules\**;ClientApp\dist\**" />
+    <UpToDateCheckInput Include="$(FrontendRoot)src\**\*;$(FrontendRoot)index.html;$(FrontendRoot)package.json;$(FrontendRoot)package-lock.json;$(FrontendRoot)tsconfig.json;$(FrontendRoot)vite.config.*" />
+    <UpToDateCheckOutput Include="$(FrontendRoot)dist\index.html" />
   </ItemGroup>
 
   <Target Name="BuildFrontend" BeforeTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
