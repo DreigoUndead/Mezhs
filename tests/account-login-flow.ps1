@@ -32,7 +32,7 @@ try
 {
     await TestAutomaticLoginAsync(Path.Combine(root, "automatic"));
     await TestExplicitLoginAsync(Path.Combine(root, "explicit"));
-    Console.WriteLine("PASS: ChatGPT account requests interactive login when hidden authorization is required, and explicit login starts visible.");
+    Console.WriteLine("PASS: ChatGPT account keeps hidden automation normal and disables WebAuthn only for interactive login.");
 }
 finally
 {
@@ -60,8 +60,10 @@ static async Task TestAutomaticLoginAsync(string root)
     Assert(host.Initializations.Count == 2, $"expected hidden check + visible login, got {host.Initializations.Count} initializations");
     Assert(!host.Initializations[0].ShowBrowser, "authorization check unexpectedly started visible");
     Assert(host.Initializations[0].RequireAuthorization, "hidden account start did not require authorization");
+    Assert(!host.Initializations[0].DisableWebAuthn, "normal hidden account automation unexpectedly disabled WebAuthn");
     Assert(host.Initializations[1].ShowBrowser, "authorization requirement did not transition to visible login");
     Assert(host.Initializations[1].RequireAuthorization, "visible login did not require authorization");
+    Assert(host.Initializations[1].DisableWebAuthn, "interactive login did not disable WebAuthn");
     Assert(host.PromptCount == 1, $"expected one prompt after login, got {host.PromptCount}");
 }
 
@@ -74,6 +76,7 @@ static async Task TestExplicitLoginAsync(string root)
     Assert(host.Initializations.Count == 1, $"expected one explicit login initialization, got {host.Initializations.Count}");
     Assert(host.Initializations[0].ShowBrowser, "explicit login did not start visible");
     Assert(host.Initializations[0].RequireAuthorization, "explicit login did not require authorization");
+    Assert(host.Initializations[0].DisableWebAuthn, "explicit login did not disable WebAuthn");
 }
 
 static void Assert(bool condition, string message)

@@ -115,6 +115,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
             await EnsureTransportAsync(
                 showBrowser: false,
                 requireAuthorization: true,
+                disableWebAuthn: false,
                 cancellationToken);
         }
         catch (BrowserAuthorizationRequiredException)
@@ -133,12 +134,14 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         await EnsureTransportAsync(
             showBrowser: true,
             requireAuthorization: true,
+            disableWebAuthn: true,
             cancellationToken);
     }
 
     private async Task EnsureTransportAsync(
         bool showBrowser,
         bool requireAuthorization,
+        bool disableWebAuthn,
         CancellationToken cancellationToken)
     {
         if (_transport is not null) return;
@@ -148,7 +151,8 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
             await _transport.InitializeAsync(TransportOptions(
                 PersistentProfilePath,
                 showBrowser,
-                requireAuthorization), cancellationToken);
+                requireAuthorization,
+                disableWebAuthn), cancellationToken);
         }
         catch
         {

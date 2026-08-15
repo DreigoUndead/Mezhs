@@ -57,6 +57,7 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         startInfo.Environment["MEZHS_SHOW_BROWSER"] = options.ShowBrowser ? "1" : "0";
         startInfo.Environment["MEZHS_BROWSER_MODULE"] = Path.GetFullPath(options.ModulePath);
         startInfo.Environment["MEZHS_REQUIRE_AUTHORIZATION"] = options.RequireAuthorization ? "1" : "0";
+        startInfo.Environment["MEZHS_DISABLE_WEBAUTHN"] = options.DisableWebAuthn ? "1" : "0";
         startInfo.Environment["MEZHS_PARENT_PROCESS_ID"] = Environment.ProcessId.ToString();
 
         _process = Process.Start(startInfo)
