@@ -88,24 +88,24 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         throw new InvalidOperationException($"Electron bridge failed: {detail}");
     }
 
-    public async Task<BrowserWebResponse> SendWebRequestAsync(
-        BrowserWebRequest request,
+    public async Task<TResult> InvokeAsync<TResult>(
+        string operation,
+        object? arguments = null,
         CancellationToken cancellationToken = default)
     {
         EnsureRunning();
         using var response = await _http.PostAsJsonAsync(
-            "fetch",
-            request,
+            "invoke",
+            new { operation, arguments },
             JsonOptions,
             cancellationToken);
-        var result = await response.Content.ReadFromJsonAsync<BrowserWebResponse>(
-            JsonOptions,
-            cancellationToken);
-        if (response.IsSuccessStatusCode && result is not null)
-            return result;
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(
+                $"Electron provider operation failed: {await response.Content.ReadAsStringAsync(cancellationToken)}");
 
-        var detail = await response.Content.ReadAsStringAsync(cancellationToken);
-        throw new InvalidOperationException($"Electron web request failed: {detail}");
+        return await response.Content.ReadFromJsonAsync<TResult>(JsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Electron provider operation '{operation}' returned no result.");
     }
 
     public async Task ShowAsync(CancellationToken cancellationToken = default)
