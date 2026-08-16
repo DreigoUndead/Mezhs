@@ -44,6 +44,7 @@ interface InitializationContext {
 }
 
 interface WebRequestContext {
+  window: BrowserWindow;
   target: string;
   headers: Headers;
 }
