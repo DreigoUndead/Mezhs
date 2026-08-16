@@ -108,11 +108,9 @@ async function sendAccountMessage({ session, args, sleep }, isNew) {
       conversation_mode_kind: projectMode ? "gizmo_interaction" : "primary_assistant"
     })
   });
-  if (requirements?.proofofwork?.required ||
-      requirements?.arkose?.required ||
-      requirements?.turnstile?.required ||
-      requirements?.so?.required)
-    throw new Error("ChatGPT requires an unsupported Sentinel challenge for this request.");
+  const challenges = requiredSentinelChallenges(requirements);
+  if (challenges.length)
+    throw new Error(`ChatGPT requires Sentinel challenge(s): ${challenges.join(", ")}.`);
 
   const uploaded = await uploadFiles(session, token, args.files || []);
   const messageId = randomUUID();
@@ -180,6 +178,15 @@ async function sendAccountMessage({ session, args, sleep }, isNew) {
     chatUrl: `${ORIGIN}/c/${conversationId}`,
     artifacts: await downloadFiles(session, token, result.files)
   };
+}
+
+function requiredSentinelChallenges(requirements) {
+  const challenges = [];
+  if (requirements?.proofofwork?.required) challenges.push("proof-of-work");
+  if (requirements?.arkose?.required) challenges.push("Arkose");
+  if (requirements?.turnstile?.required) challenges.push("Turnstile");
+  if (requirements?.so?.required) challenges.push("so");
+  return challenges;
 }
 
 async function accessToken(session) {
