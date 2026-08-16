@@ -38,7 +38,7 @@ function loadBrowserModule(modulePath) {
     throw new Error("Browser module path is required.");
   const resolved = path.resolve(modulePath);
   const implementation = require(resolved);
-  if (!implementation?.homeUrl || typeof implementation.sendPrompt !== "function")
+  if (!implementation?.homeUrl || !implementation.operations)
     throw new Error(`Browser module '${resolved}' is incomplete.`);
   return implementation;
 }
@@ -115,17 +115,10 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
   return { ready: true };
 }
 
-async function sendPrompt(request) {
-  if (!window || !browserModule) throw new Error("Electron browser is not initialized.");
-  const result = await browserModule.sendPrompt({ window, request, sleep });
-  result.chatUrl = result.chatUrl || window.webContents.getURL();
-  return result;
-}
-
 function invokeProvider({ operation, arguments: args }) {
   if (!window || !browserModule || !activeSession)
     throw new Error("Electron browser is not initialized.");
-  const method = browserModule.operations?.[operation];
+  const method = browserModule.operations[operation];
   if (typeof method !== "function")
     throw new Error(`${browserModule.name} does not support provider operation '${operation}'.`);
   return method({ window, session: activeSession, args: args ?? {}, sleep });
@@ -158,13 +151,7 @@ let operationQueue = Promise.resolve();
 async function start() {
   const server = http.createServer(async (request, response) => {
     try {
-      if (request.method === "POST" && request.url === "/prompt") {
-        const body = await readJson(request);
-        const result = await (operationQueue = operationQueue
-          .catch(() => {})
-          .then(() => sendPrompt(body)));
-        writeJson(response, 200, result);
-      } else if (request.method === "POST" && request.url === "/invoke") {
+      if (request.method === "POST" && request.url === "/invoke") {
         const body = await readJson(request);
         const result = await (operationQueue = operationQueue
           .catch(() => {})
