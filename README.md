@@ -81,7 +81,7 @@ integrations/Mezhs.Integrations.ChatGpt/
    `- tsconfig.json
 ```
 
-`src/Mezhs.Integration.Browser/BrowserModule.d.ts` defines the TypeScript contract between an integration browser module and the generic browser host. Its declarations use local names such as `BrowserModule`, `PromptRequest`, `SendContext`, and `Artifact` because the file is already isolated to the integration typecheck context.
+`src/Mezhs.Integration.Browser/BrowserModule.d.ts` defines the TypeScript contract between an integration browser module and the generic browser host. Its declarations use local names because the file is already isolated to the integration typecheck context.
 
 The integration's `.ts` file is the single source of truth. Browser modules use JavaScript-compatible TypeScript syntax, are typechecked against the shared contract, and are embedded directly into their integration DLL. When a browser session is needed, MEŽS extracts that embedded source into the connection data directory with a `.js` filename and Electron loads it as a CommonJS module. There is deliberately no second committed generated `.js` copy to drift out of sync.
 
@@ -270,6 +270,9 @@ The deterministic suite uses `Mezhs.Integrations.Mock.dll`, which is discovered 
 
 ```powershell
 dotnet build Mezhs.sln -c Release
+npx --yes -p typescript@5.9.2 tsc -p integrations/Mezhs.Integrations.ChatGpt/browser/tsconfig.json
+npx --yes -p typescript@5.9.2 tsc -p integrations/Mezhs.Integrations.Gemini/browser/tsconfig.json
+node --test tests/browser-provider-operations.test.js
 powershell -ExecutionPolicy Bypass -File tests/integration-resources.ps1
 powershell -ExecutionPolicy Bypass -File tests/architecture.ps1
 powershell -ExecutionPolicy Bypass -File tests/api-smoke.ps1
@@ -277,4 +280,4 @@ powershell -ExecutionPolicy Bypass -File tests/account-login-flow.ps1
 powershell -ExecutionPolicy Bypass -File tests/profile-identity.ps1
 ```
 
-`api-smoke.ps1` includes an A → B → A connection regression inside one local chat and verifies that a file uploaded through A can be reused through B. The browser integration sources are typechecked against `src/Mezhs.Integration.Browser/BrowserModule.d.ts`. The architecture test verifies the connection-neutral chat invariant, owned message queue, direct integration registration, concise browser contracts, and that integration-specific behavior does not leak back into Electron, API core, or React.
+`browser-provider-operations.test.js` verifies the single provider-operation bridge plus ChatGPT project discovery, project-scoped first send, continuation semantics, and explicit Sentinel-challenge failure with a mocked Chromium session. `api-smoke.ps1` includes an A → B → A connection regression inside one local chat and verifies that a file uploaded through A can be reused through B. The architecture test verifies the connection-neutral chat invariant, owned message queue, direct integration registration, concise browser contracts, and that integration-specific behavior does not leak back into Electron, API core, or React.
