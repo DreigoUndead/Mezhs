@@ -1,6 +1,6 @@
 ---
 name: software-change
-description: Use for non-trivial implementation, bug fixing, refactoring, architecture work, or code review when existing design matters. Continuously challenge placement, duplication, regression risk, necessity, complexity, abstraction timing, maintainability, interface choice, and architectural fit; then choose reuse, repair, refactor, or redesign. Skip simple syntax/lookups with no codebase context.
+description: Use for non-trivial implementation, bug fixing, refactoring, architecture work, or code review when existing design matters. Continuously challenge placement, duplication, regression risk, necessity, complexity, abstraction timing, maintainability, interface choice, async usage, and architectural fit; then choose reuse, repair, refactor, or redesign. Skip simple syntax/lookups with no codebase context.
 ---
 
 # Software Change
@@ -15,6 +15,7 @@ At meaningful design decisions, challenge the current solution:
 - Does another mechanism already own or duplicate it?
 - Is there a semantic API, protocol, transport, command, or state mechanism that already owns this behavior?
 - Am I reaching for HTML/DOM because it is necessary, or merely because the behavior is visible there?
+- Does this operation actually require async?
 - What could this break?
 - Will this make maintenance harder?
 - Should these parts depend on each other?
@@ -113,6 +114,7 @@ Specifically challenge:
 - premature abstraction;
 - missed opportunities to enforce a shared invariant centrally;
 - unnecessary DOM/UI automation where a semantic interface exists;
+- unnecessary async/await where no asynchronous work or control flow requires it;
 - obsolete code left behind;
 - regression paths;
 - whether a simpler, more elegant design exists.
@@ -130,6 +132,14 @@ HTML/DOM automation is a **last resort**. Use it only when evidence shows that n
 Before adding DOM selectors, click sequences, arbitrary sleeps, or assumptions about page state, inspect the real request/state transition performed by the application. Prefer reproducing that semantic operation directly.
 
 When DOM automation is genuinely unavoidable, keep it isolated at the provider/UI boundary, minimize selectors and timing assumptions, and do not let presentation details become a second source of truth for application behavior.
+
+## Async discipline
+
+Use async only for genuinely asynchronous work or when an asynchronous contract requires it. Do not add `async` merely because a caller is async, because a task-returning API exists, or to make neighboring signatures uniform.
+
+Keep pure parsing, validation, mapping, state inspection, and other synchronous operations synchronous. If a method only forwards an existing `Task` and needs no `await`-dependent control flow, return the task directly rather than creating another async state machine.
+
+Async should express a real wait/lifetime boundary, not become a default coding style.
 
 ## Architectural leverage rule
 
