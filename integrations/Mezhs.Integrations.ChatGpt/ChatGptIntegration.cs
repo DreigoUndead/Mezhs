@@ -122,6 +122,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         if (string.IsNullOrWhiteSpace(projectName))
             return null;
 
+        projectName = projectName.Trim();
         var matches = new HashSet<string>(StringComparer.Ordinal);
         string? cursor = null;
         for (var page = 0; page < 50; page++)
@@ -145,7 +146,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                     if (!TryReadProject(item, out var id, out var name))
                         continue;
                     if (id.StartsWith("g-p-", StringComparison.Ordinal) &&
-                        name.Equals(projectName.Trim(), StringComparison.OrdinalIgnoreCase))
+                        name.Equals(projectName, StringComparison.OrdinalIgnoreCase))
                         matches.Add(id);
                 }
             }
