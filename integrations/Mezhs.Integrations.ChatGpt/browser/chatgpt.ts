@@ -41,148 +41,142 @@ module.exports = {
 
   async sendPrompt({ window, request, sleep }) {
     await navigate({ window, request });
-
-    const projectId = request.newChat && request.workspace
-      ? await resolveProjectId({ window, name: request.workspace })
+    await setFiles({ window, filePaths: request.filePaths, sleep });
+    const projectScope = request.newChat && request.workspaceId
+      ? await interceptProjectConversationMode({ window, projectId: request.workspaceId })
       : null;
-    const projectScope = projectId
-      ? await interceptProjectConversationMode({ window, projectId })
-      : null;
-
+    const prompt = JSON.stringify(String(request.prompt || ""));
     let result;
     try {
-      await setFiles({ window, filePaths: request.filePaths, sleep });
-      const prompt = JSON.stringify(String(request.prompt || ""));
       result = await window.webContents.executeJavaScript(`
-        (async () => {
-          try {
-          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-          const prompt = ${prompt};
-          const assistantSelector = '[data-message-author-role="assistant"]';
-          const beforeCount = document.querySelectorAll(assistantSelector).length;
-          const editorDeadline = Date.now() + 30000;
-          let editor = null;
-          while (!editor && Date.now() < editorDeadline) {
-            editor = document.querySelector('#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]');
-            if (!editor) await sleep(250);
-          }
-          if (!editor)
-            return { ok: false, error: 'ChatGPT prompt editor was not found at ' + location.href };
+      (async () => {
+        try {
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const prompt = ${prompt};
+        const assistantSelector = '[data-message-author-role="assistant"]';
+        const beforeCount = document.querySelectorAll(assistantSelector).length;
+        const editorDeadline = Date.now() + 30000;
+        let editor = null;
+        while (!editor && Date.now() < editorDeadline) {
+          editor = document.querySelector('#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]');
+          if (!editor) await sleep(250);
+        }
+        if (!editor)
+          return { ok: false, error: 'ChatGPT prompt editor was not found at ' + location.href };
 
-          editor.focus();
-          if (editor instanceof HTMLTextAreaElement) {
-            const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
-            setter?.call(editor, prompt);
-            editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
-          } else {
-            document.execCommand('selectAll', false, null);
-            document.execCommand('insertText', false, prompt);
-            editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
-          }
+        editor.focus();
+        if (editor instanceof HTMLTextAreaElement) {
+          const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+          setter?.call(editor, prompt);
+          editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
+        } else {
+          document.execCommand('selectAll', false, null);
+          document.execCommand('insertText', false, prompt);
+          editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
+        }
 
-          const sendDeadline = Date.now() + 90000;
-          let sendButton = null;
-          while (Date.now() < sendDeadline) {
-            sendButton = document.querySelector(
-              'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
-            );
-            if (sendButton && !sendButton.disabled) break;
-            await sleep(250);
-          }
-          if (!sendButton || sendButton.disabled)
-            return { ok: false, error: 'ChatGPT send button did not become available.' };
-          sendButton.click();
+        const sendDeadline = Date.now() + 90000;
+        let sendButton = null;
+        while (Date.now() < sendDeadline) {
+          sendButton = document.querySelector(
+            'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
+          );
+          if (sendButton && !sendButton.disabled) break;
+          await sleep(250);
+        }
+        if (!sendButton || sendButton.disabled)
+          return { ok: false, error: 'ChatGPT send button did not become available.' };
+        sendButton.click();
 
-          const startedDeadline = Date.now() + 45000;
-          while (Date.now() < startedDeadline) {
-            if (document.querySelectorAll(assistantSelector).length > beforeCount) break;
-            const visibleError = document.querySelector('[role="alert"]')?.innerText?.trim();
-            if (visibleError) return { ok: false, error: visibleError };
-            await sleep(250);
-          }
+        const startedDeadline = Date.now() + 45000;
+        while (Date.now() < startedDeadline) {
+          if (document.querySelectorAll(assistantSelector).length > beforeCount) break;
+          const visibleError = document.querySelector('[role="alert"]')?.innerText?.trim();
+          if (visibleError) return { ok: false, error: visibleError };
+          await sleep(250);
+        }
 
-          let lastText = '';
-          let lastSignature = '';
-          let stableSamples = 0;
-          const responseDeadline = Date.now() + 240000;
-          while (Date.now() < responseDeadline) {
-            const messages = document.querySelectorAll(assistantSelector);
-            const latest = messages[messages.length - 1];
-            const text = latest?.innerText?.trim() || '';
-            const stopButton = document.querySelector(
-              'button[data-testid="stop-button"], button[aria-label="Stop streaming"]'
-            );
-            const artifacts = collectArtifacts(latest);
-            const downloadButtons = [...(latest?.querySelectorAll('button.behavior-btn[aria-label]') || [])]
-              .map(button => button.getAttribute('aria-label'))
-              .filter(Boolean);
-            const signature = JSON.stringify({
+        let lastText = '';
+        let lastSignature = '';
+        let stableSamples = 0;
+        const responseDeadline = Date.now() + 240000;
+        while (Date.now() < responseDeadline) {
+          const messages = document.querySelectorAll(assistantSelector);
+          const latest = messages[messages.length - 1];
+          const text = latest?.innerText?.trim() || '';
+          const stopButton = document.querySelector(
+            'button[data-testid="stop-button"], button[aria-label="Stop streaming"]'
+          );
+          const artifacts = collectArtifacts(latest);
+          const downloadButtons = [...(latest?.querySelectorAll('button.behavior-btn[aria-label]') || [])]
+            .map(button => button.getAttribute('aria-label'))
+            .filter(Boolean);
+          const signature = JSON.stringify({
+            text,
+            artifacts: artifacts.map(artifact => artifact.url),
+            downloadButtons
+          });
+          if (signature === lastSignature) stableSamples++;
+          else stableSamples = 0;
+          lastText = text;
+          lastSignature = signature;
+          if ((text || artifacts.length || downloadButtons.length) &&
+              !stopButton && stableSamples >= 6) {
+            return {
+              ok: true,
               text,
-              artifacts: artifacts.map(artifact => artifact.url),
+              artifacts,
               downloadButtons
-            });
-            if (signature === lastSignature) stableSamples++;
-            else stableSamples = 0;
-            lastText = text;
-            lastSignature = signature;
-            if ((text || artifacts.length || downloadButtons.length) &&
-                !stopButton && stableSamples >= 6) {
-              return {
-                ok: true,
-                text,
-                artifacts,
-                downloadButtons
-              };
-            }
-            await sleep(500);
+            };
           }
+          await sleep(500);
+        }
+        return {
+          ok: false,
+          text: lastText,
+          error: lastText
+            ? 'Timed out while waiting for ChatGPT to finish.'
+            : 'ChatGPT did not produce an assistant response.'
+        };
+
+        function collectArtifacts(container) {
+          if (!container) return [];
+          const artifacts = [];
+          const seen = new Set();
+          const add = (url, name, contentType) => {
+            if (!url || seen.has(url)) return;
+            seen.add(url);
+            artifacts.push({ url, name: name || 'download', contentType: contentType || null });
+          };
+          for (const anchor of container.querySelectorAll('a[href]')) {
+            const href = anchor.href || anchor.getAttribute('href') || '';
+            if (!anchor.hasAttribute('download') &&
+                !/backend-api\\/files|oaiusercontent|sandbox:|\\/mnt\\/data/i.test(href)) continue;
+            add(href, anchor.getAttribute('download') || anchor.textContent?.trim(), null);
+          }
+          for (const image of container.querySelectorAll('img[src]')) {
+            const src = image.currentSrc || image.src;
+            if ((image.naturalWidth || 0) < 96 && !/backend-api|oaiusercontent/i.test(src)) continue;
+            add(src, image.alt?.trim() || 'image.png', 'image/png');
+          }
+          for (const element of container.querySelectorAll('[data-download-url], [data-file-url]')) {
+            const url = element.getAttribute('data-download-url') || element.getAttribute('data-file-url');
+            add(url, element.getAttribute('download') || element.textContent?.trim(), null);
+          }
+          return artifacts;
+        }
+        } catch (error) {
           return {
             ok: false,
-            text: lastText,
-            error: lastText
-              ? 'Timed out while waiting for ChatGPT to finish.'
-              : 'ChatGPT did not produce an assistant response.'
+            error: 'ChatGPT page automation failed: ' + String(error?.stack || error)
           };
-
-          function collectArtifacts(container) {
-            if (!container) return [];
-            const artifacts = [];
-            const seen = new Set();
-            const add = (url, name, contentType) => {
-              if (!url || seen.has(url)) return;
-              seen.add(url);
-              artifacts.push({ url, name: name || 'download', contentType: contentType || null });
-            };
-            for (const anchor of container.querySelectorAll('a[href]')) {
-              const href = anchor.href || anchor.getAttribute('href') || '';
-              if (!anchor.hasAttribute('download') &&
-                  !/backend-api\\/files|oaiusercontent|sandbox:|\\/mnt\\/data/i.test(href)) continue;
-              add(href, anchor.getAttribute('download') || anchor.textContent?.trim(), null);
-            }
-            for (const image of container.querySelectorAll('img[src]')) {
-              const src = image.currentSrc || image.src;
-              if ((image.naturalWidth || 0) < 96 && !/backend-api|oaiusercontent/i.test(src)) continue;
-              add(src, image.alt?.trim() || 'image.png', 'image/png');
-            }
-            for (const element of container.querySelectorAll('[data-download-url], [data-file-url]')) {
-              const url = element.getAttribute('data-download-url') || element.getAttribute('data-file-url');
-              add(url, element.getAttribute('download') || element.textContent?.trim(), null);
-            }
-            return artifacts;
-          }
-          } catch (error) {
-            return {
-              ok: false,
-              error: 'ChatGPT page automation failed: ' + String(error?.stack || error)
-            };
-          }
-        })()
-      `, true);
+        }
+      })()
+    `, true);
     } finally {
       if (projectScope)
         await projectScope.dispose();
     }
-
     if (result.ok && projectScope?.error) {
       return {
         ok: false,
@@ -196,12 +190,6 @@ module.exports = {
         error: 'ChatGPT did not send a conversation request that could be assigned to the configured project.'
       };
     }
-    if (result.ok && projectId) {
-      const verification = await verifyProjectConversation({ window, projectId, sleep });
-      if (!verification.ok)
-        return verification;
-    }
-
     if (result.ok && Array.isArray(result.downloadButtons)) {
       result.artifacts ||= [];
       for (const name of result.downloadButtons) {
@@ -216,72 +204,6 @@ module.exports = {
     return result;
   }
 };
-
-async function resolveProjectId({ window, name }) {
-  const requestedName = JSON.stringify(String(name));
-  const result = await window.webContents.executeJavaScript(`
-    (async () => {
-      try {
-        const wanted = ${requestedName}.trim().toLocaleLowerCase();
-        const sessionResponse = await fetch('/api/auth/session', {
-          credentials: 'include',
-          cache: 'no-store'
-        });
-        if (!sessionResponse.ok)
-          return { ok: false, error: 'ChatGPT session request failed with HTTP ' + sessionResponse.status };
-        const session = await sessionResponse.json();
-        if (!session?.accessToken)
-          return { ok: false, error: 'ChatGPT session did not contain an access token.' };
-
-        const headers = { Authorization: 'Bearer ' + session.accessToken };
-        const matches = [];
-        let cursor = null;
-        for (let page = 0; page < 50; page++) {
-          const url = new URL('/backend-api/gizmos/snorlax/sidebar', location.origin);
-          url.searchParams.set('conversations_per_gizmo', '0');
-          if (cursor) url.searchParams.set('cursor', cursor);
-          const response = await fetch(url, {
-            headers,
-            credentials: 'include',
-            cache: 'no-store'
-          });
-          if (!response.ok)
-            return { ok: false, error: 'ChatGPT project list failed with HTTP ' + response.status };
-          const data = await response.json();
-          for (const item of data?.items || []) {
-            const gizmo = item?.gizmo?.gizmo || item?.gizmo;
-            const id = String(gizmo?.id || '');
-            const displayName = String(gizmo?.display?.name || '').trim().toLocaleLowerCase();
-            if (id.startsWith('g-p-') && displayName === wanted)
-              matches.push(id);
-          }
-          cursor = data?.cursor || null;
-          if (!cursor) break;
-        }
-
-        const unique = [...new Set(matches)];
-        return {
-          ok: true,
-          projectId: unique.length === 1 ? unique[0] : null,
-          matchCount: unique.length
-        };
-      } catch (error) {
-        return { ok: false, error: String(error?.stack || error) };
-      }
-    })()
-  `, true);
-
-  if (!result?.ok)
-    throw new Error(result?.error || 'Could not resolve ChatGPT project.');
-  if (result.matchCount === 1)
-    return result.projectId;
-
-  if (result.matchCount > 1)
-    console.error(`ChatGPT project '${name}' is ambiguous; using no project.`);
-  else
-    console.error(`ChatGPT project '${name}' was not found; using no project.`);
-  return null;
-}
 
 async function interceptProjectConversationMode({ window, projectId }) {
   const debuggerApi = window.webContents.debugger;
@@ -301,7 +223,7 @@ async function interceptProjectConversationMode({ window, projectId }) {
         let body = null;
         try { body = JSON.parse(request.postData); }
         catch { }
-        if (body?.conversation_mode) {
+        if (body && typeof body === 'object' && !Array.isArray(body)) {
           body.conversation_mode = {
             kind: 'gizmo_interaction',
             gizmo_id: projectId
@@ -344,60 +266,6 @@ async function interceptProjectConversationMode({ window, projectId }) {
       catch { }
     }
   };
-}
-
-async function verifyProjectConversation({ window, projectId, sleep }) {
-  let conversationId = null;
-  const deadline = Date.now() + 15000;
-  while (!conversationId && Date.now() < deadline) {
-    const match = /\/c\/([^/?#]+)/.exec(window.webContents.getURL());
-    conversationId = match?.[1] || null;
-    if (!conversationId) await sleep(250);
-  }
-  if (!conversationId) {
-    return {
-      ok: false,
-      error: 'ChatGPT created a response but the conversation URL was not available for project verification.'
-    };
-  }
-
-  const id = JSON.stringify(conversationId);
-  const verification = await window.webContents.executeJavaScript(`
-    (async () => {
-      try {
-        const sessionResponse = await fetch('/api/auth/session', {
-          credentials: 'include',
-          cache: 'no-store'
-        });
-        if (!sessionResponse.ok)
-          return { ok: false, error: 'ChatGPT session request failed with HTTP ' + sessionResponse.status };
-        const session = await sessionResponse.json();
-        if (!session?.accessToken)
-          return { ok: false, error: 'ChatGPT session did not contain an access token.' };
-        const response = await fetch('/backend-api/conversation/' + encodeURIComponent(${id}), {
-          headers: { Authorization: 'Bearer ' + session.accessToken },
-          credentials: 'include',
-          cache: 'no-store'
-        });
-        if (!response.ok)
-          return { ok: false, error: 'ChatGPT conversation verification failed with HTTP ' + response.status };
-        const conversation = await response.json();
-        return { ok: true, gizmoId: conversation?.gizmo_id || null };
-      } catch (error) {
-        return { ok: false, error: String(error?.stack || error) };
-      }
-    })()
-  `, true);
-
-  if (!verification?.ok)
-    return { ok: false, error: verification?.error || 'Could not verify ChatGPT project membership.' };
-  if (verification.gizmoId !== projectId) {
-    return {
-      ok: false,
-      error: `ChatGPT conversation was created outside the configured project (expected ${projectId}, got ${verification.gizmoId || 'no project'}).`
-    };
-  }
-  return { ok: true };
 }
 
 async function downloadButtonArtifact({ window, name }) {
