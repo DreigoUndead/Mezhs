@@ -32,146 +32,138 @@ module.exports = {
   async sendPrompt({ window, request, sleep }) {
     await navigate({ window, request });
     await setFiles({ window, filePaths: request.filePaths, sleep });
-
     const projectId = request.newChat && request.workspace
       ? await resolveProjectId(window, request.workspace)
       : null;
     const projectRequest = projectId
       ? await applyProjectToConversationRequest(window, projectId)
       : null;
-
     const prompt = JSON.stringify(String(request.prompt || ""));
-    let result;
-    try {
-      result = await window.webContents.executeJavaScript(`
-        (async () => {
-          try {
-          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-          const prompt = ${prompt};
-          const assistantSelector = '[data-message-author-role="assistant"]';
-          const beforeCount = document.querySelectorAll(assistantSelector).length;
-          const editorDeadline = Date.now() + 30000;
-          let editor = null;
-          while (!editor && Date.now() < editorDeadline) {
-            editor = document.querySelector('#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]');
-            if (!editor) await sleep(250);
-          }
-          if (!editor)
-            return { ok: false, error: 'ChatGPT prompt editor was not found at ' + location.href };
+    const result = await window.webContents.executeJavaScript(`
+      (async () => {
+        try {
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const prompt = ${prompt};
+        const assistantSelector = '[data-message-author-role="assistant"]';
+        const beforeCount = document.querySelectorAll(assistantSelector).length;
+        const editorDeadline = Date.now() + 30000;
+        let editor = null;
+        while (!editor && Date.now() < editorDeadline) {
+          editor = document.querySelector('#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]');
+          if (!editor) await sleep(250);
+        }
+        if (!editor)
+          return { ok: false, error: 'ChatGPT prompt editor was not found at ' + location.href };
 
-          editor.focus();
-          if (editor instanceof HTMLTextAreaElement) {
-            const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
-            setter?.call(editor, prompt);
-            editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
-          } else {
-            document.execCommand('selectAll', false, null);
-            document.execCommand('insertText', false, prompt);
-            editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
-          }
+        editor.focus();
+        if (editor instanceof HTMLTextAreaElement) {
+          const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+          setter?.call(editor, prompt);
+          editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
+        } else {
+          document.execCommand('selectAll', false, null);
+          document.execCommand('insertText', false, prompt);
+          editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
+        }
 
-          const sendDeadline = Date.now() + 90000;
-          let sendButton = null;
-          while (Date.now() < sendDeadline) {
-            sendButton = document.querySelector(
-              'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
-            );
-            if (sendButton && !sendButton.disabled) break;
-            await sleep(250);
-          }
-          if (!sendButton || sendButton.disabled)
-            return { ok: false, error: 'ChatGPT send button did not become available.' };
-          sendButton.click();
+        const sendDeadline = Date.now() + 90000;
+        let sendButton = null;
+        while (Date.now() < sendDeadline) {
+          sendButton = document.querySelector(
+            'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
+          );
+          if (sendButton && !sendButton.disabled) break;
+          await sleep(250);
+        }
+        if (!sendButton || sendButton.disabled)
+          return { ok: false, error: 'ChatGPT send button did not become available.' };
+        sendButton.click();
 
-          const startedDeadline = Date.now() + 45000;
-          while (Date.now() < startedDeadline) {
-            if (document.querySelectorAll(assistantSelector).length > beforeCount) break;
-            const visibleError = document.querySelector('[role="alert"]')?.innerText?.trim();
-            if (visibleError) return { ok: false, error: visibleError };
-            await sleep(250);
-          }
+        const startedDeadline = Date.now() + 45000;
+        while (Date.now() < startedDeadline) {
+          if (document.querySelectorAll(assistantSelector).length > beforeCount) break;
+          const visibleError = document.querySelector('[role="alert"]')?.innerText?.trim();
+          if (visibleError) return { ok: false, error: visibleError };
+          await sleep(250);
+        }
 
-          let lastText = '';
-          let lastSignature = '';
-          let stableSamples = 0;
-          const responseDeadline = Date.now() + 240000;
-          while (Date.now() < responseDeadline) {
-            const messages = document.querySelectorAll(assistantSelector);
-            const latest = messages[messages.length - 1];
-            const text = latest?.innerText?.trim() || '';
-            const stopButton = document.querySelector(
-              'button[data-testid="stop-button"], button[aria-label="Stop streaming"]'
-            );
-            const artifacts = collectArtifacts(latest);
-            const downloadButtons = [...(latest?.querySelectorAll('button.behavior-btn[aria-label]') || [])]
-              .map(button => button.getAttribute('aria-label'))
-              .filter(Boolean);
-            const signature = JSON.stringify({
+        let lastText = '';
+        let lastSignature = '';
+        let stableSamples = 0;
+        const responseDeadline = Date.now() + 240000;
+        while (Date.now() < responseDeadline) {
+          const messages = document.querySelectorAll(assistantSelector);
+          const latest = messages[messages.length - 1];
+          const text = latest?.innerText?.trim() || '';
+          const stopButton = document.querySelector(
+            'button[data-testid="stop-button"], button[aria-label="Stop streaming"]'
+          );
+          const artifacts = collectArtifacts(latest);
+          const downloadButtons = [...(latest?.querySelectorAll('button.behavior-btn[aria-label]') || [])]
+            .map(button => button.getAttribute('aria-label'))
+            .filter(Boolean);
+          const signature = JSON.stringify({
+            text,
+            artifacts: artifacts.map(artifact => artifact.url),
+            downloadButtons
+          });
+          if (signature === lastSignature) stableSamples++;
+          else stableSamples = 0;
+          lastText = text;
+          lastSignature = signature;
+          if ((text || artifacts.length || downloadButtons.length) &&
+              !stopButton && stableSamples >= 6) {
+            return {
+              ok: true,
               text,
-              artifacts: artifacts.map(artifact => artifact.url),
+              artifacts,
               downloadButtons
-            });
-            if (signature === lastSignature) stableSamples++;
-            else stableSamples = 0;
-            lastText = text;
-            lastSignature = signature;
-            if ((text || artifacts.length || downloadButtons.length) &&
-                !stopButton && stableSamples >= 6) {
-              return {
-                ok: true,
-                text,
-                artifacts,
-                downloadButtons
-              };
-            }
-            await sleep(500);
+            };
           }
+          await sleep(500);
+        }
+        return {
+          ok: false,
+          text: lastText,
+          error: lastText
+            ? 'Timed out while waiting for ChatGPT to finish.'
+            : 'ChatGPT did not produce an assistant response.'
+        };
+
+        function collectArtifacts(container) {
+          if (!container) return [];
+          const artifacts = [];
+          const seen = new Set();
+          const add = (url, name, contentType) => {
+            if (!url || seen.has(url)) return;
+            seen.add(url);
+            artifacts.push({ url, name: name || 'download', contentType: contentType || null });
+          };
+          for (const anchor of container.querySelectorAll('a[href]')) {
+            const href = anchor.href || anchor.getAttribute('href') || '';
+            if (!anchor.hasAttribute('download') &&
+                !/backend-api\\/files|oaiusercontent|sandbox:|\\/mnt\\/data/i.test(href)) continue;
+            add(href, anchor.getAttribute('download') || anchor.textContent?.trim(), null);
+          }
+          for (const image of container.querySelectorAll('img[src]')) {
+            const src = image.currentSrc || image.src;
+            if ((image.naturalWidth || 0) < 96 && !/backend-api|oaiusercontent/i.test(src)) continue;
+            add(src, image.alt?.trim() || 'image.png', 'image/png');
+          }
+          for (const element of container.querySelectorAll('[data-download-url], [data-file-url]')) {
+            const url = element.getAttribute('data-download-url') || element.getAttribute('data-file-url');
+            add(url, element.getAttribute('download') || element.textContent?.trim(), null);
+          }
+          return artifacts;
+        }
+        } catch (error) {
           return {
             ok: false,
-            text: lastText,
-            error: lastText
-              ? 'Timed out while waiting for ChatGPT to finish.'
-              : 'ChatGPT did not produce an assistant response.'
+            error: 'ChatGPT page automation failed: ' + String(error?.stack || error)
           };
-
-          function collectArtifacts(container) {
-            if (!container) return [];
-            const artifacts = [];
-            const seen = new Set();
-            const add = (url, name, contentType) => {
-              if (!url || seen.has(url)) return;
-              seen.add(url);
-              artifacts.push({ url, name: name || 'download', contentType: contentType || null });
-            };
-            for (const anchor of container.querySelectorAll('a[href]')) {
-              const href = anchor.href || anchor.getAttribute('href') || '';
-              if (!anchor.hasAttribute('download') &&
-                  !/backend-api\\/files|oaiusercontent|sandbox:|\\/mnt\\/data/i.test(href)) continue;
-              add(href, anchor.getAttribute('download') || anchor.textContent?.trim(), null);
-            }
-            for (const image of container.querySelectorAll('img[src]')) {
-              const src = image.currentSrc || image.src;
-              if ((image.naturalWidth || 0) < 96 && !/backend-api|oaiusercontent/i.test(src)) continue;
-              add(src, image.alt?.trim() || 'image.png', 'image/png');
-            }
-            for (const element of container.querySelectorAll('[data-download-url], [data-file-url]')) {
-              const url = element.getAttribute('data-download-url') || element.getAttribute('data-file-url');
-              add(url, element.getAttribute('download') || element.textContent?.trim(), null);
-            }
-            return artifacts;
-          }
-          } catch (error) {
-            return {
-              ok: false,
-              error: 'ChatGPT page automation failed: ' + String(error?.stack || error)
-            };
-          }
-        })()
-      `, true);
-    } finally {
-      if (projectRequest) await projectRequest.dispose();
-    }
-
+        }
+      })()
+    `, true).finally(() => projectRequest?.dispose());
     if (result.ok && projectRequest) {
       const projectError = projectRequest.error();
       if (projectError) return { ok: false, error: projectError };
@@ -181,7 +173,6 @@ module.exports = {
         return { ok: false, error: String(error?.message || error) };
       }
     }
-
     if (result.ok && Array.isArray(result.downloadButtons)) {
       result.artifacts ||= [];
       for (const name of result.downloadButtons) {
@@ -274,6 +265,8 @@ async function applyProjectToConversationRequest(window, projectId) {
   const debuggerApi = window.webContents.debugger;
   if (!debuggerApi.isAttached()) debuggerApi.attach("1.3");
 
+  // ChatGPT constructs the complete private conversation request, including
+  // transient request requirements. We change only its semantic project mode.
   const paths = new Set(ENDPOINTS.conversationSend);
   let applied = 0;
   let failure = null;
