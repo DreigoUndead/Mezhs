@@ -110,7 +110,10 @@ module.exports = {
 async function sendAccountMessage({ window, session, args, sleep }, isNew) {
   const token = await requireToken(session);
   const uploaded = await uploadFiles(session, token, args.files || []);
-  const requirements = await apiJson(session, token, API.requirements, { method: "POST" });
+  const requirements = await apiJson(session, token, API.requirements, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" }
+  });
   if (requirements?.arkose?.required)
     throw new Error("ChatGPT requires an Arkose challenge for this request; direct account API send cannot continue.");
 
@@ -184,10 +187,12 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
     ? streamed
     : await waitForConversation(session, token, conversationId, messageId, sleep);
   const refs = new Map([...streamed.files, ...result.files]);
+  const conversation = await apiJson(session, token, API.conversationById(conversationId));
   return {
     text: result.text,
     conversationId,
     parentMessageId: result.parentMessageId,
+    projectId: conversation?.gizmo_id || null,
     chatUrl: `${ORIGIN}/c/${conversationId}`,
     artifacts: await downloadFiles(session, token, refs)
   };
