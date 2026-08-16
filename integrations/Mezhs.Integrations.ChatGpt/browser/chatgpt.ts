@@ -200,7 +200,7 @@ async function requireToken(session) {
 async function apiFetch(session, token, endpoint, options = {}) {
   const response = await session.fetch(ORIGIN + endpoint, {
     ...options,
-    headers: { Authorization: `Bearer ${token}`, ...(options.headers || {}) },
+    headers: { Authorization: `Bearer ${token}`, ...(options["headers"] || {}) },
     credentials: "include",
     cache: "no-store"
   });
@@ -209,7 +209,7 @@ async function apiFetch(session, token, endpoint, options = {}) {
   throw new Error(`ChatGPT ${endpoint} failed with HTTP ${response.status}: ${detail}`);
 }
 
-async function apiJson(session, token, endpoint, options) {
+async function apiJson(session, token, endpoint, options = {}) {
   const response = await apiFetch(session, token, endpoint, options);
   const text = await response.text();
   return text ? JSON.parse(text) : null;
@@ -312,7 +312,7 @@ async function downloadFiles(session, token, refs) {
       const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mezhs-artifact-"));
       const name = path.basename(String(requestedName || "download")) || "download";
       const localPath = path.join(directory, name);
-      await fs.writeFile(localPath, Buffer.from(await response.arrayBuffer()));
+      await fs.writeFile(localPath, new Uint8Array(await response.arrayBuffer()));
       artifacts.push({
         url: download.download_url,
         name,
