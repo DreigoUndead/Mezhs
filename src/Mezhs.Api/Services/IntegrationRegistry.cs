@@ -34,7 +34,7 @@ public sealed class IntegrationRegistry : IAsyncDisposable
         name = integration.Connection.Name,
         integration = integration.Connection.Type,
         requiresLogin = integration.Login is not null,
-        project = integration.Connection.GetSetting("workspace"),
+        workspace = integration.Connection.GetSetting("workspace"),
         capabilities = integration.Capabilities
     }).Cast<object>().ToArray();
 
@@ -50,8 +50,8 @@ public sealed class IntegrationRegistry : IAsyncDisposable
         IReadOnlyDictionary<string, Type> registrations)
     {
         var settings = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        if (!string.IsNullOrWhiteSpace(configured.Project))
-            settings["workspace"] = configured.Project;
+        if (!string.IsNullOrWhiteSpace(configured.Workspace))
+            settings["workspace"] = configured.Workspace;
         var connection = new IntegrationConnection(
             configured.Id,
             configured.Name,
