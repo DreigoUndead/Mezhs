@@ -11,10 +11,6 @@ public interface IChatBrowserTransport : IAsyncDisposable
         BrowserTransportOptions options,
         CancellationToken cancellationToken = default);
 
-    Task<ChatTransportResponse> SendPromptAsync(
-        BrowserPromptRequest request,
-        CancellationToken cancellationToken = default);
-
     Task<TResult> InvokeAsync<TResult>(
         string operation,
         object? arguments = null,
@@ -28,19 +24,6 @@ public sealed record BrowserTransportOptions(
     string ModulePath,
     bool ShowBrowser = false,
     bool RequireAuthorization = false);
-
-public sealed record BrowserPromptRequest(
-    string Prompt,
-    bool NewChat = false,
-    string? ChatUrl = null,
-    IReadOnlyList<string>? FilePaths = null);
-
-public sealed record ChatTransportResponse(
-    bool Ok,
-    string Text = "",
-    string? Error = null,
-    string? ChatUrl = null,
-    IReadOnlyList<BrowserArtifact>? Artifacts = null);
 
 public sealed record BrowserArtifact(
     string Url,
