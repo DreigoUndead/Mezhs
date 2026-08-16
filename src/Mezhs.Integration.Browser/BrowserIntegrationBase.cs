@@ -37,9 +37,10 @@ public abstract class BrowserIntegrationBase(
                 sessionPath,
                 showBrowser: false,
                 requireAuthorization: false), cancellationToken);
-            var response = await transport.SendPromptAsync(new BrowserPromptRequest(
-                ComposeConversation(context),
-                NewChat: true), cancellationToken);
+            var response = await transport.InvokeAsync<BrowserSendResult>(
+                "sendPrompt",
+                new { Prompt = ComposeConversation(context), NewChat = true },
+                cancellationToken);
             if (!response.Ok)
                 throw new InvalidOperationException(response.Error ?? "Anonymous browser request failed.");
             return new IntegrationSendResult(response.Text);
@@ -107,4 +108,9 @@ public abstract class BrowserIntegrationBase(
         _browserModulePath = path;
         return path;
     }
+
+    private sealed record BrowserSendResult(
+        bool Ok,
+        string Text = "",
+        string? Error = null);
 }
