@@ -31,5 +31,5 @@ public sealed class ConnectionOptions
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string Integration { get; set; } = "";
-    public string? Project { get; set; }
+    public string? Workspace { get; set; }
 }
