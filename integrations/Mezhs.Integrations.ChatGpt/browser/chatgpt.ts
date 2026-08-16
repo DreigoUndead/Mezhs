@@ -50,60 +50,60 @@ module.exports = {
 
     send(context) {
       return sendAccountMessage(context, false);
+    },
+
+    // Anonymous ChatGPT has a different protocol. Keep its existing browser path
+    // isolated here; account chats above never inspect or automate the page DOM.
+    async sendPrompt({ window, args }) {
+      if (args.chatUrl) {
+        if (window.webContents.getURL() !== args.chatUrl)
+          await window.loadURL(args.chatUrl);
+      } else if (args.newChat) {
+        await window.loadURL(module.exports.homeUrl);
+      }
+
+      const prompt = JSON.stringify(String(args.prompt || ""));
+      return window.webContents.executeJavaScript(`
+        (async () => {
+          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+          const assistantSelector = '[data-message-author-role="assistant"]';
+          const beforeCount = document.querySelectorAll(assistantSelector).length;
+          let editor = null;
+          for (let i = 0; i < 120 && !editor; i++) {
+            editor = document.querySelector('#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]');
+            if (!editor) await sleep(250);
+          }
+          if (!editor) return { ok: false, error: 'ChatGPT prompt editor was not found.' };
+
+          editor.focus();
+          document.execCommand('selectAll', false, null);
+          document.execCommand('insertText', false, ${prompt});
+          editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
+
+          let send = null;
+          for (let i = 0; i < 360 && (!send || send.disabled); i++) {
+            send = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
+            if (!send || send.disabled) await sleep(250);
+          }
+          if (!send || send.disabled) return { ok: false, error: 'ChatGPT send button did not become available.' };
+          send.click();
+
+          let last = '';
+          let stable = 0;
+          for (let i = 0; i < 480; i++) {
+            const messages = document.querySelectorAll(assistantSelector);
+            const text = messages[messages.length - 1]?.innerText?.trim() || '';
+            const stop = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"]');
+            stable = text && text === last ? stable + 1 : 0;
+            last = text;
+            if (messages.length > beforeCount && text && !stop && stable >= 6)
+              return { ok: true, text };
+            await sleep(500);
+          }
+          return { ok: false, text: last, error: 'ChatGPT response timed out.' };
+        })()
+      `, true);
     }
-  },
-
-  // Anonymous ChatGPT has a different protocol. Keep its existing browser path
-  // isolated here; account chats above never inspect or automate the page DOM.
-  async sendPrompt({ window, request }) {
-    if (request.chatUrl) {
-      if (window.webContents.getURL() !== request.chatUrl)
-        await window.loadURL(request.chatUrl);
-    } else if (request.newChat) {
-      await window.loadURL(module.exports.homeUrl);
-    }
-
-    const prompt = JSON.stringify(String(request.prompt || ""));
-    return await window.webContents.executeJavaScript(`
-      (async () => {
-        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-        const assistantSelector = '[data-message-author-role="assistant"]';
-        const beforeCount = document.querySelectorAll(assistantSelector).length;
-        let editor = null;
-        for (let i = 0; i < 120 && !editor; i++) {
-          editor = document.querySelector('#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]');
-          if (!editor) await sleep(250);
-        }
-        if (!editor) return { ok: false, error: 'ChatGPT prompt editor was not found.' };
-
-        editor.focus();
-        document.execCommand('selectAll', false, null);
-        document.execCommand('insertText', false, ${prompt});
-        editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
-
-        let send = null;
-        for (let i = 0; i < 360 && (!send || send.disabled); i++) {
-          send = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
-          if (!send || send.disabled) await sleep(250);
-        }
-        if (!send || send.disabled) return { ok: false, error: 'ChatGPT send button did not become available.' };
-        send.click();
-
-        let last = '';
-        let stable = 0;
-        for (let i = 0; i < 480; i++) {
-          const messages = document.querySelectorAll(assistantSelector);
-          const text = messages[messages.length - 1]?.innerText?.trim() || '';
-          const stop = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"]');
-          stable = text && text === last ? stable + 1 : 0;
-          last = text;
-          if (messages.length > beforeCount && text && !stop && stable >= 6)
-            return { ok: true, text };
-          await sleep(500);
-        }
-        return { ok: false, text: last, error: 'ChatGPT response timed out.' };
-      })()
-    `, true);
   }
 };
 
