@@ -2,7 +2,7 @@ interface PromptRequest {
   prompt: string;
   newChat?: boolean;
   chatUrl?: string | null;
-  workspaceId?: string | null;
+  workspace?: string | null;
   filePaths?: readonly string[] | null;
 }
 
