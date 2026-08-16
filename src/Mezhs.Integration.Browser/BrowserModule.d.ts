@@ -1,26 +1,3 @@
-interface PromptRequest {
-  prompt: string;
-  newChat?: boolean;
-  chatUrl?: string | null;
-  filePaths?: readonly string[] | null;
-}
-
-interface Artifact {
-  url: string;
-  name: string;
-  contentType?: string | null;
-  localPath?: string | null;
-}
-
-interface SendResult {
-  ok: boolean;
-  text?: string;
-  error?: string;
-  chatUrl?: string;
-  artifacts?: Artifact[];
-  [key: string]: unknown;
-}
-
 interface BrowserWindow {
   loadURL(url: string): Promise<unknown>;
   isVisible(): boolean;
@@ -28,12 +5,6 @@ interface BrowserWindow {
   focus(): void;
   hide(): void;
   webContents: any;
-}
-
-interface SendContext {
-  window: BrowserWindow;
-  request: PromptRequest;
-  sleep(ms: number): Promise<void>;
 }
 
 interface InitializationContext {
@@ -54,11 +25,10 @@ type BrowserOperation = (context: OperationContext) => Promise<unknown>;
 interface BrowserModule {
   readonly name: string;
   readonly homeUrl: string;
-  readonly operations?: Record<string, BrowserOperation>;
+  readonly operations: Record<string, BrowserOperation>;
 
   isAuthorized?(window: BrowserWindow): Promise<boolean>;
   afterInitialize?(context: InitializationContext): Promise<void>;
-  sendPrompt(context: SendContext): Promise<SendResult>;
 }
 
 declare const module: { exports: BrowserModule };
