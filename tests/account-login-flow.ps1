@@ -21,6 +21,7 @@ try {
 "@ | Set-Content -LiteralPath (Join-Path $temp 'Test.csproj') -Encoding UTF8
 
     @'
+using System.Text.Json;
 using Mezhs.Browser;
 using Mezhs.Integrations;
 using Mezhs.Integrations.Browser;
@@ -100,6 +101,8 @@ sealed class FakeHost(string root, bool rejectHiddenAuthorization) : IBrowserInt
 
 sealed class FakeTransport(FakeHost host, bool rejectHiddenAuthorization) : IChatBrowserTransport
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     public string Name => "Fake";
 
     public Task InitializeAsync(BrowserTransportOptions options, CancellationToken cancellationToken = default)
@@ -110,14 +113,23 @@ sealed class FakeTransport(FakeHost host, bool rejectHiddenAuthorization) : ICha
         return Task.CompletedTask;
     }
 
-    public Task<ChatTransportResponse> SendPromptAsync(BrowserPromptRequest request, CancellationToken cancellationToken = default)
+    public Task<TResult> InvokeAsync<TResult>(
+        string operation,
+        object? arguments = null,
+        CancellationToken cancellationToken = default)
     {
         host.PromptCount++;
-        return Task.FromResult(new ChatTransportResponse(true, "ok", ChatUrl: "https://chatgpt.com/c/test"));
+        var json = JsonSerializer.Serialize(new
+        {
+            text = "ok",
+            conversationId = "test",
+            parentMessageId = "assistant",
+            chatUrl = "https://chatgpt.com/c/test",
+            projectId = (string?)null,
+            artifacts = Array.Empty<BrowserArtifact>()
+        }, JsonOptions);
+        return Task.FromResult(JsonSerializer.Deserialize<TResult>(json, JsonOptions)!);
     }
-
-    public Task<BrowserWebResponse> SendWebRequestAsync(BrowserWebRequest request, CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException();
 
     public Task ShowAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
