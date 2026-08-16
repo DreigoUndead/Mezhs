@@ -2,7 +2,7 @@
 
 These skills are intentionally small and composable.
 
-- `repository-change-workflow` — mandatory workflow gate for every repository modification. Each requested change starts on a fresh branch and may be merged only after the user reviews the completed change and explicitly approves the merge.
+- `repository-change-workflow` — mandatory workflow gate for every repository modification. Each reviewable task stays on one branch and may be merged only after the user reviews the completed change and explicitly approves the merge.
 - `software-change` — engineering/design judgment for non-trivial implementation, refactoring, architecture work, and code review. It continuously challenges ownership, duplication, regression risk, necessity, complexity, abstraction timing, maintainability, interface choice, and elegance, then chooses Reuse / Repair / Refactor / Redesign.
 - `systematic-debugging` — evidence-first root-cause investigation for bugs and unexpected behavior. Once the cause is established, it hands the scope decision back to `software-change`.
 
@@ -12,9 +12,9 @@ There is deliberately no eFlex-specific skill in this repository. eFlex was used
 
 Every modification to this repository — code, configuration, tests, documentation, tooling, or `.agents` content — must follow `repository-change-workflow`.
 
-A fresh branch must be created for each requested change. Never modify or commit directly to `main`, and do not reuse a branch from an earlier change request.
+Use one branch for the complete reviewable task. Keep all related code, configuration, tests, documentation, tooling, agent-rule edits, and review revisions for that task on that branch so the user can compare that single branch against `main`. Do not create separate branches for individual files or incidental parts of the same change. Start a different branch only for a genuinely separate task or when the user explicitly asks to split the work.
 
-After the change is implemented and verified, open a pull request for review and stop. Do not merge it automatically. A merge is allowed only after the user has had the completed diff/PR available to review and then explicitly approves merging it. The original request to implement, fix, refactor, or add something is authorization to prepare the change, not authorization to merge it.
+After the change is implemented and verified, open or update one pull request for review and stop. Do not merge it automatically. A merge is allowed only after the user has had the completed diff/PR available to review and then explicitly approves merging it. The original request to implement, fix, refactor, or add something is authorization to prepare the change, not authorization to merge it.
 
 ## Interface selection
 
