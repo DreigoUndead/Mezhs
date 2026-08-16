@@ -68,26 +68,6 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         _http.BaseAddress = baseAddress;
     }
 
-    public async Task<ChatTransportResponse> SendPromptAsync(
-        BrowserPromptRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        EnsureRunning();
-        using var response = await _http.PostAsJsonAsync(
-            "prompt",
-            request,
-            JsonOptions,
-            cancellationToken);
-        var result = await response.Content.ReadFromJsonAsync<ChatTransportResponse>(
-            JsonOptions,
-            cancellationToken);
-        if (response.IsSuccessStatusCode && result is not null)
-            return result;
-
-        var detail = result?.Error ?? await response.Content.ReadAsStringAsync(cancellationToken);
-        throw new InvalidOperationException($"Electron bridge failed: {detail}");
-    }
-
     public async Task<TResult> InvokeAsync<TResult>(
         string operation,
         object? arguments = null,
