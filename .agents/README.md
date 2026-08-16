@@ -3,7 +3,7 @@
 These skills are intentionally small and composable.
 
 - `repository-change-workflow` — mandatory workflow gate for every repository modification. Each reviewable task stays on one branch and may be merged only after the user reviews the completed change and explicitly approves the merge.
-- `software-change` — engineering/design judgment for non-trivial implementation, refactoring, architecture work, and code review. It continuously challenges ownership, duplication, regression risk, necessity, complexity, abstraction timing, maintainability, interface choice, and elegance, then chooses Reuse / Repair / Refactor / Redesign.
+- `software-change` — engineering/design judgment for non-trivial implementation, refactoring, architecture work, and code review. It continuously challenges ownership, duplication, regression risk, necessity, complexity, abstraction timing, maintainability, interface choice, async usage, and elegance, then chooses Reuse / Repair / Refactor / Redesign.
 - `systematic-debugging` — evidence-first root-cause investigation for bugs and unexpected behavior. Once the cause is established, it hands the scope decision back to `software-change`.
 
 There is deliberately no eFlex-specific skill in this repository. eFlex was used as evidence for the general reasoning principles, but Mezhs should acquire project-specific guidance only when its own architecture has enough real patterns and invariants to justify it.
@@ -24,6 +24,12 @@ HTML/DOM automation is a last resort. Before using it, establish from evidence t
 
 For web integrations, inspect the application's actual request/API flow before inventing selectors, click sequences, arbitrary sleeps, or page-state assumptions. If DOM interaction is unavoidable, keep it isolated in the provider-specific boundary and minimize the fragile surface.
 
+## Async discipline
+
+Use async where the operation genuinely waits on asynchronous work or an asynchronous contract requires it. Do not make code async merely because it can be, because its caller is async, or to make signatures look uniform.
+
+Keep parsing, validation, mapping, state checks, and other synchronous work synchronous. If a method only forwards an existing task and needs no async control flow, return that task directly instead of adding an unnecessary `async`/`await` state machine.
+
 ## Design intent
 
 The skills are not rigid coding rules. They are a sanity loop:
@@ -32,6 +38,7 @@ The skills are not rigid coding rules. They are a sanity loop:
 - Does this duplicate an existing responsibility?
 - Is there an existing API/protocol/state mechanism that already owns this behavior?
 - Am I touching HTML/DOM only because it is convenient rather than necessary?
+- Does this operation actually require async?
 - What can it break?
 - Does it increase maintenance or coupling?
 - Is the logic necessary?
