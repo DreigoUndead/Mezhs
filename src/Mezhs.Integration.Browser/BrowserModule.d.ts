@@ -43,19 +43,22 @@ interface InitializationContext {
   sleep(ms: number): Promise<void>;
 }
 
-interface WebRequestContext {
+interface OperationContext {
   window: BrowserWindow;
-  target: string;
-  headers: Headers;
+  session: any;
+  args: any;
+  sleep(ms: number): Promise<void>;
 }
+
+type BrowserOperation = (context: OperationContext) => Promise<unknown>;
 
 interface BrowserModule {
   readonly name: string;
   readonly homeUrl: string;
+  readonly operations?: Record<string, BrowserOperation>;
 
   isAuthorized?(window: BrowserWindow): Promise<boolean>;
   afterInitialize?(context: InitializationContext): Promise<void>;
-  prepareWebRequest?(context: WebRequestContext): Promise<void>;
   sendPrompt(context: SendContext): Promise<SendResult>;
 }
 
