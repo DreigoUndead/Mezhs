@@ -207,33 +207,45 @@ test("ChatGPT send continues the existing conversation without overriding its mo
   assert.equal(result.projectId, "g-p-mezhs");
 });
 
-test("ChatGPT account send fails explicitly when Sentinel requires a challenge", async () => {
-  const chatgpt = loadChatGptModule();
-  let conversationCalled = false;
-  const session = mockSession(async (url, options = {}) => {
-    const target = new URL(String(url));
+test("ChatGPT account send reports the required Sentinel challenge types", async () => {
+  const cases = [
+    [{ proofofwork: { required: true } }, "proof-of-work"],
+    [{ arkose: { required: true } }, "Arkose"],
+    [{ turnstile: { required: true } }, "Turnstile"],
+    [{ so: { required: true } }, "so"],
+    [
+      { proofofwork: { required: true }, turnstile: { required: true } },
+      "proof-of-work, Turnstile"
+    ]
+  ];
 
-    if (target.pathname === "/api/auth/session")
-      return jsonResponse({ accessToken: "token" });
+  for (const [required, expected] of cases) {
+    const chatgpt = loadChatGptModule();
+    let conversationCalled = false;
+    const session = mockSession(async (url, options = {}) => {
+      const target = new URL(String(url));
 
-    if (target.pathname === "/backend-api/sentinel/chat-requirements")
-      return jsonResponse({ token: "sentinel", proofofwork: { required: true } });
+      if (target.pathname === "/api/auth/session")
+        return jsonResponse({ accessToken: "token" });
 
-    if (target.pathname === "/backend-api/conversation") {
-      conversationCalled = true;
-      return textResponse("unexpected");
-    }
+      if (target.pathname === "/backend-api/sentinel/chat-requirements")
+        return jsonResponse({ token: "sentinel", ...required });
 
-    throw new Error(`Unexpected request ${target} ${options.method || "GET"}`);
-  });
+      if (target.pathname === "/backend-api/conversation") {
+        conversationCalled = true;
+        return textResponse("unexpected");
+      }
 
-  await assert.rejects(
-    () => chatgpt.operations.newChat({
+      throw new Error(`Unexpected request ${target} ${options.method || "GET"}`);
+    });
+
+    const error = await chatgpt.operations.newChat({
       session,
       args: { prompt: "hello", projectId: "g-p-mezhs", files: [] },
       sleep: async () => {}
-    }),
-    /unsupported Sentinel challenge/
-  );
-  assert.equal(conversationCalled, false);
+    }).then(() => null, caught => caught);
+
+    assert.equal(error?.message, `ChatGPT requires Sentinel challenge(s): ${expected}.`);
+    assert.equal(conversationCalled, false);
+  }
 });
