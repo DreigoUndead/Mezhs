@@ -33,7 +33,6 @@ public sealed record BrowserPromptRequest(
     string Prompt,
     bool NewChat = false,
     string? ChatUrl = null,
-    string? Workspace = null,
     IReadOnlyList<string>? FilePaths = null);
 
 public sealed record ChatTransportResponse(
