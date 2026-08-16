@@ -100,11 +100,13 @@ module.exports = {
 
 async function sendAccountMessage({ session, args, sleep }, isNew) {
   const token = await requireToken(session);
-  const mode = isNew && args.projectId ? "gizmo_interaction" : "primary_assistant";
+  const projectMode = isNew && args.projectId;
   const requirements = await apiJson(session, token, API.requirements, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ conversation_mode_kind: mode })
+    body: JSON.stringify({
+      conversation_mode_kind: projectMode ? "gizmo_interaction" : "primary_assistant"
+    })
   });
   if (requirements?.proofofwork?.required ||
       requirements?.arkose?.required ||
@@ -130,37 +132,45 @@ async function sendAccountMessage({ session, args, sleep }, isNew) {
   const headers = {
     "Content-Type": "application/json",
     "Accept": "text/event-stream",
-    "Oai-Language": "en-US"
+    "Oai-Language": "en-US",
+    "Oai-Session-Id": randomUUID()
   };
+  const deviceId = (await session.cookies.get({ url: ORIGIN, name: "oai-did" }))[0]?.value;
+  if (deviceId) headers["Oai-Device-Id"] = deviceId;
   if (requirements?.token)
     headers["Openai-Sentinel-Chat-Requirements-Token"] = requirements.token;
+
+  const payload = {
+    action: "next",
+    conversation_id: isNew ? undefined : args.conversationId,
+    messages: [{
+      id: messageId,
+      author: { role: "user" },
+      content: {
+        content_type: imageParts.length ? "multimodal_text" : "text",
+        parts: [...imageParts, String(args.prompt || "")]
+      },
+      metadata: attachments.length ? { attachments } : {}
+    }],
+    model: "auto",
+    parent_message_id: isNew ? randomUUID() : args.parentMessageId,
+    timezone_offset_min: new Date().getTimezoneOffset(),
+    history_and_training_disabled: false,
+    conversation_mode: isNew
+      ? projectMode
+        ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
+        : { kind: "primary_assistant" }
+      : undefined
+  };
 
   const response = await apiFetch(session, token, API.conversation, {
     method: "POST",
     headers,
-    body: JSON.stringify({
-      action: "next",
-      conversation_id: isNew ? undefined : args.conversationId,
-      messages: [{
-        id: messageId,
-        author: { role: "user" },
-        content: {
-          content_type: imageParts.length ? "multimodal_text" : "text",
-          parts: [...imageParts, String(args.prompt || "")]
-        },
-        metadata: attachments.length ? { attachments } : {}
-      }],
-      conversation_mode: isNew && args.projectId
-        ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
-        : { kind: "primary_assistant" },
-      model: "auto",
-      parent_message_id: isNew ? randomUUID() : args.parentMessageId,
-      timezone_offset_min: new Date().getTimezoneOffset()
-    })
+    body: JSON.stringify(payload)
   });
-
   const conversationId = findConversationId(await response.text()) || args.conversationId;
   if (!conversationId) throw new Error("ChatGPT did not return a conversation id.");
+
   const result = await waitForConversation(session, token, conversationId, messageId, sleep);
   return {
     text: result.text,
@@ -225,7 +235,11 @@ async function uploadFiles(session, token, files) {
       body: bytes
     });
     if (!put.ok) throw new Error(`ChatGPT file upload failed with HTTP ${put.status}.`);
-    await apiJson(session, token, API.fileUploaded(upload.file_id), { method: "POST" });
+    await apiJson(session, token, API.fileUploaded(upload.file_id), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
     result.push({ id: upload.file_id, name: file.name, contentType, size: bytes.length });
   }
   return result;
@@ -274,8 +288,10 @@ function collectFileRefs(value, refs) {
     const match = /^(?:file-service|sediment):\/\/(.+)$/.exec(value.asset_pointer);
     if (match) refs.set(match[1], value.name || "download");
   }
-  for (const attachment of value.attachments || [])
-    if (attachment?.id) refs.set(attachment.id, attachment.name || "download");
+  if (Array.isArray(value.attachments)) {
+    for (const attachment of value.attachments)
+      if (attachment?.id) refs.set(attachment.id, attachment.name || "download");
+  }
   for (const nested of Object.values(value))
     if (nested && typeof nested === "object") collectFileRefs(nested, refs);
 }
@@ -286,7 +302,12 @@ async function downloadFiles(session, token, refs) {
     try {
       const download = await apiJson(session, token, API.fileDownload(id));
       if (!download?.download_url) continue;
-      const response = await session.fetch(download.download_url, { credentials: "include" });
+      const response = await session.fetch(download.download_url, {
+        headers: download.download_url.startsWith(ORIGIN)
+          ? { Authorization: `Bearer ${token}` }
+          : undefined,
+        credentials: "include"
+      });
       if (!response.ok) continue;
       const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mezhs-artifact-"));
       const name = path.basename(String(requestedName || "download")) || "download";
