@@ -261,7 +261,7 @@ async function downloadButtonArtifact({ window, name }) {
   return await download;
 }
 
-async function navigate({ window, request, sleep }) {
+async function navigate({ window, request }) {
   if (request.chatUrl) {
     if (window.webContents.getURL() !== request.chatUrl)
       await window.loadURL(request.chatUrl);
@@ -272,21 +272,26 @@ async function navigate({ window, request, sleep }) {
   if (!request.workspace) return;
 
   const workspace = JSON.stringify(String(request.workspace));
-  const found = await window.webContents.executeJavaScript(`
+  const projectUrl = await window.webContents.executeJavaScript(`
     (async () => {
       const wanted = ${workspace}.trim().toLocaleLowerCase();
       const deadline = Date.now() + 10000;
       while (Date.now() < deadline) {
-        const match = [...document.querySelectorAll('a, button')].find(element =>
-          (element.innerText || element.textContent || '').trim().toLocaleLowerCase() === wanted
-        );
-        if (match) { match.click(); return true; }
+        const match = [...document.querySelectorAll('a[href]')].find(element => {
+          const url = new URL(element.href, location.origin);
+          return url.origin === location.origin &&
+            url.pathname.startsWith('/g/g-p-') &&
+            url.pathname.endsWith('/project') &&
+            (element.innerText || element.textContent || '').trim().toLocaleLowerCase() === wanted;
+        });
+        if (match) return match.href;
         await new Promise(resolve => setTimeout(resolve, 250));
       }
-      return false;
+      return null;
     })()
   `, true);
-  if (found) await sleep(1000);
+  if (projectUrl)
+    await window.loadURL(projectUrl);
 }
 
 async function setFiles({ window, filePaths, sleep }) {
