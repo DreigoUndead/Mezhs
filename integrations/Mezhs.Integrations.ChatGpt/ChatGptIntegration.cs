@@ -85,6 +85,10 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 newChat ? "newChat" : "send",
                 request,
                 cancellationToken);
+            if (projectId is not null &&
+                !string.Equals(response.ProjectId, projectId, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"ChatGPT created the chat outside project '{Connection.GetSetting("workspace")}'.");
 
             return new IntegrationSendResult(
                 response.Text,
@@ -315,6 +319,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         string Text,
         string ConversationId,
         string ParentMessageId,
+        string? ProjectId,
         string? ChatUrl,
         IReadOnlyList<BrowserArtifact>? Artifacts);
 
