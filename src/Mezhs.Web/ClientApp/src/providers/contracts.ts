@@ -10,7 +10,7 @@ export type Connection = {
   name: string;
   integration: string;
   requiresLogin: boolean;
-  workspace?: string;
+  project?: string;
   capabilities: IntegrationCapabilities;
 };
 
