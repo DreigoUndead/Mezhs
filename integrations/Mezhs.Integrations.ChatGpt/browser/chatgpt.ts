@@ -1,7 +1,7 @@
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { createHash, randomUUID } = require("node:crypto");
+const { randomUUID } = require("node:crypto");
 
 const ORIGIN = "https://chatgpt.com";
 const API = Object.freeze({
@@ -52,34 +52,26 @@ module.exports = {
       return sendAccountMessage(context, false);
     },
 
-    // Anonymous ChatGPT has a different protocol. Keep its existing browser path
-    // isolated here; account chats above never inspect or automate the page DOM.
+    // Anonymous ChatGPT remains on its old browser path. Account operations above
+    // use only the private API through Electron's authenticated Chromium session.
     async sendPrompt({ window, args }) {
-      if (args.chatUrl) {
-        if (window.webContents.getURL() !== args.chatUrl)
-          await window.loadURL(args.chatUrl);
-      } else if (args.newChat) {
-        await window.loadURL(module.exports.homeUrl);
-      }
-
+      if (args.newChat) await window.loadURL(module.exports.homeUrl);
       const prompt = JSON.stringify(String(args.prompt || ""));
       return window.webContents.executeJavaScript(`
         (async () => {
           const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-          const assistantSelector = '[data-message-author-role="assistant"]';
-          const beforeCount = document.querySelectorAll(assistantSelector).length;
+          const selector = '[data-message-author-role="assistant"]';
+          const before = document.querySelectorAll(selector).length;
           let editor = null;
           for (let i = 0; i < 120 && !editor; i++) {
             editor = document.querySelector('#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]');
             if (!editor) await sleep(250);
           }
           if (!editor) return { ok: false, error: 'ChatGPT prompt editor was not found.' };
-
           editor.focus();
           document.execCommand('selectAll', false, null);
           document.execCommand('insertText', false, ${prompt});
           editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
-
           let send = null;
           for (let i = 0; i < 360 && (!send || send.disabled); i++) {
             send = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
@@ -87,16 +79,15 @@ module.exports = {
           }
           if (!send || send.disabled) return { ok: false, error: 'ChatGPT send button did not become available.' };
           send.click();
-
           let last = '';
           let stable = 0;
           for (let i = 0; i < 480; i++) {
-            const messages = document.querySelectorAll(assistantSelector);
+            const messages = document.querySelectorAll(selector);
             const text = messages[messages.length - 1]?.innerText?.trim() || '';
             const stop = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"]');
             stable = text && text === last ? stable + 1 : 0;
             last = text;
-            if (messages.length > beforeCount && text && !stop && stable >= 6)
+            if (messages.length > before && text && !stop && stable >= 6)
               return { ok: true, text };
             await sleep(500);
           }
@@ -107,23 +98,21 @@ module.exports = {
   }
 };
 
-async function sendAccountMessage({ window, session, args, sleep }, isNew) {
+async function sendAccountMessage({ session, args, sleep }, isNew) {
   const token = await requireToken(session);
-  const uploaded = await uploadFiles(session, token, args.files || []);
+  const mode = isNew && args.projectId ? "gizmo_interaction" : "primary_assistant";
   const requirements = await apiJson(session, token, API.requirements, {
     method: "POST",
-    headers: { "Content-Type": "application/json" }
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversation_mode_kind: mode })
   });
-  if (requirements?.arkose?.required)
-    throw new Error("ChatGPT requires an Arkose challenge for this request; direct account API send cannot continue.");
+  if (requirements?.proofofwork?.required ||
+      requirements?.arkose?.required ||
+      requirements?.turnstile?.required ||
+      requirements?.so?.required)
+    throw new Error("ChatGPT requires an unsupported Sentinel challenge for this request.");
 
-  const proof = requirements?.proofofwork?.required
-    ? proofToken(
-        requirements.proofofwork.seed,
-        requirements.proofofwork.difficulty,
-        window.webContents.getUserAgent())
-    : null;
-  const deviceId = (await session.cookies.get({ url: ORIGIN, name: "oai-did" }))[0]?.value;
+  const uploaded = await uploadFiles(session, token, args.files || []);
   const messageId = randomUUID();
   const imageParts = uploaded
     .filter(file => file.contentType.startsWith("image/"))
@@ -141,60 +130,45 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
   const headers = {
     "Content-Type": "application/json",
     "Accept": "text/event-stream",
-    "Authorization": `Bearer ${token}`,
     "Oai-Language": "en-US"
   };
-  if (deviceId) headers["Oai-Device-Id"] = deviceId;
   if (requirements?.token)
     headers["Openai-Sentinel-Chat-Requirements-Token"] = requirements.token;
-  if (proof) headers["Openai-Sentinel-Proof-Token"] = proof;
-
-  const payload = {
-    action: "next",
-    conversation_id: isNew ? undefined : args.conversationId,
-    messages: [{
-      id: messageId,
-      author: { role: "user" },
-      content: {
-        content_type: imageParts.length ? "multimodal_text" : "text",
-        parts: [...imageParts, String(args.prompt || "")]
-      },
-      metadata: attachments.length ? { attachments } : {}
-    }],
-    conversation_mode: isNew && args.projectId
-      ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
-      : { kind: "primary_assistant" },
-    force_paragen: false,
-    force_rate_limit: false,
-    suggestions: [],
-    model: "auto",
-    parent_message_id: isNew ? randomUUID() : args.parentMessageId,
-    timezone_offset_min: new Date().getTimezoneOffset(),
-    history_and_training_disabled: false
-  };
 
   const response = await apiFetch(session, token, API.conversation, {
     method: "POST",
     headers,
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      action: "next",
+      conversation_id: isNew ? undefined : args.conversationId,
+      messages: [{
+        id: messageId,
+        author: { role: "user" },
+        content: {
+          content_type: imageParts.length ? "multimodal_text" : "text",
+          parts: [...imageParts, String(args.prompt || "")]
+        },
+        metadata: attachments.length ? { attachments } : {}
+      }],
+      conversation_mode: isNew && args.projectId
+        ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
+        : { kind: "primary_assistant" },
+      model: "auto",
+      parent_message_id: isNew ? randomUUID() : args.parentMessageId,
+      timezone_offset_min: new Date().getTimezoneOffset()
+    })
   });
-  const streamed = parseConversationResponse(await response.text());
-  const conversationId = streamed.conversationId || args.conversationId;
-  if (!conversationId)
-    throw new Error("ChatGPT did not return a conversation id.");
 
-  const result = streamed.text && streamed.parentMessageId
-    ? streamed
-    : await waitForConversation(session, token, conversationId, messageId, sleep);
-  const refs = new Map([...streamed.files, ...result.files]);
-  const conversation = await apiJson(session, token, API.conversationById(conversationId));
+  const conversationId = findConversationId(await response.text()) || args.conversationId;
+  if (!conversationId) throw new Error("ChatGPT did not return a conversation id.");
+  const result = await waitForConversation(session, token, conversationId, messageId, sleep);
   return {
     text: result.text,
     conversationId,
     parentMessageId: result.parentMessageId,
-    projectId: conversation?.gizmo_id || null,
+    projectId: result.projectId,
     chatUrl: `${ORIGIN}/c/${conversationId}`,
-    artifacts: await downloadFiles(session, token, refs)
+    artifacts: await downloadFiles(session, token, result.files)
   };
 }
 
@@ -214,12 +188,9 @@ async function requireToken(session) {
 }
 
 async function apiFetch(session, token, endpoint, options = {}) {
-  const url = endpoint.startsWith("http") ? endpoint : ORIGIN + endpoint;
-  const headers = { ...(options.headers || {}) };
-  if (token && !headers.Authorization) headers.Authorization = `Bearer ${token}`;
-  const response = await session.fetch(url, {
+  const response = await session.fetch(ORIGIN + endpoint, {
     ...options,
-    headers,
+    headers: { Authorization: `Bearer ${token}`, ...(options.headers || {}) },
     credentials: "include",
     cache: "no-store"
   });
@@ -250,86 +221,51 @@ async function uploadFiles(session, token, files) {
     });
     const put = await session.fetch(upload.upload_url, {
       method: "PUT",
-      headers: {
-        "Content-Type": contentType,
-        "x-ms-blob-type": "BlockBlob"
-      },
+      headers: { "Content-Type": contentType, "x-ms-blob-type": "BlockBlob" },
       body: bytes
     });
     if (!put.ok) throw new Error(`ChatGPT file upload failed with HTTP ${put.status}.`);
-    await apiJson(session, token, API.fileUploaded(upload.file_id), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}"
-    });
+    await apiJson(session, token, API.fileUploaded(upload.file_id), { method: "POST" });
     result.push({ id: upload.file_id, name: file.name, contentType, size: bytes.length });
   }
   return result;
 }
 
-function parseConversationResponse(text) {
-  const result = { text: "", conversationId: null, parentMessageId: null, files: new Map() };
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{")) {
-    const data = JSON.parse(trimmed);
-    result.conversationId = data.conversation_id || null;
-    return result;
+function findConversationId(text) {
+  for (const value of text.split(/\r?\n/)) {
+    const json = value.startsWith("data:") ? value.slice(5).trim() : value.trim();
+    if (!json || json === "[DONE]") continue;
+    try {
+      const id = JSON.parse(json)?.conversation_id;
+      if (id) return id;
+    } catch { }
   }
-
-  for (const line of text.split(/\r?\n/)) {
-    if (!line.startsWith("data:")) continue;
-    const value = line.slice(5).trim();
-    if (!value || value === "[DONE]") continue;
-    let data;
-    try { data = JSON.parse(value); }
-    catch { continue; }
-    if (data.conversation_id) result.conversationId = data.conversation_id;
-    collectFileRefs(data.message, result.files);
-    if (data.message?.author?.role !== "assistant") continue;
-    const answer = messageText(data.message);
-    if (answer) result.text = answer;
-    if (data.message?.id) result.parentMessageId = data.message.id;
-  }
-  return result;
+  return null;
 }
 
 async function waitForConversation(session, token, conversationId, requestMessageId, sleep) {
   for (let i = 0; i < 480; i++) {
     const conversation = await apiJson(session, token, API.conversationById(conversationId));
-    const result = conversationResult(conversation, requestMessageId);
-    if (result) return result;
+    const current = conversation?.mapping?.[conversation.current_node];
+    const message = current?.message;
+    if (message?.author?.role === "assistant" && message.status !== "in_progress") {
+      const files = new Map();
+      let node = current;
+      while (node) {
+        if (node.message?.id === requestMessageId) break;
+        collectFileRefs(node.message, files);
+        node = conversation.mapping[node.parent];
+      }
+      return {
+        text: (message.content?.parts || []).filter(x => typeof x === "string").join("\n").trim(),
+        parentMessageId: message.id,
+        projectId: conversation.gizmo_id || null,
+        files
+      };
+    }
     await sleep(500);
   }
   throw new Error("ChatGPT response timed out.");
-}
-
-function conversationResult(conversation, requestMessageId) {
-  const mapping = conversation?.mapping || {};
-  const current = mapping[conversation?.current_node];
-  const message = current?.message;
-  if (message?.author?.role !== "assistant" || message.status === "in_progress")
-    return null;
-
-  const files = new Map();
-  let node = current;
-  while (node) {
-    if (node.message?.id === requestMessageId) break;
-    collectFileRefs(node.message, files);
-    node = mapping[node.parent];
-  }
-  return {
-    text: messageText(message),
-    conversationId: conversation?.conversation_id || null,
-    parentMessageId: message.id,
-    files
-  };
-}
-
-function messageText(message) {
-  return (message?.content?.parts || [])
-    .filter(part => typeof part === "string")
-    .join("\n")
-    .trim();
 }
 
 function collectFileRefs(value, refs) {
@@ -338,13 +274,10 @@ function collectFileRefs(value, refs) {
     const match = /^(?:file-service|sediment):\/\/(.+)$/.exec(value.asset_pointer);
     if (match) refs.set(match[1], value.name || "download");
   }
-  if (Array.isArray(value.attachments)) {
-    for (const attachment of value.attachments)
-      if (attachment?.id) refs.set(attachment.id, attachment.name || "download");
-  }
-  for (const nested of Object.values(value)) {
+  for (const attachment of value.attachments || [])
+    if (attachment?.id) refs.set(attachment.id, attachment.name || "download");
+  for (const nested of Object.values(value))
     if (nested && typeof nested === "object") collectFileRefs(nested, refs);
-  }
 }
 
 async function downloadFiles(session, token, refs) {
@@ -353,12 +286,7 @@ async function downloadFiles(session, token, refs) {
     try {
       const download = await apiJson(session, token, API.fileDownload(id));
       if (!download?.download_url) continue;
-      const response = await session.fetch(download.download_url, {
-        headers: download.download_url.startsWith(ORIGIN)
-          ? { Authorization: `Bearer ${token}` }
-          : undefined,
-        credentials: "include"
-      });
+      const response = await session.fetch(download.download_url, { credentials: "include" });
       if (!response.ok) continue;
       const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mezhs-artifact-"));
       const name = path.basename(String(requestedName || "download")) || "download";
@@ -375,28 +303,4 @@ async function downloadFiles(session, token, refs) {
     }
   }
   return artifacts;
-}
-
-function proofToken(seed, difficulty, userAgent) {
-  const config = [
-    3008 + Math.floor(Math.random() * 4),
-    new Date().toString(),
-    4294705152,
-    0,
-    userAgent,
-    "https://tcr9i.chat.openai.com/v2/35536E1E-65B4-4D96-9D97-6ADB7EFF8147/api.js",
-    "dpl=1440a687921de39ff5ee56b92807faaadce73f13",
-    "en",
-    "en-US",
-    4294705152
-  ];
-  for (let i = 0; i < 200000; i++) {
-    config[3] = i;
-    const base = Buffer.from(JSON.stringify(config)).toString("base64");
-    const hash = createHash("sha3-512").update(seed + base).digest("hex");
-    if (hash.slice(0, difficulty.length) <= difficulty)
-      return "gAAAAAB" + base;
-  }
-  return "gAAAAABwQ8Lk5FbGpA2NcR9dShT6gYjU7VxZ4D" +
-    Buffer.from(JSON.stringify(seed)).toString("base64");
 }
