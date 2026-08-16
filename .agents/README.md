@@ -2,10 +2,19 @@
 
 These skills are intentionally small and composable.
 
+- `repository-change-workflow` — mandatory workflow gate for every repository modification. Each requested change starts on a fresh branch and may be merged only after the user reviews the completed change and explicitly approves the merge.
 - `software-change` — engineering/design judgment for non-trivial implementation, refactoring, architecture work, and code review. It continuously challenges ownership, duplication, regression risk, necessity, complexity, abstraction timing, maintainability, and elegance, then chooses Reuse / Repair / Refactor / Redesign.
 - `systematic-debugging` — evidence-first root-cause investigation for bugs and unexpected behavior. Once the cause is established, it hands the scope decision back to `software-change`.
 
 There is deliberately no eFlex-specific skill in this repository. eFlex was used as evidence for the general reasoning principles, but Mezhs should acquire project-specific guidance only when its own architecture has enough real patterns and invariants to justify it.
+
+## Repository change gate
+
+Every modification to this repository — code, configuration, tests, documentation, tooling, or `.agents` content — must follow `repository-change-workflow`.
+
+A fresh branch must be created for each requested change. Never modify or commit directly to `main`, and do not reuse a branch from an earlier change request.
+
+After the change is implemented and verified, open a pull request for review and stop. Do not merge it automatically. A merge is allowed only after the user has had the completed diff/PR available to review and then explicitly approves merging it. The original request to implement, fix, refactor, or add something is authorization to prepare the change, not authorization to merge it.
 
 ## Design intent
 
