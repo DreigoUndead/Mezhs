@@ -22,17 +22,22 @@ jobs:
 
       - name: Build
         shell: pwsh
-        run: dotnet build Mezhs.sln -c Release
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet build Mezhs.sln -c Release
 
       - name: Typecheck browser modules
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           npx --yes -p typescript@5.9.2 tsc -p integrations/Mezhs.Integrations.ChatGpt/browser/tsconfig.json
           npx --yes -p typescript@5.9.2 tsc -p integrations/Mezhs.Integrations.Gemini/browser/tsconfig.json
 
       - name: Provider operation tests
         shell: pwsh
-        run: node --test tests/browser-provider-operations.test.js
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          node --test tests/browser-provider-operations.test.js
 
       - name: Integration resource tests
         shell: pwsh
@@ -56,7 +61,9 @@ jobs:
 
       - name: Install Electron
         shell: pwsh
-        run: npm ci --prefix electron
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          npm ci --prefix electron
 
       - name: Electron hidden authorization tests
         shell: pwsh
