@@ -122,53 +122,13 @@ async function sendPrompt(request) {
   return result;
 }
 
-async function sendWebRequest({ url, method, headers, body, base64Response }) {
-  if (!window || !browserModule) throw new Error("Electron browser is not initialized.");
-
-  const target = new URL(String(url), browserModule.homeUrl).href;
-  const preparedHeaders = new Headers(headers || {});
-  if (typeof browserModule.prepareWebRequest === "function")
-    await browserModule.prepareWebRequest({ window, target, headers: preparedHeaders });
-
-  const requestSource = JSON.stringify({
-    url: target,
-    method: String(method || "GET"),
-    headers: Object.fromEntries(preparedHeaders.entries()),
-    body: body === null || body === undefined ? null : String(body),
-    base64Response: Boolean(base64Response)
-  });
-  return window.webContents.executeJavaScript(`
-    (async () => {
-      const request = ${requestSource};
-      const response = await fetch(request.url, {
-        method: request.method,
-        headers: new Headers(request.headers || {}),
-        body: request.body,
-        credentials: 'include',
-        cache: 'no-store'
-      });
-      const responseHeaders = {};
-      response.headers.forEach((value, key) => responseHeaders[key] = value);
-      if (request.base64Response) {
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        let binary = '';
-        for (let offset = 0; offset < bytes.length; offset += 0x8000)
-          binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-        return {
-          status: response.status,
-          body: btoa(binary),
-          headers: responseHeaders,
-          bodyIsBase64: true
-        };
-      }
-      return {
-        status: response.status,
-        body: await response.text(),
-        headers: responseHeaders,
-        bodyIsBase64: false
-      };
-    })()
-  `, true);
+async function invokeProvider({ operation, arguments: args }) {
+  if (!window || !browserModule || !activeSession)
+    throw new Error("Electron browser is not initialized.");
+  const method = browserModule.operations?.[operation];
+  if (typeof method !== "function")
+    throw new Error(`${browserModule.name} does not support provider operation '${operation}'.`);
+  return await method({ window, session: activeSession, args: args ?? {}, sleep });
 }
 
 function readJson(request) {
@@ -204,11 +164,11 @@ async function start() {
           .catch(() => {})
           .then(() => sendPrompt(body)));
         writeJson(response, 200, result);
-      } else if (request.method === "POST" && request.url === "/fetch") {
+      } else if (request.method === "POST" && request.url === "/invoke") {
         const body = await readJson(request);
         const result = await (operationQueue = operationQueue
           .catch(() => {})
-          .then(() => sendWebRequest(body)));
+          .then(() => invokeProvider(body)));
         writeJson(response, 200, result);
       } else if (request.method === "POST" && request.url === "/show") {
         window?.show();
