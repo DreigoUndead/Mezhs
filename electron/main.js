@@ -124,25 +124,25 @@ async function sendPrompt(request) {
 
 async function sendWebRequest({ url, method, headers, body, base64Response }) {
   if (!window || !browserModule) throw new Error("Electron browser is not initialized.");
+
+  const target = new URL(String(url), browserModule.homeUrl).href;
+  const preparedHeaders = new Headers(headers || {});
+  if (typeof browserModule.prepareWebRequest === "function")
+    await browserModule.prepareWebRequest({ window, target, headers: preparedHeaders });
+
   const requestSource = JSON.stringify({
-    url: String(url),
+    url: target,
     method: String(method || "GET"),
-    headers: headers || {},
+    headers: Object.fromEntries(preparedHeaders.entries()),
     body: body === null || body === undefined ? null : String(body),
     base64Response: Boolean(base64Response)
   });
-  const prepareSource = typeof browserModule.prepareWebRequest === "function"
-    ? `await ({${browserModule.prepareWebRequest.toString()}}).prepareWebRequest({ target, headers });`
-    : "";
   return window.webContents.executeJavaScript(`
     (async () => {
       const request = ${requestSource};
-      const target = new URL(request.url, location.origin).href;
-      const headers = new Headers(request.headers || {});
-      ${prepareSource}
-      const response = await fetch(target, {
+      const response = await fetch(request.url, {
         method: request.method,
-        headers,
+        headers: new Headers(request.headers || {}),
         body: request.body,
         credentials: 'include',
         cache: 'no-store'
