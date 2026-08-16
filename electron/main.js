@@ -122,13 +122,13 @@ async function sendPrompt(request) {
   return result;
 }
 
-async function invokeProvider({ operation, arguments: args }) {
+function invokeProvider({ operation, arguments: args }) {
   if (!window || !browserModule || !activeSession)
     throw new Error("Electron browser is not initialized.");
   const method = browserModule.operations?.[operation];
   if (typeof method !== "function")
     throw new Error(`${browserModule.name} does not support provider operation '${operation}'.`);
-  return await method({ window, session: activeSession, args: args ?? {}, sleep });
+  return method({ window, session: activeSession, args: args ?? {}, sleep });
 }
 
 function readJson(request) {
