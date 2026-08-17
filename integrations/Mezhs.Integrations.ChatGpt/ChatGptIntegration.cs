@@ -68,8 +68,9 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
 
             var newChat = string.IsNullOrWhiteSpace(context.Chat.RemoteConversationId) ||
                           string.IsNullOrWhiteSpace(context.Chat.RemoteParentMessageId);
+            var workspace = Connection.GetSetting("workspace");
             var projectId = newChat
-                ? await ResolveProjectIdAsync(Connection.GetSetting("workspace"), cancellationToken)
+                ? await ResolveProjectIdAsync(workspace, cancellationToken)
                 : null;
             var request = new ChatGptSendRequest(
                 newChat ? ComposeConversation(context) : context.Message.Content,
@@ -79,8 +80,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 context.Files.Select(file => new ChatGptInputFile(
                     file.Path,
                     file.Name,
-                    file.ContentType,
-                    file.Size)).ToArray());
+                    file.ContentType)).ToArray());
             var response = await _transport!.InvokeAsync<ChatGptSendResponse>(
                 newChat ? "newChat" : "send",
                 request,
@@ -88,7 +88,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
             if (projectId is not null &&
                 !string.Equals(response.ProjectId, projectId, StringComparison.Ordinal))
                 throw new InvalidOperationException(
-                    $"ChatGPT created the chat outside project '{Connection.GetSetting("workspace")}'.");
+                    $"ChatGPT created the chat outside project '{workspace}'.");
 
             return new IntegrationSendResult(
                 response.Text,
@@ -305,8 +305,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
     private sealed record ChatGptInputFile(
         string Path,
         string Name,
-        string ContentType,
-        long Size);
+        string ContentType);
 
     private sealed record ChatGptSendRequest(
         string Prompt,
