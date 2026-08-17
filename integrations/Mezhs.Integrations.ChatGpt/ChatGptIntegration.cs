@@ -36,6 +36,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
 {
     private readonly BrowserAccountSession _session;
     private readonly ILoginModule _login;
+    private readonly IModelModule _models;
 
     public ChatGptAccountIntegration(
         IntegrationConnection connection,
@@ -43,6 +44,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
     {
         _session = CreateAccountSession();
         _login = new LoginModule(_session);
+        _models = new ModelModule(_session);
     }
 
     public override IntegrationCapabilities Capabilities => new(
@@ -51,6 +53,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         FileOutput: true,
         ImageOutput: true);
     public override ILoginModule Login => _login;
+    public override IModelModule Models => _models;
 
     public override Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
@@ -68,6 +71,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 context.Chat.RemoteConversationId,
                 context.Chat.RemoteParentMessageId,
                 projectId,
+                context.Message.Model,
                 context.Files.Select(file => new ChatGptInputFile(
                     file.Path,
                     file.Name,
@@ -152,6 +156,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         string? ConversationId,
         string? ParentMessageId,
         string? ProjectId,
+        string? Model,
         IReadOnlyList<ChatGptInputFile> Files);
 
     private sealed record ChatGptSendResponse(
@@ -166,5 +171,16 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
     {
         public Task LoginAsync(CancellationToken cancellationToken = default) =>
             session.LoginAsync(cancellationToken);
+    }
+
+    private sealed class ModelModule(BrowserAccountSession session) : IModelModule
+    {
+        public Task<IReadOnlyList<IntegrationModel>> GetModelsAsync(
+            CancellationToken cancellationToken = default) =>
+            session.UseAsync<IReadOnlyList<IntegrationModel>>(async (transport, token) =>
+                await transport.InvokeAsync<IntegrationModel[]>(
+                    "getModels",
+                    cancellationToken: token),
+                cancellationToken);
     }
 }
