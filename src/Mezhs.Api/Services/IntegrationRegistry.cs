@@ -68,9 +68,13 @@ public sealed class IntegrationRegistry : IAsyncDisposable
 
         try
         {
-            return Activator.CreateInstance(integrationType, connection, host) as IChatIntegration
+            var integration = Activator.CreateInstance(integrationType, connection, host) as IChatIntegration
                 ?? throw new InvalidOperationException(
                     $"Integration '{connection.Type}' could not be constructed.");
+            if (configured.DefaultModel is not null && integration.Models is null)
+                throw new InvalidOperationException(
+                    $"defaultModel is not supported by connection '{connection.Id}'.");
+            return integration;
         }
         catch (TargetInvocationException ex) when (ex.InnerException is not null)
         {
