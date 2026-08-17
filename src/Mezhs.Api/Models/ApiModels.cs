@@ -48,6 +48,7 @@ public sealed class StoredMessage
     public required string ConnectionId { get; init; }
     public required string Role { get; init; }
     public required string Content { get; init; }
+    public string? Model { get; init; }
     public IReadOnlyList<string> FileIds { get; init; } = [];
     public string? ParentMessageId { get; init; }
     public string? ReplayOfMessageId { get; init; }
@@ -75,7 +76,8 @@ public sealed record PostMessageRequest(
     string? ConnectionId = null,
     string? ChatId = null,
     string? CategoryId = null,
-    IReadOnlyList<string>? FileIds = null);
+    IReadOnlyList<string>? FileIds = null,
+    string? Model = null);
 
 public sealed record CreateCategoryRequest(string Name);
 public sealed record CreateChatRequest(string ConnectionId, string? CategoryId = null);
@@ -99,6 +101,7 @@ public sealed record ApiMessage(
     string ConnectionId,
     string Role,
     string Content,
+    string? Model,
     IReadOnlyList<ApiFile> Files,
     MessageStatus Status,
     DateTimeOffset CreatedAt,
