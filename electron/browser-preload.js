@@ -3,8 +3,6 @@ const { contextBridge, ipcRenderer } = require("electron");
 const path = require("node:path");
 const { createChromeRuntime } = require("./browser-identity");
 
-contextBridge.exposeInMainWorld("chrome", createChromeRuntime());
-
 const modulePath = process.env.MEZHS_BROWSER_MODULE;
 const browserModule = modulePath
   ? require(path.resolve(modulePath))
@@ -34,3 +32,10 @@ ipcRenderer.on("mezhs:page-operation", async (_event, request) => {
     });
   }
 });
+
+try {
+  contextBridge.exposeInMainWorld("chrome", createChromeRuntime());
+} catch (error) {
+  console.error(
+    `Could not expose Chrome runtime compatibility: ${error?.message ?? error}`);
+}
