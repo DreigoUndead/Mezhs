@@ -10,25 +10,7 @@ There is deliberately no eFlex-specific skill in this repository. eFlex was used
 
 ## Repository change gate
 
-Every modification to this repository — code, configuration, tests, documentation, tooling, or `.agents` content — must follow `repository-change-workflow`.
-
-Use one branch for the complete reviewable task. Keep all related code, configuration, tests, documentation, tooling, agent-rule edits, and review revisions for that task on that branch so the user can compare that single branch against `main`. Do not create separate branches for individual files or incidental parts of the same change. Start a different branch only for a genuinely separate task or when the user explicitly asks to split the work.
-
-After the change is implemented and verified, open or update one pull request for review and stop. Do not merge it automatically. A merge is allowed only after the user has had the completed diff/PR available to review and then explicitly approves merging it. The original request to implement, fix, refactor, or add something is authorization to prepare the change, not authorization to merge it.
-
-## Interface selection
-
-Prefer the system's semantic interface over its presentation layer. If an existing API, protocol/network request, transport contract, command, or state mechanism already owns the behavior, use that instead of reproducing the behavior by clicking or scraping HTML.
-
-HTML/DOM automation is a last resort. Before using it, establish from evidence that no suitable non-UI mechanism exists or that the requested behavior is inherently UI-only. Do not choose DOM automation merely because the same action is visible in the UI.
-
-For web integrations, inspect the application's actual request/API flow before inventing selectors, click sequences, arbitrary sleeps, or page-state assumptions. If DOM interaction is unavoidable, keep it isolated in the provider-specific boundary and minimize the fragile surface.
-
-## Async discipline
-
-Use async where the operation genuinely waits on asynchronous work or an asynchronous contract requires it. Do not make code async merely because it can be, because its caller is async, or to make signatures look uniform.
-
-Keep parsing, validation, mapping, state checks, and other synchronous work synchronous. If a method only forwards an existing task and needs no async control flow, return that task directly instead of adding an unnecessary `async`/`await` state machine.
+Every modification to this repository — code, configuration, tests, documentation, tooling, or `.agents` content — must follow `repository-change-workflow`. That skill is the source of truth for branch/review/merge behavior.
 
 ## Design intent
 
