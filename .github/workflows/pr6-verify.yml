@@ -1,0 +1,61 @@
+name: PR 6 verification
+
+on:
+  push:
+    branches:
+      - agent/prefer-api-over-dom
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet build Mezhs.sln -c Release
+      - name: Typecheck browser modules
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          npx --yes -p typescript@5.9.2 tsc -p integrations/Mezhs.Integrations.ChatGpt/browser/tsconfig.json
+          npx --yes -p typescript@5.9.2 tsc -p integrations/Mezhs.Integrations.Gemini/browser/tsconfig.json
+      - name: Provider operation tests
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          node --test tests/browser-provider-operations.test.js
+      - name: Integration resources
+        shell: pwsh
+        run: ./tests/integration-resources.ps1
+      - name: Architecture
+        shell: pwsh
+        run: ./tests/architecture.ps1
+      - name: API smoke
+        shell: pwsh
+        run: ./tests/api-smoke.ps1
+      - name: Account login flow
+        shell: pwsh
+        run: ./tests/account-login-flow.ps1
+      - name: Profile identity
+        shell: pwsh
+        run: ./tests/profile-identity.ps1
+      - name: Install Electron
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          npm ci --prefix electron
+      - name: Electron hidden authorization
+        shell: pwsh
+        run: ./tests/electron-hidden-authorization.ps1
+      - name: Electron login visibility
+        shell: pwsh
+        run: ./tests/electron-login-visibility.ps1
