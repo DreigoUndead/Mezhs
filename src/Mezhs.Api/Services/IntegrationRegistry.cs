@@ -34,6 +34,8 @@ public sealed class IntegrationRegistry : IAsyncDisposable
         name = integration.Connection.Name,
         integration = integration.Connection.Type,
         requiresLogin = integration.Login is not null,
+        supportsModels = integration.Models is not null,
+        defaultModel = integration.Connection.GetSetting("defaultModel"),
         workspace = integration.Connection.GetSetting("workspace"),
         capabilities = integration.Capabilities
     }).Cast<object>().ToArray();
@@ -52,6 +54,8 @@ public sealed class IntegrationRegistry : IAsyncDisposable
         var settings = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         if (!string.IsNullOrWhiteSpace(configured.Workspace))
             settings["workspace"] = configured.Workspace;
+        if (!string.IsNullOrWhiteSpace(configured.DefaultModel))
+            settings["defaultModel"] = configured.DefaultModel;
         var connection = new IntegrationConnection(
             configured.Id,
             configured.Name,
