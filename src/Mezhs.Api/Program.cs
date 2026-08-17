@@ -39,6 +39,25 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapGet("/v1/connections", (IntegrationRegistry integrations) =>
     Results.Ok(integrations.GetConnections()));
 
+app.MapGet("/v1/connections/{connectionId}/models", async (
+    string connectionId,
+    IntegrationRegistry integrations,
+    CancellationToken cancellationToken) =>
+{
+    if (!integrations.TryGet(connectionId, out var integration))
+        return Results.NotFound(new { error = $"Connection '{connectionId}' was not found." });
+    if (integration.Models is null)
+        return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support model selection." });
+
+    var discovered = await integration.Models.GetModelsAsync(cancellationToken);
+    var models = new[] { new IntegrationModel(null, "Default") }
+        .Concat(discovered
+            .Where(model => !string.IsNullOrWhiteSpace(model.Id) && !string.IsNullOrWhiteSpace(model.Name))
+            .DistinctBy(model => model.Id, StringComparer.OrdinalIgnoreCase))
+        .ToArray();
+    return Results.Ok(models);
+});
+
 app.MapPost("/v1/files", async (
     HttpRequest request,
     IntegrationRegistry integrations,
