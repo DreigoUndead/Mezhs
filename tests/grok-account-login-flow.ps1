@@ -34,7 +34,7 @@ try
     await TestAutomaticLoginAsync(Path.Combine(root, "automatic"));
     await TestExplicitLoginAsync(Path.Combine(root, "explicit"));
     await TestContinuationAsync(Path.Combine(root, "continuation"));
-    Console.WriteLine("PASS: Grok account login, persistent session lifecycle, and remote continuation are wired correctly.");
+    Console.WriteLine("PASS: Grok account login closes the interactive browser, resumes hidden, and preserves remote continuation.");
 }
 finally
 {
@@ -55,23 +55,26 @@ static IntegrationSendContext Context(string? remoteChatUrl = null) => new(
 
 static async Task TestAutomaticLoginAsync(string root)
 {
-    var host = new FakeHost(root, rejectHiddenAuthorization: true);
+    var host = new FakeHost(root, authorized: false);
     await using var integration = new GrokAccountIntegration(Connection(), host);
     var result = await integration.SendMessageAsync(Context());
 
     Assert(result.Text == "ok", "message did not continue after login");
-    Assert(host.Initializations.Count == 2,
-        $"expected hidden check + visible login, got {host.Initializations.Count} initializations");
+    Assert(host.Initializations.Count == 3,
+        $"expected hidden check + visible login + hidden resume, got {host.Initializations.Count} initializations");
     Assert(!host.Initializations[0].ShowBrowser, "authorization check unexpectedly started visible");
     Assert(host.Initializations[0].RequireAuthorization, "hidden account start did not require authorization");
     Assert(host.Initializations[1].ShowBrowser, "authorization requirement did not transition to visible login");
     Assert(host.Initializations[1].RequireAuthorization, "visible login did not require authorization");
+    Assert(!host.Initializations[2].ShowBrowser, "post-login Grok transport did not resume hidden");
+    Assert(host.Initializations[2].RequireAuthorization, "post-login hidden Grok transport did not verify authorization");
+    Assert(host.ActiveTransports == 1, $"expected only hidden Grok transport to remain active, got {host.ActiveTransports}");
     Assert(host.Operations.SequenceEqual(["newChat"]), "new Grok chat operation was not used");
 }
 
 static async Task TestExplicitLoginAsync(string root)
 {
-    var host = new FakeHost(root, rejectHiddenAuthorization: false);
+    var host = new FakeHost(root, authorized: false);
     await using var integration = new GrokAccountIntegration(Connection(), host);
     await integration.Login!.LoginAsync();
 
@@ -79,11 +82,12 @@ static async Task TestExplicitLoginAsync(string root)
         $"expected one explicit login initialization, got {host.Initializations.Count}");
     Assert(host.Initializations[0].ShowBrowser, "explicit login did not start visible");
     Assert(host.Initializations[0].RequireAuthorization, "explicit login did not require authorization");
+    Assert(host.ActiveTransports == 0, "explicit Grok login browser stayed active after authorization completed");
 }
 
 static async Task TestContinuationAsync(string root)
 {
-    var host = new FakeHost(root, rejectHiddenAuthorization: false);
+    var host = new FakeHost(root, authorized: true);
     await using var integration = new GrokAccountIntegration(Connection(), host);
     var result = await integration.SendMessageAsync(Context("https://grok.com/c/existing"));
 
@@ -98,12 +102,14 @@ static void Assert(bool condition, string message)
     if (!condition) throw new InvalidOperationException(message);
 }
 
-sealed class FakeHost(string root, bool rejectHiddenAuthorization) : IBrowserIntegrationHost
+sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
 {
     public int BrowserIdleMinutes => 0;
     public List<BrowserTransportOptions> Initializations { get; } = [];
     public List<string> Operations { get; } = [];
     public JsonElement? LastArguments { get; set; }
+    public int ActiveTransports { get; set; }
+    public bool Authorized { get; set; } = authorized;
 
     public string GetConnectionRoot(string connectionId)
     {
@@ -112,13 +118,17 @@ sealed class FakeHost(string root, bool rejectHiddenAuthorization) : IBrowserInt
         return path;
     }
 
-    public IChatBrowserTransport CreateBrowserTransport() =>
-        new FakeTransport(this, rejectHiddenAuthorization);
+    public IChatBrowserTransport CreateBrowserTransport()
+    {
+        ActiveTransports++;
+        return new FakeTransport(this);
+    }
 }
 
-sealed class FakeTransport(FakeHost host, bool rejectHiddenAuthorization) : IChatBrowserTransport
+sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private bool _disposed;
 
     public string Name => "Fake";
 
@@ -127,8 +137,10 @@ sealed class FakeTransport(FakeHost host, bool rejectHiddenAuthorization) : ICha
         CancellationToken cancellationToken = default)
     {
         host.Initializations.Add(options);
-        if (rejectHiddenAuthorization && options.RequireAuthorization && !options.ShowBrowser)
+        if (options.RequireAuthorization && !options.ShowBrowser && !host.Authorized)
             throw new BrowserAuthorizationRequiredException("Authorization required.");
+        if (options.RequireAuthorization && options.ShowBrowser)
+            host.Authorized = true;
         return Task.CompletedTask;
     }
 
@@ -150,7 +162,15 @@ sealed class FakeTransport(FakeHost host, bool rejectHiddenAuthorization) : ICha
     public Task ShowAsync(CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public ValueTask DisposeAsync()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+            host.ActiveTransports--;
+        }
+        return ValueTask.CompletedTask;
+    }
 }
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
