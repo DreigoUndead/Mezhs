@@ -1,4 +1,4 @@
-const runtimeInstallations = new WeakSet();
+const runtimeInstallations = new WeakMap();
 
 const CHROME_RUNTIME_SHIM = `(() => {
   try {
@@ -110,26 +110,28 @@ function configureSessionBrowserIdentity(browserSession, runtime = process) {
 }
 
 function installChromeRuntime(webContents) {
-  if (runtimeInstallations.has(webContents)) return true;
+  const existing = runtimeInstallations.get(webContents);
+  if (existing) return existing;
 
+  let installation;
   try {
     if (!webContents.debugger.isAttached())
       webContents.debugger.attach("1.3");
-    runtimeInstallations.add(webContents);
-
-    void webContents.debugger.sendCommand("Page.enable")
-      .catch(error => console.error(
-        `Could not enable Chrome runtime compatibility: ${error?.message ?? error}`));
-    void webContents.debugger.sendCommand(
+    installation = webContents.debugger.sendCommand(
       "Page.addScriptToEvaluateOnNewDocument",
       { source: CHROME_RUNTIME_SHIM })
-      .catch(error => console.error(
-        `Could not install Chrome runtime compatibility: ${error?.message ?? error}`));
-    return true;
+      .then(() => true)
+      .catch(error => {
+        console.error(`Could not install Chrome runtime compatibility: ${error?.message ?? error}`);
+        return false;
+      });
   } catch (error) {
     console.error(`Could not attach Chrome runtime compatibility: ${error?.message ?? error}`);
-    return false;
+    installation = Promise.resolve(false);
   }
+
+  runtimeInstallations.set(webContents, installation);
+  return installation;
 }
 
 module.exports = {
