@@ -64,7 +64,7 @@ try {
     if ($models.Count -ne 3 -or $null -ne $models[0].id -or $models[0].name -ne 'Default') {
         throw 'Model endpoint did not prepend the provider-default option.'
     }
-    if (($models[1].id, $models[2].id -join ',') -ne 'mock-fast,mock-deep') {
+    if ((@($models[1].id, $models[2].id) -join ',') -ne 'mock-fast,mock-deep') {
         throw 'Model endpoint did not return discovered integration models.'
     }
     $login = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/connections/test-login/login"
