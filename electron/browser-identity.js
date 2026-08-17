@@ -1,3 +1,5 @@
+const runtimeInstallations = new WeakMap();
+
 const CHROME_RUNTIME_SHIM = `(() => {
   try {
     if (!window.chrome) window.chrome = {};
@@ -107,19 +109,27 @@ function configureSessionBrowserIdentity(browserSession, runtime = process) {
   return { userAgent, clientHints };
 }
 
-async function installChromeRuntime(webContents) {
-  try {
-    if (!webContents.debugger.isAttached())
-      webContents.debugger.attach("1.3");
-    await webContents.debugger.sendCommand("Page.enable");
-    await webContents.debugger.sendCommand(
-      "Page.addScriptToEvaluateOnNewDocument",
-      { source: CHROME_RUNTIME_SHIM });
-    return true;
-  } catch (error) {
-    console.error(`Could not install Chrome runtime compatibility: ${error?.message ?? error}`);
-    return false;
-  }
+function installChromeRuntime(webContents) {
+  const existing = runtimeInstallations.get(webContents);
+  if (existing) return existing;
+
+  const installation = (async () => {
+    try {
+      if (!webContents.debugger.isAttached())
+        webContents.debugger.attach("1.3");
+      await webContents.debugger.sendCommand("Page.enable");
+      await webContents.debugger.sendCommand(
+        "Page.addScriptToEvaluateOnNewDocument",
+        { source: CHROME_RUNTIME_SHIM });
+      return true;
+    } catch (error) {
+      console.error(`Could not install Chrome runtime compatibility: ${error?.message ?? error}`);
+      return false;
+    }
+  })();
+
+  runtimeInstallations.set(webContents, installation);
+  return installation;
 }
 
 module.exports = {
