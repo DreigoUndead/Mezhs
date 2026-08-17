@@ -2,7 +2,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { Buffer } = require("node:buffer");
-const { createHash, randomUUID } = require("node:crypto");
+const { randomUUID } = require("node:crypto");
 
 const ORIGIN = "https://chatgpt.com";
 const API = Object.freeze({
@@ -225,11 +225,94 @@ function solveSentinelProof(seed, difficulty, config, prefix) {
     candidate[3] = counter;
     candidate[9] = counter >> 1;
     const encoded = Buffer.from(JSON.stringify(candidate)).toString("base64");
-    const digest = createHash("sha3-512").update(seed).update(encoded).digest();
+    const digest = sha3_512(Buffer.from(seed + encoded));
     if (digest.subarray(0, target.length).compare(target) < 0)
       return prefix + encoded;
   }
   throw new Error("ChatGPT Sentinel proof-of-work could not be solved.");
+}
+
+const KECCAK_MASK = (1n << 64n) - 1n;
+const KECCAK_ROTATION = [
+  0, 1, 62, 28, 27,
+  36, 44, 6, 55, 20,
+  3, 10, 43, 25, 39,
+  41, 45, 15, 21, 8,
+  18, 2, 61, 56, 14
+];
+const KECCAK_ROUND_CONSTANTS = [
+  0x0000000000000001n, 0x0000000000008082n, 0x800000000000808an,
+  0x8000000080008000n, 0x000000000000808bn, 0x0000000080000001n,
+  0x8000000080008081n, 0x8000000000008009n, 0x000000000000008an,
+  0x0000000000000088n, 0x0000000080008009n, 0x000000008000000an,
+  0x000000008000808bn, 0x800000000000008bn, 0x8000000000008089n,
+  0x8000000000008003n, 0x8000000000008002n, 0x8000000000000080n,
+  0x000000000000800an, 0x800000008000000an, 0x8000000080008081n,
+  0x8000000000008080n, 0x0000000080000001n, 0x8000000080008008n
+];
+
+function sha3_512(input) {
+  const rate = 72;
+  const state = new Array(25).fill(0n);
+  let offset = 0;
+
+  while (offset + rate <= input.length) {
+    absorbKeccakBlock(state, input.subarray(offset, offset + rate));
+    offset += rate;
+  }
+
+  const block = Buffer.alloc(rate);
+  input.copy(block, 0, offset);
+  block[input.length - offset] = 0x06;
+  block[rate - 1] |= 0x80;
+  absorbKeccakBlock(state, block);
+
+  const output = Buffer.alloc(64);
+  for (let index = 0; index < output.length; index++)
+    output[index] = Number((state[Math.floor(index / 8)] >> BigInt(8 * (index % 8))) & 0xffn);
+  return output;
+}
+
+function absorbKeccakBlock(state, block) {
+  for (let lane = 0; lane < 9; lane++) {
+    let value = 0n;
+    for (let byte = 0; byte < 8; byte++)
+      value |= BigInt(block[lane * 8 + byte]) << BigInt(byte * 8);
+    state[lane] ^= value;
+  }
+  keccakF1600(state);
+}
+
+function keccakF1600(state) {
+  for (const roundConstant of KECCAK_ROUND_CONSTANTS) {
+    const column = new Array(5);
+    const delta = new Array(5);
+    for (let x = 0; x < 5; x++)
+      column[x] = state[x] ^ state[x + 5] ^ state[x + 10] ^ state[x + 15] ^ state[x + 20];
+    for (let x = 0; x < 5; x++)
+      delta[x] = column[(x + 4) % 5] ^ rotateKeccak(column[(x + 1) % 5], 1);
+    for (let y = 0; y < 5; y++)
+      for (let x = 0; x < 5; x++)
+        state[x + 5 * y] ^= delta[x];
+
+    const rotated = new Array(25).fill(0n);
+    for (let y = 0; y < 5; y++)
+      for (let x = 0; x < 5; x++)
+        rotated[y + 5 * ((2 * x + 3 * y) % 5)] =
+          rotateKeccak(state[x + 5 * y], KECCAK_ROTATION[x + 5 * y]);
+
+    for (let y = 0; y < 5; y++)
+      for (let x = 0; x < 5; x++)
+        state[x + 5 * y] = rotated[x + 5 * y] ^
+          ((~rotated[(x + 1) % 5 + 5 * y]) & rotated[(x + 2) % 5 + 5 * y]);
+    state[0] ^= roundConstant;
+  }
+}
+
+function rotateKeccak(value, bits) {
+  if (!bits) return value;
+  const shift = BigInt(bits);
+  return ((value << shift) | (value >> (64n - shift))) & KECCAK_MASK;
 }
 
 async function accessToken(session) {
