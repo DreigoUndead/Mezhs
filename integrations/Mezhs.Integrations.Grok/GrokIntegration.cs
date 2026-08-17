@@ -3,6 +3,10 @@ using Mezhs.Integrations.Browser;
 
 namespace Mezhs.Integrations.Grok;
 
+/// <summary>
+/// Connects a persistent Grok account to Mezhs and delegates provider-browser work
+/// to the embedded Grok browser module.
+/// </summary>
 [Integration("grok-web-account")]
 public sealed class GrokAccountIntegration : BrowserIntegrationBase
 {
