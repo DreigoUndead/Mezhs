@@ -1,3 +1,4 @@
+# Guards Grok ownership boundaries, shared account lifecycle, and browser page-operation architecture.
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -23,7 +24,8 @@ $grokProject = Join-Path $root 'integrations\Mezhs.Integrations.Grok\Mezhs.Integ
 $grokIntegration = Join-Path $root 'integrations\Mezhs.Integrations.Grok\GrokIntegration.cs'
 $grokBrowser = Join-Path $root 'integrations\Mezhs.Integrations.Grok\browser\grok.ts'
 $accountSession = Join-Path $root 'src\Mezhs.Integration.Browser\BrowserAccountSession.cs'
-foreach ($file in @($grokProject, $grokIntegration, $grokBrowser, $accountSession)) {
+$browserContract = Join-Path $root 'src\Mezhs.Integration.Browser\BrowserModule.d.ts'
+foreach ($file in @($grokProject, $grokIntegration, $grokBrowser, $accountSession, $browserContract)) {
     if (-not (Test-Path -LiteralPath $file)) {
         throw "Missing Grok architecture file: $file"
     }
@@ -35,6 +37,16 @@ if ($grok -notmatch '\[Integration\("grok-web-account"\)\]') {
 }
 if ($grok -notmatch 'BrowserAccountSession' -or $grok -notmatch 'ILoginModule') {
     throw 'Grok account integration is not using the shared account lifecycle and login contract.'
+}
+
+$grokBrowserSource = Get-Content $grokBrowser -Raw
+if ($grokBrowserSource -notmatch 'pageOperations' -or $grokBrowserSource -match 'executeJavaScript') {
+    throw 'Grok DOM behavior is not attached through browser page operations.'
+}
+$browserContractSource = Get-Content $browserContract -Raw
+if ($browserContractSource -notmatch 'interface BrowserPage' -or
+    $browserContractSource -notmatch 'pageOperations') {
+    throw 'Shared browser TypeScript contract does not define page operations.'
 }
 
 $chatGpt = Get-Content (Join-Path $root 'integrations\Mezhs.Integrations.ChatGpt\ChatGptIntegration.cs') -Raw
@@ -53,4 +65,4 @@ if ($config -notmatch '(?m)^\s*- id: grok-account\s*$' -or
     throw 'Default Grok account connection is missing.'
 }
 
-Write-Host 'PASS: Grok stays integration-owned and shares only generic browser account lifecycle.'
+Write-Host 'PASS: Grok stays integration-owned, uses shared account lifecycle, and attaches DOM work through the browser contract.'
