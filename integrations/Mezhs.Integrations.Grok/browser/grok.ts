@@ -1,3 +1,4 @@
+// Grok browser module: main-process navigation/auth plus renderer-attached DOM operations.
 const ORIGIN = "https://grok.com";
 
 module.exports = {
@@ -25,39 +26,25 @@ module.exports = {
       await context.window.loadURL(chatUrl);
       return sendPrompt(context);
     }
-  }
-};
+  },
 
-function isGrokConversationUrl(value) {
-  try {
-    const url = new URL(value);
-    return url.origin === ORIGIN &&
-      (url.pathname !== "/" || Boolean(url.search) || Boolean(url.hash));
-  } catch {
-    return false;
-  }
-}
-
-async function sendPrompt({ window, args }) {
-  const prompt = JSON.stringify(String(args.prompt || ""));
-  return window.webContents.executeJavaScript(`
-    (async () => {
-      const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-      const prompt = ${prompt};
+  pageOperations: {
+    async sendPrompt({ args, sleep }) {
+      const prompt = String(args.prompt || "");
 
       const visible = element => {
         if (!element) return false;
         const style = getComputedStyle(element);
         const rect = element.getBoundingClientRect();
-        return style.display !== 'none' &&
-          style.visibility !== 'hidden' &&
+        return style.display !== "none" &&
+          style.visibility !== "hidden" &&
           rect.width > 0 &&
           rect.height > 0;
       };
 
       const findEditor = () => {
         const selectors = [
-          'textarea',
+          "textarea",
           '[data-testid="text-input"]',
           'div[contenteditable="true"][role="textbox"]',
           '[contenteditable="true"][role="textbox"]',
@@ -72,14 +59,14 @@ async function sendPrompt({ window, args }) {
       };
 
       const latestResponse = () => {
-        const markdown = [...document.querySelectorAll('.response-content-markdown')]
+        const markdown = [...document.querySelectorAll(".response-content-markdown")]
           .filter(visible);
         if (markdown.length)
           return markdown[markdown.length - 1];
 
-        const lastReply = document.querySelector('#last-reply-container');
+        const lastReply = document.querySelector("#last-reply-container");
         if (!lastReply) return null;
-        const bubbles = [...lastReply.querySelectorAll('.message-bubble')].filter(visible);
+        const bubbles = [...lastReply.querySelectorAll(".message-bubble")].filter(visible);
         return bubbles[bubbles.length - 1] || lastReply;
       };
 
@@ -90,16 +77,16 @@ async function sendPrompt({ window, args }) {
         if (!editor) await sleep(250);
       }
       if (!editor)
-        return { ok: false, error: 'Grok prompt editor was not found at ' + location.href };
+        throw new Error(`Grok prompt editor was not found at ${location.href}`);
 
       const beforeNode = latestResponse();
-      const beforeText = beforeNode?.innerText?.trim() || '';
+      const beforeText = beforeNode?.innerText?.trim() || "";
       const beforeMarkdownCount =
-        document.querySelectorAll('.response-content-markdown').length;
+        document.querySelectorAll(".response-content-markdown").length;
       const beforeBubbleCount =
-        document.querySelectorAll('#last-reply-container .message-bubble').length;
+        document.querySelectorAll("#last-reply-container .message-bubble").length;
       editor.focus();
-      if (editor.tagName === 'TEXTAREA') {
+      if (editor.tagName === "TEXTAREA") {
         editor.select();
       } else {
         const selection = getSelection();
@@ -108,8 +95,8 @@ async function sendPrompt({ window, args }) {
         selection.removeAllRanges();
         selection.addRange(range);
       }
-      if (!document.execCommand('insertText', false, prompt))
-        return { ok: false, error: 'Grok rejected prompt insertion.' };
+      if (!document.execCommand("insertText", false, prompt))
+        throw new Error("Grok rejected prompt insertion.");
 
       const findSendButton = () => {
         const selectors = [
@@ -122,12 +109,12 @@ async function sendPrompt({ window, args }) {
           const button = matches.find(item => visible(item) && !item.disabled);
           if (button) return button;
         }
-        return [...document.querySelectorAll('button')]
+        return [...document.querySelectorAll("button")]
           .find(button =>
             visible(button) &&
             !button.disabled &&
             /^(send|submit|发送|提交)$/i.test(
-              String(button.getAttribute('aria-label') || button.textContent || '').trim()
+              String(button.getAttribute("aria-label") || button.textContent || "").trim()
             )
           ) || null;
       };
@@ -139,20 +126,20 @@ async function sendPrompt({ window, args }) {
         if (!sendButton) await sleep(250);
       }
       if (!sendButton)
-        return { ok: false, error: 'Grok send button did not become available.' };
+        throw new Error("Grok send button did not become available.");
 
       sendButton.click();
 
-      let lastText = '';
+      let lastText = "";
       let stableSamples = 0;
       const responseDeadline = Date.now() + 180000;
       while (Date.now() < responseDeadline) {
         const node = latestResponse();
-        const text = node?.innerText?.trim() || '';
+        const text = node?.innerText?.trim() || "";
         const markdownCount =
-          document.querySelectorAll('.response-content-markdown').length;
+          document.querySelectorAll(".response-content-markdown").length;
         const bubbleCount =
-          document.querySelectorAll('#last-reply-container .message-bubble').length;
+          document.querySelectorAll("#last-reply-container .message-bubble").length;
         const changed = Boolean(text) && (
           markdownCount > beforeMarkdownCount ||
           bubbleCount > beforeBubbleCount ||
@@ -165,30 +152,36 @@ async function sendPrompt({ window, args }) {
           stableSamples = 0;
         lastText = text;
 
-        const stop = [...document.querySelectorAll('button')]
+        const stop = [...document.querySelectorAll("button")]
           .find(button =>
             visible(button) &&
-            /stop/i.test(String(button.getAttribute('aria-label') || button.textContent || ''))
+            /stop/i.test(String(button.getAttribute("aria-label") || button.textContent || ""))
           );
 
         if (changed && !stop && stableSamples >= 6)
-          return { ok: true, text, chatUrl: location.href };
+          return { text, chatUrl: location.href };
 
         await sleep(500);
       }
 
-      return {
-        ok: false,
-        text: lastText,
-        chatUrl: location.href,
-        error: 'Grok response timed out.'
-      };
-    })()
-  `, true).then(result => {
-    if (!result?.ok)
-      throw new Error(result?.error || "Grok browser request failed.");
-    if (!isGrokConversationUrl(result.chatUrl))
-      throw new Error("Grok did not return a valid conversation URL.");
-    return result;
-  });
+      throw new Error(`Grok response timed out at ${location.href}.`);
+    }
+  }
+};
+
+function isGrokConversationUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.origin === ORIGIN &&
+      (url.pathname !== "/" || Boolean(url.search) || Boolean(url.hash));
+  } catch {
+    return false;
+  }
+}
+
+async function sendPrompt(context) {
+  const result = await context.page.invoke("sendPrompt", context.args);
+  if (!isGrokConversationUrl(result?.chatUrl))
+    throw new Error("Grok did not return a valid conversation URL.");
+  return result;
 }
