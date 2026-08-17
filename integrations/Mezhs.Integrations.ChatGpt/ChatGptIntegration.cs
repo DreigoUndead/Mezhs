@@ -65,17 +65,37 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
             ThrowIfDisposed();
             CancelIdle();
             await EnsureAuthorizedTransportAsync(cancellationToken);
-            var newChat = string.IsNullOrWhiteSpace(context.Chat.RemoteChatUrl);
-            var response = await _transport!.SendPromptAsync(new BrowserPromptRequest(
+
+            var newChat = string.IsNullOrWhiteSpace(context.Chat.RemoteConversationId) ||
+                          string.IsNullOrWhiteSpace(context.Chat.RemoteParentMessageId);
+            var workspace = Connection.GetSetting("workspace");
+            var projectId = newChat
+                ? await ResolveProjectIdAsync(workspace, cancellationToken)
+                : null;
+            var request = new ChatGptSendRequest(
                 newChat ? ComposeConversation(context) : context.Message.Content,
-                NewChat: newChat,
-                ChatUrl: context.Chat.RemoteChatUrl,
-                Workspace: newChat ? Connection.GetSetting("workspace") : null,
-                FilePaths: context.Files.Select(file => file.Path).ToArray()), cancellationToken);
-            if (!response.Ok)
-                throw new InvalidOperationException(response.Error ?? "Chat request failed.");
-            var outputFiles = await DownloadArtifactsAsync(response.Artifacts, cancellationToken);
-            return new IntegrationSendResult(response.Text, response.ChatUrl, Files: outputFiles);
+                context.Chat.RemoteConversationId,
+                context.Chat.RemoteParentMessageId,
+                projectId,
+                context.Files.Select(file => new ChatGptInputFile(
+                    file.Path,
+                    file.Name,
+                    file.ContentType)).ToArray());
+            var response = await _transport!.InvokeAsync<ChatGptSendResponse>(
+                newChat ? "newChat" : "send",
+                request,
+                cancellationToken);
+            if (projectId is not null &&
+                !string.Equals(response.ProjectId, projectId, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"ChatGPT created the chat outside project '{workspace}'.");
+
+            return new IntegrationSendResult(
+                response.Text,
+                response.ChatUrl,
+                response.ConversationId,
+                response.ParentMessageId,
+                OutputFiles(response.Artifacts));
         }
         finally
         {
@@ -107,6 +127,46 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
             _gate.Release();
             _gate.Dispose();
         }
+    }
+
+    private async Task<string?> ResolveProjectIdAsync(
+        string? projectName,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(projectName))
+            return null;
+
+        var projects = await _transport!.InvokeAsync<ChatGptProject[]>(
+            "getProjects",
+            cancellationToken: cancellationToken);
+        var matches = projects
+            .Where(project => project.Name.Equals(
+                projectName.Trim(),
+                StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (matches.Length == 1)
+            return matches[0].Id;
+
+        Console.Error.WriteLine(matches.Length == 0
+            ? $"ChatGPT project '{projectName}' was not found; using no project."
+            : $"ChatGPT project '{projectName}' is ambiguous; using no project.");
+        return null;
+    }
+
+    private static IReadOnlyList<IntegrationOutputFile> OutputFiles(
+        IReadOnlyList<BrowserArtifact>? artifacts)
+    {
+        if (artifacts is null)
+            return [];
+
+        return artifacts
+            .Where(artifact => !string.IsNullOrWhiteSpace(artifact.LocalPath) &&
+                               File.Exists(artifact.LocalPath))
+            .Select(artifact => new IntegrationOutputFile(
+                artifact.LocalPath!,
+                SanitizeFileName(artifact.Name),
+                artifact.ContentType ?? "application/octet-stream"))
+            .ToArray();
     }
 
     private async Task LoginAsync(CancellationToken cancellationToken)
@@ -176,52 +236,6 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         }
     }
 
-    private async Task<IReadOnlyList<IntegrationOutputFile>> DownloadArtifactsAsync(
-        IReadOnlyList<BrowserArtifact>? artifacts,
-        CancellationToken cancellationToken)
-    {
-        if (artifacts is null || artifacts.Count == 0)
-            return [];
-
-        var files = new List<IntegrationOutputFile>();
-        foreach (var artifact in artifacts)
-        {
-            try
-            {
-                if (!string.IsNullOrWhiteSpace(artifact.LocalPath) && File.Exists(artifact.LocalPath))
-                {
-                    files.Add(new IntegrationOutputFile(
-                        artifact.LocalPath,
-                        SanitizeFileName(artifact.Name),
-                        artifact.ContentType ?? "application/octet-stream"));
-                    continue;
-                }
-                var response = await _transport!.SendWebRequestAsync(new BrowserWebRequest(
-                    artifact.Url,
-                    Headers: new Dictionary<string, string> { ["Accept"] = "*/*" },
-                    Base64Response: true), cancellationToken);
-                if (response.Status is < 200 or >= 300 || !response.BodyIsBase64)
-                    continue;
-
-                var directory = Path.Combine(Path.GetTempPath(), "mezhs", Guid.NewGuid().ToString("N"));
-                Directory.CreateDirectory(directory);
-                var name = SanitizeFileName(artifact.Name);
-                var path = Path.Combine(directory, name);
-                await File.WriteAllBytesAsync(path, Convert.FromBase64String(response.Body), cancellationToken);
-                var contentType = artifact.ContentType
-                    ?? response.Headers.FirstOrDefault(header =>
-                        header.Key.Equals("content-type", StringComparison.OrdinalIgnoreCase)).Value
-                    ?? "application/octet-stream";
-                files.Add(new IntegrationOutputFile(path, name, contentType));
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Could not import browser artifact '{artifact.Name}': {ex.Message}");
-            }
-        }
-        return files;
-    }
-
     private void ScheduleIdle()
     {
         CancelIdle();
@@ -285,6 +299,28 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
             name = name.Replace(invalid, '_');
         return string.IsNullOrWhiteSpace(name) ? "download" : name;
     }
+
+    private sealed record ChatGptProject(string Id, string Name);
+
+    private sealed record ChatGptInputFile(
+        string Path,
+        string Name,
+        string ContentType);
+
+    private sealed record ChatGptSendRequest(
+        string Prompt,
+        string? ConversationId,
+        string? ParentMessageId,
+        string? ProjectId,
+        IReadOnlyList<ChatGptInputFile> Files);
+
+    private sealed record ChatGptSendResponse(
+        string Text,
+        string ConversationId,
+        string ParentMessageId,
+        string? ProjectId,
+        string? ChatUrl,
+        IReadOnlyList<BrowserArtifact>? Artifacts);
 
     private sealed class LoginModule(ChatGptAccountIntegration owner) : ILoginModule
     {

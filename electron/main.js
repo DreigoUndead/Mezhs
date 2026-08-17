@@ -38,7 +38,7 @@ function loadBrowserModule(modulePath) {
     throw new Error("Browser module path is required.");
   const resolved = path.resolve(modulePath);
   const implementation = require(resolved);
-  if (!implementation?.homeUrl || typeof implementation.sendPrompt !== "function")
+  if (!implementation?.homeUrl || !implementation.operations)
     throw new Error(`Browser module '${resolved}' is incomplete.`);
   return implementation;
 }
@@ -115,60 +115,13 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
   return { ready: true };
 }
 
-async function sendPrompt(request) {
-  if (!window || !browserModule) throw new Error("Electron browser is not initialized.");
-  const result = await browserModule.sendPrompt({ window, request, sleep });
-  result.chatUrl = result.chatUrl || window.webContents.getURL();
-  return result;
-}
-
-async function sendWebRequest({ url, method, headers, body, base64Response }) {
-  if (!window || !browserModule) throw new Error("Electron browser is not initialized.");
-  const requestSource = JSON.stringify({
-    url: String(url),
-    method: String(method || "GET"),
-    headers: headers || {},
-    body: body === null || body === undefined ? null : String(body),
-    base64Response: Boolean(base64Response)
-  });
-  const prepareSource = typeof browserModule.prepareWebRequest === "function"
-    ? `await ({${browserModule.prepareWebRequest.toString()}}).prepareWebRequest({ target, headers });`
-    : "";
-  return window.webContents.executeJavaScript(`
-    (async () => {
-      const request = ${requestSource};
-      const target = new URL(request.url, location.origin).href;
-      const headers = new Headers(request.headers || {});
-      ${prepareSource}
-      const response = await fetch(target, {
-        method: request.method,
-        headers,
-        body: request.body,
-        credentials: 'include',
-        cache: 'no-store'
-      });
-      const responseHeaders = {};
-      response.headers.forEach((value, key) => responseHeaders[key] = value);
-      if (request.base64Response) {
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        let binary = '';
-        for (let offset = 0; offset < bytes.length; offset += 0x8000)
-          binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-        return {
-          status: response.status,
-          body: btoa(binary),
-          headers: responseHeaders,
-          bodyIsBase64: true
-        };
-      }
-      return {
-        status: response.status,
-        body: await response.text(),
-        headers: responseHeaders,
-        bodyIsBase64: false
-      };
-    })()
-  `, true);
+function invokeProvider({ operation, arguments: args }) {
+  if (!window || !browserModule || !activeSession)
+    throw new Error("Electron browser is not initialized.");
+  const method = browserModule.operations[operation];
+  if (typeof method !== "function")
+    throw new Error(`${browserModule.name} does not support provider operation '${operation}'.`);
+  return method({ window, session: activeSession, args: args ?? {}, sleep });
 }
 
 function readJson(request) {
@@ -198,17 +151,11 @@ let operationQueue = Promise.resolve();
 async function start() {
   const server = http.createServer(async (request, response) => {
     try {
-      if (request.method === "POST" && request.url === "/prompt") {
+      if (request.method === "POST" && request.url === "/invoke") {
         const body = await readJson(request);
         const result = await (operationQueue = operationQueue
           .catch(() => {})
-          .then(() => sendPrompt(body)));
-        writeJson(response, 200, result);
-      } else if (request.method === "POST" && request.url === "/fetch") {
-        const body = await readJson(request);
-        const result = await (operationQueue = operationQueue
-          .catch(() => {})
-          .then(() => sendWebRequest(body)));
+          .then(() => invokeProvider(body)));
         writeJson(response, 200, result);
       } else if (request.method === "POST" && request.url === "/show") {
         window?.show();

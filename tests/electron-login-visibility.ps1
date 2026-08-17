@@ -23,8 +23,8 @@ New-Item -ItemType Directory -Path $profile -Force | Out-Null
 module.exports = {
   name: "Login Visibility Test",
   homeUrl: "data:text/html,<html><body>login</body></html>",
-  async isAuthorized() { return false; },
-  async sendPrompt() { return { ok: true, text: "unused" }; }
+  operations: {},
+  async isAuthorized() { return false; }
 };
 '@ | Set-Content -LiteralPath $modulePath -Encoding UTF8
 

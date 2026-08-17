@@ -1,6 +1,6 @@
 ---
 name: software-change
-description: Use for non-trivial implementation, bug fixing, refactoring, architecture work, or code review when existing design matters. Continuously challenge placement, duplication, regression risk, necessity, complexity, abstraction timing, maintainability, and architectural fit; then choose reuse, repair, refactor, or redesign. Skip simple syntax/lookups with no codebase context.
+description: Use for non-trivial implementation, bug fixing, refactoring, architecture work, or code review when existing design matters. Continuously challenge placement, duplication, regression risk, necessity, complexity, abstraction timing, maintainability, interface choice, async usage, and architectural fit; then choose reuse, repair, refactor, or redesign. Skip simple syntax/lookups with no codebase context.
 ---
 
 # Software Change
@@ -13,6 +13,9 @@ At meaningful design decisions, challenge the current solution:
 
 - Is this the right place for this responsibility?
 - Does another mechanism already own or duplicate it?
+- Is there a semantic API, protocol, transport, command, or state mechanism that already owns this behavior?
+- Am I reaching for HTML/DOM because it is necessary, or merely because the behavior is visible there?
+- Does this operation actually require async?
 - What could this break?
 - Will this make maintenance harder?
 - Should these parts depend on each other?
@@ -52,6 +55,8 @@ Identify observable behavior, real constraints, and what must remain unchanged. 
 ### 2. Build a system model from evidence
 
 Read the relevant source when available. Find the current owner, callers, state/source of truth, lifetime, transactions/concurrency, analogous implementations, and existing helpers/builders/policies/generators/base abstractions.
+
+For integrations with external applications or web UIs, inspect the actual semantic interface first: existing API calls, network requests, protocol messages, transport contracts, commands, or application state transitions. Do not infer the mechanism from visible HTML when the underlying behavior can be observed directly.
 
 Use domain-specific project guidance for system facts instead of substituting generic patterns.
 
@@ -108,11 +113,33 @@ Specifically challenge:
 - scope that is too small or too large;
 - premature abstraction;
 - missed opportunities to enforce a shared invariant centrally;
+- unnecessary DOM/UI automation where a semantic interface exists;
+- unnecessary async/await where no asynchronous work or control flow requires it;
 - obsolete code left behind;
 - regression paths;
 - whether a simpler, more elegant design exists.
 
 If the review changes the scope classification, revise the design instead of patching the patch.
+
+## Interface selection rule
+
+Prefer semantic interfaces over presentation surfaces.
+
+If the application already exposes the behavior through an API, network protocol/request, transport contract, command, or stable state mechanism, use that mechanism rather than reproducing it through HTML/DOM interaction.
+
+HTML/DOM automation is a **last resort**. Use it only when evidence shows that no suitable non-UI mechanism exists or when the requested behavior is inherently UI-only. A visible button, link, label, or page flow is evidence that the feature exists, not evidence that clicking or scraping it is the correct integration boundary.
+
+Before adding DOM selectors, click sequences, arbitrary sleeps, or assumptions about page state, inspect the real request/state transition performed by the application. Prefer reproducing that semantic operation directly.
+
+When DOM automation is genuinely unavoidable, keep it isolated at the provider/UI boundary, minimize selectors and timing assumptions, and do not let presentation details become a second source of truth for application behavior.
+
+## Async discipline
+
+Use async only for genuinely asynchronous work or when an asynchronous contract requires it. Do not add `async` merely because a caller is async, because a task-returning API exists, or to make neighboring signatures uniform.
+
+Keep pure parsing, validation, mapping, state inspection, and other synchronous operations synchronous. If a method only forwards an existing `Task` and needs no `await`-dependent control flow, return the task directly rather than creating another async state machine.
+
+Async should express a real wait/lifetime boundary, not become a default coding style.
 
 ## Architectural leverage rule
 

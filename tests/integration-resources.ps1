@@ -7,7 +7,7 @@ $checks = @(
     @{
         Assembly = 'Mezhs.Integrations.ChatGpt.dll'
         Resource = 'Mezhs.Integrations.ChatGpt.BrowserModule'
-        Marker = 'https://chatgpt.com/'
+        Marker = 'https://chatgpt.com'
     },
     @{
         Assembly = 'Mezhs.Integrations.Gemini.dll'
@@ -39,7 +39,7 @@ foreach ($check in $checks) {
         $stream.Dispose()
     }
 
-    if ($source -notmatch 'module\.exports' -or $source -notmatch 'sendPrompt' -or $source -notlike "*$($check.Marker)*") {
+    if ($source -notmatch 'module\.exports' -or $source -notmatch 'operations' -or $source -notlike "*$($check.Marker)*") {
         throw "Browser resource '$($check.Resource)' does not contain the expected runtime module."
     }
 

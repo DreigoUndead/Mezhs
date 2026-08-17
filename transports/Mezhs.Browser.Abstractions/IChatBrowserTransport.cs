@@ -11,12 +11,9 @@ public interface IChatBrowserTransport : IAsyncDisposable
         BrowserTransportOptions options,
         CancellationToken cancellationToken = default);
 
-    Task<ChatTransportResponse> SendPromptAsync(
-        BrowserPromptRequest request,
-        CancellationToken cancellationToken = default);
-
-    Task<BrowserWebResponse> SendWebRequestAsync(
-        BrowserWebRequest request,
+    Task<TResult> InvokeAsync<TResult>(
+        string operation,
+        object? arguments = null,
         CancellationToken cancellationToken = default);
 
     Task ShowAsync(CancellationToken cancellationToken = default);
@@ -28,35 +25,8 @@ public sealed record BrowserTransportOptions(
     bool ShowBrowser = false,
     bool RequireAuthorization = false);
 
-public sealed record BrowserPromptRequest(
-    string Prompt,
-    bool NewChat = false,
-    string? ChatUrl = null,
-    string? Workspace = null,
-    IReadOnlyList<string>? FilePaths = null);
-
-public sealed record ChatTransportResponse(
-    bool Ok,
-    string Text = "",
-    string? Error = null,
-    string? ChatUrl = null,
-    IReadOnlyList<BrowserArtifact>? Artifacts = null);
-
 public sealed record BrowserArtifact(
     string Url,
     string Name,
     string? ContentType = null,
     string? LocalPath = null);
-
-public sealed record BrowserWebRequest(
-    string Url,
-    string Method = "GET",
-    IReadOnlyDictionary<string, string>? Headers = null,
-    string? Body = null,
-    bool Base64Response = false);
-
-public sealed record BrowserWebResponse(
-    int Status,
-    string Body,
-    IReadOnlyDictionary<string, string> Headers,
-    bool BodyIsBase64 = false);
