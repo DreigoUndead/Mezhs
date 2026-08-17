@@ -1,3 +1,4 @@
+# Verifies Grok account login, interactive-browser disposal, hidden resume, and remote continuation.
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
