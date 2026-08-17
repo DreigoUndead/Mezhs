@@ -25,6 +25,13 @@ public abstract class BrowserIntegrationBase(
             showBrowser,
             requireAuthorization);
 
+    protected BrowserAccountSession CreateAccountSession() => new(
+        Host,
+        (showBrowser, requireAuthorization) => TransportOptions(
+            PersistentProfilePath,
+            showBrowser,
+            requireAuthorization));
+
     protected async Task<IntegrationSendResult> SendAnonymousAsync(
         IntegrationSendContext context,
         CancellationToken cancellationToken)

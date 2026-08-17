@@ -1,0 +1,15 @@
+// Typechecks the runtime-compatible Grok browser module against the shared browser contract.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "lib": ["ES2022", "DOM"],
+    "noEmit": true,
+    "strict": false,
+    "skipLibCheck": true
+  },
+  "files": [
+    "../../../src/Mezhs.Integration.Browser/BrowserModule.d.ts",
+    "grok.ts"
+  ]
+}

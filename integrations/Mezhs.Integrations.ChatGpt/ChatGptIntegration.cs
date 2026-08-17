@@ -34,18 +34,15 @@ public class ChatGptWebIntegration : BrowserIntegrationBase
 [Integration("chatgpt-web-account")]
 public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
 {
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly BrowserAccountSession _session;
     private readonly ILoginModule _login;
-    private IChatBrowserTransport? _transport;
-    private CancellationTokenSource? _idleCancellation;
-    private Task? _idleTask;
-    private bool _disposed;
 
     public ChatGptAccountIntegration(
         IntegrationConnection connection,
         IIntegrationHost host) : base(connection, host)
     {
-        _login = new LoginModule(this);
+        _session = CreateAccountSession();
+        _login = new LoginModule(_session);
     }
 
     public override IntegrationCapabilities Capabilities => new(
@@ -55,22 +52,16 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         ImageOutput: true);
     public override ILoginModule Login => _login;
 
-    public override async Task<IntegrationSendResult> SendMessageAsync(
+    public override Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
-        CancellationToken cancellationToken = default)
-    {
-        await _gate.WaitAsync(cancellationToken);
-        try
+        CancellationToken cancellationToken = default) =>
+        _session.UseAsync(async (transport, token) =>
         {
-            ThrowIfDisposed();
-            CancelIdle();
-            await EnsureAuthorizedTransportAsync(cancellationToken);
-
             var newChat = string.IsNullOrWhiteSpace(context.Chat.RemoteConversationId) ||
                           string.IsNullOrWhiteSpace(context.Chat.RemoteParentMessageId);
             var workspace = Connection.GetSetting("workspace");
             var projectId = newChat
-                ? await ResolveProjectIdAsync(workspace, cancellationToken)
+                ? await ResolveProjectIdAsync(transport, workspace, token)
                 : null;
             var request = new ChatGptSendRequest(
                 newChat ? ComposeConversation(context) : context.Message.Content,
@@ -81,10 +72,10 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                     file.Path,
                     file.Name,
                     file.ContentType)).ToArray());
-            var response = await _transport!.InvokeAsync<ChatGptSendResponse>(
+            var response = await transport.InvokeAsync<ChatGptSendResponse>(
                 newChat ? "newChat" : "send",
                 request,
-                cancellationToken);
+                token);
             if (projectId is not null &&
                 !string.Equals(response.ProjectId, projectId, StringComparison.Ordinal))
                 throw new InvalidOperationException(
@@ -96,47 +87,19 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 response.ConversationId,
                 response.ParentMessageId,
                 OutputFiles(response.Artifacts));
-        }
-        finally
-        {
-            if (!_disposed)
-                ScheduleIdle();
-            _gate.Release();
-        }
-    }
+        }, cancellationToken);
 
-    public override async ValueTask DisposeAsync()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        var idleTask = _idleTask;
-        CancelIdle();
-        if (idleTask is not null)
-            await idleTask;
-        _idleTask = null;
+    public override ValueTask DisposeAsync() => _session.DisposeAsync();
 
-        await _gate.WaitAsync();
-        try
-        {
-            if (_transport is not null)
-                await _transport.DisposeAsync();
-            _transport = null;
-        }
-        finally
-        {
-            _gate.Release();
-            _gate.Dispose();
-        }
-    }
-
-    private async Task<string?> ResolveProjectIdAsync(
+    private static async Task<string?> ResolveProjectIdAsync(
+        IChatBrowserTransport transport,
         string? projectName,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(projectName))
             return null;
 
-        var projects = await _transport!.InvokeAsync<ChatGptProject[]>(
+        var projects = await transport.InvokeAsync<ChatGptProject[]>(
             "getProjects",
             cancellationToken: cancellationToken);
         var matches = projects
@@ -169,129 +132,6 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
             .ToArray();
     }
 
-    private async Task LoginAsync(CancellationToken cancellationToken)
-    {
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            ThrowIfDisposed();
-            CancelIdle();
-            await EnsureInteractiveLoginAsync(cancellationToken);
-        }
-        finally
-        {
-            if (!_disposed)
-                ScheduleIdle();
-            _gate.Release();
-        }
-    }
-
-    private async Task EnsureAuthorizedTransportAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await EnsureTransportAsync(
-                showBrowser: false,
-                requireAuthorization: true,
-                cancellationToken);
-        }
-        catch (BrowserAuthorizationRequiredException)
-        {
-            await EnsureInteractiveLoginAsync(cancellationToken);
-        }
-    }
-
-    private async Task EnsureInteractiveLoginAsync(CancellationToken cancellationToken)
-    {
-        if (_transport is not null)
-        {
-            await _transport.DisposeAsync();
-            _transport = null;
-        }
-        await EnsureTransportAsync(
-            showBrowser: true,
-            requireAuthorization: true,
-            cancellationToken);
-    }
-
-    private async Task EnsureTransportAsync(
-        bool showBrowser,
-        bool requireAuthorization,
-        CancellationToken cancellationToken)
-    {
-        if (_transport is not null) return;
-        _transport = Host.CreateBrowserTransport();
-        try
-        {
-            await _transport.InitializeAsync(TransportOptions(
-                PersistentProfilePath,
-                showBrowser,
-                requireAuthorization), cancellationToken);
-        }
-        catch
-        {
-            await _transport.DisposeAsync();
-            _transport = null;
-            throw;
-        }
-    }
-
-    private void ScheduleIdle()
-    {
-        CancelIdle();
-        if (Host.BrowserIdleMinutes == 0 || _disposed) return;
-        var cancellation = new CancellationTokenSource();
-        _idleCancellation = cancellation;
-        _idleTask = DisposeWhenIdleAsync(cancellation);
-    }
-
-    private async Task DisposeWhenIdleAsync(CancellationTokenSource cancellation)
-    {
-        try
-        {
-            await Task.Delay(TimeSpan.FromMinutes(Host.BrowserIdleMinutes), cancellation.Token);
-            await _gate.WaitAsync(cancellation.Token);
-            try
-            {
-                if (ReferenceEquals(_idleCancellation, cancellation) && _transport is not null)
-                {
-                    await _transport.DisposeAsync();
-                    _transport = null;
-                }
-            }
-            finally
-            {
-                _gate.Release();
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        finally
-        {
-            if (ReferenceEquals(_idleCancellation, cancellation))
-            {
-                _idleCancellation = null;
-                _idleTask = null;
-            }
-            cancellation.Dispose();
-        }
-    }
-
-    private void CancelIdle()
-    {
-        var cancellation = _idleCancellation;
-        _idleCancellation = null;
-        try { cancellation?.Cancel(); }
-        catch (ObjectDisposedException) { }
-    }
-
-    private void ThrowIfDisposed()
-    {
-        if (_disposed)
-            throw new ObjectDisposedException(nameof(ChatGptAccountIntegration));
-    }
-
     private static string SanitizeFileName(string value)
     {
         var name = Path.GetFileName(value);
@@ -322,9 +162,9 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         string? ChatUrl,
         IReadOnlyList<BrowserArtifact>? Artifacts);
 
-    private sealed class LoginModule(ChatGptAccountIntegration owner) : ILoginModule
+    private sealed class LoginModule(BrowserAccountSession session) : ILoginModule
     {
         public Task LoginAsync(CancellationToken cancellationToken = default) =>
-            owner.LoginAsync(cancellationToken);
+            session.LoginAsync(cancellationToken);
     }
 }

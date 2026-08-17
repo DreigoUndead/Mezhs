@@ -18,6 +18,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Integrations.ChatGpt"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Integrations.Gemini", "integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A04}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Integrations.Grok", "integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A06}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Integrations.Mock", "integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A05}"
 EndProject
 Global
@@ -58,6 +60,10 @@ Global
 		{D12F41F7-98C2-4A72-B71C-9271100B1A04}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D12F41F7-98C2-4A72-B71C-9271100B1A04}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D12F41F7-98C2-4A72-B71C-9271100B1A04}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A06}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A06}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A06}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A06}.Release|Any CPU.Build.0 = Release|Any CPU
 		{D12F41F7-98C2-4A72-B71C-9271100B1A05}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{D12F41F7-98C2-4A72-B71C-9271100B1A05}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D12F41F7-98C2-4A72-B71C-9271100B1A05}.Release|Any CPU.ActiveCfg = Release|Any CPU

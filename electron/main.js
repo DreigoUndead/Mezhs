@@ -1,6 +1,11 @@
-const { app, BrowserWindow, session } = require("electron");
+const { app, BrowserWindow, ipcMain, session } = require("electron");
+const { randomUUID } = require("node:crypto");
 const http = require("node:http");
 const path = require("node:path");
+const {
+  cleanChromeUserAgent,
+  configureSessionBrowserIdentity
+} = require("./browser-identity");
 
 let window = null;
 let browserModule = null;
@@ -8,6 +13,7 @@ let activeSession = null;
 let keepVisible = false;
 let shuttingDown = false;
 const parentProcessId = Number(process.env.MEZHS_PARENT_PROCESS_ID || 0);
+const browserPreload = path.join(__dirname, "browser-preload.js");
 
 app.commandLine.appendSwitch("no-sandbox");
 app.commandLine.appendSwitch("disable-gpu");
@@ -16,6 +22,7 @@ app.commandLine.appendSwitch("disable-software-rasterizer");
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.userAgentFallback = cleanChromeUserAgent(app.userAgentFallback);
 app.disableHardwareAcceleration();
 
 if (parentProcessId > 0) {
@@ -43,11 +50,35 @@ function loadBrowserModule(modulePath) {
   return implementation;
 }
 
+function invokePageOperation(targetWindow, operation, args) {
+  const responseChannel = `mezhs:page-operation-result:${randomUUID()}`;
+  return new Promise((resolve, reject) => {
+    const handler = (_event, response) => {
+      if (response?.ok)
+        resolve(response.result);
+      else
+        reject(new Error(response?.error || `Browser page operation '${operation}' failed.`));
+    };
+    ipcMain.once(responseChannel, handler);
+    try {
+      targetWindow.webContents.send("mezhs:page-operation", {
+        responseChannel,
+        operation,
+        args: args ?? {}
+      });
+    } catch (error) {
+      ipcMain.removeListener(responseChannel, handler);
+      reject(error);
+    }
+  });
+}
+
 async function initialize({ profileDirectory, showBrowser, modulePath, requireAuthorization }) {
   await app.whenReady();
   browserModule = loadBrowserModule(modulePath);
   keepVisible = Boolean(showBrowser);
   const persistentSession = session.fromPath(path.resolve(profileDirectory));
+  configureSessionBrowserIdentity(persistentSession);
   activeSession = persistentSession;
 
   console.error(
@@ -61,16 +92,23 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
     title: `MEŽS - ${browserModule.name}`,
     webPreferences: {
       session: persistentSession,
+      preload: browserPreload,
       contextIsolation: true,
       sandbox: false,
       backgroundThrottling: false
     }
   });
-
-  const browserUserAgent = window.webContents.getUserAgent()
-    .replace(/\sElectron\/[^\s]+/g, "")
-    .replace(/\smezhs[^\s]*/gi, "");
-  window.webContents.setUserAgent(browserUserAgent);
+  window.webContents.setWindowOpenHandler(() => ({
+    action: "allow",
+    overrideBrowserWindowOptions: {
+      webPreferences: {
+        session: persistentSession,
+        preload: browserPreload,
+        contextIsolation: true,
+        sandbox: false
+      }
+    }
+  }));
 
   window.on("close", event => {
     if (shuttingDown) return;
@@ -121,7 +159,16 @@ function invokeProvider({ operation, arguments: args }) {
   const method = browserModule.operations[operation];
   if (typeof method !== "function")
     throw new Error(`${browserModule.name} does not support provider operation '${operation}'.`);
-  return method({ window, session: activeSession, args: args ?? {}, sleep });
+  return method({
+    window,
+    session: activeSession,
+    page: {
+      invoke: (pageOperation, pageArgs) =>
+        invokePageOperation(window, pageOperation, pageArgs)
+    },
+    args: args ?? {},
+    sleep
+  });
 }
 
 function readJson(request) {

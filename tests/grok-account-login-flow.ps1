@@ -1,11 +1,12 @@
+# Verifies Grok account login, interactive-browser disposal, hidden resume, and remote continuation.
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$temp = Join-Path ([System.IO.Path]::GetTempPath()) ('mezhs-account-login-test-' + [Guid]::NewGuid().ToString('N'))
+$temp = Join-Path ([System.IO.Path]::GetTempPath()) ('mezhs-grok-account-test-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
 
 try {
-    $chatGptProject = Join-Path $root 'integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj'
+    $grokProject = Join-Path $root 'integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj'
     @"
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -15,7 +16,7 @@ try {
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="$chatGptProject" />
+    <ProjectReference Include="$grokProject" />
   </ItemGroup>
 </Project>
 "@ | Set-Content -LiteralPath (Join-Path $temp 'Test.csproj') -Encoding UTF8
@@ -25,15 +26,16 @@ using System.Text.Json;
 using Mezhs.Browser;
 using Mezhs.Integrations;
 using Mezhs.Integrations.Browser;
-using Mezhs.Integrations.ChatGpt;
+using Mezhs.Integrations.Grok;
 
-var root = Path.Combine(Path.GetTempPath(), "mezhs-account-login-flow", Guid.NewGuid().ToString("N"));
+var root = Path.Combine(Path.GetTempPath(), "mezhs-grok-account-flow", Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 try
 {
     await TestAutomaticLoginAsync(Path.Combine(root, "automatic"));
     await TestExplicitLoginAsync(Path.Combine(root, "explicit"));
-    Console.WriteLine("PASS: ChatGPT account login closes the interactive browser and resumes hidden after authorization.");
+    await TestContinuationAsync(Path.Combine(root, "continuation"));
+    Console.WriteLine("PASS: Grok account login closes the interactive browser, resumes hidden, and preserves remote continuation.");
 }
 finally
 {
@@ -41,21 +43,22 @@ finally
 }
 
 static IntegrationConnection Connection() => new(
-    "account",
-    "Account",
-    "chatgpt-web-account",
+    "grok-account",
+    "Grok Account",
+    "grok-web-account",
     new Dictionary<string, string?>());
+
+static IntegrationSendContext Context(string? remoteChatUrl = null) => new(
+    new IntegrationChatContext("chat", "grok-account", remoteChatUrl),
+    new IntegrationMessageContext("message", "user", "hello", false, DateTimeOffset.UtcNow),
+    Array.Empty<IntegrationMessageContext>(),
+    Array.Empty<IntegrationInputFile>());
 
 static async Task TestAutomaticLoginAsync(string root)
 {
     var host = new FakeHost(root, authorized: false);
-    await using var integration = new ChatGptAccountIntegration(Connection(), host);
-    var now = DateTimeOffset.UtcNow;
-    var result = await integration.SendMessageAsync(new IntegrationSendContext(
-        new IntegrationChatContext("chat", "account"),
-        new IntegrationMessageContext("message", "user", "hello", false, now),
-        Array.Empty<IntegrationMessageContext>(),
-        Array.Empty<IntegrationInputFile>()));
+    await using var integration = new GrokAccountIntegration(Connection(), host);
+    var result = await integration.SendMessageAsync(Context());
 
     Assert(result.Text == "ok", "message did not continue after login");
     Assert(host.Initializations.Count == 3,
@@ -64,22 +67,35 @@ static async Task TestAutomaticLoginAsync(string root)
     Assert(host.Initializations[0].RequireAuthorization, "hidden account start did not require authorization");
     Assert(host.Initializations[1].ShowBrowser, "authorization requirement did not transition to visible login");
     Assert(host.Initializations[1].RequireAuthorization, "visible login did not require authorization");
-    Assert(!host.Initializations[2].ShowBrowser, "post-login account transport did not resume hidden");
-    Assert(host.Initializations[2].RequireAuthorization, "post-login hidden transport did not verify authorization");
-    Assert(host.ActiveTransports == 1, $"expected only hidden transport to remain active, got {host.ActiveTransports}");
-    Assert(host.PromptCount == 1, $"expected one prompt after login, got {host.PromptCount}");
+    Assert(!host.Initializations[2].ShowBrowser, "post-login Grok transport did not resume hidden");
+    Assert(host.Initializations[2].RequireAuthorization, "post-login hidden Grok transport did not verify authorization");
+    Assert(host.ActiveTransports == 1, $"expected only hidden Grok transport to remain active, got {host.ActiveTransports}");
+    Assert(host.Operations.SequenceEqual(["newChat"]), "new Grok chat operation was not used");
 }
 
 static async Task TestExplicitLoginAsync(string root)
 {
     var host = new FakeHost(root, authorized: false);
-    await using var integration = new ChatGptAccountIntegration(Connection(), host);
+    await using var integration = new GrokAccountIntegration(Connection(), host);
     await integration.Login!.LoginAsync();
 
-    Assert(host.Initializations.Count == 1, $"expected one explicit login initialization, got {host.Initializations.Count}");
+    Assert(host.Initializations.Count == 1,
+        $"expected one explicit login initialization, got {host.Initializations.Count}");
     Assert(host.Initializations[0].ShowBrowser, "explicit login did not start visible");
     Assert(host.Initializations[0].RequireAuthorization, "explicit login did not require authorization");
-    Assert(host.ActiveTransports == 0, "explicit login browser stayed active after authorization completed");
+    Assert(host.ActiveTransports == 0, "explicit Grok login browser stayed active after authorization completed");
+}
+
+static async Task TestContinuationAsync(string root)
+{
+    var host = new FakeHost(root, authorized: true);
+    await using var integration = new GrokAccountIntegration(Connection(), host);
+    var result = await integration.SendMessageAsync(Context("https://grok.com/c/existing"));
+
+    Assert(result.RemoteChatUrl == "https://grok.com/c/test", "Grok chat URL was not returned");
+    Assert(host.Operations.SequenceEqual(["send"]), "continuation did not use Grok send operation");
+    Assert(host.LastArguments?.GetProperty("chatUrl").GetString() == "https://grok.com/c/existing",
+        "stored Grok chat URL was not passed to continuation");
 }
 
 static void Assert(bool condition, string message)
@@ -91,7 +107,8 @@ sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
 {
     public int BrowserIdleMinutes => 0;
     public List<BrowserTransportOptions> Initializations { get; } = [];
-    public int PromptCount { get; set; }
+    public List<string> Operations { get; } = [];
+    public JsonElement? LastArguments { get; set; }
     public int ActiveTransports { get; set; }
     public bool Authorized { get; set; } = authorized;
 
@@ -116,7 +133,9 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 
     public string Name => "Fake";
 
-    public Task InitializeAsync(BrowserTransportOptions options, CancellationToken cancellationToken = default)
+    public Task InitializeAsync(
+        BrowserTransportOptions options,
+        CancellationToken cancellationToken = default)
     {
         host.Initializations.Add(options);
         if (options.RequireAuthorization && !options.ShowBrowser && !host.Authorized)
@@ -131,20 +150,18 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         object? arguments = null,
         CancellationToken cancellationToken = default)
     {
-        host.PromptCount++;
+        host.Operations.Add(operation);
+        host.LastArguments = JsonSerializer.SerializeToElement(arguments, JsonOptions);
         var json = JsonSerializer.Serialize(new
         {
             text = "ok",
-            conversationId = "test",
-            parentMessageId = "assistant",
-            chatUrl = "https://chatgpt.com/c/test",
-            projectId = (string?)null,
-            artifacts = Array.Empty<BrowserArtifact>()
+            chatUrl = "https://grok.com/c/test"
         }, JsonOptions);
         return Task.FromResult(JsonSerializer.Deserialize<TResult>(json, JsonOptions)!);
     }
 
-    public Task ShowAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task ShowAsync(CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
 
     public ValueTask DisposeAsync()
     {
@@ -159,7 +176,9 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
     dotnet run --project (Join-Path $temp 'Test.csproj') -c Release
-    if ($LASTEXITCODE -ne 0) { throw "Account login flow test failed with exit code $LASTEXITCODE." }
+    if ($LASTEXITCODE -ne 0) {
+        throw "Grok account flow test failed with exit code $LASTEXITCODE."
+    }
 }
 finally {
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue

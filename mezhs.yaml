@@ -24,3 +24,7 @@ connections:
   - id: gemini-guest
     name: Gemini Guest
     integration: gemini-web
+
+  - id: grok-account
+    name: Grok Account
+    integration: grok-web-account

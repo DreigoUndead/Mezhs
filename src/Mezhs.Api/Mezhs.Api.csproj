@@ -10,6 +10,7 @@
     <ProjectReference Include="..\..\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj" />
     <ProjectReference Include="..\..\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj" />
     <ProjectReference Include="..\..\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj" />
+    <ProjectReference Include="..\..\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj" />
     <ProjectReference Include="..\..\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj" />
   </ItemGroup>
   <ItemGroup>
