@@ -1,3 +1,4 @@
+// Typechecks the runtime-compatible Grok browser module against the shared browser contract.
 {
   "compilerOptions": {
     "target": "ES2022",
