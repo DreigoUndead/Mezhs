@@ -20,7 +20,7 @@ interface OperationContext {
   sleep(ms: number): Promise<void>;
 }
 
-type BrowserOperation = (context: OperationContext) => Promise<unknown>;
+type BrowserOperation = (context: OperationContext) => unknown | Promise<unknown>;
 
 interface BrowserModule {
   readonly name: string;
