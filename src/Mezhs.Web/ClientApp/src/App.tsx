@@ -5,6 +5,7 @@ import type {
   Chat,
   ChatMessage as Message,
   Connection,
+  ConnectionModel,
 } from "./providers/contracts";
 
 type Category = {
@@ -47,6 +48,9 @@ export default function App() {
   const [apiBase, setApiBase] = useState("");
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionId, setConnectionId] = useState("");
+  const [models, setModels] = useState<ConnectionModel[]>([]);
+  const [modelId, setModelId] = useState("");
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [newChatCategoryId, setNewChatCategoryId] = useState("");
@@ -71,6 +75,10 @@ export default function App() {
   const selectedConnection = useMemo(
     () => connections.find((connection) => connection.id === connectionId),
     [connections, connectionId],
+  );
+  const selectedModel = useMemo(
+    () => models.find((model) => (model.id || "") === modelId),
+    [models, modelId],
   );
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
@@ -116,6 +124,34 @@ export default function App() {
   }, []);
 
   useEffect(() => () => providerRegistry.current.dispose(), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setModels([]);
+    setModelId("");
+    if (!selectedConnection?.supportsModels) {
+      setModelsLoading(false);
+      return () => { cancelled = true; };
+    }
+
+    setModelsLoading(true);
+    void providerRegistry.current.get(selectedConnection.id).getModels()
+      .then((available) => {
+        if (cancelled) return;
+        setModels(available);
+        const configured = selectedConnection.defaultModel || "";
+        setModelId(available.some((model) => (model.id || "") === configured) ? configured : "");
+      })
+      .catch((error) => {
+        if (!cancelled)
+          setNotice(error instanceof Error ? error.message : "Could not load models.");
+      })
+      .finally(() => {
+        if (!cancelled) setModelsLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedConnection]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -171,7 +207,7 @@ export default function App() {
     try {
       const request = await providerRegistry.current.get(connectionId).sendMessage(
         chatId,
-        { content, files: uploadedFiles },
+        { content, files: uploadedFiles, model: modelId || undefined },
         { categoryId: newChatCategoryId || null },
       );
       setChatId(request.chatId);
@@ -232,6 +268,12 @@ export default function App() {
     try {
       await providerRegistry.current.get(connection.id).initialize();
       setNotice(`${connection.name} is authorized and ready.`);
+      if (connection.id === connectionId && connection.supportsModels) {
+        const available = await providerRegistry.current.get(connection.id).getModels();
+        setModels(available);
+        const configured = connection.defaultModel || "";
+        setModelId(available.some((model) => (model.id || "") === configured) ? configured : "");
+      }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Authorization failed.");
     } finally {
@@ -364,10 +406,21 @@ export default function App() {
         <label className="section-label" htmlFor="connection">New messages use</label>
         <div className="connection-picker">
           <div className="connection-avatar">{selectedConnection ? makeInitials(selectedConnection.name) : "AI"}</div>
-          <select id="connection" value={connectionId} onChange={(event) => changeConnection(event.target.value)} disabled={loading}>
+          <select id="connection" value={connectionId} onChange={(event) => changeConnection(event.target.value)} disabled={loading || sending}>
             {connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
           </select>
         </div>
+
+        {selectedConnection?.supportsModels && (
+          <label className="model-picker">
+            <span>Model</span>
+            <select value={modelId} onChange={(event) => setModelId(event.target.value)} disabled={modelsLoading || sending}>
+              {models.length > 0
+                ? models.map((model, index) => <option key={model.id || `default-${index}`} value={model.id || ""}>{model.name}</option>)
+                : <option value="">{modelsLoading ? "Loading models..." : "Default"}</option>}
+            </select>
+          </label>
+        )}
 
         {selectedConnection?.requiresLogin && (
           <button className="login-button" disabled={loginId === selectedConnection.id} onClick={() => void login(selectedConnection)}>
@@ -474,6 +527,7 @@ export default function App() {
                   <div className="message-meta">
                     <strong>{message.role === "assistant" ? messageConnection?.name || "Assistant" : "You"}</strong>
                     <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    {message.model && <span className="message-model">{message.model}</span>}
                     {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
                   </div>
                   {message.content && <div className="message-content">{message.content}</div>}
@@ -499,7 +553,7 @@ export default function App() {
               </article>
             );
           })}
-          {sending && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>Working through it...</span></div>}
+          {sending && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>{selectedModel?.id ? `${selectedModel.name} is thinking...` : "Working through it..."}</span></div>}
           <div ref={endRef} />
         </section>
 
