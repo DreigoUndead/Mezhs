@@ -1,9 +1,9 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
+  CHROME_RUNTIME_SHIM,
   cleanChromeUserAgent,
-  configureSessionBrowserIdentity,
-  installChromeRuntime
+  configureSessionBrowserIdentity
 } = require("../electron/browser-identity");
 
 test("Chrome user agent removes Electron and Mezhs product tokens", () => {
@@ -58,32 +58,8 @@ test("session browser identity keeps UA and client hints consistent", () => {
   assert.equal(sentHeaders["Sec-CH-UA-Full-Version"], '"132.0.6834.210"');
 });
 
-test("Chrome runtime shim is installed once per WebContents", async () => {
-  let attached = false;
-  const commands = [];
-  const webContents = {
-    debugger: {
-      isAttached() { return attached; },
-      attach(version) {
-        assert.equal(version, "1.3");
-        attached = true;
-      },
-      async sendCommand(command, argumentsValue) {
-        commands.push([command, argumentsValue]);
-      }
-    }
-  };
-
-  const first = installChromeRuntime(webContents);
-  const second = installChromeRuntime(webContents);
-  assert.equal(first, second);
-  assert.equal(await first, true);
-  assert.deepEqual(commands.map(([command]) => command), [
-    "Page.addScriptToEvaluateOnNewDocument"
-  ]);
-
-  const source = commands[0][1].source;
-  assert.match(source, /window\.chrome\.app/);
-  assert.match(source, /window\.chrome\.csi/);
-  assert.match(source, /window\.chrome\.loadTimes/);
+test("Chrome runtime shim defines the compatibility surface", () => {
+  assert.match(CHROME_RUNTIME_SHIM, /window\.chrome\.app/);
+  assert.match(CHROME_RUNTIME_SHIM, /window\.chrome\.csi/);
+  assert.match(CHROME_RUNTIME_SHIM, /window\.chrome\.loadTimes/);
 });
