@@ -38,7 +38,7 @@ module.exports = {
       const child = await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error("child window timed out")), 5000);
         window.webContents.once("did-create-window", childWindow => {
-          childWindow.webContents.once("did-finish-load", async () => {
+          setTimeout(async () => {
             try {
               const result = await readIdentity(childWindow.webContents);
               clearTimeout(timeout);
@@ -49,10 +49,10 @@ module.exports = {
               childWindow.destroy();
               reject(error);
             }
-          });
+          }, 100);
         });
         void window.webContents.executeJavaScript(
-          `void window.open("data:text/html,<html><body>child</body></html>", "_blank", "width=300,height=200"); true`,
+          `void window.open("about:blank", "_blank", "width=300,height=200"); true`,
           true);
       });
       return {
