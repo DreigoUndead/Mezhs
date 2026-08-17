@@ -115,19 +115,16 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         if (_transport is not null) return;
-        var transport = _host.CreateBrowserTransport();
-        _transport = transport;
+        _transport = _host.CreateBrowserTransport();
         try
         {
-            await transport.InitializeAsync(
+            await _transport.InitializeAsync(
                 _options(showBrowser, requireAuthorization),
                 cancellationToken);
         }
         catch
         {
-            if (ReferenceEquals(_transport, transport))
-                _transport = null;
-            await transport.DisposeAsync();
+            await DisposeTransportAsync();
             throw;
         }
     }
