@@ -76,7 +76,7 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
     {
         public Task<IReadOnlyList<IntegrationModel>> GetModelsAsync(
             CancellationToken cancellationToken = default) =>
-            session.UseAsync<IReadOnlyList<IntegrationModel>>(async (transport, token) =>
+            session.UseAuthorizedAsync<IReadOnlyList<IntegrationModel>>(async (transport, token) =>
                 await transport.InvokeAsync<IntegrationModel[]>(
                     "getModels",
                     cancellationToken: token),
