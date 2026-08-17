@@ -14,6 +14,11 @@ module.exports = {
   },
 
   operations: {
+    async getModels(context) {
+      await context.window.loadURL(module.exports.homeUrl);
+      return context.page.invoke("models", {});
+    },
+
     async newChat(context) {
       await context.window.loadURL(module.exports.homeUrl);
       return sendPrompt(context);
@@ -29,6 +34,97 @@ module.exports = {
   },
 
   pageOperations: {
+    async models({ args, sleep }) {
+      const visible = element => {
+        if (!element) return false;
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          rect.width > 0 &&
+          rect.height > 0;
+      };
+      const text = element => String(
+        element?.getAttribute?.("aria-label") ||
+        element?.getAttribute?.("title") ||
+        element?.textContent ||
+        ""
+      ).replace(/\s+/g, " ").trim();
+      const looksLikeModel = value =>
+        /(grok|model|auto|fast|expert|heavy|reason|think)/i.test(value);
+      const optionId = element => String(
+        element?.getAttribute?.("data-value") ||
+        element?.getAttribute?.("data-model") ||
+        element?.getAttribute?.("value") ||
+        text(element)
+      ).trim();
+      const readOptions = () => {
+        const nodes = [...document.querySelectorAll(
+          '[role="menuitem"], [role="option"], [data-radix-collection-item]'
+        )].filter(visible);
+        const result = [];
+        const seen = new Set();
+        for (const node of nodes) {
+          const name = text(node);
+          const id = optionId(node);
+          if (!name || !id || !looksLikeModel(name) || seen.has(id)) continue;
+          seen.add(id);
+          result.push({ id, name, node });
+        }
+        return result;
+      };
+      const candidateSelectors = [
+        'button[aria-label*="model" i]',
+        'button[title*="model" i]',
+        'button[data-testid*="model" i]',
+        '[data-testid*="model" i] button',
+        'button[aria-haspopup="listbox"]',
+        'button[aria-haspopup="menu"]'
+      ];
+      const candidates = [];
+      const seenCandidates = new Set();
+      for (const selector of candidateSelectors) {
+        for (const candidate of document.querySelectorAll(selector)) {
+          if (!visible(candidate) || seenCandidates.has(candidate)) continue;
+          const label = text(candidate);
+          if (!selector.includes("aria-haspopup") || looksLikeModel(label)) {
+            seenCandidates.add(candidate);
+            candidates.push(candidate);
+          }
+        }
+      }
+
+      for (const picker of candidates) {
+        HTMLElement.prototype.click.call(picker);
+        let options = [];
+        for (let i = 0; i < 20 && options.length === 0; i++) {
+          await sleep(50);
+          options = readOptions();
+        }
+        if (options.length === 0) continue;
+
+        const requested = String(args?.select || "").trim();
+        if (requested) {
+          const normalized = requested.toLocaleLowerCase();
+          const match = options.find(option =>
+            option.id.toLocaleLowerCase() === normalized ||
+            option.name.toLocaleLowerCase() === normalized
+          );
+          if (!match)
+            throw new Error(`Grok model '${requested}' is no longer available.`);
+          HTMLElement.prototype.click.call(match.node);
+          return true;
+        }
+
+        HTMLElement.prototype.click.call(picker);
+        return options.map(({ id, name }) => ({ id, name }));
+      }
+
+      if (args?.select)
+        throw new Error("Grok model picker was not found.");
+      return [];
+    },
+
     async sendPrompt({ args, sleep }) {
       const prompt = String(args.prompt || "");
 
@@ -180,6 +276,8 @@ function isGrokConversationUrl(value) {
 }
 
 async function sendPrompt(context) {
+  if (context.args.model)
+    await context.page.invoke("models", { select: context.args.model });
   const result = await context.page.invoke("sendPrompt", context.args);
   if (!isGrokConversationUrl(result?.chatUrl))
     throw new Error("Grok did not return a valid conversation URL.");
