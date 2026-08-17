@@ -30,6 +30,10 @@ The user's request to fix, add, refactor, edit, or implement something authorize
 3. Open or update the single pull request against `main` so the complete change is available for user review.
 4. Stop with the pull request unmerged.
 
+### Validation fallback
+
+If required tools such as .NET or PowerShell are unavailable locally, do not stop at "not runnable" when GitHub Actions can run them. Add a temporary workflow on the same review branch, run and inspect the relevant build/tests there, then remove the temporary workflow after validation.
+
 ## Merge gate
 
 Merge only when all of the following are true:
