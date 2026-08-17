@@ -20,6 +20,9 @@ public sealed record IntegrationModel(
     string? Id,
     string Name);
 
+public sealed class IntegrationAuthorizationRequiredException(string message)
+    : InvalidOperationException(message);
+
 public interface IIntegrationHost
 {
     string GetConnectionRoot(string connectionId);
