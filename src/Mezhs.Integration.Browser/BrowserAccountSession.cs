@@ -56,8 +56,6 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         }
         finally
         {
-            if (!_disposed)
-                ScheduleIdle();
             _gate.Release();
         }
     }
