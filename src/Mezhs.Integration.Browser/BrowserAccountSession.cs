@@ -131,12 +131,11 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         }
     }
 
-    private async ValueTask DisposeTransportAsync()
+    private ValueTask DisposeTransportAsync()
     {
         var transport = _transport;
         _transport = null;
-        if (transport is not null)
-            await transport.DisposeAsync();
+        return transport?.DisposeAsync() ?? ValueTask.CompletedTask;
     }
 
     private void ScheduleIdle()
