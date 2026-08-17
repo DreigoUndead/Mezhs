@@ -1,5 +1,3 @@
-const runtimeInstallations = new WeakMap();
-
 const CHROME_RUNTIME_SHIM = `(() => {
   try {
     if (!window.chrome) window.chrome = {};
@@ -109,35 +107,9 @@ function configureSessionBrowserIdentity(browserSession, runtime = process) {
   return { userAgent, clientHints };
 }
 
-function installChromeRuntime(webContents) {
-  const existing = runtimeInstallations.get(webContents);
-  if (existing) return existing;
-
-  let installation;
-  try {
-    if (!webContents.debugger.isAttached())
-      webContents.debugger.attach("1.3");
-    installation = webContents.debugger.sendCommand(
-      "Page.addScriptToEvaluateOnNewDocument",
-      { source: CHROME_RUNTIME_SHIM })
-      .then(() => true)
-      .catch(error => {
-        console.error(`Could not install Chrome runtime compatibility: ${error?.message ?? error}`);
-        return false;
-      });
-  } catch (error) {
-    console.error(`Could not attach Chrome runtime compatibility: ${error?.message ?? error}`);
-    installation = Promise.resolve(false);
-  }
-
-  runtimeInstallations.set(webContents, installation);
-  return installation;
-}
-
 module.exports = {
   CHROME_RUNTIME_SHIM,
   cleanChromeUserAgent,
   createClientHints,
-  configureSessionBrowserIdentity,
-  installChromeRuntime
+  configureSessionBrowserIdentity
 };
