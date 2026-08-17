@@ -1,57 +1,51 @@
-const CHROME_RUNTIME_SHIM = `(() => {
-  try {
-    if (!window.chrome) window.chrome = {};
-    if (!window.chrome.app) {
-      window.chrome.app = {
-        isInstalled: false,
-        InstallState: {
-          DISABLED: "disabled",
-          INSTALLED: "installed",
-          NOT_INSTALLED: "not_installed"
-        },
-        RunningState: {
-          CANNOT_RUN: "cannot_run",
-          READY_TO_RUN: "ready_to_run",
-          RUNNING: "running"
-        },
-        getDetails() { return null; },
-        getIsInstalled() { return false; },
-        runningState() { return "cannot_run"; }
+// Builds the Chrome-facing identity shared by provider windows and OAuth child windows.
+function createChromeRuntime() {
+  return {
+    app: {
+      isInstalled: false,
+      InstallState: {
+        DISABLED: "disabled",
+        INSTALLED: "installed",
+        NOT_INSTALLED: "not_installed"
+      },
+      RunningState: {
+        CANNOT_RUN: "cannot_run",
+        READY_TO_RUN: "ready_to_run",
+        RUNNING: "running"
+      },
+      getDetails() { return null; },
+      getIsInstalled() { return false; },
+      runningState() { return "cannot_run"; }
+    },
+    csi() {
+      return {
+        onloadT: Date.now(),
+        startE: Date.now(),
+        pageT: globalThis.performance?.now?.() ?? 0,
+        tran: 15
+      };
+    },
+    loadTimes() {
+      const timing = globalThis.performance?.timing || {};
+      const seconds = value => (value || Date.now()) / 1000;
+      return {
+        requestTime: seconds(timing.navigationStart),
+        startLoadTime: seconds(timing.navigationStart),
+        commitLoadTime: seconds(timing.responseStart),
+        finishDocumentLoadTime: seconds(timing.domContentLoadedEventEnd),
+        finishLoadTime: seconds(timing.loadEventEnd),
+        firstPaintTime: seconds(timing.responseStart),
+        firstPaintAfterLoadTime: 0,
+        navigationType: "Other",
+        wasFetchedViaSpdy: true,
+        wasNpnNegotiated: true,
+        npnNegotiatedProtocol: "h2",
+        wasAlternateProtocolAvailable: false,
+        connectionInfo: "h2"
       };
     }
-    if (!window.chrome.csi) {
-      window.chrome.csi = function csi() {
-        return {
-          onloadT: Date.now(),
-          startE: Date.now(),
-          pageT: performance.now(),
-          tran: 15
-        };
-      };
-    }
-    if (!window.chrome.loadTimes) {
-      window.chrome.loadTimes = function loadTimes() {
-        const timing = performance.timing || {};
-        const seconds = value => (value || Date.now()) / 1000;
-        return {
-          requestTime: seconds(timing.navigationStart),
-          startLoadTime: seconds(timing.navigationStart),
-          commitLoadTime: seconds(timing.responseStart),
-          finishDocumentLoadTime: seconds(timing.domContentLoadedEventEnd),
-          finishLoadTime: seconds(timing.loadEventEnd),
-          firstPaintTime: seconds(timing.responseStart),
-          firstPaintAfterLoadTime: 0,
-          navigationType: "Other",
-          wasFetchedViaSpdy: true,
-          wasNpnNegotiated: true,
-          npnNegotiatedProtocol: "h2",
-          wasAlternateProtocolAvailable: false,
-          connectionInfo: "h2"
-        };
-      };
-    }
-  } catch {}
-})();`;
+  };
+}
 
 function cleanChromeUserAgent(userAgent) {
   return String(userAgent || "")
@@ -108,7 +102,7 @@ function configureSessionBrowserIdentity(browserSession, runtime = process) {
 }
 
 module.exports = {
-  CHROME_RUNTIME_SHIM,
+  createChromeRuntime,
   cleanChromeUserAgent,
   createClientHints,
   configureSessionBrowserIdentity
