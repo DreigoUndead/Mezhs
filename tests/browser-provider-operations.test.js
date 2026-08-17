@@ -1,6 +1,5 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -223,7 +222,6 @@ test("ChatGPT account send reports the required Sentinel challenge types", async
   for (const [required, expected] of cases) {
     const chatgpt = loadChatGptModule();
     let conversationCalled = false;
-    let shown = false;
     const session = mockSession(async (url, options = {}) => {
       const target = new URL(String(url));
 
@@ -242,94 +240,12 @@ test("ChatGPT account send reports the required Sentinel challenge types", async
     });
 
     const error = await chatgpt.operations.newChat({
-      window: { show() { shown = true; }, focus() {} },
       session,
       args: { prompt: "hello", projectId: "g-p-mezhs", files: [] },
       sleep: async () => {}
     }).then(() => null, caught => caught);
 
-    assert.match(error?.message || "", new RegExp(`^ChatGPT requires Sentinel challenge\\(s\\): ${expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.`));
-    assert.match(error?.message || "", /CHATGPT_PROTOCOL_TRACE/);
-    assert.equal(shown, true);
+    assert.equal(error?.message, `ChatGPT requires Sentinel challenge(s): ${expected}.`);
     assert.equal(conversationCalled, false);
   }
-});
-
-test("ChatGPT frontend protocol trace captures structure without secret values", async () => {
-  const chatgpt = loadChatGptModule();
-  const debuggerApi = new EventEmitter();
-  debuggerApi.attached = false;
-  debuggerApi.commands = [];
-  debuggerApi.isAttached = () => debuggerApi.attached;
-  debuggerApi.attach = () => { debuggerApi.attached = true; };
-  debuggerApi.sendCommand = async (method, args) => {
-    debuggerApi.commands.push({ method, args });
-    if (method === "Network.getResponseBody") {
-      return {
-        base64Encoded: false,
-        body: JSON.stringify({
-          prepare_token: "response-secret-token",
-          proofofwork: { required: true, difficulty: 17, seed: "response-secret-seed" },
-          turnstile: { required: true, challenge: "response-secret-challenge" },
-          so: { required: true, token: "response-secret-so" }
-        })
-      };
-    }
-    return {};
-  };
-
-  const logs = [];
-  const previousConsoleError = console.error;
-  console.error = value => logs.push(String(value));
-  try {
-    await chatgpt.afterInitialize({
-      window: { webContents: { debugger: debuggerApi } },
-      session: {},
-      sleep: async () => {}
-    });
-
-    debuggerApi.emit("message", {}, "Network.requestWillBeSent", {
-      requestId: "request-1",
-      request: {
-        url: "https://chatgpt.com/backend-api/sentinel/chat-requirements/prepare?secret=do-not-log",
-        method: "POST",
-        headers: {
-          Authorization: "Bearer request-secret-auth",
-          "Content-Type": "application/json"
-        },
-        postData: JSON.stringify({
-          conversation_mode_kind: "gizmo_interaction",
-          prepare_token: "request-secret-token",
-          proofofwork: { required: true, difficulty: 9, seed: "request-secret-seed" }
-        })
-      }
-    });
-    debuggerApi.emit("message", {}, "Network.responseReceived", {
-      requestId: "request-1",
-      response: {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Set-Cookie": "response-secret-cookie" }
-      }
-    });
-    debuggerApi.emit("message", {}, "Network.loadingFinished", { requestId: "request-1" });
-    await new Promise(resolve => setImmediate(resolve));
-  } finally {
-    console.error = previousConsoleError;
-  }
-
-  const output = logs.join("\n");
-  assert.equal(debuggerApi.attached, true);
-  assert.equal(debuggerApi.commands.some(command => command.method === "Network.enable"), true);
-  assert.match(output, /CHATGPT_PROTOCOL_TRACE/);
-  assert.match(output, /chat-requirements\/prepare/);
-  assert.match(output, /conversation_mode_kind/);
-  assert.match(output, /gizmo_interaction/);
-  assert.match(output, /difficulty/);
-  assert.match(output, /"difficulty":17/);
-  assert.match(output, /Authorization/);
-  assert.match(output, /Set-Cookie/);
-  assert.match(output, /<redacted:string:/);
-  assert.doesNotMatch(output, /do-not-log/);
-  assert.doesNotMatch(output, /request-secret/);
-  assert.doesNotMatch(output, /response-secret/);
 });

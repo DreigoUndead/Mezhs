@@ -1,7 +1,6 @@
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { Buffer } = require("node:buffer");
 const { randomUUID } = require("node:crypto");
 
 const ORIGIN = "https://chatgpt.com";
@@ -22,10 +21,6 @@ module.exports = {
 
   async isAuthorized(window) {
     return Boolean(await accessToken(window.webContents.session).catch(() => null));
-  },
-
-  async afterInitialize({ window }) {
-    await startProtocolTrace(window);
   },
 
   operations: {
@@ -103,7 +98,7 @@ module.exports = {
   }
 };
 
-async function sendAccountMessage({ window, session, args, sleep }, isNew) {
+async function sendAccountMessage({ session, args, sleep }, isNew) {
   const token = await requireToken(session);
   const projectMode = isNew && args.projectId;
   const requirements = await apiJson(session, token, API.requirements, {
@@ -114,15 +109,8 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
     })
   });
   const challenges = requiredSentinelChallenges(requirements);
-  if (challenges.length) {
-    window?.show();
-    window?.focus();
-    throw new Error(
-      `ChatGPT requires Sentinel challenge(s): ${challenges.join(", ")}. ` +
-      "Protocol trace is active; send one normal message manually in the opened ChatGPT window, " +
-      "then copy the CHATGPT_PROTOCOL_TRACE lines from Electron output."
-    );
-  }
+  if (challenges.length)
+    throw new Error(`ChatGPT requires Sentinel challenge(s): ${challenges.join(", ")}.`);
 
   const uploaded = await uploadFiles(session, token, args.files || []);
   const messageId = randomUUID();
@@ -199,131 +187,6 @@ function requiredSentinelChallenges(requirements) {
   if (requirements?.turnstile?.required) challenges.push("Turnstile");
   if (requirements?.so?.required) challenges.push("so");
   return challenges;
-}
-
-async function startProtocolTrace(window) {
-  const debuggerApi = window.webContents.debugger;
-  if (!debuggerApi.isAttached()) debuggerApi.attach("1.3");
-
-  const tracked = new Map();
-  debuggerApi.on("message", async (_event, method, params) => {
-    try {
-      if (method === "Network.requestWillBeSent" && isProtocolTraceUrl(params.request?.url)) {
-        const target = protocolTraceTarget(params.request.url);
-        tracked.set(params.requestId, target);
-        protocolTrace("request", {
-          ...target,
-          method: params.request.method,
-          headers: Object.keys(params.request.headers || {}).sort(),
-          body: sanitizeProtocolBody(params.request.postData)
-        });
-        return;
-      }
-
-      const target = tracked.get(params.requestId);
-      if (!target) return;
-
-      if (method === "Network.responseReceived") {
-        protocolTrace("response", {
-          ...target,
-          status: params.response.status,
-          headers: Object.keys(params.response.headers || {}).sort()
-        });
-        return;
-      }
-
-      if (method === "Network.loadingFinished") {
-        try {
-          const response = await debuggerApi.sendCommand("Network.getResponseBody", {
-            requestId: params.requestId
-          });
-          const text = response.base64Encoded
-            ? Buffer.from(response.body, "base64").toString("utf8")
-            : response.body;
-          protocolTrace("response-body", { ...target, body: sanitizeProtocolBody(text) });
-        } catch (error) {
-          protocolTrace("response-body-unavailable", { ...target, error: String(error?.message || error) });
-        } finally {
-          tracked.delete(params.requestId);
-        }
-        return;
-      }
-
-      if (method === "Network.loadingFailed") {
-        protocolTrace("failed", { ...target, error: String(params.errorText || "request failed") });
-        tracked.delete(params.requestId);
-      }
-    } catch (error) {
-      protocolTrace("trace-error", { error: String(error?.message || error) });
-    }
-  });
-
-  await debuggerApi.sendCommand("Network.enable");
-  protocolTrace("ready", {});
-}
-
-function isProtocolTraceUrl(value) {
-  try {
-    const url = new URL(value);
-    if (url.origin !== ORIGIN) return false;
-    return url.pathname.startsWith("/backend-api/sentinel/") ||
-      url.pathname === "/backend-api/conversation" ||
-      url.pathname.startsWith("/backend-api/conversation/prepare") ||
-      url.pathname.startsWith("/backend-api/f/conversation");
-  } catch {
-    return false;
-  }
-}
-
-function protocolTraceTarget(value) {
-  const url = new URL(value);
-  const query = new Set();
-  url.searchParams.forEach((_value, name) => query.add(name));
-  return {
-    path: url.pathname,
-    query: [...query].sort()
-  };
-}
-
-function sanitizeProtocolBody(text) {
-  if (!text) return null;
-  try {
-    return sanitizeProtocolValue(JSON.parse(text));
-  } catch {
-    const values = [];
-    for (const line of String(text).split(/\r?\n/)) {
-      const value = line.startsWith("data:") ? line.slice(5).trim() : line.trim();
-      if (!value || value === "[DONE]") continue;
-      try { values.push(sanitizeProtocolValue(JSON.parse(value))); }
-      catch { }
-      if (values.length === 10) break;
-    }
-    return values.length ? values : `<text:${String(text).length}>`;
-  }
-}
-
-function sanitizeProtocolValue(value, key = "") {
-  if (value === null || typeof value === "number" || typeof value === "boolean") return value;
-  if (typeof value === "string") {
-    if (/token|authorization|cookie|secret|seed|nonce|proof|response|challenge|conduit|device|(^|_)id$/i.test(key))
-      return `<redacted:string:${value.length}>`;
-    return value.length <= 80 ? value : `<string:${value.length}>`;
-  }
-  if (Array.isArray(value)) {
-    if (/parts/i.test(key)) return `<array:${value.length}>`;
-    return value.slice(0, 20).map(item => sanitizeProtocolValue(item));
-  }
-  if (typeof value === "object") {
-    const result = {};
-    for (const [name, nested] of Object.entries(value))
-      result[name] = sanitizeProtocolValue(nested, name);
-    return result;
-  }
-  return `<${typeof value}>`;
-}
-
-function protocolTrace(event, value) {
-  console.error(`CHATGPT_PROTOCOL_TRACE ${JSON.stringify({ event, ...value })}`);
 }
 
 async function accessToken(session) {
