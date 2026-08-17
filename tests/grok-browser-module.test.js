@@ -43,6 +43,13 @@ function fakeBrowser({ authorized = true } = {}) {
     page: {
       async invoke(operation, args) {
         pageCalls.push({ operation, args });
+        if (operation === "models") {
+          if (args?.select) return true;
+          return [
+            { id: "Grok 4.5", name: "Grok 4.5" },
+            { id: "Expert", name: "Expert" }
+          ];
+        }
         return {
           text: "reply",
           chatUrl: "https://grok.com/c/test"
@@ -52,9 +59,10 @@ function fakeBrowser({ authorized = true } = {}) {
   };
 }
 
-test("Grok module exposes its DOM work as an attached page operation", () => {
+test("Grok module exposes its DOM work as attached page operations", () => {
   const grok = loadGrokModule();
   assert.equal(typeof grok.pageOperations?.sendPrompt, "function");
+  assert.equal(typeof grok.pageOperations?.models, "function");
   assert.doesNotMatch(fs.readFileSync(grokFile, "utf8"), /executeJavaScript/);
 });
 
@@ -65,6 +73,24 @@ test("Grok authorization follows the persistent Grok session cookie", async () =
     await grok.isAuthorized(fakeBrowser({ authorized: false }).window),
     false
   );
+});
+
+test("Grok model discovery opens the provider home page and uses the page boundary", async () => {
+  const grok = loadGrokModule();
+  const fake = fakeBrowser();
+
+  const result = await grok.operations.getModels({
+    window: fake.window,
+    page: fake.page,
+    args: {}
+  });
+
+  assert.deepEqual(result, [
+    { id: "Grok 4.5", name: "Grok 4.5" },
+    { id: "Expert", name: "Expert" }
+  ]);
+  assert.deepEqual(fake.loaded, ["https://grok.com/"]);
+  assert.deepEqual(fake.pageCalls, [{ operation: "models", args: {} }]);
 });
 
 test("Grok new chat starts at the provider home page and invokes the page operation", async () => {
@@ -83,6 +109,22 @@ test("Grok new chat starts at the provider home page and invokes the page operat
     operation: "sendPrompt",
     args: { prompt: "hello" }
   }]);
+});
+
+test("Grok applies an explicit model before sending the message", async () => {
+  const grok = loadGrokModule();
+  const fake = fakeBrowser();
+
+  await grok.operations.newChat({
+    window: fake.window,
+    page: fake.page,
+    args: { prompt: "hello", model: "Grok 4.5" }
+  });
+
+  assert.deepEqual(fake.pageCalls, [
+    { operation: "models", args: { select: "Grok 4.5" } },
+    { operation: "sendPrompt", args: { prompt: "hello", model: "Grok 4.5" } }
+  ]);
 });
 
 test("Grok continuation reloads the exact stored Grok chat URL", async () => {
