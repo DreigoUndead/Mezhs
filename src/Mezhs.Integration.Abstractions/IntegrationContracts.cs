@@ -16,6 +16,10 @@ public sealed record IntegrationCapabilities(
     bool FileOutput = false,
     bool ImageOutput = false);
 
+public sealed record IntegrationModel(
+    string? Id,
+    string Name);
+
 public interface IIntegrationHost
 {
     string GetConnectionRoot(string connectionId);
@@ -24,6 +28,12 @@ public interface IIntegrationHost
 public interface ILoginModule
 {
     Task LoginAsync(CancellationToken cancellationToken = default);
+}
+
+public interface IModelModule
+{
+    Task<IReadOnlyList<IntegrationModel>> GetModelsAsync(
+        CancellationToken cancellationToken = default);
 }
 
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
@@ -37,6 +47,7 @@ public interface IChatIntegration : IAsyncDisposable
     IntegrationConnection Connection { get; }
     IntegrationCapabilities Capabilities { get; }
     ILoginModule? Login { get; }
+    IModelModule? Models { get; }
 
     Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
@@ -48,6 +59,7 @@ public abstract class ChatIntegrationBase(IntegrationConnection connection) : IC
     public IntegrationConnection Connection { get; } = connection;
     public virtual IntegrationCapabilities Capabilities => new();
     public virtual ILoginModule? Login => null;
+    public virtual IModelModule? Models => null;
 
     public abstract Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
@@ -68,7 +80,8 @@ public sealed record IntegrationMessageContext(
     string Role,
     string Content,
     bool Completed,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string? Model = null);
 
 public sealed record IntegrationSendContext(
     IntegrationChatContext Chat,
