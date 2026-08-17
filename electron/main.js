@@ -22,6 +22,10 @@ app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.disableHardwareAcceleration();
 
+app.on("web-contents-created", (_event, contents) => {
+  void installChromeRuntime(contents);
+});
+
 if (parentProcessId > 0) {
   setInterval(() => {
     try {
@@ -71,10 +75,8 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
       backgroundThrottling: false
     }
   });
-  installChromeRuntime(window.webContents);
-  window.webContents.on("did-create-window", childWindow => {
-    installChromeRuntime(childWindow.webContents);
-  });
+  if (!await installChromeRuntime(window.webContents))
+    console.error("Chrome runtime compatibility was not installed before navigation.");
 
   window.on("close", event => {
     if (shuttingDown) return;
