@@ -3,6 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Description>Persistent Grok account integration backed by the shared Electron browser transport.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj" />
