@@ -101,7 +101,6 @@ async function sendPrompt({ window, args }) {
       editor.focus();
       if (editor.tagName === 'TEXTAREA') {
         editor.select();
-        editor.value = '';
       } else {
         const selection = getSelection();
         const range = document.createRange();
