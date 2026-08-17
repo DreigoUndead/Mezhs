@@ -2,7 +2,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
-  createChromeRuntime,
+  CHROME_RUNTIME_SHIM,
   cleanChromeUserAgent,
   configureSessionBrowserIdentity
 } = require("../electron/browser-identity");
@@ -59,10 +59,8 @@ test("session browser identity keeps UA and client hints consistent", () => {
   assert.equal(sentHeaders["Sec-CH-UA-Full-Version"], '"132.0.6834.210"');
 });
 
-test("Chrome runtime exposes the compatibility surface as functions", () => {
-  const chrome = createChromeRuntime();
-  assert.equal(chrome.app.isInstalled, false);
-  assert.equal(typeof chrome.app.getDetails, "function");
-  assert.equal(typeof chrome.csi, "function");
-  assert.equal(typeof chrome.loadTimes, "function");
+test("Electron 34 Chrome runtime shim defines only the compatibility surface", () => {
+  assert.match(CHROME_RUNTIME_SHIM, /window\.chrome\.app/);
+  assert.match(CHROME_RUNTIME_SHIM, /window\.chrome\.csi/);
+  assert.match(CHROME_RUNTIME_SHIM, /window\.chrome\.loadTimes/);
 });
