@@ -3,6 +3,8 @@ namespace Mezhs.Integrations.Mock;
 [Integration("mock")]
 public class MockIntegration : ChatIntegrationBase
 {
+    private static readonly IModelModule ModelModule = new DeterministicModelModule();
+
     public MockIntegration(IntegrationConnection connection, IIntegrationHost host) : base(connection)
     {
         _ = host;
@@ -14,6 +16,7 @@ public class MockIntegration : ChatIntegrationBase
         ImageInput: true,
         FileOutput: true,
         ImageOutput: true);
+    public override IModelModule Models => ModelModule;
 
     public override async Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
@@ -33,6 +36,19 @@ public class MockIntegration : ChatIntegrationBase
         if (!string.IsNullOrWhiteSpace(connection.GetSetting("workspace")))
             throw new InvalidOperationException(
                 $"workspace is not supported by connection '{connection.Id}'.");
+    }
+
+    private sealed class DeterministicModelModule : IModelModule
+    {
+        private static readonly IReadOnlyList<IntegrationModel> Models =
+        [
+            new("mock-fast", "Mock Fast"),
+            new("mock-deep", "Mock Deep")
+        ];
+
+        public Task<IReadOnlyList<IntegrationModel>> GetModelsAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Models);
     }
 }
 
