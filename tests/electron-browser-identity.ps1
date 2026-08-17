@@ -20,13 +20,34 @@ $stdoutPath = Join-Path $temp 'stdout.log'
 $stderrPath = Join-Path $temp 'stderr.log'
 New-Item -ItemType Directory -Path $profile -Force | Out-Null
 @'
+const http = require("node:http");
+
 async function readIdentity(webContents) {
   return webContents.executeJavaScript(`({
     userAgent: navigator.userAgent,
     chromeApp: Boolean(window.chrome && window.chrome.app),
     chromeCsi: typeof window.chrome?.csi,
-    chromeLoadTimes: typeof window.chrome?.loadTimes
+    chromeLoadTimes: typeof window.chrome?.loadTimes,
+    hasOpener: Boolean(window.opener)
   })`, true);
+}
+
+function createChildServer() {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((_request, response) => {
+      const body = "<html><body>oauth child</body></html>";
+      response.writeHead(200, {
+        "Content-Type": "text/html",
+        "Content-Length": Buffer.byteLength(body)
+      });
+      response.end(body);
+    });
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      resolve({ server, url: `http://127.0.0.1:${address.port}/oauth` });
+    });
+  });
 }
 
 module.exports = {
@@ -35,31 +56,39 @@ module.exports = {
   operations: {
     async inspect({ window, session }) {
       const main = await readIdentity(window.webContents);
-      const child = await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("child window timed out")), 5000);
-        window.webContents.once("did-create-window", childWindow => {
-          setTimeout(async () => {
-            try {
-              const result = await readIdentity(childWindow.webContents);
-              clearTimeout(timeout);
-              childWindow.destroy();
-              resolve(result);
-            } catch (error) {
-              clearTimeout(timeout);
-              childWindow.destroy();
-              reject(error);
-            }
-          }, 100);
+      const childHost = await createChildServer();
+      try {
+        const childResult = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("child window timed out")), 5000);
+          window.webContents.once("did-create-window", childWindow => {
+            const sameSession = childWindow.webContents.session === session;
+            childWindow.webContents.once("did-finish-load", async () => {
+              try {
+                const identity = await readIdentity(childWindow.webContents);
+                clearTimeout(timeout);
+                childWindow.destroy();
+                resolve({ identity, sameSession });
+              } catch (error) {
+                clearTimeout(timeout);
+                childWindow.destroy();
+                reject(error);
+              }
+            });
+          });
+          const url = JSON.stringify(childHost.url);
+          void window.webContents.executeJavaScript(
+            `void window.open(${url}, "_blank", "width=300,height=200"); true`,
+            true);
         });
-        void window.webContents.executeJavaScript(
-          `void window.open("about:blank", "_blank", "width=300,height=200"); true`,
-          true);
-      });
-      return {
-        sessionUserAgent: session.getUserAgent(),
-        main,
-        child
-      };
+        return {
+          sessionUserAgent: session.getUserAgent(),
+          main,
+          child: childResult.identity,
+          childSameSession: childResult.sameSession
+        };
+      } finally {
+        await new Promise(resolve => childHost.server.close(resolve));
+      }
     }
   }
 };
@@ -143,8 +172,14 @@ try {
     }
     Assert-ChromeIdentity $response.main 'main window'
     Assert-ChromeIdentity $response.child 'child OAuth window'
+    if (-not $response.childSameSession) {
+        throw 'child OAuth window does not use the persistent provider session'
+    }
+    if (-not $response.child.hasOpener) {
+        throw 'child OAuth window lost window.opener'
+    }
 
-    Write-Host 'PASS: Electron main and child windows share the cleaned Chrome identity and runtime surface.'
+    Write-Host 'PASS: Electron OAuth child preserves provider session, opener, Chrome UA, and runtime identity.'
 }
 finally {
     if ($null -ne $port) {
