@@ -77,7 +77,10 @@ module.exports = {
               }
             });
           });
-          void page.invoke("openChild", { url: childHost.url });
+          const url = JSON.stringify(childHost.url);
+          void window.webContents.executeJavaScript(
+            `void window.open(${url}, "_blank", "width=300,height=200"); true`,
+            true);
         });
         return {
           sessionUserAgent: session.getUserAgent(),
@@ -94,10 +97,6 @@ module.exports = {
   pageOperations: {
     bodyText() {
       return document.body?.textContent?.trim() || "";
-    },
-    openChild({ args }) {
-      window.open(String(args.url || ""), "_blank", "width=300,height=200");
-      return true;
     }
   }
 };
@@ -167,11 +166,19 @@ try {
     }
 
     $body = @{ operation = 'inspect'; arguments = @{} } | ConvertTo-Json -Compress
-    $response = Invoke-RestMethod `
-        -Method Post `
-        -Uri "http://127.0.0.1:$port/invoke" `
-        -ContentType 'application/json' `
-        -Body $body
+    try {
+        $response = Invoke-RestMethod `
+            -Method Post `
+            -Uri "http://127.0.0.1:$port/invoke" `
+            -ContentType 'application/json' `
+            -Body $body `
+            -TimeoutSec 15
+    }
+    catch {
+        $stdout = Get-Content $stdoutPath -Raw -ErrorAction SilentlyContinue
+        $stderr = Get-Content $stderrPath -Raw -ErrorAction SilentlyContinue
+        throw "Electron browser identity invoke failed: $($_.Exception.Message) stdout=$stdout stderr=$stderr"
+    }
 
     if ($response.attachedPageText -ne 'identity') {
         throw "attached page operation did not execute in the loaded renderer: $($response.attachedPageText)"
