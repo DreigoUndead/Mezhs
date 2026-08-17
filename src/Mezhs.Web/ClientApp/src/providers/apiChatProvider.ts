@@ -5,6 +5,7 @@ import {
   ChatProvider,
   ChatResponse,
   Connection,
+  ConnectionModel,
   CreateChatOptions,
   DownloadedFile,
   FileInput,
@@ -28,6 +29,13 @@ export class ApiChatProvider implements ChatProvider {
     await expectJson(await fetch(
       `${this.apiBase}/v1/connections/${encodeURIComponent(this.connection.id)}/login`,
       { method: "POST" },
+    ));
+  }
+
+  async getModels(): Promise<ConnectionModel[]> {
+    if (!this.connection.supportsModels) return [];
+    return expectJson<ConnectionModel[]>(await fetch(
+      `${this.apiBase}/v1/connections/${encodeURIComponent(this.connection.id)}/models`,
     ));
   }
 
@@ -61,6 +69,7 @@ export class ApiChatProvider implements ChatProvider {
       connectionId: this.connection.id,
       chatId: chatId || undefined,
       content: message.content,
+      model: message.model || undefined,
       categoryId: chatId ? undefined : options?.categoryId || null,
       fileIds: (message.files || []).map(file => file.fileId),
     };
