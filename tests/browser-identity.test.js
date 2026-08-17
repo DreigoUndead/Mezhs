@@ -79,11 +79,10 @@ test("Chrome runtime shim is installed once per WebContents", async () => {
   assert.equal(first, second);
   assert.equal(await first, true);
   assert.deepEqual(commands.map(([command]) => command), [
-    "Page.enable",
     "Page.addScriptToEvaluateOnNewDocument"
   ]);
 
-  const source = commands[1][1].source;
+  const source = commands[0][1].source;
   assert.match(source, /window\.chrome\.app/);
   assert.match(source, /window\.chrome\.csi/);
   assert.match(source, /window\.chrome\.loadTimes/);
