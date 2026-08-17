@@ -81,27 +81,40 @@ module.exports = {
         'button[aria-haspopup="listbox"]',
         'button[aria-haspopup="menu"]'
       ];
-      const candidates = [];
-      const seenCandidates = new Set();
-      for (const selector of candidateSelectors) {
-        for (const candidate of document.querySelectorAll(selector)) {
-          if (!visible(candidate) || seenCandidates.has(candidate)) continue;
-          const label = text(candidate);
-          if (!selector.includes("aria-haspopup") || looksLikeModel(label)) {
-            seenCandidates.add(candidate);
-            candidates.push(candidate);
+      const findCandidates = () => {
+        const result = [];
+        const seen = new Set();
+        for (const selector of candidateSelectors) {
+          for (const candidate of document.querySelectorAll(selector)) {
+            if (!visible(candidate) || seen.has(candidate)) continue;
+            const label = text(candidate);
+            if (!selector.includes("aria-haspopup") || looksLikeModel(label)) {
+              seen.add(candidate);
+              result.push(candidate);
+            }
           }
         }
+        return result;
+      };
+
+      let candidates = [];
+      const pickerDeadline = Date.now() + 30000;
+      while (candidates.length === 0 && Date.now() < pickerDeadline) {
+        candidates = findCandidates();
+        if (candidates.length === 0) await sleep(250);
       }
 
       for (const picker of candidates) {
         HTMLElement.prototype.click.call(picker);
         let options = [];
-        for (let i = 0; i < 20 && options.length === 0; i++) {
-          await sleep(50);
+        for (let i = 0; i < 30 && options.length === 0; i++) {
+          await sleep(100);
           options = readOptions();
         }
-        if (options.length === 0) continue;
+        if (options.length === 0) {
+          HTMLElement.prototype.click.call(picker);
+          continue;
+        }
 
         const requested = String(args?.select || "").trim();
         if (requested) {
