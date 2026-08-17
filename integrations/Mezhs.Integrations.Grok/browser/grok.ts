@@ -80,14 +80,14 @@ module.exports = {
         throw new Error(`Grok prompt editor was not found at ${location.href}`);
 
       const beforeNode = latestResponse();
-      const beforeText = beforeNode?.innerText?.trim() || "";
+      const beforeText = beforeNode?.textContent?.trim() || "";
       const beforeMarkdownCount =
         document.querySelectorAll(".response-content-markdown").length;
       const beforeBubbleCount =
         document.querySelectorAll("#last-reply-container .message-bubble").length;
-      editor.focus();
+      HTMLElement.prototype.focus.call(editor);
       if (editor.tagName === "TEXTAREA") {
-        editor.select();
+        HTMLTextAreaElement.prototype.select.call(editor);
       } else {
         const selection = getSelection();
         const range = document.createRange();
@@ -106,13 +106,13 @@ module.exports = {
         ];
         for (const selector of selectors) {
           const matches = [...document.querySelectorAll(selector)];
-          const button = matches.find(item => visible(item) && !item.disabled);
+          const button = matches.find(item => visible(item) && !item.matches(":disabled"));
           if (button) return button;
         }
         return [...document.querySelectorAll("button")]
           .find(button =>
             visible(button) &&
-            !button.disabled &&
+            !button.matches(":disabled") &&
             /^(send|submit|发送|提交)$/i.test(
               String(button.getAttribute("aria-label") || button.textContent || "").trim()
             )
@@ -128,14 +128,14 @@ module.exports = {
       if (!sendButton)
         throw new Error("Grok send button did not become available.");
 
-      sendButton.click();
+      HTMLElement.prototype.click.call(sendButton);
 
       let lastText = "";
       let stableSamples = 0;
       const responseDeadline = Date.now() + 180000;
       while (Date.now() < responseDeadline) {
         const node = latestResponse();
-        const text = node?.innerText?.trim() || "";
+        const text = node?.textContent?.trim() || "";
         const markdownCount =
           document.querySelectorAll(".response-content-markdown").length;
         const bubbleCount =
