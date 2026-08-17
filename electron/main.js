@@ -76,6 +76,7 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
     action: "allow",
     overrideBrowserWindowOptions: {
       webPreferences: {
+        session: persistentSession,
         preload: browserIdentityPreload,
         contextIsolation: true,
         sandbox: false
