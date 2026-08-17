@@ -2,6 +2,10 @@ using Mezhs.Browser;
 
 namespace Mezhs.Integrations.Browser;
 
+/// <summary>
+/// Owns one authenticated browser transport: serialized use, interactive login,
+/// hidden continuation, idle shutdown, and disposal.
+/// </summary>
 public sealed class BrowserAccountSession : IAsyncDisposable
 {
     private readonly IBrowserIntegrationHost _host;
@@ -140,7 +144,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
     private void ScheduleIdle()
     {
         CancelIdle();
-        if (_host.BrowserIdleMinutes == 0 || _disposed) return;
+        if (_transport is null || _host.BrowserIdleMinutes == 0 || _disposed) return;
         var cancellation = new CancellationTokenSource();
         _idleCancellation = cancellation;
         _idleTask = DisposeWhenIdleAsync(cancellation);
