@@ -48,6 +48,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             ThrowIfDisposed();
             CancelIdle();
             await EnsureInteractiveLoginAsync(cancellationToken);
+            await DisposeTransportAsync();
         }
         finally
         {
@@ -70,9 +71,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         await _gate.WaitAsync();
         try
         {
-            if (_transport is not null)
-                await _transport.DisposeAsync();
-            _transport = null;
+            await DisposeTransportAsync();
         }
         finally
         {
@@ -93,17 +92,17 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         catch (BrowserAuthorizationRequiredException)
         {
             await EnsureInteractiveLoginAsync(cancellationToken);
+            await DisposeTransportAsync();
+            await EnsureTransportAsync(
+                showBrowser: false,
+                requireAuthorization: true,
+                cancellationToken);
         }
     }
 
     private async Task EnsureInteractiveLoginAsync(CancellationToken cancellationToken)
     {
-        if (_transport is not null)
-        {
-            await _transport.DisposeAsync();
-            _transport = null;
-        }
-
+        await DisposeTransportAsync();
         await EnsureTransportAsync(
             showBrowser: true,
             requireAuthorization: true,
@@ -125,10 +124,17 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         }
         catch
         {
-            await _transport.DisposeAsync();
-            _transport = null;
+            await DisposeTransportAsync();
             throw;
         }
+    }
+
+    private async ValueTask DisposeTransportAsync()
+    {
+        var transport = _transport;
+        _transport = null;
+        if (transport is not null)
+            await transport.DisposeAsync();
     }
 
     private void ScheduleIdle()
@@ -150,12 +156,8 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             await _gate.WaitAsync(cancellation.Token);
             try
             {
-                if (ReferenceEquals(_idleCancellation, cancellation) &&
-                    _transport is not null)
-                {
-                    await _transport.DisposeAsync();
-                    _transport = null;
-                }
+                if (ReferenceEquals(_idleCancellation, cancellation))
+                    await DisposeTransportAsync();
             }
             finally
             {
