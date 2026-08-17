@@ -42,7 +42,7 @@ public sealed class MessageService(
         }
 
         var integration = integrations.Get(connectionId);
-        var model = NormalizeModel(request.Model) ?? integration.Connection.GetSetting("defaultModel");
+        var model = NormalizeModel(request.Model);
         if (model is not null && integration.Models is null)
             throw new ArgumentException($"Connection '{connectionId}' does not support model selection.");
         if (requestedFileIds.Count > 0 && !integration.Capabilities.FileInput)
