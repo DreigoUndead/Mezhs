@@ -1,7 +1,8 @@
-// Attaches provider page operations to each Electron renderer and exposes the Chrome runtime surface.
-const { contextBridge, ipcRenderer } = require("electron");
+// Attaches provider page operations to each Electron renderer. The Chrome runtime
+// shim below is the isolated Electron-34 compatibility exception for Google OAuth.
+const { ipcRenderer, webFrame } = require("electron");
 const path = require("node:path");
-const { createChromeRuntime } = require("./browser-identity");
+const { CHROME_RUNTIME_SHIM } = require("./browser-identity");
 
 const modulePath = process.env.MEZHS_BROWSER_MODULE;
 const browserModule = modulePath
@@ -33,9 +34,7 @@ ipcRenderer.on("mezhs:page-operation", async (_event, request) => {
   }
 });
 
-try {
-  contextBridge.exposeInMainWorld("chrome", createChromeRuntime());
-} catch (error) {
+void webFrame.executeJavaScript(CHROME_RUNTIME_SHIM).catch(error => {
   console.error(
-    `Could not expose Chrome runtime compatibility: ${error?.message ?? error}`);
-}
+    `Could not install Chrome runtime compatibility: ${error?.message ?? error}`);
+});
