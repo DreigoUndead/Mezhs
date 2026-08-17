@@ -11,8 +11,8 @@ export type Connection = {
   integration: string;
   requiresLogin: boolean;
   supportsModels: boolean;
-  defaultModel?: string;
-  workspace?: string;
+  defaultModel?: string | null;
+  workspace?: string | null;
   capabilities: IntegrationCapabilities;
 };
 
@@ -39,7 +39,7 @@ export type ChatMessage = {
   connectionId: string;
   role: "user" | "assistant";
   content: string;
-  model?: string;
+  model?: string | null;
   files: ApiFile[];
   status: "Queued" | "Running" | "Completed" | "Failed" | "Cancelled";
   createdAt: string;
