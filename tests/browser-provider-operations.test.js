@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { createHash } = require("node:crypto");
 
 const root = path.resolve(__dirname, "..");
 
@@ -59,6 +60,17 @@ function completedConversation(conversationId, projectId = null) {
   };
 }
 
+function assertProofToken(token, seed, difficulty) {
+  const prefix = "gAAAAAB";
+  assert.match(token, /^gAAAAAB/);
+  const encoded = token.slice(prefix.length);
+  const config = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
+  assert.equal(config.length, 18);
+  const digest = createHash("sha3-512").update(seed).update(encoded).digest();
+  const target = Buffer.from(difficulty, "hex");
+  assert.ok(digest.subarray(0, target.length).compare(target) < 0);
+}
+
 test("browser transport has one named provider-operation bridge", () => {
   const electron = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8");
   const contract = fs.readFileSync(
@@ -112,11 +124,14 @@ test("ChatGPT getProjects uses the private API and follows pagination", async ()
   assert.equal(calls.filter(call => call.target.pathname === "/backend-api/gizmos/snorlax/sidebar").length, 2);
 });
 
-test("ChatGPT newChat creates the first turn inside the selected project", async () => {
+test("ChatGPT newChat completes with the live Sentinel challenge bundle", async () => {
   const chatgpt = loadChatGptModule();
-  let conversationPayload;
+  const seed = "0.559779845730002";
+  const difficulty = "ffffff";
   let requirementsPayload;
+  let conversationPayload;
   let conversationHeaders;
+
   const session = mockSession(async (url, options = {}) => {
     const target = new URL(String(url));
 
@@ -125,7 +140,12 @@ test("ChatGPT newChat creates the first turn inside the selected project", async
 
     if (target.pathname === "/backend-api/sentinel/chat-requirements") {
       requirementsPayload = JSON.parse(options.body);
-      return jsonResponse({ token: "sentinel" });
+      return jsonResponse({
+        token: "sentinel",
+        proofofwork: { required: true, seed, difficulty },
+        turnstile: { required: true, dx: "turnstile-challenge" },
+        so: { required: true, collector_dx: "collector", snapshot_dx: "snapshot" }
+      });
     }
 
     if (target.pathname === "/backend-api/conversation" && options.method === "POST") {
@@ -141,6 +161,7 @@ test("ChatGPT newChat creates the first turn inside the selected project", async
   }, "device-1");
 
   const result = await chatgpt.operations.newChat({
+    window: { webContents: { getUserAgent: () => "TestBrowser/1.0" } },
     session,
     args: {
       prompt: "hello",
@@ -152,7 +173,8 @@ test("ChatGPT newChat creates the first turn inside the selected project", async
     sleep: async () => {}
   });
 
-  assert.equal(requirementsPayload.conversation_mode_kind, "gizmo_interaction");
+  assert.match(requirementsPayload.p, /^gAAAAAC/);
+  assert.equal("conversation_mode_kind" in requirementsPayload, false);
   assert.deepEqual(conversationPayload.conversation_mode, {
     kind: "gizmo_interaction",
     gizmo_id: "g-p-mezhs"
@@ -161,6 +183,7 @@ test("ChatGPT newChat creates the first turn inside the selected project", async
   assert.equal("conversation_id" in conversationPayload, false);
   assert.equal(conversationHeaders["Openai-Sentinel-Chat-Requirements-Token"], "sentinel");
   assert.equal(conversationHeaders["Oai-Device-Id"], "device-1");
+  assertProofToken(conversationHeaders["Openai-Sentinel-Proof-Token"], seed, difficulty);
   assert.equal(result.conversationId, "conv-1");
   assert.equal(result.parentMessageId, "assistant-1");
   assert.equal(result.projectId, "g-p-mezhs");
@@ -207,45 +230,28 @@ test("ChatGPT send continues the existing conversation without overriding its mo
   assert.equal(result.projectId, "g-p-mezhs");
 });
 
-test("ChatGPT account send reports the required Sentinel challenge types", async () => {
-  const cases = [
-    [{ proofofwork: { required: true } }, "proof-of-work"],
-    [{ arkose: { required: true } }, "Arkose"],
-    [{ turnstile: { required: true } }, "Turnstile"],
-    [{ so: { required: true } }, "so"],
-    [
-      { proofofwork: { required: true }, turnstile: { required: true } },
-      "proof-of-work, Turnstile"
-    ]
-  ];
+test("ChatGPT rejects an invalid proof-of-work challenge before sending", async () => {
+  const chatgpt = loadChatGptModule();
+  let conversationCalled = false;
+  const session = mockSession(async (url) => {
+    const target = new URL(String(url));
+    if (target.pathname === "/api/auth/session")
+      return jsonResponse({ accessToken: "token" });
+    if (target.pathname === "/backend-api/sentinel/chat-requirements")
+      return jsonResponse({ token: "sentinel", proofofwork: { required: true } });
+    if (target.pathname === "/backend-api/conversation") {
+      conversationCalled = true;
+      return textResponse("unexpected");
+    }
+    throw new Error(`Unexpected request ${target}`);
+  });
 
-  for (const [required, expected] of cases) {
-    const chatgpt = loadChatGptModule();
-    let conversationCalled = false;
-    const session = mockSession(async (url, options = {}) => {
-      const target = new URL(String(url));
+  const error = await chatgpt.operations.newChat({
+    session,
+    args: { prompt: "hello", projectId: "g-p-mezhs", files: [] },
+    sleep: async () => {}
+  }).then(() => null, caught => caught);
 
-      if (target.pathname === "/api/auth/session")
-        return jsonResponse({ accessToken: "token" });
-
-      if (target.pathname === "/backend-api/sentinel/chat-requirements")
-        return jsonResponse({ token: "sentinel", ...required });
-
-      if (target.pathname === "/backend-api/conversation") {
-        conversationCalled = true;
-        return textResponse("unexpected");
-      }
-
-      throw new Error(`Unexpected request ${target} ${options.method || "GET"}`);
-    });
-
-    const error = await chatgpt.operations.newChat({
-      session,
-      args: { prompt: "hello", projectId: "g-p-mezhs", files: [] },
-      sleep: async () => {}
-    }).then(() => null, caught => caught);
-
-    assert.equal(error?.message, `ChatGPT requires Sentinel challenge(s): ${expected}.`);
-    assert.equal(conversationCalled, false);
-  }
+  assert.equal(error?.message, "ChatGPT returned an invalid Sentinel proof-of-work challenge.");
+  assert.equal(conversationCalled, false);
 });
