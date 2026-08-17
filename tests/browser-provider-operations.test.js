@@ -130,6 +130,31 @@ test("ChatGPT getProjects uses the private API and follows pagination", async ()
   assert.equal(calls.filter(call => call.target.pathname === "/backend-api/gizmos/snorlax/sidebar").length, 2);
 });
 
+test("ChatGPT getModels discovers account models and leaves provider default to MEŽS", async () => {
+  const chatgpt = loadChatGptModule();
+  const session = mockSession(async (url, options = {}) => {
+    const target = new URL(String(url));
+    if (target.pathname === "/api/auth/session")
+      return jsonResponse({ accessToken: "token" });
+    if (target.pathname === "/backend-api/models") {
+      assert.equal(options.headers.Authorization, "Bearer token");
+      assert.equal(target.searchParams.get("history_and_training_disabled"), "false");
+      return jsonResponse({ models: [
+        { slug: "auto", title: "Auto" },
+        { slug: "gpt-test", title: "GPT Test" },
+        { id: "reasoning-test", display_name: "Reasoning Test" },
+        { slug: "gpt-test", title: "Duplicate" }
+      ] });
+    }
+    throw new Error(`Unexpected request ${target}`);
+  });
+
+  assert.deepEqual(await chatgpt.operations.getModels({ session }), [
+    { id: "gpt-test", name: "GPT Test" },
+    { id: "reasoning-test", name: "Reasoning Test" }
+  ]);
+});
+
 test("ChatGPT newChat completes with the live Sentinel challenge bundle", async () => {
   const chatgpt = loadChatGptModule();
   const seed = "0.559779845730002";
@@ -174,6 +199,7 @@ test("ChatGPT newChat completes with the live Sentinel challenge bundle", async 
       projectId: "g-p-mezhs",
       conversationId: null,
       parentMessageId: null,
+      model: "gpt-test",
       files: []
     },
     sleep: async () => {}
@@ -186,6 +212,7 @@ test("ChatGPT newChat completes with the live Sentinel challenge bundle", async 
     gizmo_id: "g-p-mezhs"
   });
   assert.equal(conversationPayload.messages[0].content.parts.at(-1), "hello");
+  assert.equal(conversationPayload.model, "gpt-test");
   assert.equal("conversation_id" in conversationPayload, false);
   assert.equal(conversationHeaders["Openai-Sentinel-Chat-Requirements-Token"], "sentinel");
   assert.equal(conversationHeaders["Oai-Device-Id"], "device-1");
@@ -232,6 +259,7 @@ test("ChatGPT send continues the existing conversation without overriding its mo
 
   assert.equal(conversationPayload.conversation_id, "conv-existing");
   assert.equal(conversationPayload.parent_message_id, "assistant-old");
+  assert.equal(conversationPayload.model, "auto");
   assert.equal("conversation_mode" in conversationPayload, false);
   assert.equal(result.projectId, "g-p-mezhs");
 });
