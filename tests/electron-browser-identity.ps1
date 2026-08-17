@@ -1,3 +1,4 @@
+# Runtime test for Electron browser identity, OAuth child-window behavior, and attached page operations.
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -54,7 +55,8 @@ module.exports = {
   name: "Browser Identity Test",
   homeUrl: "data:text/html,<html><body>identity</body></html>",
   operations: {
-    async inspect({ window, session }) {
+    async inspect({ window, session, page }) {
+      const attachedPageText = await page.invoke("bodyText");
       const main = await readIdentity(window.webContents);
       const childHost = await createChildServer();
       try {
@@ -75,13 +77,11 @@ module.exports = {
               }
             });
           });
-          const url = JSON.stringify(childHost.url);
-          void window.webContents.executeJavaScript(
-            `void window.open(${url}, "_blank", "width=300,height=200"); true`,
-            true);
+          void page.invoke("openChild", { url: childHost.url });
         });
         return {
           sessionUserAgent: session.getUserAgent(),
+          attachedPageText,
           main,
           child: childResult.identity,
           childSameSession: childResult.sameSession
@@ -89,6 +89,15 @@ module.exports = {
       } finally {
         await new Promise(resolve => childHost.server.close(resolve));
       }
+    }
+  },
+  pageOperations: {
+    bodyText() {
+      return document.body?.textContent?.trim() || "";
+    },
+    openChild({ args }) {
+      window.open(String(args.url || ""), "_blank", "width=300,height=200");
+      return true;
     }
   }
 };
@@ -164,6 +173,9 @@ try {
         -ContentType 'application/json' `
         -Body $body
 
+    if ($response.attachedPageText -ne 'identity') {
+        throw "attached page operation did not execute in the loaded renderer: $($response.attachedPageText)"
+    }
     if ($response.sessionUserAgent -match 'Electron|mezhs') {
         throw "Session user agent leaks an embedded-browser product token: $($response.sessionUserAgent)"
     }
@@ -179,7 +191,7 @@ try {
         throw 'child OAuth window lost window.opener'
     }
 
-    Write-Host 'PASS: Electron OAuth child preserves provider session, opener, Chrome UA, and runtime identity.'
+    Write-Host 'PASS: Electron attaches provider page operations and preserves OAuth session, opener, Chrome UA, and runtime identity.'
 }
 finally {
     if ($null -ne $port) {
