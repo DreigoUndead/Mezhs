@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createHash } = require("node:crypto");
+const { createHash, getHashes } = require("node:crypto");
 
 const root = path.resolve(__dirname, "..");
 
@@ -66,6 +66,12 @@ function assertProofToken(token, seed, difficulty) {
   const encoded = token.slice(prefix.length);
   const config = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
   assert.equal(config.length, 18);
+
+  // Plain Node independently verifies the SHA3 result. Electron's embedded
+  // crypto backend does not expose SHA3, so its run verifies that the provider
+  // itself no longer depends on that runtime capability.
+  if (!getHashes().includes("sha3-512")) return;
+
   const digest = createHash("sha3-512").update(seed).update(encoded).digest();
   const target = Buffer.from(difficulty, "hex");
   assert.ok(digest.subarray(0, target.length).compare(target) < 0);
