@@ -1,6 +1,10 @@
 const { app, BrowserWindow, session } = require("electron");
 const http = require("node:http");
 const path = require("node:path");
+const {
+  configureSessionBrowserIdentity,
+  installChromeRuntime
+} = require("./browser-identity");
 
 let window = null;
 let browserModule = null;
@@ -17,6 +21,10 @@ app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.disableHardwareAcceleration();
+
+app.on("web-contents-created", (_event, contents) => {
+  void installChromeRuntime(contents);
+});
 
 if (parentProcessId > 0) {
   setInterval(() => {
@@ -48,6 +56,7 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
   browserModule = loadBrowserModule(modulePath);
   keepVisible = Boolean(showBrowser);
   const persistentSession = session.fromPath(path.resolve(profileDirectory));
+  configureSessionBrowserIdentity(persistentSession);
   activeSession = persistentSession;
 
   console.error(
@@ -66,11 +75,7 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
       backgroundThrottling: false
     }
   });
-
-  const browserUserAgent = window.webContents.getUserAgent()
-    .replace(/\sElectron\/[^\s]+/g, "")
-    .replace(/\smezhs[^\s]*/gi, "");
-  window.webContents.setUserAgent(browserUserAgent);
+  await installChromeRuntime(window.webContents);
 
   window.on("close", event => {
     if (shuttingDown) return;
