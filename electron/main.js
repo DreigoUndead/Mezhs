@@ -2,6 +2,7 @@ const { app, BrowserWindow, session } = require("electron");
 const http = require("node:http");
 const path = require("node:path");
 const {
+  cleanChromeUserAgent,
   configureSessionBrowserIdentity
 } = require("./browser-identity");
 
@@ -20,6 +21,7 @@ app.commandLine.appendSwitch("disable-software-rasterizer");
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.userAgentFallback = cleanChromeUserAgent(app.userAgentFallback);
 app.disableHardwareAcceleration();
 
 if (parentProcessId > 0) {
