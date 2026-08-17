@@ -8,6 +8,7 @@ const ORIGIN = "https://chatgpt.com";
 const API = Object.freeze({
   session: "/api/auth/session",
   projects: "/backend-api/gizmos/snorlax/sidebar",
+  models: "/backend-api/models?history_and_training_disabled=false",
   requirements: "/backend-api/sentinel/chat-requirements",
   conversation: "/backend-api/conversation",
   conversationById: id => `/backend-api/conversation/${encodeURIComponent(id)}`,
@@ -43,6 +44,23 @@ module.exports = {
         cursor = typeof page?.cursor === "string" && page.cursor ? page.cursor : null;
       } while (cursor);
       return projects;
+    },
+
+    async getModels({ session }) {
+      const token = await requireToken(session);
+      const response = await apiJson(session, token, API.models);
+      const result = [];
+      const seen = new Set();
+      for (const model of response?.models || []) {
+        const id = String(model?.slug || model?.id || "").trim();
+        const name = String(
+          model?.title || model?.display_name || model?.name || id
+        ).trim();
+        if (!id || !name || id.toLowerCase() === "auto" || seen.has(id)) continue;
+        seen.add(id);
+        result.push({ id, name });
+      }
+      return result;
     },
 
     newChat(context) {
@@ -152,7 +170,7 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
       },
       metadata: attachments.length ? { attachments } : {}
     }],
-    model: "auto",
+    model: String(args.model || "auto"),
     parent_message_id: isNew ? randomUUID() : args.parentMessageId,
     timezone_offset_min: new Date().getTimezoneOffset(),
     history_and_training_disabled: false,
