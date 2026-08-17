@@ -20,7 +20,7 @@ module.exports = {
 
     async send(context) {
       const chatUrl = String(context.args.chatUrl || "");
-      if (!isGrokUrl(chatUrl))
+      if (!isGrokConversationUrl(chatUrl))
         throw new Error("Grok continuation URL is missing or invalid.");
       await context.window.loadURL(chatUrl);
       return sendPrompt(context);
@@ -28,9 +28,11 @@ module.exports = {
   }
 };
 
-function isGrokUrl(value) {
+function isGrokConversationUrl(value) {
   try {
-    return new URL(value).origin === ORIGIN;
+    const url = new URL(value);
+    return url.origin === ORIGIN &&
+      (url.pathname !== "/" || Boolean(url.search) || Boolean(url.hash));
   } catch {
     return false;
   }
@@ -81,8 +83,6 @@ async function sendPrompt({ window, args }) {
         return bubbles[bubbles.length - 1] || lastReply;
       };
 
-      const responseText = () => latestResponse()?.innerText?.trim() || '';
-
       const editorDeadline = Date.now() + 30000;
       let editor = null;
       while (!editor && Date.now() < editorDeadline) {
@@ -92,7 +92,12 @@ async function sendPrompt({ window, args }) {
       if (!editor)
         return { ok: false, error: 'Grok prompt editor was not found at ' + location.href };
 
-      const beforeText = responseText();
+      const beforeNode = latestResponse();
+      const beforeText = beforeNode?.innerText?.trim() || '';
+      const beforeMarkdownCount =
+        document.querySelectorAll('.response-content-markdown').length;
+      const beforeBubbleCount =
+        document.querySelectorAll('#last-reply-container .message-bubble').length;
       editor.focus();
       if (editor.tagName === 'TEXTAREA') {
         editor.select();
@@ -143,8 +148,18 @@ async function sendPrompt({ window, args }) {
       let stableSamples = 0;
       const responseDeadline = Date.now() + 180000;
       while (Date.now() < responseDeadline) {
-        const text = responseText();
-        const changed = text && text !== beforeText;
+        const node = latestResponse();
+        const text = node?.innerText?.trim() || '';
+        const markdownCount =
+          document.querySelectorAll('.response-content-markdown').length;
+        const bubbleCount =
+          document.querySelectorAll('#last-reply-container .message-bubble').length;
+        const changed = Boolean(text) && (
+          markdownCount > beforeMarkdownCount ||
+          bubbleCount > beforeBubbleCount ||
+          (node && node !== beforeNode) ||
+          text !== beforeText
+        );
         if (changed && text === lastText)
           stableSamples++;
         else
@@ -173,7 +188,7 @@ async function sendPrompt({ window, args }) {
   `, true).then(result => {
     if (!result?.ok)
       throw new Error(result?.error || "Grok browser request failed.");
-    if (!isGrokUrl(result.chatUrl))
+    if (!isGrokConversationUrl(result.chatUrl))
       throw new Error("Grok did not return a valid conversation URL.");
     return result;
   });
