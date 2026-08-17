@@ -32,4 +32,5 @@ public sealed class ConnectionOptions
     public string Name { get; set; } = "";
     public string Integration { get; set; } = "";
     public string? Workspace { get; set; }
+    public string? DefaultModel { get; set; }
 }
