@@ -1,6 +1,7 @@
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
+const { Buffer } = require("node:buffer");
 const { randomUUID } = require("node:crypto");
 
 const ORIGIN = "https://chatgpt.com";
@@ -276,9 +277,11 @@ function isProtocolTraceUrl(value) {
 
 function protocolTraceTarget(value) {
   const url = new URL(value);
+  const query = new Set();
+  url.searchParams.forEach((_value, name) => query.add(name));
   return {
     path: url.pathname,
-    query: [...new Set(url.searchParams.keys())].sort()
+    query: [...query].sort()
   };
 }
 
