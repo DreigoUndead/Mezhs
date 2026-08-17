@@ -2,8 +2,7 @@ const { app, BrowserWindow, session } = require("electron");
 const http = require("node:http");
 const path = require("node:path");
 const {
-  configureSessionBrowserIdentity,
-  installChromeRuntime
+  configureSessionBrowserIdentity
 } = require("./browser-identity");
 
 let window = null;
@@ -12,6 +11,7 @@ let activeSession = null;
 let keepVisible = false;
 let shuttingDown = false;
 const parentProcessId = Number(process.env.MEZHS_PARENT_PROCESS_ID || 0);
+const browserIdentityPreload = path.join(__dirname, "browser-identity-preload.js");
 
 app.commandLine.appendSwitch("no-sandbox");
 app.commandLine.appendSwitch("disable-gpu");
@@ -21,10 +21,6 @@ app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.disableHardwareAcceleration();
-
-app.on("web-contents-created", (_event, contents) => {
-  void installChromeRuntime(contents);
-});
 
 if (parentProcessId > 0) {
   setInterval(() => {
@@ -70,13 +66,22 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
     title: `MEŽS - ${browserModule.name}`,
     webPreferences: {
       session: persistentSession,
+      preload: browserIdentityPreload,
       contextIsolation: true,
       sandbox: false,
       backgroundThrottling: false
     }
   });
-  if (!await installChromeRuntime(window.webContents))
-    console.error("Chrome runtime compatibility was not installed before navigation.");
+  window.webContents.setWindowOpenHandler(() => ({
+    action: "allow",
+    overrideBrowserWindowOptions: {
+      webPreferences: {
+        preload: browserIdentityPreload,
+        contextIsolation: true,
+        sandbox: false
+      }
+    }
+  }));
 
   window.on("close", event => {
     if (shuttingDown) return;
