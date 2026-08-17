@@ -71,9 +71,9 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
       backgroundThrottling: false
     }
   });
-  await installChromeRuntime(window.webContents);
+  installChromeRuntime(window.webContents);
   window.webContents.on("did-create-window", childWindow => {
-    void installChromeRuntime(childWindow.webContents);
+    installChromeRuntime(childWindow.webContents);
   });
 
   window.on("close", event => {
