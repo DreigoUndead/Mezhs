@@ -29,6 +29,11 @@ button { color: inherit; }
 .connection-avatar { width: 36px; height: 36px; }
 .connection-picker select { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: #eeeae1; font-size: 13px; font-weight: 600; cursor: pointer; }
 .connection-picker option { background: #22211d; }
+.model-picker { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px; margin: 7px 1px 0; padding: 7px 9px; border: 1px solid #302f2a; border-radius: 9px; color: #77746c; background: #1d1c19; font-size: 9px; }
+.model-picker > span { font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.model-picker select { min-width: 0; width: 100%; border: 0; outline: 0; color: #c9c5bc; background: transparent; font-size: 10px; cursor: pointer; }
+.model-picker option { background: #22211d; }
+.model-picker select:disabled { opacity: .65; cursor: wait; }
 .login-button { margin: 8px 1px 20px; padding: 9px; border: 0; border-radius: 9px; color: #c9f25e; background: #292e20; font-size: 11px; cursor: pointer; }
 .login-button:disabled { opacity: .65; cursor: wait; }
 .groups-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; }
@@ -113,6 +118,7 @@ button { color: inherit; }
 .message-meta { min-height: 27px; display: flex; align-items: baseline; gap: 9px; }
 .message-meta strong { font-size: 12px; }
 .message-meta > span { color: #aaa49b; font-size: 9px; }
+.message-meta > .message-model { padding: 2px 6px; border-radius: 99px; color: #676d4b; background: #edf2dd; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 8px; }
 .message-status { padding: 2px 6px; border-radius: 99px; background: #e8e4dc; text-transform: lowercase; }
 .message-status.running { color: #637d1f; background: #e8f6c5; }
 .message-status.failed { color: #a63f38; background: #f6dedb; }
