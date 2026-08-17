@@ -10,8 +10,15 @@ export type Connection = {
   name: string;
   integration: string;
   requiresLogin: boolean;
+  supportsModels: boolean;
+  defaultModel?: string;
   workspace?: string;
   capabilities: IntegrationCapabilities;
+};
+
+export type ConnectionModel = {
+  id?: string | null;
+  name: string;
 };
 
 export type ApiFile = {
@@ -32,6 +39,7 @@ export type ChatMessage = {
   connectionId: string;
   role: "user" | "assistant";
   content: string;
+  model?: string;
   files: ApiFile[];
   status: "Queued" | "Running" | "Completed" | "Failed" | "Cancelled";
   createdAt: string;
@@ -51,7 +59,7 @@ export type Chat = {
 };
 
 export type CreateChatOptions = { categoryId?: string | null };
-export type ChatMessageInput = { content: string; files?: UploadedFile[] };
+export type ChatMessageInput = { content: string; files?: UploadedFile[]; model?: string };
 export type SendOptions = { categoryId?: string | null };
 export type FileInput = File;
 export type UploadOptions = Record<string, never>;
@@ -64,6 +72,7 @@ export interface ChatProvider {
   readonly connection: Connection;
 
   initialize(): Promise<void>;
+  getModels(): Promise<ConnectionModel[]>;
   getChat(chatId: string): Promise<Chat>;
   createChat(options?: CreateChatOptions): Promise<Chat>;
   sendMessage(
