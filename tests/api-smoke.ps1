@@ -85,13 +85,14 @@ try {
             connectionId = 'test'
             categoryId = $category.categoryId
             content = 'hello'
+            model = 'mock-fast'
         })
 
     if (-not $created.messageId -or -not $created.chatId) {
         throw 'Message creation did not return identifiers.'
     }
     if ($created.model -ne 'mock-fast') {
-        throw 'Configured default model was not applied to an omitted message model.'
+        throw 'Explicit model was not accepted on message creation.'
     }
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
@@ -180,6 +181,9 @@ try {
         if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Attachment message polling timed out.' }
         Start-Sleep -Milliseconds 50
     } while ($true)
+    if ($null -ne $attachmentCompleted.model -or $null -ne $attachmentCompleted.reply.model) {
+        throw 'Omitted model was not preserved as unset.'
+    }
 
     $echoedFile = $attachmentCompleted.reply.files | Select-Object -First 1
     if ($echoedFile.name -ne 'echo-attachment-smoke.txt') { throw 'Integration output file was not imported.' }
@@ -213,7 +217,9 @@ try {
         throw 'A local upload could not be reused through another connection.'
     }
 
-    # Switch the same local chat back to the original connection.
+    # Switch the same local chat back to the original connection without a model.
+    # Even though the connection has defaultModel configured for UI selection,
+    # an omitted API model remains omitted.
     $third = Invoke-RestMethod `
         -Method Post `
         -Uri "$baseUrl/v1/messages" `
@@ -235,6 +241,9 @@ try {
     if ($thirdCompleted.connectionId -ne 'test' -or $thirdCompleted.reply.connectionId -ne 'test') {
         throw 'Existing chat did not switch back to the original connection.'
     }
+    if ($null -ne $thirdCompleted.model -or $null -ne $thirdCompleted.reply.model) {
+        throw 'Configured defaultModel leaked into an API request that omitted model.'
+    }
 
     $chatList = Invoke-RestMethod -Uri "$baseUrl/v1/chats"
     $listedChat = $chatList | Where-Object { $_.chatId -eq $created.chatId }
@@ -249,7 +258,7 @@ try {
         throw "Expected user connections test,test,test-login,test; got $($userConnections -join ',')."
     }
     $userModels = @($history | Where-Object { $_.role -eq 'user' } | ForEach-Object { $_.model })
-    if (($userModels -join ',') -ne 'mock-fast,mock-deep,,mock-fast') {
+    if (($userModels -join ',') -ne 'mock-fast,mock-deep,,') {
         throw "Unexpected persisted user models: $($userModels -join ',')."
     }
 
