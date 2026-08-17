@@ -1,7 +1,8 @@
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { randomUUID } = require("node:crypto");
+const { Buffer } = require("node:buffer");
+const { createHash, randomUUID } = require("node:crypto");
 
 const ORIGIN = "https://chatgpt.com";
 const API = Object.freeze({
@@ -98,19 +99,17 @@ module.exports = {
   }
 };
 
-async function sendAccountMessage({ session, args, sleep }, isNew) {
+async function sendAccountMessage({ window, session, args, sleep }, isNew) {
   const token = await requireToken(session);
-  const projectMode = isNew && args.projectId;
+  const config = sentinelConfig(window);
   const requirements = await apiJson(session, token, API.requirements, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      conversation_mode_kind: projectMode ? "gizmo_interaction" : "primary_assistant"
-    })
+    body: JSON.stringify({ p: sentinelRequirementsToken(config) })
   });
-  const challenges = requiredSentinelChallenges(requirements);
-  if (challenges.length)
-    throw new Error(`ChatGPT requires Sentinel challenge(s): ${challenges.join(", ")}.`);
+  const proofToken = requirements?.proofofwork?.required
+    ? sentinelProofToken(requirements.proofofwork, config)
+    : null;
 
   const uploaded = await uploadFiles(session, token, args.files || []);
   const messageId = randomUUID();
@@ -137,7 +136,10 @@ async function sendAccountMessage({ session, args, sleep }, isNew) {
   if (deviceId) headers["Oai-Device-Id"] = deviceId;
   if (requirements?.token)
     headers["Openai-Sentinel-Chat-Requirements-Token"] = requirements.token;
+  if (proofToken)
+    headers["Openai-Sentinel-Proof-Token"] = proofToken;
 
+  const projectMode = isNew && args.projectId;
   const payload = {
     action: "next",
     conversation_id: isNew ? undefined : args.conversationId,
@@ -180,13 +182,54 @@ async function sendAccountMessage({ session, args, sleep }, isNew) {
   };
 }
 
-function requiredSentinelChallenges(requirements) {
-  const challenges = [];
-  if (requirements?.proofofwork?.required) challenges.push("proof-of-work");
-  if (requirements?.arkose?.required) challenges.push("Arkose");
-  if (requirements?.turnstile?.required) challenges.push("Turnstile");
-  if (requirements?.so?.required) challenges.push("so");
-  return challenges;
+function sentinelConfig(window) {
+  const userAgent = window?.webContents?.getUserAgent?.() || "Mozilla/5.0";
+  return [
+    3000,
+    new Date().toString(),
+    4294705152,
+    0,
+    userAgent,
+    "",
+    "",
+    "en-US",
+    "en-US,en",
+    0,
+    "vendor−Google Inc.",
+    "location",
+    "navigator",
+    0,
+    randomUUID(),
+    "",
+    8,
+    Date.now()
+  ];
+}
+
+function sentinelRequirementsToken(config) {
+  return solveSentinelProof(String(Math.random()), "0fffff", config, "gAAAAAC");
+}
+
+function sentinelProofToken(challenge, config) {
+  const seed = String(challenge?.seed || "");
+  const difficulty = String(challenge?.difficulty || "");
+  if (!seed || !/^[0-9a-f]+$/i.test(difficulty) || difficulty.length % 2)
+    throw new Error("ChatGPT returned an invalid Sentinel proof-of-work challenge.");
+  return solveSentinelProof(seed, difficulty, config, "gAAAAAB");
+}
+
+function solveSentinelProof(seed, difficulty, config, prefix) {
+  const target = Buffer.from(difficulty, "hex");
+  for (let counter = 0; counter < 500000; counter++) {
+    const candidate = [...config];
+    candidate[3] = counter;
+    candidate[9] = counter >> 1;
+    const encoded = Buffer.from(JSON.stringify(candidate)).toString("base64");
+    const digest = createHash("sha3-512").update(seed).update(encoded).digest();
+    if (digest.subarray(0, target.length).compare(target) < 0)
+      return prefix + encoded;
+  }
+  throw new Error("ChatGPT Sentinel proof-of-work could not be solved.");
 }
 
 async function accessToken(session) {
