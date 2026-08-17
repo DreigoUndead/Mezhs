@@ -60,7 +60,7 @@ try {
     if (-not $plainConnection.supportsModels -or $plainConnection.defaultModel -ne 'mock-fast') {
         throw 'Connection model metadata was invalid.'
     }
-    $models = @(Invoke-RestMethod -Uri "$baseUrl/v1/connections/test/models")
+    $models = Invoke-RestMethod -Uri "$baseUrl/v1/connections/test/models"
     if ($models.Count -ne 3 -or $null -ne $models[0].id -or $models[0].name -ne 'Default') {
         throw 'Model endpoint did not prepend the provider-default option.'
     }
