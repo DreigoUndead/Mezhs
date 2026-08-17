@@ -49,13 +49,20 @@ app.MapGet("/v1/connections/{connectionId}/models", async (
     if (integration.Models is null)
         return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support model selection." });
 
-    var discovered = await integration.Models.GetModelsAsync(cancellationToken);
-    var models = new[] { new IntegrationModel(null, "Default") }
-        .Concat(discovered
-            .Where(model => !string.IsNullOrWhiteSpace(model.Id) && !string.IsNullOrWhiteSpace(model.Name))
-            .DistinctBy(model => model.Id, StringComparer.OrdinalIgnoreCase))
-        .ToArray();
-    return Results.Ok(models);
+    try
+    {
+        var discovered = await integration.Models.GetModelsAsync(cancellationToken);
+        var models = new[] { new IntegrationModel(null, "Default") }
+            .Concat(discovered
+                .Where(model => !string.IsNullOrWhiteSpace(model.Id) && !string.IsNullOrWhiteSpace(model.Name))
+                .DistinctBy(model => model.Id, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+        return Results.Ok(models);
+    }
+    catch (IntegrationAuthorizationRequiredException ex)
+    {
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status401Unauthorized);
+    }
 });
 
 app.MapPost("/v1/files", async (
