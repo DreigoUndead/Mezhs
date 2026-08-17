@@ -57,6 +57,16 @@ try {
     if ($null -ne $plainConnection.integrationName) {
         throw 'Connection metadata still exposes redundant integrationName.'
     }
+    if (-not $plainConnection.supportsModels -or $plainConnection.defaultModel -ne 'mock-fast') {
+        throw 'Connection model metadata was invalid.'
+    }
+    $models = @(Invoke-RestMethod -Uri "$baseUrl/v1/connections/test/models")
+    if ($models.Count -ne 3 -or $null -ne $models[0].id -or $models[0].name -ne 'Default') {
+        throw 'Model endpoint did not prepend the provider-default option.'
+    }
+    if (($models[1].id, $models[2].id -join ',') -ne 'mock-fast,mock-deep') {
+        throw 'Model endpoint did not return discovered integration models.'
+    }
     $login = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/connections/test-login/login"
     if ($login.status -ne 'ready') { throw 'Login module endpoint did not complete.' }
 
@@ -80,6 +90,9 @@ try {
     if (-not $created.messageId -or -not $created.chatId) {
         throw 'Message creation did not return identifiers.'
     }
+    if ($created.model -ne 'mock-fast') {
+        throw 'Configured default model was not applied to an omitted message model.'
+    }
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
     do {
@@ -91,6 +104,9 @@ try {
     } while ($true)
 
     if ($completed.reply.content -ne 'Echo: hello') { throw 'Unexpected reply.' }
+    if ($completed.model -ne 'mock-fast' -or $completed.reply.model -ne 'mock-fast') {
+        throw 'Message model was not persisted onto the request and reply.'
+    }
 
     # Backward-compatible follow-up: an existing chat may omit connectionId and
     # continues through the connection used by its latest message.
@@ -101,6 +117,7 @@ try {
         -Body (ConvertTo-Json @{
             chatId = $created.chatId
             content = 'implicit same connection'
+            model = 'mock-deep'
         })
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
@@ -113,6 +130,9 @@ try {
     } while ($true)
     if ($implicitCompleted.connectionId -ne 'test' -or $implicitCompleted.reply.connectionId -ne 'test') {
         throw 'Existing chat did not inherit its latest connection when connectionId was omitted.'
+    }
+    if ($implicitCompleted.model -ne 'mock-deep' -or $implicitCompleted.reply.model -ne 'mock-deep') {
+        throw 'Explicit per-message model was not retained.'
     }
 
     $uploadPath = Join-Path $PSScriptRoot 'attachment-smoke.txt'
@@ -228,10 +248,15 @@ try {
     if (($userConnections -join ',') -ne 'test,test,test-login,test') {
         throw "Expected user connections test,test,test-login,test; got $($userConnections -join ',')."
     }
+    $userModels = @($history | Where-Object { $_.role -eq 'user' } | ForEach-Object { $_.model })
+    if (($userModels -join ',') -ne 'mock-fast,mock-deep,,mock-fast') {
+        throw "Unexpected persisted user models: $($userModels -join ',')."
+    }
 
     $replay = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/messages/$($created.messageId)/replay"
     if ($replay.replayOfMessageId -ne $created.messageId) { throw 'Replay linkage failed.' }
     if ($replay.connectionId -ne 'test') { throw 'Replay did not retain the original request connection.' }
+    if ($replay.model -ne 'mock-fast') { throw 'Replay did not retain the original request model.' }
 
     Invoke-RestMethod `
         -Method Patch `
@@ -240,7 +265,7 @@ try {
         -Body '{"categoryId":null}' | Out-Null
     Invoke-RestMethod -Method Delete -Uri "$baseUrl/v1/categories/$($category.categoryId)"
 
-    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) implicit-follow-up=ok multi-connection=ok categories=ok files=ok login=ok"
+    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) implicit-follow-up=ok multi-connection=ok categories=ok files=ok login=ok models=ok"
 }
 finally {
     if (-not $process.HasExited) {
