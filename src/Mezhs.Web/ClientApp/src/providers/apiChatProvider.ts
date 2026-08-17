@@ -34,9 +34,11 @@ export class ApiChatProvider implements ChatProvider {
 
   async getModels(): Promise<ConnectionModel[]> {
     if (!this.connection.supportsModels) return [];
-    return expectJson<ConnectionModel[]>(await fetch(
+    const response = await fetch(
       `${this.apiBase}/v1/connections/${encodeURIComponent(this.connection.id)}/models`,
-    ));
+    );
+    if (response.status === 401) return [{ id: null, name: "Default" }];
+    return expectJson<ConnectionModel[]>(response);
   }
 
   async getChat(chatId: string): Promise<Chat> {
