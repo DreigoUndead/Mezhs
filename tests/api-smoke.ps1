@@ -257,7 +257,9 @@ try {
     if (($userConnections -join ',') -ne 'test,test,test-login,test') {
         throw "Expected user connections test,test,test-login,test; got $($userConnections -join ',')."
     }
-    $userModels = @($history | Where-Object { $_.role -eq 'user' } | ForEach-Object { $_.model })
+    $userModels = @($history | Where-Object { $_.role -eq 'user' } | ForEach-Object {
+        if ($null -eq $_.model) { '' } else { $_.model }
+    })
     if (($userModels -join ',') -ne 'mock-fast,mock-deep,,') {
         throw "Unexpected persisted user models: $($userModels -join ',')."
     }
