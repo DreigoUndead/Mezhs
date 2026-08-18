@@ -1,4 +1,4 @@
-// Contract tests for Grok authentication and its semantic provider page-operation boundary.
+// Contract tests for Grok authentication, API-backed model discovery, and native UI send.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -49,7 +49,8 @@ function fakeBrowser({ authorized = true } = {}) {
             { id: "expert", name: "Expert" }
           ];
         }
-        if (operation === "chat") {
+        if (operation === "selectModel") return true;
+        if (operation === "sendPrompt") {
           return {
             text: "reply",
             chatUrl: "https://grok.com/c/test"
@@ -61,14 +62,19 @@ function fakeBrowser({ authorized = true } = {}) {
   };
 }
 
-test("Grok module uses semantic page operations instead of DOM model or chat automation", () => {
+test("Grok keeps model discovery semantic but sends through the native UI", () => {
   const grok = loadGrokModule();
   const source = fs.readFileSync(grokFile, "utf8");
+
   assert.equal(typeof grok.pageOperations?.models, "function");
-  assert.equal(typeof grok.pageOperations?.chat, "function");
-  assert.doesNotMatch(source, /executeJavaScript|querySelector|execCommand|contenteditable|Model select/);
-  assert.match(source, /\/rest\/app-chat\/conversations\/new/);
-  assert.match(source, /modeId/);
+  assert.equal(typeof grok.pageOperations?.selectModel, "function");
+  assert.equal(typeof grok.pageOperations?.sendPrompt, "function");
+  assert.match(source, /\/rest\/modes/);
+  assert.doesNotMatch(source, /\/rest\/app-chat\/conversations\/new/);
+  assert.match(source, /model-select-trigger/);
+  assert.match(source, /PointerEvent\("pointerdown"/);
+  assert.match(source, /data-testid=\\?"chat-submit/);
+  assert.doesNotMatch(source, /executeJavaScript/);
 });
 
 test("Grok authorization follows the persistent Grok session cookie", async () => {
@@ -140,7 +146,7 @@ test("Grok model discovery opens the provider home page and uses the page bounda
   assert.deepEqual(fake.pageCalls, [{ operation: "models", args: {} }]);
 });
 
-test("Grok new chat passes the discovered mode directly to the semantic chat operation", async () => {
+test("Grok new chat selects the requested discovered mode before native send", async () => {
   const grok = loadGrokModule();
   const fake = fakeBrowser();
 
@@ -152,102 +158,23 @@ test("Grok new chat passes the discovered mode directly to the semantic chat ope
 
   assert.equal(fake.loaded[0], "https://grok.com/");
   assert.equal(result.text, "reply");
-  assert.deepEqual(fake.pageCalls, [{
-    operation: "chat",
-    args: { prompt: "hello", model: "expert" }
-  }]);
+  assert.deepEqual(fake.pageCalls, [
+    { operation: "selectModel", args: { model: "expert" } },
+    { operation: "sendPrompt", args: { prompt: "hello", model: "expert" } }
+  ]);
 });
 
-test("Grok semantic chat request sends modeId and parses final app-chat response", async () => {
+test("Grok default send does not touch the model picker", async () => {
   const grok = loadGrokModule();
-  const originalFetch = global.fetch;
-  let request;
-  global.fetch = async (url, options) => {
-    request = { url: String(url), options };
-    return new Response([
-      JSON.stringify({ conversationId: "conv-1" }),
-      JSON.stringify({
-        result: {
-          sender: "assistant",
-          message: "thinking",
-          isThinking: true,
-          messageTag: "assistant"
-        }
-      }),
-      JSON.stringify({
-        result: {
-          sender: "assistant",
-          message: "Answer",
-          messageTag: "final"
-        }
-      })
-    ].join("\n"), { status: 200 });
-  };
+  const fake = fakeBrowser();
 
-  try {
-    const result = await grok.pageOperations.chat({
-      args: { prompt: "hello", model: "expert" }
-    });
-    const payload = JSON.parse(request.options.body);
+  await grok.operations.newChat({
+    window: fake.window,
+    page: fake.page,
+    args: { prompt: "hello" }
+  });
 
-    assert.equal(request.url, "https://grok.com/rest/app-chat/conversations/new");
-    assert.equal(request.options.method, "POST");
-    assert.equal(request.options.credentials, "include");
-    assert.equal(request.options.headers["Content-Type"], "application/json");
-    assert.ok(request.options.headers["x-statsig-id"]);
-    assert.match(request.options.headers["x-xai-request-id"], /^[0-9a-f-]{36}$/i);
-    assert.equal(payload.message, "hello");
-    assert.equal(payload.modeId, "expert");
-    assert.equal(payload.sendFinalMetadata, true);
-    assert.deepEqual(result, {
-      text: "Answer",
-      chatUrl: "https://grok.com/c/conv-1"
-    });
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
-
-test("Grok semantic chat defaults modeId to auto and accepts response.token frames", async () => {
-  const grok = loadGrokModule();
-  const originalFetch = global.fetch;
-  let payload;
-  global.fetch = async (_url, options) => {
-    payload = JSON.parse(options.body);
-    return new Response([
-      JSON.stringify({ result: { conversationId: "conv-2" } }),
-      JSON.stringify({
-        result: {
-          response: {
-            token: "Modern answer",
-            messageTag: "final",
-            isThinking: false
-          }
-        }
-      })
-    ].join("\n"), { status: 200 });
-  };
-
-  try {
-    const result = await grok.pageOperations.chat({ args: { prompt: "hello" } });
-    assert.equal(payload.modeId, "auto");
-    assert.equal(result.text, "Modern answer");
-    assert.equal(result.chatUrl, "https://grok.com/c/conv-2");
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
-
-test("Grok semantic chat surfaces provider HTTP failures", async () => {
-  const grok = loadGrokModule();
-  const originalFetch = global.fetch;
-  global.fetch = async () => new Response("denied", { status: 403 });
-  try {
-    await assert.rejects(
-      grok.pageOperations.chat({ args: { prompt: "hello", model: "expert" } }),
-      /failed with HTTP 403: denied/
-    );
-  } finally {
-    global.fetch = originalFetch;
-  }
+  assert.deepEqual(fake.pageCalls, [
+    { operation: "sendPrompt", args: { prompt: "hello" } }
+  ]);
 });
