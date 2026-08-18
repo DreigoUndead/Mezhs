@@ -88,23 +88,12 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 return (response, projectId);
             }
 
-            (ChatGptSendResponse Response, string? ProjectId) sent;
-            if (!hasRemoteConversation)
+            var sent = await SendAsync(newChat: !hasRemoteConversation);
+            if (hasRemoteConversation && sent.Response.ConversationUnavailable)
             {
+                Console.Error.WriteLine(
+                    $"ChatGPT conversation '{context.Chat.RemoteConversationId}' is unavailable; starting a new remote conversation from local history.");
                 sent = await SendAsync(newChat: true);
-            }
-            else
-            {
-                try
-                {
-                    sent = await SendAsync(newChat: false);
-                }
-                catch (InvalidOperationException ex) when (IsConversationUnavailable(ex))
-                {
-                    Console.Error.WriteLine(
-                        $"ChatGPT conversation '{context.Chat.RemoteConversationId}' is unavailable; starting a new remote conversation from local history.");
-                    sent = await SendAsync(newChat: true);
-                }
             }
 
             if (sent.ProjectId is not null &&
@@ -121,10 +110,6 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         }, cancellationToken);
 
     public override ValueTask DisposeAsync() => _session.DisposeAsync();
-
-    private static bool IsConversationUnavailable(InvalidOperationException exception) =>
-        exception.Message.Contains("ChatGPT /backend-api/conversation/", StringComparison.Ordinal) &&
-        exception.Message.Contains("HTTP 404", StringComparison.OrdinalIgnoreCase);
 
     private static async Task<string?> ResolveProjectIdAsync(
         IChatBrowserTransport transport,
@@ -196,7 +181,8 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         string ParentMessageId,
         string? ProjectId,
         string? ChatUrl,
-        IReadOnlyList<BrowserArtifact>? Artifacts);
+        IReadOnlyList<BrowserArtifact>? Artifacts,
+        bool ConversationUnavailable = false);
 
     private sealed class LoginModule(BrowserAccountSession session) : ILoginModule
     {
