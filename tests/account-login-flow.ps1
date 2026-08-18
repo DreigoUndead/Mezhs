@@ -35,7 +35,7 @@ try
     await TestExplicitLoginAsync(Path.Combine(root, "explicit"));
     await TestModelDeduplicationAsync(Path.Combine(root, "models"));
     await TestStaleConversationRecoveryAsync(Path.Combine(root, "stale"));
-    Console.WriteLine("PASS: ChatGPT account login, model discovery, and stale conversation recovery are correct.");
+    Console.WriteLine("PASS: ChatGPT account login, model discovery, served-model propagation, and stale conversation recovery are correct.");
 }
 finally
 {
@@ -55,11 +55,12 @@ static async Task TestAutomaticLoginAsync(string root)
     var now = DateTimeOffset.UtcNow;
     var result = await integration.SendMessageAsync(new IntegrationSendContext(
         new IntegrationChatContext("chat", "account"),
-        new IntegrationMessageContext("message", "user", "hello", false, now),
+        new IntegrationMessageContext("message", "user", "hello", false, now, "requested-test"),
         Array.Empty<IntegrationMessageContext>(),
         Array.Empty<IntegrationInputFile>()));
 
     Assert(result.Text == "ok", "message did not continue after login");
+    Assert(result.Model == "served-test", "integration copied the requested model instead of the provider-served model");
     Assert(host.Initializations.Count == 3,
         $"expected hidden check + visible login + hidden resume, got {host.Initializations.Count} initializations");
     Assert(!host.Initializations[0].ShowBrowser, "authorization check unexpectedly started visible");
@@ -206,7 +207,8 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
                 parentMessageId = "assistant",
                 chatUrl = "https://chatgpt.com/c/test",
                 projectId = (string?)null,
-                artifacts = Array.Empty<BrowserArtifact>()
+                artifacts = Array.Empty<BrowserArtifact>(),
+                model = "served-test"
             });
         }
 
