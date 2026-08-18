@@ -39,9 +39,13 @@ function sessionForConversationError(code) {
       const target = new URL(String(url));
       if (target.pathname === "/api/auth/session")
         return jsonResponse({ accessToken: "token" });
-      if (target.pathname === "/backend-api/sentinel/chat-requirements")
+      if (target.pathname === "/backend-api/f/conversation/prepare")
+        return jsonResponse({ conduit_token: "conduit" });
+      if (target.pathname === "/backend-api/sentinel/chat-requirements/prepare")
+        return jsonResponse({ prepare_token: "prepared" });
+      if (target.pathname === "/backend-api/sentinel/chat-requirements/finalize")
         return jsonResponse({ token: "sentinel" });
-      if (target.pathname === "/backend-api/conversation" && options.method === "POST")
+      if (target.pathname === "/backend-api/f/conversation" && options.method === "POST")
         return textResponse(
           'data: {"conversation_id":"stale-conversation"}\n\n',
           200,
@@ -64,6 +68,7 @@ function sessionForConversationError(code) {
 
 function send(chatgpt, session) {
   return chatgpt.operations.send({
+    window: { webContents: { getUserAgent: () => "TestBrowser/1.0" } },
     session,
     args: {
       prompt: "continue",
