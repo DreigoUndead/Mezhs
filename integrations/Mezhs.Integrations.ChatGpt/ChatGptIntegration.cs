@@ -60,40 +60,71 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         CancellationToken cancellationToken = default) =>
         _session.UseAsync(async (transport, token) =>
         {
-            var newChat = string.IsNullOrWhiteSpace(context.Chat.RemoteConversationId) ||
-                          string.IsNullOrWhiteSpace(context.Chat.RemoteParentMessageId);
+            var hasRemoteConversation =
+                !string.IsNullOrWhiteSpace(context.Chat.RemoteConversationId) &&
+                !string.IsNullOrWhiteSpace(context.Chat.RemoteParentMessageId);
             var workspace = Connection.GetSetting("workspace");
-            var projectId = newChat
-                ? await ResolveProjectIdAsync(transport, workspace, token)
-                : null;
-            var request = new ChatGptSendRequest(
-                newChat ? ComposeConversation(context) : context.Message.Content,
-                context.Chat.RemoteConversationId,
-                context.Chat.RemoteParentMessageId,
-                projectId,
-                context.Message.Model,
-                context.Files.Select(file => new ChatGptInputFile(
-                    file.Path,
-                    file.Name,
-                    file.ContentType)).ToArray());
-            var response = await transport.InvokeAsync<ChatGptSendResponse>(
-                newChat ? "newChat" : "send",
-                request,
-                token);
-            if (projectId is not null &&
-                !string.Equals(response.ProjectId, projectId, StringComparison.Ordinal))
+            var files = context.Files.Select(file => new ChatGptInputFile(
+                file.Path,
+                file.Name,
+                file.ContentType)).ToArray();
+
+            async Task<(ChatGptSendResponse Response, string? ProjectId)> SendAsync(bool newChat)
+            {
+                var projectId = newChat
+                    ? await ResolveProjectIdAsync(transport, workspace, token)
+                    : null;
+                var request = new ChatGptSendRequest(
+                    newChat ? ComposeConversation(context) : context.Message.Content,
+                    newChat ? null : context.Chat.RemoteConversationId,
+                    newChat ? null : context.Chat.RemoteParentMessageId,
+                    projectId,
+                    context.Message.Model,
+                    files);
+                var response = await transport.InvokeAsync<ChatGptSendResponse>(
+                    newChat ? "newChat" : "send",
+                    request,
+                    token);
+                return (response, projectId);
+            }
+
+            (ChatGptSendResponse Response, string? ProjectId) sent;
+            if (!hasRemoteConversation)
+            {
+                sent = await SendAsync(newChat: true);
+            }
+            else
+            {
+                try
+                {
+                    sent = await SendAsync(newChat: false);
+                }
+                catch (InvalidOperationException ex) when (IsConversationUnavailable(ex))
+                {
+                    Console.Error.WriteLine(
+                        $"ChatGPT conversation '{context.Chat.RemoteConversationId}' is unavailable; starting a new remote conversation from local history.");
+                    sent = await SendAsync(newChat: true);
+                }
+            }
+
+            if (sent.ProjectId is not null &&
+                !string.Equals(sent.Response.ProjectId, sent.ProjectId, StringComparison.Ordinal))
                 throw new InvalidOperationException(
                     $"ChatGPT created the chat outside project '{workspace}'.");
 
             return new IntegrationSendResult(
-                response.Text,
-                response.ChatUrl,
-                response.ConversationId,
-                response.ParentMessageId,
-                OutputFiles(response.Artifacts));
+                sent.Response.Text,
+                sent.Response.ChatUrl,
+                sent.Response.ConversationId,
+                sent.Response.ParentMessageId,
+                OutputFiles(sent.Response.Artifacts));
         }, cancellationToken);
 
     public override ValueTask DisposeAsync() => _session.DisposeAsync();
+
+    private static bool IsConversationUnavailable(InvalidOperationException exception) =>
+        exception.Message.Contains("ChatGPT /backend-api/conversation/", StringComparison.Ordinal) &&
+        exception.Message.Contains("HTTP 404", StringComparison.OrdinalIgnoreCase);
 
     private static async Task<string?> ResolveProjectIdAsync(
         IChatBrowserTransport transport,
@@ -178,9 +209,15 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         public Task<IReadOnlyList<IntegrationModel>> GetModelsAsync(
             CancellationToken cancellationToken = default) =>
             session.UseAuthorizedAsync<IReadOnlyList<IntegrationModel>>(async (transport, token) =>
-                await transport.InvokeAsync<IntegrationModel[]>(
+            {
+                var discovered = await transport.InvokeAsync<IntegrationModel[]>(
                     "getModels",
-                    cancellationToken: token),
-                cancellationToken);
+                    cancellationToken: token);
+                return discovered
+                    .Where(model => !string.IsNullOrWhiteSpace(model.Id) &&
+                                    !string.IsNullOrWhiteSpace(model.Name))
+                    .DistinctBy(model => model.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+            }, cancellationToken);
     }
 }
