@@ -75,7 +75,7 @@ test("Grok authorization follows the persistent Grok session cookie", async () =
   );
 });
 
-test("Grok model page operation discovers authenticated modes from /rest/modes", async () => {
+test("Grok model page operation discovers authenticated modes from POST /rest/modes", async () => {
   const grok = loadGrokModule();
   const originalFetch = global.fetch;
   let request;
@@ -107,7 +107,9 @@ test("Grok model page operation discovers authenticated modes from /rest/modes",
       ]
     );
     assert.equal(request.url, "https://grok.com/rest/modes");
-    assert.equal(request.options.method, "GET");
+    assert.equal(request.options.method, "POST");
+    assert.equal(request.options.headers["Content-Type"], "application/json");
+    assert.equal(request.options.body, "{}");
     assert.equal(request.options.credentials, "include");
     assert.equal(request.options.cache, "no-store");
   } finally {
