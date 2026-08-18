@@ -204,7 +204,8 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
     parentMessageId: result.parentMessageId,
     projectId: result.projectId,
     chatUrl: `${ORIGIN}/c/${conversationId}`,
-    artifacts: await downloadFiles(session, token, result.files)
+    artifacts: await downloadFiles(session, token, result.files),
+    model: result.model
   };
 }
 
@@ -444,6 +445,7 @@ async function waitForConversation(session, token, conversationId, requestMessag
         text: (message.content?.parts || []).filter(x => typeof x === "string").join("\n").trim(),
         parentMessageId: message.id,
         projectId: conversation.gizmo_id || null,
+        model: String(message?.metadata?.model_slug || "").trim() || null,
         files
       };
     }
