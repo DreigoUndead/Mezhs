@@ -106,7 +106,8 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 sent.Response.ChatUrl,
                 sent.Response.ConversationId,
                 sent.Response.ParentMessageId,
-                OutputFiles(sent.Response.Artifacts));
+                OutputFiles(sent.Response.Artifacts),
+                sent.Response.Model);
         }, cancellationToken);
 
     public override ValueTask DisposeAsync() => _session.DisposeAsync();
@@ -182,6 +183,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         string? ProjectId,
         string? ChatUrl,
         IReadOnlyList<BrowserArtifact>? Artifacts,
+        string? Model = null,
         bool ConversationUnavailable = false);
 
     private sealed class LoginModule(BrowserAccountSession session) : ILoginModule
