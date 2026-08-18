@@ -218,7 +218,7 @@ public sealed class MessageService(
                 ConnectionId = message.ConnectionId,
                 Role = "assistant",
                 Content = result.Text,
-                Model = message.Model,
+                Model = NormalizeModel(result.Model),
                 FileIds = replyFileIds,
                 ParentMessageId = message.MessageId,
                 Status = MessageStatus.Completed,
