@@ -34,12 +34,10 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
         CancellationToken cancellationToken = default) =>
         _session.UseAsync(async (transport, token) =>
         {
-            var newChat = string.IsNullOrWhiteSpace(context.Chat.RemoteChatUrl);
             var response = await transport.InvokeAsync<GrokSendResponse>(
-                newChat ? "newChat" : "send",
+                "newChat",
                 new GrokSendRequest(
-                    newChat ? ComposeConversation(context) : context.Message.Content,
-                    context.Chat.RemoteChatUrl,
+                    ComposeConversation(context),
                     context.Message.Model),
                 token);
             return new IntegrationSendResult(
@@ -59,12 +57,11 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
 
     private sealed record GrokSendRequest(
         string Prompt,
-        string? ChatUrl,
         string? Model);
 
     private sealed record GrokSendResponse(
         string Text,
-        string ChatUrl);
+        string? ChatUrl);
 
     private sealed class LoginModule(BrowserAccountSession session) : ILoginModule
     {
