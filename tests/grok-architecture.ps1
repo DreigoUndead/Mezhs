@@ -1,4 +1,4 @@
-# Guards Grok ownership boundaries, shared account lifecycle, and browser page-operation architecture.
+# Guards Grok ownership boundaries, shared account lifecycle, and semantic provider protocol use.
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -38,10 +38,20 @@ if ($grok -notmatch '\[Integration\("grok-web-account"\)\]') {
 if ($grok -notmatch 'BrowserAccountSession' -or $grok -notmatch 'ILoginModule') {
     throw 'Grok account integration is not using the shared account lifecycle and login contract.'
 }
+if ($grok -match 'RemoteChatUrl.*\?\s*"newChat"\s*:\s*"send"' -or $grok -match 'new GrokSendRequest\([^\)]*ChatUrl') {
+    throw 'Grok semantic chat still depends on remote-browser continuation state.'
+}
 
 $grokBrowserSource = Get-Content $grokBrowser -Raw
 if ($grokBrowserSource -notmatch 'pageOperations' -or $grokBrowserSource -match 'executeJavaScript') {
-    throw 'Grok DOM behavior is not attached through browser page operations.'
+    throw 'Grok provider behavior is not attached through browser page operations.'
+}
+if ($grokBrowserSource -notmatch '/rest/app-chat/conversations/new' -or
+    $grokBrowserSource -notmatch 'modeId') {
+    throw 'Grok selected modes are not sent through the semantic app-chat protocol.'
+}
+if ($grokBrowserSource -match 'querySelector|execCommand|contenteditable|Model select') {
+    throw 'Grok chat/model behavior regressed to DOM automation.'
 }
 $browserContractSource = Get-Content $browserContract -Raw
 if ($browserContractSource -notmatch 'interface BrowserPage' -or
@@ -65,4 +75,4 @@ if ($config -notmatch '(?m)^\s*- id: grok-account\s*$' -or
     throw 'Default Grok account connection is missing.'
 }
 
-Write-Host 'PASS: Grok stays integration-owned, uses shared account lifecycle, and attaches DOM work through the browser contract.'
+Write-Host 'PASS: Grok stays integration-owned, uses shared account lifecycle, and sends selected modes through the semantic provider protocol.'
