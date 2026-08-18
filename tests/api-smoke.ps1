@@ -105,8 +105,8 @@ try {
     } while ($true)
 
     if ($completed.reply.content -ne 'Echo: hello') { throw 'Unexpected reply.' }
-    if ($completed.model -ne 'mock-fast' -or $completed.reply.model -ne 'mock-fast') {
-        throw 'Message model was not persisted onto the request and reply.'
+    if ($completed.model -ne 'mock-fast' -or $completed.reply.model -ne 'mock-served') {
+        throw 'Requested and provider-served models were not persisted separately.'
     }
 
     # Backward-compatible follow-up: an existing chat may omit connectionId and
@@ -132,8 +132,8 @@ try {
     if ($implicitCompleted.connectionId -ne 'test' -or $implicitCompleted.reply.connectionId -ne 'test') {
         throw 'Existing chat did not inherit its latest connection when connectionId was omitted.'
     }
-    if ($implicitCompleted.model -ne 'mock-deep' -or $implicitCompleted.reply.model -ne 'mock-deep') {
-        throw 'Explicit per-message model was not retained.'
+    if ($implicitCompleted.model -ne 'mock-deep' -or $implicitCompleted.reply.model -ne 'mock-served') {
+        throw 'Per-message requested model was confused with the provider-served reply model.'
     }
 
     $uploadPath = Join-Path $PSScriptRoot 'attachment-smoke.txt'
@@ -181,8 +181,8 @@ try {
         if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Attachment message polling timed out.' }
         Start-Sleep -Milliseconds 50
     } while ($true)
-    if ($null -ne $attachmentCompleted.model -or $null -ne $attachmentCompleted.reply.model) {
-        throw 'Omitted model was not preserved as unset.'
+    if ($null -ne $attachmentCompleted.model -or $attachmentCompleted.reply.model -ne 'mock-served') {
+        throw 'Omitted requested model was not kept separate from the provider-served reply model.'
     }
 
     $echoedFile = $attachmentCompleted.reply.files | Select-Object -First 1
@@ -241,8 +241,8 @@ try {
     if ($thirdCompleted.connectionId -ne 'test' -or $thirdCompleted.reply.connectionId -ne 'test') {
         throw 'Existing chat did not switch back to the original connection.'
     }
-    if ($null -ne $thirdCompleted.model -or $null -ne $thirdCompleted.reply.model) {
-        throw 'Configured defaultModel leaked into an API request that omitted model.'
+    if ($null -ne $thirdCompleted.model -or $thirdCompleted.reply.model -ne 'mock-served') {
+        throw 'Configured defaultModel leaked into the request or provider-served reply model was lost.'
     }
 
     $chatList = Invoke-RestMethod -Uri "$baseUrl/v1/chats"
@@ -262,6 +262,10 @@ try {
     })
     if (($userModels -join ',') -ne 'mock-fast,mock-deep,,') {
         throw "Unexpected persisted user models: $($userModels -join ',')."
+    }
+    $assistantModels = @($history | Where-Object { $_.role -eq 'assistant' } | ForEach-Object { $_.model })
+    if (($assistantModels -join ',') -ne 'mock-served,mock-served,mock-served,mock-served') {
+        throw "Unexpected persisted assistant models: $($assistantModels -join ',')."
     }
 
     $replay = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/messages/$($created.messageId)/replay"
