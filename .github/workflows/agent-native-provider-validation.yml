@@ -1,6 +1,8 @@
 name: Agent native provider validation
 
 on:
+  push:
+    branches: [agent/model-selection]
   pull_request:
     branches: [main]
 
