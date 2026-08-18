@@ -46,8 +46,8 @@ function fakeBrowser({ authorized = true } = {}) {
         if (operation === "models") {
           if (args?.select) return true;
           return [
-            { id: "Grok 4.5", name: "Grok 4.5" },
-            { id: "Expert", name: "Expert" }
+            { id: "auto", name: "Auto" },
+            { id: "expert", name: "Expert" }
           ];
         }
         return {
@@ -59,7 +59,7 @@ function fakeBrowser({ authorized = true } = {}) {
   };
 }
 
-test("Grok module exposes its DOM work as attached page operations", () => {
+test("Grok module exposes provider page operations without executeJavaScript", () => {
   const grok = loadGrokModule();
   assert.equal(typeof grok.pageOperations?.sendPrompt, "function");
   assert.equal(typeof grok.pageOperations?.models, "function");
@@ -75,6 +75,46 @@ test("Grok authorization follows the persistent Grok session cookie", async () =
   );
 });
 
+test("Grok model page operation discovers authenticated modes from /rest/modes", async () => {
+  const grok = loadGrokModule();
+  const originalFetch = global.fetch;
+  let request;
+  global.fetch = async (url, options) => {
+    request = { url: String(url), options };
+    return new Response(JSON.stringify({
+      data: {
+        modes: [
+          { modeId: "auto", displayName: "Auto" },
+          { id: "expert", name: "Expert" },
+          { mode: { modeId: "heavy", displayName: "Heavy" } },
+          { modeId: "disabled", displayName: "Disabled", available: false },
+          { modeId: "auto", displayName: "Duplicate Auto" }
+        ]
+      }
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    assert.deepEqual(
+      await grok.pageOperations.models({ args: {}, sleep: async () => {} }),
+      [
+        { id: "auto", name: "Auto" },
+        { id: "expert", name: "Expert" },
+        { id: "heavy", name: "Heavy" }
+      ]
+    );
+    assert.equal(request.url, "https://grok.com/rest/modes");
+    assert.equal(request.options.method, "GET");
+    assert.equal(request.options.credentials, "include");
+    assert.equal(request.options.cache, "no-store");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("Grok model discovery opens the provider home page and uses the page boundary", async () => {
   const grok = loadGrokModule();
   const fake = fakeBrowser();
@@ -86,8 +126,8 @@ test("Grok model discovery opens the provider home page and uses the page bounda
   });
 
   assert.deepEqual(result, [
-    { id: "Grok 4.5", name: "Grok 4.5" },
-    { id: "Expert", name: "Expert" }
+    { id: "auto", name: "Auto" },
+    { id: "expert", name: "Expert" }
   ]);
   assert.deepEqual(fake.loaded, ["https://grok.com/"]);
   assert.deepEqual(fake.pageCalls, [{ operation: "models", args: {} }]);
@@ -111,19 +151,19 @@ test("Grok new chat starts at the provider home page and invokes the page operat
   }]);
 });
 
-test("Grok applies an explicit model before sending the message", async () => {
+test("Grok applies an explicit discovered mode before sending the message", async () => {
   const grok = loadGrokModule();
   const fake = fakeBrowser();
 
   await grok.operations.newChat({
     window: fake.window,
     page: fake.page,
-    args: { prompt: "hello", model: "Grok 4.5" }
+    args: { prompt: "hello", model: "expert" }
   });
 
   assert.deepEqual(fake.pageCalls, [
-    { operation: "models", args: { select: "Grok 4.5" } },
-    { operation: "sendPrompt", args: { prompt: "hello", model: "Grok 4.5" } }
+    { operation: "models", args: { select: "expert" } },
+    { operation: "sendPrompt", args: { prompt: "hello", model: "expert" } }
   ]);
 });
 
