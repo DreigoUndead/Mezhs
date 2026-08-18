@@ -41,7 +41,7 @@ function mockSession(fetch, deviceId = null) {
   };
 }
 
-function completedConversation(conversationId, projectId = null) {
+function completedConversation(conversationId, projectId = null, model = "served-test") {
   return {
     conversation_id: conversationId,
     gizmo_id: projectId,
@@ -53,7 +53,8 @@ function completedConversation(conversationId, projectId = null) {
           id: "assistant-1",
           author: { role: "assistant" },
           status: "finished_successfully",
-          content: { parts: ["answer"] }
+          content: { parts: ["answer"] },
+          metadata: { model_slug: model }
         }
       }
     }
@@ -155,7 +156,7 @@ test("ChatGPT getModels discovers account models and leaves provider default to 
   ]);
 });
 
-test("ChatGPT newChat completes with the live Sentinel challenge bundle", async () => {
+test("ChatGPT newChat reports the provider-served model, not merely the requested model", async () => {
   const chatgpt = loadChatGptModule();
   const seed = "0.559779845730002";
   const difficulty = "ffffff";
@@ -186,7 +187,7 @@ test("ChatGPT newChat completes with the live Sentinel challenge bundle", async 
     }
 
     if (target.pathname === "/backend-api/conversation/conv-1")
-      return jsonResponse(completedConversation("conv-1", "g-p-mezhs"));
+      return jsonResponse(completedConversation("conv-1", "g-p-mezhs", "served-model"));
 
     throw new Error(`Unexpected request ${target}`);
   }, "device-1");
@@ -199,7 +200,7 @@ test("ChatGPT newChat completes with the live Sentinel challenge bundle", async 
       projectId: "g-p-mezhs",
       conversationId: null,
       parentMessageId: null,
-      model: "gpt-test",
+      model: "requested-model",
       files: []
     },
     sleep: async () => {}
@@ -212,7 +213,7 @@ test("ChatGPT newChat completes with the live Sentinel challenge bundle", async 
     gizmo_id: "g-p-mezhs"
   });
   assert.equal(conversationPayload.messages[0].content.parts.at(-1), "hello");
-  assert.equal(conversationPayload.model, "gpt-test");
+  assert.equal(conversationPayload.model, "requested-model");
   assert.equal("conversation_id" in conversationPayload, false);
   assert.equal(conversationHeaders["Openai-Sentinel-Chat-Requirements-Token"], "sentinel");
   assert.equal(conversationHeaders["Oai-Device-Id"], "device-1");
@@ -221,6 +222,7 @@ test("ChatGPT newChat completes with the live Sentinel challenge bundle", async 
   assert.equal(result.parentMessageId, "assistant-1");
   assert.equal(result.projectId, "g-p-mezhs");
   assert.equal(result.text, "answer");
+  assert.equal(result.model, "served-model");
 });
 
 test("ChatGPT send continues the existing conversation without overriding its mode", async () => {
@@ -241,7 +243,7 @@ test("ChatGPT send continues the existing conversation without overriding its mo
     }
 
     if (target.pathname === "/backend-api/conversation/conv-existing")
-      return jsonResponse(completedConversation("conv-existing", "g-p-mezhs"));
+      return jsonResponse(completedConversation("conv-existing", "g-p-mezhs", "served-continuation"));
 
     throw new Error(`Unexpected request ${target}`);
   });
@@ -262,6 +264,7 @@ test("ChatGPT send continues the existing conversation without overriding its mo
   assert.equal(conversationPayload.model, "auto");
   assert.equal("conversation_mode" in conversationPayload, false);
   assert.equal(result.projectId, "g-p-mezhs");
+  assert.equal(result.model, "served-continuation");
 });
 
 test("ChatGPT rejects an invalid proof-of-work challenge before sending", async () => {
