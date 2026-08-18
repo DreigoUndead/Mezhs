@@ -28,7 +28,10 @@ public class MockIntegration : ChatIntegrationBase
             $"echo-{file.Name}",
             file.ContentType,
             DeleteAfterImport: false)).ToArray();
-        return new IntegrationSendResult($"Echo: {context.Message.Content}", Files: outputFiles);
+        return new IntegrationSendResult(
+            $"Echo: {context.Message.Content}",
+            Files: outputFiles,
+            Model: "mock-served");
     }
 
     protected static void Validate(IntegrationConnection connection)
