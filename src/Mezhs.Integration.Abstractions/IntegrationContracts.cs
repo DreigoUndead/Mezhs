@@ -110,4 +110,5 @@ public sealed record IntegrationSendResult(
     string? RemoteChatUrl = null,
     string? RemoteConversationId = null,
     string? RemoteParentMessageId = null,
-    IReadOnlyList<IntegrationOutputFile>? Files = null);
+    IReadOnlyList<IntegrationOutputFile>? Files = null,
+    string? Model = null);
