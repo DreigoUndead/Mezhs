@@ -1,5 +1,7 @@
-// Grok browser module: main-process navigation/auth plus renderer-attached DOM operations.
+// Grok browser module: main-process navigation/auth plus renderer-attached page operations.
 const ORIGIN = "https://grok.com";
+const MODES_ENDPOINT = ORIGIN + "/rest/modes";
+const MODEL_SELECTOR = "button[aria-label='Model select']";
 
 module.exports = {
   name: "Grok",
@@ -35,6 +37,25 @@ module.exports = {
 
   pageOperations: {
     async models({ args, sleep }) {
+      const response = await fetch(MODES_ENDPOINT, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        credentials: "include",
+        cache: "no-store"
+      });
+      if (!response.ok)
+        throw new Error(`Grok ${new URL(MODES_ENDPOINT).pathname} failed with HTTP ${response.status}.`);
+
+      const modes = normalizeModes(await response.json());
+      if (!args?.select) return modes;
+
+      const requested = String(args.select).trim();
+      const selected = modes.find(mode =>
+        mode.id.toLocaleLowerCase() === requested.toLocaleLowerCase()
+      );
+      if (!selected)
+        throw new Error(`Grok model '${requested}' is no longer available.`);
+
       const visible = element => {
         if (!element) return false;
         const style = getComputedStyle(element);
@@ -50,92 +71,43 @@ module.exports = {
         element?.textContent ||
         ""
       ).replace(/\s+/g, " ").trim();
-      const looksLikeModel = value =>
-        /(grok|model|auto|fast|expert|heavy|reason|think)/i.test(value);
       const optionId = element => String(
         element?.getAttribute?.("data-value") ||
         element?.getAttribute?.("data-model") ||
+        element?.getAttribute?.("data-mode") ||
         element?.getAttribute?.("value") ||
-        text(element)
+        ""
       ).trim();
-      const readOptions = () => {
-        const nodes = [...document.querySelectorAll(
-          '[role="menuitem"], [role="option"], [data-radix-collection-item]'
-        )].filter(visible);
-        const result = [];
-        const seen = new Set();
-        for (const node of nodes) {
-          const name = text(node);
-          const id = optionId(node);
-          if (!name || !id || !looksLikeModel(name) || seen.has(id)) continue;
-          seen.add(id);
-          result.push({ id, name, node });
-        }
-        return result;
-      };
-      const candidateSelectors = [
-        'button[aria-label*="model" i]',
-        'button[title*="model" i]',
-        'button[data-testid*="model" i]',
-        '[data-testid*="model" i] button',
-        'button[aria-haspopup="listbox"]',
-        'button[aria-haspopup="menu"]'
-      ];
-      const findCandidates = () => {
-        const result = [];
-        const seen = new Set();
-        for (const selector of candidateSelectors) {
-          for (const candidate of document.querySelectorAll(selector)) {
-            if (!visible(candidate) || seen.has(candidate)) continue;
-            const label = text(candidate);
-            if (!selector.includes("aria-haspopup") || looksLikeModel(label)) {
-              seen.add(candidate);
-              result.push(candidate);
-            }
-          }
-        }
-        return result;
-      };
 
-      let candidates = [];
       const pickerDeadline = Date.now() + 30000;
-      while (candidates.length === 0 && Date.now() < pickerDeadline) {
-        candidates = findCandidates();
-        if (candidates.length === 0) await sleep(250);
+      let picker = null;
+      while (!picker && Date.now() < pickerDeadline) {
+        const candidate = document.querySelector(MODEL_SELECTOR);
+        picker = visible(candidate) ? candidate : null;
+        if (!picker) await sleep(250);
       }
-
-      for (const picker of candidates) {
-        HTMLElement.prototype.click.call(picker);
-        let options = [];
-        for (let i = 0; i < 30 && options.length === 0; i++) {
-          await sleep(100);
-          options = readOptions();
-        }
-        if (options.length === 0) {
-          HTMLElement.prototype.click.call(picker);
-          continue;
-        }
-
-        const requested = String(args?.select || "").trim();
-        if (requested) {
-          const normalized = requested.toLocaleLowerCase();
-          const match = options.find(option =>
-            option.id.toLocaleLowerCase() === normalized ||
-            option.name.toLocaleLowerCase() === normalized
-          );
-          if (!match)
-            throw new Error(`Grok model '${requested}' is no longer available.`);
-          HTMLElement.prototype.click.call(match.node);
-          return true;
-        }
-
-        HTMLElement.prototype.click.call(picker);
-        return options.map(({ id, name }) => ({ id, name }));
-      }
-
-      if (args?.select)
+      if (!picker)
         throw new Error("Grok model picker was not found.");
-      return [];
+
+      HTMLElement.prototype.click.call(picker);
+      const optionSelector = '[role="menuitem"], [role="option"], [data-radix-collection-item]';
+      const optionDeadline = Date.now() + 5000;
+      let match = null;
+      while (!match && Date.now() < optionDeadline) {
+        const options = [...document.querySelectorAll(optionSelector)].filter(visible);
+        match = options.find(option => {
+          const id = optionId(option);
+          const name = text(option);
+          return id.toLocaleLowerCase() === selected.id.toLocaleLowerCase() ||
+            name.toLocaleLowerCase() === selected.name.toLocaleLowerCase();
+        }) || null;
+        if (!match) await sleep(100);
+      }
+      if (!match)
+        throw new Error(`Grok model '${selected.name}' was not found in the model picker.`);
+
+      HTMLElement.prototype.click.call(match);
+      return true;
     },
 
     async sendPrompt({ args, sleep }) {
@@ -277,6 +249,53 @@ module.exports = {
     }
   }
 };
+
+function normalizeModes(payload) {
+  const candidates = [];
+  collectModeCandidates(payload, candidates);
+  const result = [];
+  const seen = new Set();
+  for (const item of candidates) {
+    if (item.enabled === false ||
+        item.available === false ||
+        item.isAvailable === false ||
+        item.hidden === true)
+      continue;
+    const mode = item.mode && typeof item.mode === "object" ? item.mode : item;
+    const id = String(
+      mode.modeId || mode.id || mode.value || mode.slug || mode.modelName || ""
+    ).trim();
+    const name = String(
+      mode.displayName || mode.name || mode.title || mode.label || id
+    ).replace(/\s+/g, " ").trim();
+    const key = id.toLocaleLowerCase();
+    if (!id || !name || seen.has(key)) continue;
+    seen.add(key);
+    result.push({ id, name });
+  }
+  if (result.length === 0)
+    throw new Error("Grok /rest/modes returned no recognizable models.");
+  return result;
+}
+
+function collectModeCandidates(value, result) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectModeCandidates(item, result);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+
+  const mode = value.mode && typeof value.mode === "object" ? value.mode : value;
+  const hasId = [mode.modeId, mode.id, mode.value, mode.slug, mode.modelName]
+    .some(item => typeof item === "string" && item.trim());
+  if (hasId) {
+    result.push(value);
+    return;
+  }
+
+  for (const child of Object.values(value))
+    collectModeCandidates(child, result);
+}
 
 function isGrokConversationUrl(value) {
   try {
