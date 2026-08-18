@@ -38,8 +38,12 @@ module.exports = {
   pageOperations: {
     async models({ args, sleep }) {
       const response = await fetch(MODES_ENDPOINT, {
-        method: "GET",
-        headers: { Accept: "application/json" },
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json"
+        },
+        body: "{}",
         credentials: "include",
         cache: "no-store"
       });
