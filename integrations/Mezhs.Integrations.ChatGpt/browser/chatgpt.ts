@@ -9,8 +9,10 @@ const API = Object.freeze({
   session: "/api/auth/session",
   projects: "/backend-api/gizmos/snorlax/sidebar",
   models: "/backend-api/models?history_and_training_disabled=false",
-  requirements: "/backend-api/sentinel/chat-requirements",
-  conversation: "/backend-api/conversation",
+  conversationPrepare: "/backend-api/f/conversation/prepare",
+  requirementsPrepare: "/backend-api/sentinel/chat-requirements/prepare",
+  requirementsFinalize: "/backend-api/sentinel/chat-requirements/finalize",
+  conversation: "/backend-api/f/conversation",
   conversationById: id => `/backend-api/conversation/${encodeURIComponent(id)}`,
   files: "/backend-api/files",
   fileUploaded: id => `/backend-api/files/${encodeURIComponent(id)}/uploaded`,
@@ -72,7 +74,7 @@ module.exports = {
     },
 
     // Anonymous ChatGPT remains on its old browser path. Account operations above
-    // use only the private API through Electron's authenticated Chromium session.
+    // use the private API through Electron's authenticated Chromium session.
     async sendPrompt({ window, args }) {
       if (args.newChat) await window.loadURL(module.exports.homeUrl);
       const prompt = JSON.stringify(String(args.prompt || ""));
@@ -119,16 +121,6 @@ module.exports = {
 
 async function sendAccountMessage({ window, session, args, sleep }, isNew) {
   const token = await requireToken(session);
-  const config = sentinelConfig(window);
-  const requirements = await apiJson(session, token, API.requirements, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ p: sentinelRequirementsToken(config) })
-  });
-  const proofToken = requirements?.proofofwork?.required
-    ? sentinelProofToken(requirements.proofofwork, config)
-    : null;
-
   const uploaded = await uploadFiles(session, token, args.files || []);
   const messageId = randomUUID();
   const imageParts = uploaded
@@ -144,42 +136,72 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
     mimeType: file.contentType,
     size: file.size
   }));
+
+  const config = sentinelConfig(window);
+  const turnTraceId = randomUUID();
+  const conduitToken = await getConduitToken(session, token, turnTraceId);
+  const requirements = await getSentinelToken(session, token, config);
+
   const headers = {
     "Content-Type": "application/json",
     "Accept": "text/event-stream",
     "Oai-Language": "en-US",
-    "Oai-Session-Id": randomUUID()
+    "Oai-Session-Id": randomUUID(),
+    "openai-sentinel-chat-requirements-token": requirements.token,
+    "x-conduit-token": conduitToken,
+    "x-oai-turn-trace-id": turnTraceId,
+    "x-openai-target-path": API.conversation,
+    "x-openai-target-route": API.conversation
   };
   const deviceId = (await session.cookies.get({ url: ORIGIN, name: "oai-did" }))[0]?.value;
   if (deviceId) headers["Oai-Device-Id"] = deviceId;
-  if (requirements?.token)
-    headers["Openai-Sentinel-Chat-Requirements-Token"] = requirements.token;
-  if (proofToken)
-    headers["Openai-Sentinel-Proof-Token"] = proofToken;
+  if (requirements.proofToken)
+    headers["openai-sentinel-proof-token"] = requirements.proofToken;
 
   const projectMode = isNew && args.projectId;
+  const model = String(args.model || "auto");
+  const metadata = {
+    developer_mode_connector_ids: [],
+    selected_sources: [],
+    selected_github_repos: [],
+    selected_all_github_repos: false,
+    serialization_metadata: { custom_symbol_offsets: [] },
+    ...(attachments.length ? { attachments } : {})
+  };
   const payload = {
     action: "next",
     conversation_id: isNew ? undefined : args.conversationId,
     messages: [{
       id: messageId,
       author: { role: "user" },
+      create_time: Date.now() / 1000,
       content: {
         content_type: imageParts.length ? "multimodal_text" : "text",
         parts: [...imageParts, String(args.prompt || "")]
       },
-      metadata: attachments.length ? { attachments } : {}
+      metadata
     }],
-    model: String(args.model || "auto"),
-    parent_message_id: isNew ? randomUUID() : args.parentMessageId,
+    model,
+    parent_message_id: isNew ? "client-created-root" : args.parentMessageId,
+    client_prepare_state: "none",
     timezone_offset_min: new Date().getTimezoneOffset(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
     history_and_training_disabled: false,
     conversation_mode: isNew
       ? projectMode
         ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
         : { kind: "primary_assistant" }
-      : undefined
+      : undefined,
+    enable_message_followups: true,
+    system_hints: [],
+    supports_buffering: true,
+    supported_encodings: ["v1"],
+    client_contextual_info: clientContext(window),
+    paragen_cot_summary_display_override: "allow",
+    force_parallel_switch: "auto"
   };
+  if (model.toLocaleLowerCase().includes("thinking"))
+    payload.thinking_effort = "extended";
 
   const response = await apiFetch(session, token, API.conversation, {
     method: "POST",
@@ -206,6 +228,77 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
     chatUrl: `${ORIGIN}/c/${conversationId}`,
     artifacts: await downloadFiles(session, token, result.files),
     model: result.model
+  };
+}
+
+async function getConduitToken(session, token, turnTraceId) {
+  const response = await apiJson(session, token, API.conversationPrepare, {
+    method: "POST",
+    headers: {
+      "Accept": "*/*",
+      "x-conduit-token": "no-token",
+      "x-oai-turn-trace-id": turnTraceId,
+      "x-openai-target-path": API.conversationPrepare,
+      "x-openai-target-route": API.conversationPrepare
+    }
+  });
+  const conduitToken = String(response?.conduit_token || "").trim();
+  if (!conduitToken)
+    throw new Error("ChatGPT conversation prepare did not return a conduit token.");
+  return conduitToken;
+}
+
+async function getSentinelToken(session, token, config) {
+  const prepared = await apiJson(session, token, API.requirementsPrepare, {
+    method: "POST",
+    headers: targetHeaders(API.requirementsPrepare),
+    body: JSON.stringify({ p: sentinelRequirementsToken(config) })
+  });
+  const prepareToken = String(prepared?.prepare_token || "").trim();
+  if (!prepareToken)
+    throw new Error("ChatGPT Sentinel prepare did not return a prepare token.");
+
+  const proofToken = prepared?.proofofwork?.required
+    ? sentinelProofToken(prepared.proofofwork, config)
+    : null;
+  const body = { prepare_token: prepareToken };
+  if (proofToken) body.proofofwork = proofToken;
+
+  const finalized = await apiJson(session, token, API.requirementsFinalize, {
+    method: "POST",
+    headers: targetHeaders(API.requirementsFinalize),
+    body: JSON.stringify(body)
+  });
+  const sentinelToken = String(finalized?.token || "").trim();
+  if (!sentinelToken)
+    throw new Error("ChatGPT Sentinel finalize did not return a token.");
+  return { token: sentinelToken, proofToken };
+}
+
+function targetHeaders(endpoint) {
+  return {
+    "Accept": "*/*",
+    "Content-Type": "application/json",
+    "x-openai-target-path": endpoint,
+    "x-openai-target-route": endpoint
+  };
+}
+
+function clientContext(window) {
+  const bounds = window?.getBounds?.() || {};
+  const width = Number(bounds.width) || 1200;
+  const height = Number(bounds.height) || 850;
+  return {
+    is_dark_mode: false,
+    time_since_loaded: 0,
+    page_height: height,
+    page_width: width,
+    pixel_ratio: 1,
+    screen_height: height,
+    screen_width: width,
+    app_name: "chatgpt.com",
+    has_web_push_capabilities: true,
+    web_push_notification_permission: "default"
   };
 }
 
