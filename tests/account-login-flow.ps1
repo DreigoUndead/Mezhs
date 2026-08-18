@@ -105,7 +105,7 @@ static async Task TestModelDeduplicationAsync(string root)
 
 static async Task TestStaleConversationRecoveryAsync(string root)
 {
-    var host = new FakeHost(root, authorized: true) { FailContinuationOnce = true };
+    var host = new FakeHost(root, authorized: true) { UnavailableContinuationOnce = true };
     await using var integration = new ChatGptAccountIntegration(Connection(), host);
     var now = DateTimeOffset.UtcNow;
     var result = await integration.SendMessageAsync(new IntegrationSendContext(
@@ -123,7 +123,7 @@ static async Task TestStaleConversationRecoveryAsync(string root)
         Array.Empty<IntegrationInputFile>()));
 
     Assert(result.Text == "ok", "stale conversation retry did not complete");
-    Assert(host.PromptCount == 2, $"expected failed continuation + one new-chat retry, got {host.PromptCount} prompt calls");
+    Assert(host.PromptCount == 2, $"expected unavailable continuation + one new-chat retry, got {host.PromptCount} prompt calls");
     Assert(host.Invocations.Count(item => item.Operation == "send") == 1, "stale conversation continuation was retried more than once");
     var fallback = host.Invocations.Single(item => item.Operation == "newChat").Arguments;
     Assert(fallback.Contains("old question", StringComparison.Ordinal), "fallback prompt lost prior user history");
@@ -145,7 +145,7 @@ sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
     public int PromptCount { get; set; }
     public int ActiveTransports { get; set; }
     public bool Authorized { get; set; } = authorized;
-    public bool FailContinuationOnce { get; set; }
+    public bool UnavailableContinuationOnce { get; set; }
 
     public string GetConnectionRoot(string connectionId)
     {
@@ -193,11 +193,10 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         if (operation is "newChat" or "send")
         {
             host.PromptCount++;
-            if (operation == "send" && host.FailContinuationOnce)
+            if (operation == "send" && host.UnavailableContinuationOnce)
             {
-                host.FailContinuationOnce = false;
-                throw new InvalidOperationException(
-                    "Electron provider operation failed: {\"ok\":false,\"error\":\"Error: ChatGPT /backend-api/conversation/stale-conversation failed with HTTP 404: inaccessible\"}");
+                host.UnavailableContinuationOnce = false;
+                return Result<TResult>(new { conversationUnavailable = true });
             }
 
             return Result<TResult>(new
