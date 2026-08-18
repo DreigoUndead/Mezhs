@@ -1,4 +1,4 @@
-# Verifies Grok account login, interactive-browser disposal, hidden resume, and remote continuation.
+# Verifies Grok account login, semantic mode propagation, and local-history reconstruction.
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -34,8 +34,8 @@ try
 {
     await TestAutomaticLoginAsync(Path.Combine(root, "automatic"));
     await TestExplicitLoginAsync(Path.Combine(root, "explicit"));
-    await TestContinuationAsync(Path.Combine(root, "continuation"));
-    Console.WriteLine("PASS: Grok account login, requested mode handling, and remote continuation are correct.");
+    await TestLocalHistoryAsync(Path.Combine(root, "history"));
+    Console.WriteLine("PASS: Grok account login, semantic requested-mode handling, and local-history reconstruction are correct.");
 }
 finally
 {
@@ -48,10 +48,12 @@ static IntegrationConnection Connection() => new(
     "grok-web-account",
     new Dictionary<string, string?>());
 
-static IntegrationSendContext Context(string? remoteChatUrl = null) => new(
+static IntegrationSendContext Context(
+    string? remoteChatUrl = null,
+    IReadOnlyList<IntegrationMessageContext>? history = null) => new(
     new IntegrationChatContext("chat", "grok-account", remoteChatUrl),
     new IntegrationMessageContext("message", "user", "hello", false, DateTimeOffset.UtcNow, "expert"),
-    Array.Empty<IntegrationMessageContext>(),
+    history ?? Array.Empty<IntegrationMessageContext>(),
     Array.Empty<IntegrationInputFile>());
 
 static async Task TestAutomaticLoginAsync(string root)
@@ -73,7 +75,7 @@ static async Task TestAutomaticLoginAsync(string root)
     Assert(!host.Initializations[2].ShowBrowser, "post-login Grok transport did not resume hidden");
     Assert(host.Initializations[2].RequireAuthorization, "post-login hidden Grok transport did not verify authorization");
     Assert(host.ActiveTransports == 1, $"expected only hidden Grok transport to remain active, got {host.ActiveTransports}");
-    Assert(host.Operations.SequenceEqual(["newChat"]), "new Grok chat operation was not used");
+    Assert(host.Operations.SequenceEqual(["newChat"]), "semantic Grok new-chat operation was not used");
 }
 
 static async Task TestExplicitLoginAsync(string root)
@@ -89,19 +91,30 @@ static async Task TestExplicitLoginAsync(string root)
     Assert(host.ActiveTransports == 0, "explicit Grok login browser stayed active after authorization completed");
 }
 
-static async Task TestContinuationAsync(string root)
+static async Task TestLocalHistoryAsync(string root)
 {
     var host = new FakeHost(root, authorized: true);
     await using var integration = new GrokAccountIntegration(Connection(), host);
-    var result = await integration.SendMessageAsync(Context("https://grok.com/c/existing"));
+    var now = DateTimeOffset.UtcNow;
+    var history = new[]
+    {
+        new IntegrationMessageContext("old-user", "user", "old question", true, now.AddMinutes(-2), "fast"),
+        new IntegrationMessageContext("old-assistant", "assistant", "old answer", true, now.AddMinutes(-1))
+    };
+    var result = await integration.SendMessageAsync(Context("https://grok.com/c/existing", history));
 
     Assert(result.RemoteChatUrl == "https://grok.com/c/test", "Grok chat URL was not returned");
-    Assert(result.Model is null, "Grok continuation invented a served model from the requested mode");
-    Assert(host.Operations.SequenceEqual(["send"]), "continuation did not use Grok send operation");
-    Assert(host.LastArguments?.GetProperty("chatUrl").GetString() == "https://grok.com/c/existing",
-        "stored Grok chat URL was not passed to continuation");
+    Assert(result.Model is null, "Grok invented a served model from the requested mode");
+    Assert(host.Operations.SequenceEqual(["newChat"]),
+        "stored remote Grok state incorrectly switched back to a continuation operation");
     Assert(host.LastArguments?.GetProperty("model").GetString() == "expert",
-        "selected Grok mode was not passed to continuation");
+        "selected Grok mode was not passed to the semantic request");
+    var prompt = host.LastArguments?.GetProperty("prompt").GetString() ?? string.Empty;
+    Assert(prompt.Contains("old question", StringComparison.Ordinal), "local Grok prompt lost prior user history");
+    Assert(prompt.Contains("old answer", StringComparison.Ordinal), "local Grok prompt lost prior assistant history");
+    Assert(prompt.Contains("hello", StringComparison.Ordinal), "local Grok prompt lost current user message");
+    Assert(!host.LastArguments?.TryGetProperty("chatUrl", out _) ?? true,
+        "semantic Grok request still depends on stored remote chat URL");
 }
 
 static void Assert(bool condition, string message)
