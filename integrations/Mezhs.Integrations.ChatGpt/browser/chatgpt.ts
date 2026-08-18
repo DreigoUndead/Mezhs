@@ -189,7 +189,15 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
   const conversationId = findConversationId(await response.text()) || args.conversationId;
   if (!conversationId) throw new Error("ChatGPT did not return a conversation id.");
 
-  const result = await waitForConversation(session, token, conversationId, messageId, sleep);
+  let result;
+  try {
+    result = await waitForConversation(session, token, conversationId, messageId, sleep);
+  } catch (error) {
+    if (!isNew && isConversationUnavailable(error, conversationId))
+      return { conversationUnavailable: true };
+    throw error;
+  }
+
   return {
     text: result.text,
     conversationId,
@@ -356,8 +364,19 @@ async function apiFetch(session, token, endpoint, options = {}) {
     cache: "no-store"
   });
   if (response.ok) return response;
+
   const detail = (await response.text()).slice(0, 1000);
-  throw new Error(`ChatGPT ${endpoint} failed with HTTP ${response.status}: ${detail}`);
+  const error = new Error(`ChatGPT ${endpoint} failed with HTTP ${response.status}: ${detail}`);
+  error.status = response.status;
+  error.endpoint = endpoint;
+  error.detail = detail;
+  throw error;
+}
+
+function isConversationUnavailable(error, conversationId) {
+  return error?.status === 404 &&
+    error?.endpoint === API.conversationById(conversationId) &&
+    /"code"\s*:\s*"conversation_inaccessible"/.test(String(error?.detail || ""));
 }
 
 async function apiJson(session, token, endpoint, options = {}) {
