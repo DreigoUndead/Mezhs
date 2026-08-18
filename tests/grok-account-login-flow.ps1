@@ -35,7 +35,7 @@ try
     await TestAutomaticLoginAsync(Path.Combine(root, "automatic"));
     await TestExplicitLoginAsync(Path.Combine(root, "explicit"));
     await TestContinuationAsync(Path.Combine(root, "continuation"));
-    Console.WriteLine("PASS: Grok account login closes the interactive browser, resumes hidden, and preserves remote continuation.");
+    Console.WriteLine("PASS: Grok account login, requested mode handling, and remote continuation are correct.");
 }
 finally
 {
@@ -50,7 +50,7 @@ static IntegrationConnection Connection() => new(
 
 static IntegrationSendContext Context(string? remoteChatUrl = null) => new(
     new IntegrationChatContext("chat", "grok-account", remoteChatUrl),
-    new IntegrationMessageContext("message", "user", "hello", false, DateTimeOffset.UtcNow),
+    new IntegrationMessageContext("message", "user", "hello", false, DateTimeOffset.UtcNow, "expert"),
     Array.Empty<IntegrationMessageContext>(),
     Array.Empty<IntegrationInputFile>());
 
@@ -61,6 +61,9 @@ static async Task TestAutomaticLoginAsync(string root)
     var result = await integration.SendMessageAsync(Context());
 
     Assert(result.Text == "ok", "message did not continue after login");
+    Assert(result.Model is null, "Grok requested mode was incorrectly reported as the provider-served model");
+    Assert(host.LastArguments?.GetProperty("model").GetString() == "expert",
+        "selected Grok mode was not passed to the provider");
     Assert(host.Initializations.Count == 3,
         $"expected hidden check + visible login + hidden resume, got {host.Initializations.Count} initializations");
     Assert(!host.Initializations[0].ShowBrowser, "authorization check unexpectedly started visible");
@@ -93,9 +96,12 @@ static async Task TestContinuationAsync(string root)
     var result = await integration.SendMessageAsync(Context("https://grok.com/c/existing"));
 
     Assert(result.RemoteChatUrl == "https://grok.com/c/test", "Grok chat URL was not returned");
+    Assert(result.Model is null, "Grok continuation invented a served model from the requested mode");
     Assert(host.Operations.SequenceEqual(["send"]), "continuation did not use Grok send operation");
     Assert(host.LastArguments?.GetProperty("chatUrl").GetString() == "https://grok.com/c/existing",
         "stored Grok chat URL was not passed to continuation");
+    Assert(host.LastArguments?.GetProperty("model").GetString() == "expert",
+        "selected Grok mode was not passed to continuation");
 }
 
 static void Assert(bool condition, string message)
