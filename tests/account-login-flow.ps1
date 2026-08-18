@@ -33,7 +33,9 @@ try
 {
     await TestAutomaticLoginAsync(Path.Combine(root, "automatic"));
     await TestExplicitLoginAsync(Path.Combine(root, "explicit"));
-    Console.WriteLine("PASS: ChatGPT account login closes the interactive browser and resumes hidden after authorization.");
+    await TestModelDeduplicationAsync(Path.Combine(root, "models"));
+    await TestStaleConversationRecoveryAsync(Path.Combine(root, "stale"));
+    Console.WriteLine("PASS: ChatGPT account login, model discovery, and stale conversation recovery are correct.");
 }
 finally
 {
@@ -82,6 +84,53 @@ static async Task TestExplicitLoginAsync(string root)
     Assert(host.ActiveTransports == 0, "explicit login browser stayed active after authorization completed");
 }
 
+static async Task TestModelDeduplicationAsync(string root)
+{
+    var host = new FakeHost(root, authorized: true)
+    {
+        ModelResults =
+        [
+            new IntegrationModel("gpt-sol-primary", "GPT-5.6 Sol"),
+            new IntegrationModel("gpt-sol-alias", "GPT-5.6 Sol"),
+            new IntegrationModel("gpt-thinking", "GPT-5.5 Thinking")
+        ]
+    };
+    await using var integration = new ChatGptAccountIntegration(Connection(), host);
+    var models = await integration.Models!.GetModelsAsync();
+
+    Assert(models.Count == 2, $"expected duplicate display names to collapse, got {models.Count} models");
+    Assert(models[0].Id == "gpt-sol-primary", "provider order was not retained for duplicate model names");
+    Assert(models[1].Id == "gpt-thinking", "unique model was removed during deduplication");
+}
+
+static async Task TestStaleConversationRecoveryAsync(string root)
+{
+    var host = new FakeHost(root, authorized: true) { FailContinuationOnce = true };
+    await using var integration = new ChatGptAccountIntegration(Connection(), host);
+    var now = DateTimeOffset.UtcNow;
+    var result = await integration.SendMessageAsync(new IntegrationSendContext(
+        new IntegrationChatContext(
+            "chat",
+            "account",
+            RemoteConversationId: "stale-conversation",
+            RemoteParentMessageId: "old-parent"),
+        new IntegrationMessageContext("current", "user", "new question", false, now),
+        new[]
+        {
+            new IntegrationMessageContext("old-user", "user", "old question", true, now.AddMinutes(-2)),
+            new IntegrationMessageContext("old-assistant", "assistant", "old answer", true, now.AddMinutes(-1))
+        },
+        Array.Empty<IntegrationInputFile>()));
+
+    Assert(result.Text == "ok", "stale conversation retry did not complete");
+    Assert(host.PromptCount == 2, $"expected failed continuation + one new-chat retry, got {host.PromptCount} prompt calls");
+    Assert(host.Invocations.Count(item => item.Operation == "send") == 1, "stale conversation continuation was retried more than once");
+    var fallback = host.Invocations.Single(item => item.Operation == "newChat").Arguments;
+    Assert(fallback.Contains("old question", StringComparison.Ordinal), "fallback prompt lost prior user history");
+    Assert(fallback.Contains("old answer", StringComparison.Ordinal), "fallback prompt lost prior assistant history");
+    Assert(fallback.Contains("new question", StringComparison.Ordinal), "fallback prompt lost current message");
+}
+
 static void Assert(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);
@@ -91,9 +140,12 @@ sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
 {
     public int BrowserIdleMinutes => 0;
     public List<BrowserTransportOptions> Initializations { get; } = [];
+    public List<(string Operation, string Arguments)> Invocations { get; } = [];
+    public IReadOnlyList<IntegrationModel> ModelResults { get; set; } = [];
     public int PromptCount { get; set; }
     public int ActiveTransports { get; set; }
     public bool Authorized { get; set; } = authorized;
+    public bool FailContinuationOnce { get; set; }
 
     public string GetConnectionRoot(string connectionId)
     {
@@ -131,16 +183,40 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         object? arguments = null,
         CancellationToken cancellationToken = default)
     {
-        host.PromptCount++;
-        var json = JsonSerializer.Serialize(new
+        host.Invocations.Add((operation, JsonSerializer.Serialize(arguments, JsonOptions)));
+
+        if (operation == "getModels")
+            return Result<TResult>(host.ModelResults);
+        if (operation == "getProjects")
+            return Result<TResult>(Array.Empty<object>());
+
+        if (operation is "newChat" or "send")
         {
-            text = "ok",
-            conversationId = "test",
-            parentMessageId = "assistant",
-            chatUrl = "https://chatgpt.com/c/test",
-            projectId = (string?)null,
-            artifacts = Array.Empty<BrowserArtifact>()
-        }, JsonOptions);
+            host.PromptCount++;
+            if (operation == "send" && host.FailContinuationOnce)
+            {
+                host.FailContinuationOnce = false;
+                throw new InvalidOperationException(
+                    "Electron provider operation failed: {\"ok\":false,\"error\":\"Error: ChatGPT /backend-api/conversation/stale-conversation failed with HTTP 404: inaccessible\"}");
+            }
+
+            return Result<TResult>(new
+            {
+                text = "ok",
+                conversationId = "test",
+                parentMessageId = "assistant",
+                chatUrl = "https://chatgpt.com/c/test",
+                projectId = (string?)null,
+                artifacts = Array.Empty<BrowserArtifact>()
+            });
+        }
+
+        throw new InvalidOperationException($"Unexpected fake browser operation '{operation}'.");
+    }
+
+    private static Task<TResult> Result<TResult>(object value)
+    {
+        var json = JsonSerializer.Serialize(value, JsonOptions);
         return Task.FromResult(JsonSerializer.Deserialize<TResult>(json, JsonOptions)!);
     }
 
@@ -159,7 +235,7 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
     dotnet run --project (Join-Path $temp 'Test.csproj') -c Release
-    if ($LASTEXITCODE -ne 0) { throw "Account login flow test failed with exit code $LASTEXITCODE." }
+    if ($LASTEXITCODE -ne 0) { throw "Account integration flow test failed with exit code $LASTEXITCODE." }
 }
 finally {
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
