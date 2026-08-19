@@ -62,6 +62,111 @@ function fakeBrowser({ authorized = true } = {}) {
   };
 }
 
+async function withChangedModelPicker(run) {
+  const names = [
+    "fetch", "window", "document", "HTMLElement",
+    "PointerEvent", "MouseEvent", "KeyboardEvent", "getComputedStyle"
+  ];
+  const originals = new Map(names.map(name => [name, global[name]]));
+  let current = "Fast";
+  let expanded = false;
+
+  class FakeEvent {
+    constructor(type, init = {}) {
+      this.type = type;
+      Object.assign(this, init);
+    }
+  }
+
+  const trigger = {
+    id: "",
+    textContent: current,
+    getAttribute(name) {
+      if (name === "aria-label") return "Choose model";
+      if (name === "aria-haspopup") return "dialog";
+      if (name === "aria-expanded") return expanded ? "true" : "false";
+      return null;
+    },
+    querySelector() {
+      return null;
+    },
+    getBoundingClientRect() {
+      return { left: 0, top: 0, width: 120, height: 32 };
+    },
+    dispatchEvent(event) {
+      if (event.type === "pointerdown") expanded = true;
+      if (event.type === "keydown" && event.key === "Escape") expanded = false;
+      return true;
+    }
+  };
+
+  const row = {
+    id: "",
+    textContent: "Expert",
+    getAttribute(name) {
+      if (name === "aria-disabled") return "false";
+      return null;
+    },
+    matches() {
+      return false;
+    },
+    querySelector(selector) {
+      return selector === "span.font-semibold" ? { textContent: "Expert" } : null;
+    },
+    _click() {
+      current = "Expert";
+      trigger.textContent = current;
+      expanded = false;
+    }
+  };
+
+  global.fetch = async () => new Response(JSON.stringify({
+    data: {
+      modes: [
+        { modeId: "fast", displayName: "Fast" },
+        { modeId: "expert", displayName: "Expert" }
+      ]
+    }
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  });
+  global.window = {};
+  global.PointerEvent = FakeEvent;
+  global.MouseEvent = FakeEvent;
+  global.KeyboardEvent = FakeEvent;
+  global.HTMLElement = class HTMLElement {};
+  global.HTMLElement.prototype.click = function () {
+    this._click?.();
+  };
+  global.getComputedStyle = () => ({ display: "block", visibility: "visible" });
+  global.document = {
+    getElementById() {
+      return null;
+    },
+    querySelector() {
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === 'button[aria-haspopup="menu"]') return [];
+      if (selector === "button") return [trigger];
+      if (selector === '[role="menuitem"]') return expanded ? [row] : [];
+      if (selector === '[role="menuitemradio"]' || selector === '[role="option"]') return [];
+      if (selector === "span.font-semibold") return [];
+      return [];
+    }
+  };
+
+  try {
+    return await run({ trigger, row, current: () => current });
+  } finally {
+    for (const [name, value] of originals) {
+      if (value === undefined) delete global[name];
+      else global[name] = value;
+    }
+  }
+}
+
 test("Grok keeps model discovery semantic but sends through the native UI", () => {
   const grok = loadGrokModule();
   const source = fs.readFileSync(grokFile, "utf8");
@@ -71,7 +176,6 @@ test("Grok keeps model discovery semantic but sends through the native UI", () =
   assert.equal(typeof grok.pageOperations?.sendPrompt, "function");
   assert.match(source, /\/rest\/modes/);
   assert.doesNotMatch(source, /\/rest\/app-chat\/conversations\/new/);
-  assert.match(source, /model-select-trigger/);
   assert.match(source, /PointerEvent\("pointerdown"/);
   assert.match(source, /data-testid=\\?"chat-submit/);
   assert.doesNotMatch(source, /executeJavaScript/);
@@ -126,6 +230,18 @@ test("Grok model page operation discovers authenticated modes from POST /rest/mo
   } finally {
     global.fetch = originalFetch;
   }
+});
+
+test("Grok selectModel survives picker selector changes", async () => {
+  const grok = loadGrokModule();
+  await withChangedModelPicker(async ({ current }) => {
+    const result = await grok.pageOperations.selectModel({
+      args: { model: "expert" },
+      sleep: async () => {}
+    });
+    assert.equal(result, true);
+    assert.equal(current(), "Expert");
+  });
 });
 
 test("Grok model discovery opens the provider home page and uses the page boundary", async () => {
