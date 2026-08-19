@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - refactor/standardize-conversation-switching
+  pull_request:
+    branches:
+      - main
 
 jobs:
   validate:
