@@ -49,13 +49,13 @@ module.exports = {
       if (!selected)
         throw new Error(`Grok model '${requested}' is no longer available.`);
 
-      const current = currentModelLabel();
-      if (current && current.toLocaleLowerCase() === selected.name.toLocaleLowerCase())
-        return true;
-
-      const trigger = findModelTrigger();
+      const trigger = findModelTrigger(modes);
       if (!trigger)
         throw new Error("Grok model picker was not found.");
+
+      const current = currentModelLabel(trigger);
+      if (current && current.toLocaleLowerCase() === selected.name.toLocaleLowerCase())
+        return true;
 
       if (trigger.getAttribute("aria-expanded") !== "true") {
         openPopover(trigger);
@@ -84,7 +84,7 @@ module.exports = {
 
       HTMLElement.prototype.click.call(row);
       const switched = await waitFor(
-        () => currentModelLabel()?.toLocaleLowerCase() === selected.name.toLocaleLowerCase(),
+        () => currentModelLabel(trigger)?.toLocaleLowerCase() === selected.name.toLocaleLowerCase(),
         sleep,
         3000
       );
@@ -162,22 +162,34 @@ async function discoverModes() {
   return normalizeModes(await response.json());
 }
 
-function findModelTrigger() {
-  return document.getElementById("model-select-trigger") ||
+function findModelTrigger(modes = []) {
+  const exact = document.getElementById("model-select-trigger") ||
     document.querySelector('button[aria-label="Model select"]') ||
     [...document.querySelectorAll('button[aria-haspopup="menu"]')]
-      .find(button => String(button.id || "").toLocaleLowerCase().includes("model")) ||
-    null;
+      .find(button => String(button.id || "").toLocaleLowerCase().includes("model"));
+  if (exact) return exact;
+
+  const buttons = [...document.querySelectorAll("button")].filter(visible);
+  const labelled = buttons.find(button =>
+    /model/i.test(String(button.getAttribute?.("aria-label") || ""))
+  );
+  if (labelled) return labelled;
+
+  const names = new Set(modes
+    .map(mode => normalizeLabel(mode.name))
+    .filter(Boolean));
+  return buttons.find(button => names.has(normalizeLabel(button.textContent))) || null;
 }
 
-function currentModelLabel() {
-  const trigger = findModelTrigger();
+function currentModelLabel(trigger) {
   if (!trigger) return null;
   const label = trigger.querySelector("span.truncate.font-semibold") ||
     trigger.querySelector("span.font-semibold");
-  return String(label?.textContent || trigger.textContent || "")
-    .replace(/\s+/g, " ")
-    .trim() || null;
+  return normalizeLabel(label?.textContent || trigger.textContent) || null;
+}
+
+function normalizeLabel(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
 function openPopover(element) {
