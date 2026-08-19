@@ -14,7 +14,7 @@ Every modification to this repository — code, configuration, tests, documentat
 
 ## Validation when local tooling is unavailable
 
-If required local tooling such as .NET or PowerShell is unavailable, use a temporary GitHub Actions workflow on the same review branch rather than claiming validation could not be performed.
+If required local tooling such as .NET or PowerShell is unavailable, use a temporary GitHub Actions workflow on the same review branch rather than stopping at "validation unavailable."
 
 When Actions-run visibility through the GitHub connector is insufficient, make the temporary workflow self-report its result:
 
