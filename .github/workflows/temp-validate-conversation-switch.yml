@@ -1,0 +1,63 @@
+name: Temporary conversation switch validation
+
+on:
+  push:
+    branches:
+      - refactor/standardize-conversation-switching
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build, test, and record result
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $report = [System.Collections.Generic.List[string]]::new()
+          $report.Add("Validation commit: $env:GITHUB_SHA")
+          $report.Add("Run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID")
+          $report.Add('')
+          $report.Add('=== dotnet --info ===')
+          $dotnetInfo = (& dotnet --info 2>&1 | Out-String)
+          $report.Add($dotnetInfo)
+
+          $report.Add('=== dotnet build Mezhs.sln -c Release ===')
+          $buildOutput = (& dotnet build Mezhs.sln -c Release 2>&1 | Out-String)
+          $buildExit = $LASTEXITCODE
+          $report.Add($buildOutput)
+          $report.Add("BUILD_EXIT=$buildExit")
+          $report.Add('')
+
+          $report.Add('=== tests/conversation-restore-prompt.ps1 ===')
+          $restoreOutput = (& pwsh -NoProfile -File ./tests/conversation-restore-prompt.ps1 2>&1 | Out-String)
+          $restoreExit = $LASTEXITCODE
+          $report.Add($restoreOutput)
+          $report.Add("RESTORE_TEST_EXIT=$restoreExit")
+          $report.Add('')
+
+          $report.Add('=== tests/api-smoke.ps1 ===')
+          $smokeOutput = (& pwsh -NoProfile -File ./tests/api-smoke.ps1 2>&1 | Out-String)
+          $smokeExit = $LASTEXITCODE
+          $report.Add($smokeOutput)
+          $report.Add("API_SMOKE_EXIT=$smokeExit")
+          $report.Add('')
+
+          $passed = ($buildExit -eq 0 -and $restoreExit -eq 0 -and $smokeExit -eq 0)
+          $report.Add("RESULT=$(if ($passed) { 'PASS' } else { 'FAIL' })")
+          $report | Set-Content -LiteralPath .validation-conversation-switch.txt -Encoding UTF8
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .validation-conversation-switch.txt
+          git commit -m 'Record conversation switch validation [skip ci]'
+          git push
+
+          if (-not $passed) { exit 1 }
