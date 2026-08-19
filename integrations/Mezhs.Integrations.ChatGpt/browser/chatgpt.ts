@@ -137,27 +137,6 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
     size: file.size
   }));
 
-  const config = sentinelConfig(window);
-  const turnTraceId = randomUUID();
-  const conduitToken = await getConduitToken(session, token, turnTraceId);
-  const requirements = await getSentinelToken(session, token, config);
-
-  const headers = {
-    "Content-Type": "application/json",
-    "Accept": "text/event-stream",
-    "Oai-Language": "en-US",
-    "Oai-Session-Id": randomUUID(),
-    "openai-sentinel-chat-requirements-token": requirements.token,
-    "x-conduit-token": conduitToken,
-    "x-oai-turn-trace-id": turnTraceId,
-    "x-openai-target-path": API.conversation,
-    "x-openai-target-route": API.conversation
-  };
-  const deviceId = (await session.cookies.get({ url: ORIGIN, name: "oai-did" }))[0]?.value;
-  if (deviceId) headers["Oai-Device-Id"] = deviceId;
-  if (requirements.proofToken)
-    headers["openai-sentinel-proof-token"] = requirements.proofToken;
-
   const projectMode = isNew && args.projectId;
   const model = String(args.model || "auto");
   const metadata = {
@@ -203,6 +182,32 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
   if (model.toLocaleLowerCase().includes("thinking"))
     payload.thinking_effort = "extended";
 
+  const config = sentinelConfig(window);
+  const turnTraceId = randomUUID();
+  const conduitToken = await getConduitToken(
+    session,
+    token,
+    turnTraceId,
+    conversationPreparePayload(payload)
+  );
+  const requirements = await getSentinelToken(session, token, config);
+
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "text/event-stream",
+    "Oai-Language": "en-US",
+    "Oai-Session-Id": randomUUID(),
+    "openai-sentinel-chat-requirements-token": requirements.token,
+    "x-conduit-token": conduitToken,
+    "x-oai-turn-trace-id": turnTraceId,
+    "x-openai-target-path": API.conversation,
+    "x-openai-target-route": API.conversation
+  };
+  const deviceId = (await session.cookies.get({ url: ORIGIN, name: "oai-did" }))[0]?.value;
+  if (deviceId) headers["Oai-Device-Id"] = deviceId;
+  if (requirements.proofToken)
+    headers["openai-sentinel-proof-token"] = requirements.proofToken;
+
   const response = await apiFetch(session, token, API.conversation, {
     method: "POST",
     headers,
@@ -231,16 +236,48 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
   };
 }
 
-async function getConduitToken(session, token, turnTraceId) {
+function conversationPreparePayload(payload) {
+  const message = payload.messages?.[0] || {};
+  const prompt = String(message.content?.parts?.at?.(-1) || "");
+  const partial = Array.from(prompt).slice(0, 5).join("") || "h";
+  const prepared = {
+    action: payload.action,
+    fork_from_shared_post: false,
+    parent_message_id: payload.parent_message_id || "client-created-root",
+    model: payload.model,
+    timezone_offset_min: payload.timezone_offset_min,
+    timezone: payload.timezone,
+    conversation_mode: payload.conversation_mode || { kind: "primary_assistant" },
+    system_hints: payload.system_hints || [],
+    partial_query: {
+      id: message.id || randomUUID(),
+      author: { role: "user" },
+      content: {
+        content_type: "text",
+        parts: [partial]
+      }
+    },
+    supports_buffering: payload.supports_buffering,
+    supported_encodings: payload.supported_encodings,
+    client_contextual_info: payload.client_contextual_info
+  };
+  if (payload.thinking_effort)
+    prepared.thinking_effort = payload.thinking_effort;
+  return prepared;
+}
+
+async function getConduitToken(session, token, turnTraceId, body) {
   const response = await apiJson(session, token, API.conversationPrepare, {
     method: "POST",
     headers: {
       "Accept": "*/*",
+      "Content-Type": "application/json",
       "x-conduit-token": "no-token",
       "x-oai-turn-trace-id": turnTraceId,
       "x-openai-target-path": API.conversationPrepare,
       "x-openai-target-route": API.conversationPrepare
-    }
+    },
+    body: JSON.stringify(body)
   });
   const conduitToken = String(response?.conduit_token || "").trim();
   if (!conduitToken)
