@@ -1,8 +1,10 @@
 using System.Text.Json.Serialization;
+using Mezhs;
 using Mezhs.Configuration;
 using Mezhs.Integrations;
 using Mezhs.Models;
 using Mezhs.Services;
+using Microsoft.AspNetCore.Mvc;
 
 var configPath = FindConfigPath(GetOption(args, "--config"));
 var options = MezhsConfigLoader.Load(configPath);
@@ -13,6 +15,8 @@ builder.Services.ConfigureHttpJsonOptions(json =>
     json.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
     policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+builder.Services.AddExceptionHandler<ApiExceptionHandler>();
+builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<ChatStore>();
 builder.Services.AddSingleton<FileStore>();
@@ -22,6 +26,7 @@ builder.Services.AddSingleton<MessageService>();
 builder.Services.AddHostedService<MessageService>(services => services.GetRequiredService<MessageService>());
 
 var app = builder.Build();
+app.UseExceptionHandler();
 app.UseCors();
 var store = app.Services.GetRequiredService<ChatStore>();
 store.Initialize();
@@ -48,36 +53,29 @@ app.MapPost("/v1/files", async (
     if (!request.HasFormContentType)
         return Results.BadRequest(new { error = "multipart/form-data is required." });
 
-    try
-    {
-        var form = await request.ReadFormAsync(cancellationToken);
-        var connectionId = form["connectionId"].ToString();
-        if (string.IsNullOrWhiteSpace(connectionId))
-            return Results.BadRequest(new { error = "connectionId is required." });
-        var integration = integrations.Get(connectionId);
-        if (!integration.Capabilities.FileInput)
-            return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support file input." });
-        var upload = form.Files.GetFile("file");
-        if (upload is null)
-            return Results.BadRequest(new { error = "file is required." });
-        if (upload.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) &&
-            !integration.Capabilities.ImageInput)
-            return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support image input." });
+    var form = await request.ReadFormAsync(cancellationToken);
+    var connectionId = form["connectionId"].ToString();
+    if (string.IsNullOrWhiteSpace(connectionId))
+        return Results.BadRequest(new { error = "connectionId is required." });
+    var integration = integrations.Get(connectionId);
+    if (!integration.Capabilities.FileInput)
+        return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support file input." });
+    var upload = form.Files.GetFile("file");
+    if (upload is null)
+        return Results.BadRequest(new { error = "file is required." });
+    if (upload.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) &&
+        !integration.Capabilities.ImageInput)
+        return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support image input." });
 
-        await using var content = upload.OpenReadStream();
-        var file = await files.CreateAsync(
-            connectionId,
-            upload.FileName,
-            upload.ContentType,
-            content,
-            FileSource.User,
-            cancellationToken);
-        return Results.Created($"/v1/files/{file.FileId}", FileStore.ToApi(file));
-    }
-    catch (KeyNotFoundException ex)
-    {
-        return Results.NotFound(new { error = ex.Message });
-    }
+    await using var content = upload.OpenReadStream();
+    var file = await files.CreateAsync(
+        connectionId,
+        upload.FileName,
+        upload.ContentType,
+        content,
+        FileSource.User,
+        cancellationToken);
+    return Results.Created($"/v1/files/{file.FileId}", FileStore.ToApi(file));
 });
 
 app.MapGet("/v1/files/{fileId}", (string fileId, FileStore files) =>
@@ -123,24 +121,26 @@ app.MapPost("/v1/chats", (
     IntegrationRegistry integrations,
     ChatStore chats) =>
 {
-    try
+    integrations.Get(request.ConnectionId);
+    var chat = chats.CreateChat(request.CategoryId);
+    return Results.Created($"/v1/chats/{chat.ChatId}", new
     {
-        integrations.Get(request.ConnectionId);
-        var chat = chats.CreateChat(request.CategoryId);
-        return Results.Created($"/v1/chats/{chat.ChatId}", new
-        {
-            chat.ChatId,
-            request.ConnectionId,
-            chat.CategoryId,
-            chat.CreatedAt,
-            chat.UpdatedAt,
-            title = "New chat"
-        });
-    }
-    catch (KeyNotFoundException ex)
-    {
-        return Results.NotFound(new { error = ex.Message });
-    }
+        chat.ChatId,
+        request.ConnectionId,
+        chat.CategoryId,
+        chat.CreatedAt,
+        chat.UpdatedAt,
+        title = "New chat"
+    });
+});
+
+app.MapDelete("/v1/chats", ([FromBody] DeleteChatsRequest request, ChatStore chats) =>
+    Results.Ok(new { deletedChatIds = chats.DeleteChats(request.ChatIds ?? []) }));
+
+app.MapDelete("/v1/chats/{chatId}", (string chatId, ChatStore chats) =>
+{
+    chats.DeleteChats([chatId]);
+    return Results.NoContent();
 });
 
 app.MapGet("/v1/categories", (ChatStore chats) =>
@@ -148,47 +148,19 @@ app.MapGet("/v1/categories", (ChatStore chats) =>
 
 app.MapPost("/v1/categories", (CreateCategoryRequest request, ChatStore chats) =>
 {
-    try
-    {
-        var category = chats.CreateCategory(request.Name);
-        return Results.Created($"/v1/categories/{category.CategoryId}", category);
-    }
-    catch (ArgumentException ex)
-    {
-        return Results.BadRequest(new { error = ex.Message });
-    }
+    var category = chats.CreateCategory(request.Name);
+    return Results.Created($"/v1/categories/{category.CategoryId}", category);
 });
 
 app.MapPut("/v1/categories/{categoryId}", (
     string categoryId,
     UpdateCategoryRequest request,
-    ChatStore chats) =>
-{
-    try
-    {
-        return Results.Ok(chats.RenameCategory(categoryId, request.Name));
-    }
-    catch (ArgumentException ex)
-    {
-        return Results.BadRequest(new { error = ex.Message });
-    }
-    catch (KeyNotFoundException ex)
-    {
-        return Results.NotFound(new { error = ex.Message });
-    }
-});
+    ChatStore chats) => Results.Ok(chats.RenameCategory(categoryId, request.Name)));
 
 app.MapDelete("/v1/categories/{categoryId}", (string categoryId, ChatStore chats) =>
 {
-    try
-    {
-        chats.DeleteCategory(categoryId);
-        return Results.NoContent();
-    }
-    catch (KeyNotFoundException ex)
-    {
-        return Results.NotFound(new { error = ex.Message });
-    }
+    chats.DeleteCategory(categoryId);
+    return Results.NoContent();
 });
 
 app.MapPost("/v1/connections/{connectionId}/login", async (
@@ -207,32 +179,14 @@ app.MapPost("/v1/connections/{connectionId}/login", async (
 
 app.MapPost("/v1/messages", (PostMessageRequest request, MessageService messages) =>
 {
-    try
-    {
-        var message = messages.Post(request);
-        return Results.Accepted($"/v1/messages/{message.MessageId}", message);
-    }
-    catch (ArgumentException ex)
-    {
-        return Results.BadRequest(new { error = ex.Message });
-    }
-    catch (KeyNotFoundException ex)
-    {
-        return Results.NotFound(new { error = ex.Message });
-    }
+    var message = messages.Post(request);
+    return Results.Accepted($"/v1/messages/{message.MessageId}", message);
 });
 
 app.MapPost("/v1/messages/{messageId}/replay", (string messageId, MessageService messages) =>
 {
-    try
-    {
-        var message = messages.Replay(messageId);
-        return Results.Accepted($"/v1/messages/{message.MessageId}", message);
-    }
-    catch (KeyNotFoundException ex)
-    {
-        return Results.NotFound(new { error = ex.Message });
-    }
+    var message = messages.Replay(messageId);
+    return Results.Accepted($"/v1/messages/{message.MessageId}", message);
 });
 
 app.MapGet("/v1/messages/{messageId}", (
@@ -264,17 +218,7 @@ app.MapGet("/v1/chats/{chatId}", (string chatId, ChatStore chats) =>
 app.MapPatch("/v1/chats/{chatId}", (
     string chatId,
     UpdateChatRequest request,
-    ChatStore chats) =>
-{
-    try
-    {
-        return Results.Ok(chats.SetChatCategory(chatId, request.CategoryId));
-    }
-    catch (KeyNotFoundException ex)
-    {
-        return Results.NotFound(new { error = ex.Message });
-    }
-});
+    ChatStore chats) => Results.Ok(chats.SetChatCategory(chatId, request.CategoryId)));
 
 app.MapGet("/v1/chats/{chatId}/messages", (string chatId, ChatStore chats) =>
 {

@@ -79,6 +79,7 @@ public sealed record PostMessageRequest(
 
 public sealed record CreateCategoryRequest(string Name);
 public sealed record CreateChatRequest(string ConnectionId, string? CategoryId = null);
+public sealed record DeleteChatsRequest(IReadOnlyList<string>? ChatIds);
 public sealed record UpdateCategoryRequest(string Name);
 public sealed record UpdateChatRequest(string? CategoryId);
 

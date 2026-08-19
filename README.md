@@ -56,14 +56,18 @@ A MEŽS chat is deliberately independent from any one integration connection. Ev
 Mezhs.sln
 |- src/Mezhs.Api
 |- src/Mezhs.Web
+|- src/Mezhs.Web.Lib
 |- src/Mezhs.Integration.Abstractions
 |- src/Mezhs.Integration.Browser
 |- transports/Mezhs.Browser.Abstractions
 |- transports/Mezhs.Browser.Electron
 |- integrations/Mezhs.Integrations.ChatGpt
 |- integrations/Mezhs.Integrations.Gemini
+|- integrations/Mezhs.Integrations.Grok
 `- integrations/Mezhs.Integrations.Mock
 ```
+
+`Mezhs.Web` is the deployable ASP.NET/Vite host and owns runtime configuration. `Mezhs.Web.Lib` is the reusable React package containing the generic chat application, provider contracts, file UI, and common styling described by the agent manifesto.
 
 The API discovers concrete `IChatIntegration` classes marked with `[Integration("type")]` in `Mezhs.Integrations.*.dll` files in its application directory. Built-in integrations are project references so their DLLs are included with the application, while the runtime discovery mechanism does not reference concrete integration types. There is no separate integration-factory layer.
 
@@ -284,4 +288,4 @@ powershell -ExecutionPolicy Bypass -File tests/electron-hidden-authorization.ps1
 powershell -ExecutionPolicy Bypass -File tests/electron-login-visibility.ps1
 ```
 
-`browser-provider-operations.test.js` verifies the single provider-operation bridge plus ChatGPT project discovery, project-scoped first send, continuation semantics, and Sentinel proof behavior with a mocked Chromium session. It runs once under ordinary Node, where SHA3 proof output is independently verified with Node crypto, and again through `electron-provider-operations.ps1`, which runs the same operations inside Electron's embedded Node runtime so production-runtime capability differences are caught. `api-smoke.ps1` includes an A → B → A connection regression inside one local chat and verifies that a file uploaded through A can be reused through B. The architecture test verifies the connection-neutral chat invariant, owned message queue, direct integration registration, concise browser contracts, and that integration-specific behavior does not leak back into Electron, API core, or React.
+`browser-provider-operations.test.js` verifies the single provider-operation bridge plus ChatGPT project discovery, project-scoped first send, continuation semantics, and Sentinel proof behavior with a mocked Chromium session. It runs once under ordinary Node, where SHA3 proof output is independently verified with Node crypto, and again through `electron-provider-operations.ps1`, which runs the same operations inside Electron's embedded Node runtime so production-runtime capability differences are caught. `api-smoke.ps1` includes an A → B → A connection regression inside one local chat, verifies upload and attachment-download behavior, confirms that a file uploaded through A can be reused through B, and exercises single and bulk conversation deletion. The architecture test verifies the connection-neutral chat invariant, owned message queue, reusable web-library boundary, direct integration registration, concise browser contracts, and that integration-specific behavior does not leak back into Electron, API core, or React.

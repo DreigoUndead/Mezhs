@@ -41,6 +41,8 @@ The current web interface should remain a standalone generic chat application.
 
 Its reusable React functionality should be extracted into a shared web library.
 
+**Shared-library extraction: DONE.** The generic chat UI, provider contracts, file handling, and common styling now live in `Mezhs.Web.Lib`. `Mezhs.Web` is the standalone host that supplies runtime configuration and mounts the shared application. The future Agent Dashboard can consume the same library without adding agent dependencies to the generic web host.
+
 The intended structure is:
 
 ```text
