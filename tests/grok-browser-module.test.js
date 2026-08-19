@@ -121,12 +121,11 @@ async function withChangedModelPicker(run) {
   };
 
   global.fetch = async () => new Response(JSON.stringify({
-    data: {
-      modes: [
-        { modeId: "fast", displayName: "Fast" },
-        { modeId: "expert", displayName: "Expert" }
-      ]
-    }
+    modes: [
+      { id: "fast", title: "Fast", availability: { available: {} } },
+      { id: "expert", title: "Expert", availability: { available: {} } }
+    ],
+    defaultModeId: "fast"
   }), {
     status: 200,
     headers: { "content-type": "application/json" }
@@ -190,22 +189,21 @@ test("Grok authorization follows the persistent Grok session cookie", async () =
   );
 });
 
-test("Grok model page operation discovers authenticated modes from POST /rest/modes", async () => {
+test("Grok model discovery follows the current account catalog contract", async () => {
   const grok = loadGrokModule();
   const originalFetch = global.fetch;
   let request;
   global.fetch = async (url, options) => {
     request = { url: String(url), options };
     return new Response(JSON.stringify({
-      data: {
-        modes: [
-          { modeId: "auto", displayName: "Auto" },
-          { id: "expert", name: "Expert" },
-          { mode: { modeId: "heavy", displayName: "Heavy" } },
-          { modeId: "disabled", displayName: "Disabled", available: false },
-          { modeId: "auto", displayName: "Duplicate Auto" }
-        ]
-      }
+      modes: [
+        { id: "auto", title: "Auto", availability: { available: {} } },
+        { id: "expert", title: "Expert", availability: { available: {} } },
+        { id: "heavy", title: "Heavy", availability: { requiresUpgrade: { message: "Upgrade" } } },
+        { id: "disabled", title: "Disabled" },
+        { id: "auto", title: "Duplicate Auto", availability: { available: {} } }
+      ],
+      defaultModeId: "auto"
     }), {
       status: 200,
       headers: { "content-type": "application/json" }
@@ -217,14 +215,15 @@ test("Grok model page operation discovers authenticated modes from POST /rest/mo
       await grok.pageOperations.models({}),
       [
         { id: "auto", name: "Auto" },
-        { id: "expert", name: "Expert" },
-        { id: "heavy", name: "Heavy" }
+        { id: "expert", name: "Expert" }
       ]
     );
     assert.equal(request.url, "https://grok.com/rest/modes");
     assert.equal(request.options.method, "POST");
     assert.equal(request.options.headers["Content-Type"], "application/json");
-    assert.equal(request.options.body, "{}");
+    assert.deepEqual(JSON.parse(request.options.body), {
+      locale: globalThis.navigator?.language || "en-US"
+    });
     assert.equal(request.options.credentials, "include");
     assert.equal(request.options.cache, "no-store");
   } finally {
@@ -242,6 +241,111 @@ test("Grok selectModel survives picker selector changes", async () => {
     assert.equal(result, true);
     assert.equal(current(), "Expert");
   });
+});
+
+test("Grok selecting the sole available provider mode does not require a model picker", async () => {
+  const grok = loadGrokModule();
+  const names = ["fetch", "document", "navigator"];
+  const originals = new Map(names.map(name => [name, global[name]]));
+
+  global.fetch = async () => new Response(JSON.stringify({
+    modes: [
+      { id: "fast", title: "Fast", availability: { available: {} } },
+      {
+        id: "expert",
+        title: "Expert",
+        availability: { requiresUpgrade: { minimumSubscriptionTier: "TIER_SUPERGROK_LITE" } }
+      }
+    ],
+    defaultModeId: "fast"
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  });
+  global.document = {
+    getElementById() {
+      throw new Error("default mode should not query the DOM");
+    },
+    querySelector() {
+      throw new Error("default mode should not query the DOM");
+    },
+    querySelectorAll() {
+      throw new Error("default mode should not query the DOM");
+    }
+  };
+
+  try {
+    assert.equal(await grok.pageOperations.selectModel({
+      args: { model: "fast" },
+      sleep: async () => {}
+    }), true);
+  } finally {
+    for (const [name, value] of originals) {
+      if (value === undefined) delete global[name];
+      else global[name] = value;
+    }
+  }
+});
+
+test("Grok reply extraction prefers the specific response over its surrounding container", async () => {
+  const grok = loadGrokModule();
+  const names = [
+    "document", "window", "location", "HTMLElement", "InputEvent",
+    "getComputedStyle", "getSelection"
+  ];
+  const originals = new Map(names.map(name => [name, global[name]]));
+  let sent = false;
+
+  const element = (text = "") => ({
+    tagName: "DIV",
+    textContent: text,
+    getBoundingClientRect: () => ({ width: 100, height: 30 }),
+    matches: () => false,
+    dispatchEvent: () => true,
+    _focus: () => {},
+    _click: () => {}
+  });
+  const editor = element();
+  const send = element();
+  send._click = () => { sent = true; };
+  const reply = element("GROK_OK");
+  const container = element("promptGROK_OKSuggestion oneSuggestion two");
+
+  global.window = {};
+  global.location = { href: "https://grok.com/c/test" };
+  global.InputEvent = class InputEvent {};
+  global.HTMLElement = class HTMLElement {};
+  global.HTMLElement.prototype.focus = function () { this._focus?.(); };
+  global.HTMLElement.prototype.click = function () { this._click?.(); };
+  global.getComputedStyle = () => ({ display: "block", visibility: "visible" });
+  global.getSelection = () => ({ removeAllRanges() {}, addRange() {} });
+  global.document = {
+    execCommand: () => true,
+    createRange: () => ({ selectNodeContents() {} }),
+    querySelectorAll(selector) {
+      if (selector === 'div[data-testid="chat-input"] div[contenteditable="true"]')
+        return [editor];
+      if (selector === 'button[data-testid="chat-submit"]') return [send];
+      if (!sent) return [];
+      if (selector === ".response-content-markdown") return [reply];
+      if (selector === "#last-reply-container") return [container];
+      return [];
+    }
+  };
+
+  try {
+    const result = await grok.pageOperations.sendPrompt({
+      args: { prompt: "prompt" },
+      sleep: async () => {}
+    });
+    assert.equal(result.text, "GROK_OK");
+    assert.equal(result.chatUrl, "https://grok.com/c/test");
+  } finally {
+    for (const [name, value] of originals) {
+      if (value === undefined) delete global[name];
+      else global[name] = value;
+    }
+  }
 });
 
 test("Grok model discovery opens the provider home page and uses the page boundary", async () => {

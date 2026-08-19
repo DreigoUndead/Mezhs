@@ -51,18 +51,7 @@ module.exports = {
     async getModels({ session }) {
       const token = await requireToken(session);
       const response = await apiJson(session, token, API.models);
-      const result = [];
-      const seen = new Set();
-      for (const model of response?.models || []) {
-        const id = String(model?.slug || model?.id || "").trim();
-        const name = String(
-          model?.title || model?.display_name || model?.name || id
-        ).trim();
-        if (!id || !name || id.toLowerCase() === "auto" || seen.has(id)) continue;
-        seen.add(id);
-        result.push({ id, name });
-      }
-      return result;
+      return nativePickerModels(response);
     },
 
     newChat(context) {
@@ -119,6 +108,91 @@ module.exports = {
   }
 };
 
+function nativePickerModels(catalog) {
+  const models = new Map(
+    (catalog?.models || []).map(model => [
+      String(model?.slug || model?.id || "").trim().toLowerCase(),
+      model
+    ])
+  );
+  const result = [];
+  const seen = new Set();
+  for (const version of catalog?.versions || []) {
+    if (version?.enabled === false) continue;
+    const versionId = String(version?.id || "").trim();
+    const versionName = String(
+      version?.display_text_for_intelligence ||
+      version?.display_text ||
+      versionId
+    ).trim();
+    const nativePresets = version?.intelligence_presets || [];
+    const presets = nativePresets
+      .filter(preset => preset?.preset_type === "available" && preset?.enabled !== false);
+
+    if (nativePresets.length) {
+      for (const preset of presets) {
+        const model = String(preset?.model_slug || "").trim();
+        const effort = String(preset?.thinking_effort || "").trim();
+        const presetName = String(
+          preset?.selected_display_title ||
+          preset?.title ||
+          ""
+        ).trim();
+        const id = modelSelectionId(model, effort);
+        const name = [versionName, presetName].filter(Boolean).join(" · ");
+        const key = id.toLowerCase();
+        if (!model || !name || seen.has(key)) continue;
+        seen.add(key);
+        result.push({ id, name });
+      }
+      continue;
+    }
+
+    const canonicalId = versionId.toLowerCase() === "o3"
+      ? "o3"
+      : `gpt-${versionId.replace(/\./g, "-")}`;
+    const candidates = (version?.slugs || [])
+      .map(value => String(value || "").trim())
+      .filter(Boolean);
+    const id = candidates.find(candidate => candidate.toLowerCase() === canonicalId.toLowerCase()) ||
+      (models.has(canonicalId.toLowerCase()) ? canonicalId : null) ||
+      candidates.find(candidate => models.has(candidate.toLowerCase())) ||
+      candidates[0];
+    const model = id ? models.get(id.toLowerCase()) : null;
+    const name = String(
+      versionName ||
+      model?.title ||
+      model?.display_name ||
+      model?.name ||
+      id ||
+      ""
+    ).trim();
+    const key = String(id || "").toLowerCase();
+    if (!id || !name || seen.has(key)) continue;
+    seen.add(key);
+    result.push({ id, name });
+  }
+  return result;
+}
+
+const MODEL_SELECTION_SEPARATOR = "::thinking-effort=";
+
+function modelSelectionId(model, thinkingEffort) {
+  return thinkingEffort
+    ? `${model}${MODEL_SELECTION_SEPARATOR}${thinkingEffort}`
+    : model;
+}
+
+function parseModelSelection(value) {
+  const selected = String(value || "auto").trim() || "auto";
+  const separator = selected.lastIndexOf(MODEL_SELECTION_SEPARATOR);
+  if (separator <= 0) return { model: selected, thinkingEffort: null };
+  const thinkingEffort = selected.slice(separator + MODEL_SELECTION_SEPARATOR.length).trim();
+  return thinkingEffort
+    ? { model: selected.slice(0, separator), thinkingEffort }
+    : { model: selected, thinkingEffort: null };
+}
+
 async function sendAccountMessage({ window, session, args, sleep }, isNew) {
   const token = await requireToken(session);
   const uploaded = await uploadFiles(session, token, args.files || []);
@@ -138,12 +212,10 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
   }));
 
   const projectMode = isNew && args.projectId;
-  const model = String(args.model || "auto");
+  const selection = parseModelSelection(args.model);
+  const model = selection.model;
   const metadata = {
-    developer_mode_connector_ids: [],
     selected_sources: [],
-    selected_github_repos: [],
-    selected_all_github_repos: false,
     serialization_metadata: { custom_symbol_offsets: [] },
     ...(attachments.length ? { attachments } : {})
   };
@@ -162,25 +234,24 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
     }],
     model,
     parent_message_id: isNew ? "client-created-root" : args.parentMessageId,
-    client_prepare_state: "none",
+    client_prepare_state: "sent",
     timezone_offset_min: new Date().getTimezoneOffset(),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-    history_and_training_disabled: false,
     conversation_mode: isNew
       ? projectMode
         ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
         : { kind: "primary_assistant" }
       : undefined,
-    enable_message_followups: true,
     system_hints: [],
     supports_buffering: true,
     supported_encodings: ["v1"],
     client_contextual_info: clientContext(window),
     paragen_cot_summary_display_override: "allow",
-    force_parallel_switch: "auto"
+    force_parallel_switch: "auto",
+    local_function_names: ["local.continue_in_work"]
   };
-  if (model.toLocaleLowerCase().includes("thinking"))
-    payload.thinking_effort = "extended";
+  if (selection.thinkingEffort)
+    payload.thinking_effort = selection.thinkingEffort;
 
   const config = sentinelConfig(window);
   const turnTraceId = randomUUID();
@@ -237,29 +308,29 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
 }
 
 function conversationPreparePayload(payload) {
-  const message = payload.messages?.[0] || {};
-  const prompt = String(message.content?.parts?.at?.(-1) || "");
-  const partial = Array.from(prompt).slice(0, 5).join("") || "h";
   const prepared = {
     action: payload.action,
-    fork_from_shared_post: false,
+    conversation_id: payload.conversation_id,
     parent_message_id: payload.parent_message_id || "client-created-root",
     model: payload.model,
+    client_prepare_state: "none",
+    client_prepare_dispatch: "immediate",
+    client_prepare_source: "context_change",
     timezone_offset_min: payload.timezone_offset_min,
     timezone: payload.timezone,
     conversation_mode: payload.conversation_mode || { kind: "primary_assistant" },
     system_hints: payload.system_hints || [],
-    partial_query: {
-      id: message.id || randomUUID(),
-      author: { role: "user" },
-      content: {
-        content_type: "text",
-        parts: [partial]
-      }
-    },
     supports_buffering: payload.supports_buffering,
     supported_encodings: payload.supported_encodings,
-    client_contextual_info: payload.client_contextual_info
+    client_contextual_info: {
+      app_name: payload.client_contextual_info?.app_name || "chatgpt.com",
+      has_web_push_capabilities: Boolean(
+        payload.client_contextual_info?.has_web_push_capabilities
+      ),
+      web_push_notification_permission:
+        payload.client_contextual_info?.web_push_notification_permission || "default"
+    },
+    local_function_names: payload.local_function_names || []
   };
   if (payload.thinking_effort)
     prepared.thinking_effort = payload.thinking_effort;
@@ -272,7 +343,6 @@ async function getConduitToken(session, token, turnTraceId, body) {
     headers: {
       "Accept": "*/*",
       "Content-Type": "application/json",
-      "x-conduit-token": "no-token",
       "x-oai-turn-trace-id": turnTraceId,
       "x-openai-target-path": API.conversationPrepare,
       "x-openai-target-route": API.conversationPrepare
@@ -565,9 +635,20 @@ async function waitForConversation(session, token, conversationId, requestMessag
     const message = current?.message;
     if (message?.author?.role === "assistant" && message.status !== "in_progress") {
       const files = new Map();
+      const assistantModel = String(
+        message?.metadata?.resolved_model_slug ||
+        message?.metadata?.model_slug ||
+        ""
+      ).trim() || null;
+      let requestResolvedModel = null;
       let node = current;
       while (node) {
-        if (node.message?.id === requestMessageId) break;
+        if (node.message?.id === requestMessageId) {
+          requestResolvedModel = String(
+            node.message?.metadata?.resolved_model_slug || ""
+          ).trim() || null;
+          break;
+        }
         collectFileRefs(node.message, files);
         node = conversation.mapping[node.parent];
       }
@@ -575,7 +656,7 @@ async function waitForConversation(session, token, conversationId, requestMessag
         text: (message.content?.parts || []).filter(x => typeof x === "string").join("\n").trim(),
         parentMessageId: message.id,
         projectId: conversation.gizmo_id || null,
-        model: String(message?.metadata?.model_slug || "").trim() || null,
+        model: assistantModel || requestResolvedModel,
         files
       };
     }

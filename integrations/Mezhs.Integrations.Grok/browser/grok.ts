@@ -35,19 +35,23 @@ module.exports = {
 
   pageOperations: {
     async models() {
-      return discoverModes();
+      return (await discoverModeCatalog()).models;
     },
 
     async selectModel({ args, sleep }) {
       const requested = String(args.model || "").trim();
       if (!requested) return true;
 
-      const modes = await discoverModes();
+      const catalog = await discoverModeCatalog();
+      const modes = catalog.models;
       const selected = modes.find(mode =>
         mode.id.toLocaleLowerCase() === requested.toLocaleLowerCase()
       );
       if (!selected)
         throw new Error(`Grok model '${requested}' is no longer available.`);
+      if (modes.length === 1 &&
+          selected.id.toLocaleLowerCase() === catalog.defaultModelId.toLocaleLowerCase())
+        return true;
 
       const trigger = findModelTrigger(modes);
       if (!trigger)
@@ -146,20 +150,25 @@ module.exports = {
   }
 };
 
-async function discoverModes() {
+async function discoverModeCatalog() {
+  const locale = String(globalThis.navigator?.language || "en-US");
   const response = await fetch(MODES_ENDPOINT, {
     method: "POST",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json"
     },
-    body: "{}",
+    body: JSON.stringify({ locale }),
     credentials: "include",
     cache: "no-store"
   });
   if (!response.ok)
     throw new Error(`Grok /rest/modes failed with HTTP ${response.status}.`);
-  return normalizeModes(await response.json());
+  const payload = await response.json();
+  return {
+    models: normalizeModes(payload),
+    defaultModelId: String(payload?.defaultModeId || "").trim()
+  };
 }
 
 function findModelTrigger(modes = []) {
@@ -327,16 +336,18 @@ function responseSnapshot() {
     "#last-reply-container .message-bubble",
     "#last-reply-container"
   ];
-  const nodes = [];
-  for (const selector of selectors)
-    for (const node of document.querySelectorAll(selector))
-      if (visible(node) && !nodes.includes(node)) nodes.push(node);
-  const node = nodes[nodes.length - 1] || null;
-  return {
-    count: nodes.length,
-    node,
-    text: String(node?.textContent || "").trim()
-  };
+  for (const selector of selectors) {
+    const nodes = [...document.querySelectorAll(selector)].filter(visible);
+    const node = nodes[nodes.length - 1];
+    if (node) {
+      return {
+        count: nodes.length,
+        node,
+        text: String(node.textContent || "").trim()
+      };
+    }
+  }
+  return { count: 0, node: null, text: "" };
 }
 
 async function waitFor(predicate, sleep, timeoutMs) {
@@ -352,23 +363,16 @@ async function waitFor(predicate, sleep, timeoutMs) {
 }
 
 function normalizeModes(payload) {
-  const candidates = [];
-  collectModeCandidates(payload, candidates);
+  const candidates = Array.isArray(payload?.modes)
+    ? payload.modes
+    : [];
   const result = [];
   const seen = new Set();
   for (const item of candidates) {
-    if (item.enabled === false ||
-        item.available === false ||
-        item.isAvailable === false ||
-        item.hidden === true)
+    if (!item || typeof item !== "object" || !isAvailableMode(item.availability))
       continue;
-    const mode = item.mode && typeof item.mode === "object" ? item.mode : item;
-    const id = String(
-      mode.modeId || mode.id || mode.value || mode.slug || mode.modelName || ""
-    ).trim();
-    const name = String(
-      mode.displayName || mode.name || mode.title || mode.label || id
-    ).replace(/\s+/g, " ").trim();
+    const id = String(item.id || "").trim();
+    const name = String(item.title || id).replace(/\s+/g, " ").trim();
     const key = id.toLocaleLowerCase();
     if (!id || !name || seen.has(key)) continue;
     seen.add(key);
@@ -379,23 +383,12 @@ function normalizeModes(payload) {
   return result;
 }
 
-function collectModeCandidates(value, result) {
-  if (Array.isArray(value)) {
-    for (const item of value) collectModeCandidates(item, result);
-    return;
-  }
-  if (!value || typeof value !== "object") return;
-
-  const mode = value.mode && typeof value.mode === "object" ? value.mode : value;
-  const hasId = [mode.modeId, mode.id, mode.value, mode.slug, mode.modelName]
-    .some(item => typeof item === "string" && item.trim());
-  if (hasId) {
-    result.push(value);
-    return;
-  }
-
-  for (const child of Object.values(value))
-    collectModeCandidates(child, result);
+function isAvailableMode(availability) {
+  return Boolean(
+    availability &&
+    typeof availability === "object" &&
+    Object.prototype.hasOwnProperty.call(availability, "available")
+  );
 }
 
 function isGrokConversationUrl(value) {

@@ -520,6 +520,10 @@ export default function App() {
             </div>
           ) : messages.map((message) => {
             const messageConnection = connectionFor(message.connectionId);
+            const messageModelName = message.model &&
+              message.connectionId === selectedConnection?.id
+              ? models.find((model) => model.id === message.model)?.name || message.model
+              : message.model;
             return (
               <article key={message.messageId} className={`message ${message.role}`}>
                 <div className="message-avatar">{message.role === "assistant" ? "U" : "YOU"}</div>
@@ -527,7 +531,14 @@ export default function App() {
                   <div className="message-meta">
                     <strong>{message.role === "assistant" ? messageConnection?.name || "Assistant" : "You"}</strong>
                     <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                    {message.model && <span className="message-model">{message.model}</span>}
+                    {message.model && (
+                      <span
+                        className="message-model"
+                        title={`${message.role === "user" ? "Requested" : "Provider-reported"} model ID: ${message.model}`}
+                      >
+                        {message.role === "user" ? "Requested: " : "Served: "}{messageModelName}
+                      </span>
+                    )}
                     {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
                   </div>
                   {message.content && <div className="message-content">{message.content}</div>}
