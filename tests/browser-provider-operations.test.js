@@ -158,6 +158,7 @@ test("ChatGPT o3 newChat follows the current native web conversation protocol", 
   const seed = "0.559779845730002";
   const difficulty = "ffffff";
   let prepareHeaders;
+  let preparePayload;
   let sentinelPreparePayload;
   let sentinelFinalizePayload;
   let conversationPayload;
@@ -172,7 +173,13 @@ test("ChatGPT o3 newChat follows the current native web conversation protocol", 
     if (target.pathname === "/backend-api/f/conversation/prepare") {
       prepareHeaders = options.headers;
       assert.equal(options.method, "POST");
-      assert.equal(options.body, undefined);
+      if (!options.body) {
+        return jsonResponse({ detail: [
+          { type: "missing", loc: ["body"], msg: "Field required", input: null },
+          { type: "missing", loc: ["body"], msg: "Field required", input: null }
+        ] }, 422);
+      }
+      preparePayload = JSON.parse(options.body);
       return jsonResponse({ status: "ok", conduit_token: "conduit" });
     }
 
@@ -223,9 +230,21 @@ test("ChatGPT o3 newChat follows the current native web conversation protocol", 
   assert.equal(sentinelFinalizePayload.prepare_token, "prepared");
   assertProofToken(sentinelFinalizePayload.proofofwork, seed, difficulty);
 
+  assert.equal(prepareHeaders["Content-Type"], "application/json");
   assert.equal(prepareHeaders["x-conduit-token"], "no-token");
   assert.equal(prepareHeaders["x-openai-target-path"], "/backend-api/f/conversation/prepare");
   assert.ok(prepareHeaders["x-oai-turn-trace-id"]);
+  assert.equal(preparePayload.action, "next");
+  assert.equal(preparePayload.model, "o3");
+  assert.equal(preparePayload.parent_message_id, "client-created-root");
+  assert.deepEqual(preparePayload.conversation_mode, {
+    kind: "gizmo_interaction",
+    gizmo_id: "g-p-mezhs"
+  });
+  assert.equal(preparePayload.partial_query.content.parts[0], "what ");
+  assert.deepEqual(preparePayload.supported_encodings, ["v1"]);
+  assert.equal(preparePayload.supports_buffering, true);
+  assert.equal("thinking_effort" in preparePayload, false);
 
   assert.deepEqual(conversationPayload.conversation_mode, {
     kind: "gizmo_interaction",
