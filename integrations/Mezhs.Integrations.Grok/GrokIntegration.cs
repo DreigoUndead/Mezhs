@@ -67,6 +67,9 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
     {
         public Task LoginAsync(CancellationToken cancellationToken = default) =>
             session.LoginAsync(cancellationToken);
+
+        public Task OpenBrowserAsync(CancellationToken cancellationToken = default) =>
+            session.OpenBrowserAsync(cancellationToken);
     }
 
     private sealed class ModelModule(BrowserAccountSession session) : IModelModule
