@@ -62,8 +62,7 @@ module.exports = {
       return sendAccountMessage(context, false);
     },
 
-    // Anonymous ChatGPT remains on its old browser path. Account operations above
-    // use the private API through Electron's authenticated Chromium session.
+    // Anonymous ChatGPT remains on its old browser path.
     async sendPrompt({ window, args }) {
       if (args.newChat) await window.loadURL(module.exports.homeUrl);
       const prompt = JSON.stringify(String(args.prompt || ""));
@@ -105,6 +104,10 @@ module.exports = {
         })()
       `, true);
     }
+  },
+
+  pageOperations: {
+    submitPrompt
   }
 };
 
@@ -200,7 +203,176 @@ function parseModelSelection(value) {
   };
 }
 
-async function sendAccountMessage({ window, session, args, sleep }, isNew) {
+async function submitPrompt({ args, sleep }) {
+  const prompt = String(args.prompt || "");
+  let editor = null;
+  for (let i = 0; i < 120 && !editor; i++) {
+    editor = document.querySelector(
+      '#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]'
+    );
+    if (!editor) await sleep(250);
+  }
+  if (!editor) throw new Error("ChatGPT prompt editor was not found.");
+
+  editor.focus();
+  document.execCommand("selectAll", false, null);
+  document.execCommand("insertText", false, prompt);
+  editor.dispatchEvent(new InputEvent("input", {
+    bubbles: true,
+    inputType: "insertText",
+    data: prompt
+  }));
+
+  let send = null;
+  for (let i = 0; i < 360 && (!send || send.disabled); i++) {
+    send = document.querySelector(
+      'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
+    );
+    if (!send || send.disabled) await sleep(250);
+  }
+  if (!send || send.disabled)
+    throw new Error("ChatGPT send button did not become available.");
+  send.click();
+  return true;
+}
+
+function canUseNativeSend({ window, page, args }, isNew) {
+  return Boolean(
+    window?.webContents?.debugger &&
+    typeof page?.invoke === "function" &&
+    !(args.files || []).length &&
+    !(isNew && args.projectId) &&
+    (isNew || args.conversationId)
+  );
+}
+
+async function sendAccountMessage(context, isNew) {
+  if (canUseNativeSend(context, isNew))
+    return sendNativeAccountMessage(context, isNew);
+  return sendApiAccountMessage(context, isNew);
+}
+
+async function sendNativeAccountMessage({ window, session, page, args, sleep }, isNew) {
+  const token = await requireToken(session);
+  await window.loadURL(isNew
+    ? module.exports.homeUrl
+    : `${ORIGIN}/c/${encodeURIComponent(args.conversationId)}`);
+
+  const selection = parseModelSelection(args.model);
+  const messageId = await interceptNativeConversationRequest(
+    window.webContents.debugger,
+    selection,
+    () => page.invoke("submitPrompt", { prompt: args.prompt })
+  );
+  const conversationId = isNew
+    ? await waitForNativeConversationId(window, sleep)
+    : args.conversationId;
+
+  return completeAccountMessage(
+    session,
+    token,
+    conversationId,
+    messageId,
+    sleep,
+    isNew
+  );
+}
+
+async function interceptNativeConversationRequest(debuggerClient, selection, trigger) {
+  let attachedHere = false;
+  if (!debuggerClient.isAttached()) {
+    debuggerClient.attach("1.3");
+    attachedHere = true;
+  }
+
+  let resolveRequest;
+  let rejectRequest;
+  const request = new Promise((resolve, reject) => {
+    resolveRequest = resolve;
+    rejectRequest = reject;
+  });
+  const timeout = setTimeout(
+    () => rejectRequest(new Error("ChatGPT native send request was not observed.")),
+    60000
+  );
+
+  const onMessage = async (_event, method, params) => {
+    if (method !== "Fetch.requestPaused") return;
+    if (!String(params?.request?.url || "").endsWith(API.conversation)) {
+      await debuggerClient.sendCommand("Fetch.continueRequest", {
+        requestId: params.requestId
+      });
+      return;
+    }
+
+    try {
+      if (!params.request.postData) {
+        await debuggerClient.sendCommand("Fetch.failRequest", {
+          requestId: params.requestId,
+          errorReason: "Aborted"
+        });
+        throw new Error("ChatGPT native conversation request did not expose its body.");
+      }
+
+      const body = JSON.parse(params.request.postData);
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const messageId = String(messages.at(-1)?.id || "").trim();
+      if (!messageId) {
+        await debuggerClient.sendCommand("Fetch.failRequest", {
+          requestId: params.requestId,
+          errorReason: "Aborted"
+        });
+        throw new Error("ChatGPT native conversation request has no message id.");
+      }
+
+      body.model = selection.model;
+      if (selection.thinkingEffort)
+        body.thinking_effort = selection.thinkingEffort;
+      else
+        delete body.thinking_effort;
+
+      const headers = Object.entries(params.request.headers || {})
+        .filter(([name]) => name.toLowerCase() !== "content-length")
+        .map(([name, value]) => ({ name, value: String(value) }));
+      await debuggerClient.sendCommand("Fetch.continueRequest", {
+        requestId: params.requestId,
+        postData: Buffer.from(JSON.stringify(body), "utf8").toString("base64"),
+        headers
+      });
+      resolveRequest(messageId);
+    } catch (error) {
+      rejectRequest(error);
+    }
+  };
+
+  debuggerClient.on("message", onMessage);
+  try {
+    await debuggerClient.sendCommand("Fetch.enable", {
+      patterns: [{
+        urlPattern: `*${API.conversation}`,
+        requestStage: "Request"
+      }]
+    });
+    await trigger();
+    return await request;
+  } finally {
+    clearTimeout(timeout);
+    debuggerClient.removeListener("message", onMessage);
+    await debuggerClient.sendCommand("Fetch.disable").catch(() => {});
+    if (attachedHere && debuggerClient.isAttached()) debuggerClient.detach();
+  }
+}
+
+async function waitForNativeConversationId(window, sleep) {
+  for (let i = 0; i < 120; i++) {
+    const match = /\/c\/([^/?#]+)/.exec(String(window.webContents.getURL?.() || ""));
+    if (match) return decodeURIComponent(match[1]);
+    await sleep(500);
+  }
+  throw new Error("ChatGPT native send did not open a conversation.");
+}
+
+async function sendApiAccountMessage({ window, session, args, sleep }, isNew) {
   const token = await requireToken(session);
   const uploaded = await uploadFiles(session, token, args.files || []);
   const messageId = randomUUID();
@@ -294,6 +466,17 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
   const conversationId = findConversationId(await response.text()) || args.conversationId;
   if (!conversationId) throw new Error("ChatGPT did not return a conversation id.");
 
+  return completeAccountMessage(
+    session,
+    token,
+    conversationId,
+    messageId,
+    sleep,
+    isNew
+  );
+}
+
+async function completeAccountMessage(session, token, conversationId, messageId, sleep, isNew) {
   let result;
   try {
     result = await waitForConversation(session, token, conversationId, messageId, sleep);
