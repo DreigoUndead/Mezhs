@@ -358,10 +358,12 @@ test("ChatGPT o3 newChat follows the native protocol and reports the assistant m
     kind: "gizmo_interaction",
     gizmo_id: "g-p-mezhs"
   });
-  assert.equal(preparePayload.client_prepare_state, "none");
+  assert.equal(preparePayload.client_prepare_state, "success");
   assert.equal(preparePayload.client_prepare_dispatch, "immediate");
   assert.equal(preparePayload.client_prepare_source, "context_change");
-  assert.equal("partial_query" in preparePayload, false);
+  assert.equal(preparePayload.partial_query.id, conversationPayload.messages[0].id);
+  assert.deepEqual(preparePayload.partial_query.author, { role: "user" });
+  assert.deepEqual(preparePayload.partial_query.content, conversationPayload.messages[0].content);
   assert.deepEqual(preparePayload.supported_encodings, ["v1"]);
   assert.equal(preparePayload.supports_buffering, true);
   assert.deepEqual(preparePayload.local_function_names, ["local.continue_in_work"]);
@@ -381,7 +383,7 @@ test("ChatGPT o3 newChat follows the native protocol and reports the assistant m
   assert.equal("selected_github_repos" in conversationPayload.messages[0].metadata, false);
   assert.equal(conversationPayload.model, "o3");
   assert.equal(conversationPayload.parent_message_id, "client-created-root");
-  assert.equal(conversationPayload.client_prepare_state, "sent");
+  assert.equal(conversationPayload.client_prepare_state, "success");
   assert.deepEqual(conversationPayload.supported_encodings, ["v1"]);
   assert.equal(conversationPayload.supports_buffering, true);
   assert.equal("enable_message_followups" in conversationPayload, false);
