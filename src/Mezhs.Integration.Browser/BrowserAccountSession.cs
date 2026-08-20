@@ -59,6 +59,27 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         }
     }
 
+    public async Task OpenBrowserAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfDisposed();
+            CancelIdle();
+            if (_transport is null)
+                await EnsureTransportAsync(
+                    showBrowser: true,
+                    requireAuthorization: false,
+                    cancellationToken);
+            else
+                await _transport.ShowAsync(cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
