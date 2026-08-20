@@ -31,7 +31,9 @@ public interface IIntegrationHost
 public interface ILoginModule
 {
     Task LoginAsync(CancellationToken cancellationToken = default);
-    Task OpenBrowserAsync(CancellationToken cancellationToken = default);
+
+    Task OpenBrowserAsync(CancellationToken cancellationToken = default) =>
+        Task.FromException(new NotSupportedException("This connection does not expose an account browser."));
 }
 
 public interface IModelModule
