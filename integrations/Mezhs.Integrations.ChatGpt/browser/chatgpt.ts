@@ -176,6 +176,10 @@ function nativePickerModels(catalog) {
 }
 
 const MODEL_SELECTION_SEPARATOR = "::thinking-effort=";
+const CHATGPT_WIRE_MODEL = Object.freeze({
+  "gpt-5-6-instant": "gpt-5-5",
+  "gpt-5-5-instant": "gpt-5-5"
+});
 
 function modelSelectionId(model, thinkingEffort) {
   return thinkingEffort
@@ -186,11 +190,14 @@ function modelSelectionId(model, thinkingEffort) {
 function parseModelSelection(value) {
   const selected = String(value || "auto").trim() || "auto";
   const separator = selected.lastIndexOf(MODEL_SELECTION_SEPARATOR);
-  if (separator <= 0) return { model: selected, thinkingEffort: null };
-  const thinkingEffort = selected.slice(separator + MODEL_SELECTION_SEPARATOR.length).trim();
-  return thinkingEffort
-    ? { model: selected.slice(0, separator), thinkingEffort }
-    : { model: selected, thinkingEffort: null };
+  const model = separator > 0 ? selected.slice(0, separator) : selected;
+  const thinkingEffort = separator > 0
+    ? selected.slice(separator + MODEL_SELECTION_SEPARATOR.length).trim() || null
+    : null;
+  return {
+    model: CHATGPT_WIRE_MODEL[model.toLowerCase()] || model,
+    thinkingEffort
+  };
 }
 
 async function sendAccountMessage({ window, session, args, sleep }, isNew) {
