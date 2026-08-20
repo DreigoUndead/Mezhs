@@ -190,6 +190,9 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
     {
         public Task LoginAsync(CancellationToken cancellationToken = default) =>
             session.LoginAsync(cancellationToken);
+
+        public Task OpenBrowserAsync(CancellationToken cancellationToken = default) =>
+            session.OpenBrowserAsync(cancellationToken);
     }
 
     private sealed class ModelModule(BrowserAccountSession session) : IModelModule
