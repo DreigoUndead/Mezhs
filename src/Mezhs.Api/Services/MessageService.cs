@@ -176,7 +176,8 @@ public sealed class MessageService(
                         continueRemote ? remoteState!.RemoteParentMessageId : null),
                     ToIntegrationMessage(message),
                     historyMessages.Select(ToIntegrationMessage).ToArray(),
-                    inputFiles),
+                    inputFiles,
+                    RestoreConversation: !continueRemote),
                 CancellationToken.None);
 
             var replyFileIds = new List<string>();

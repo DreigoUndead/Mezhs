@@ -46,7 +46,7 @@ public abstract class BrowserIntegrationBase(
                 requireAuthorization: false), cancellationToken);
             var response = await transport.InvokeAsync<BrowserSendResult>(
                 "sendPrompt",
-                new { Prompt = ComposeConversation(context), NewChat = true },
+                new { context.Prompt, NewChat = true },
                 cancellationToken);
             if (!response.Ok)
                 throw new InvalidOperationException(response.Error ?? "Anonymous browser request failed.");
@@ -57,20 +57,6 @@ public abstract class BrowserIntegrationBase(
             await transport.DisposeAsync();
             TryDeleteSession(sessionPath);
         }
-    }
-
-    protected static string ComposeConversation(IntegrationSendContext context)
-    {
-        var history = context.History
-            .Where(message => message.Role == "assistant" || message.Completed)
-            .Select(message => $"[{(message.Role == "assistant" ? "Assistant" : "User")}]\n{message.Content}")
-            .ToList();
-        if (history.Count == 0)
-            return context.Message.Content;
-
-        history.Add($"[User]\n{context.Message.Content}");
-        return "Continue the conversation below. Reply only to the latest user message.\n\n" +
-               string.Join("\n\n", history);
     }
 
     protected string CreateSessionPath()
