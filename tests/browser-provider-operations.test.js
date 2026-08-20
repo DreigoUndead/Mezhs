@@ -407,11 +407,11 @@ test("ChatGPT o3 newChat follows the native protocol and reports the assistant m
   assert.equal(result.model, "o3");
 });
 
-test("ChatGPT picker selections send their exact native model and thinking effort", async () => {
+test("ChatGPT picker selections send their current wire model and thinking effort", async () => {
   const chatgpt = loadChatGptModule();
   const selections = [
     { selected: undefined, model: "auto", effort: null },
-    { selected: "gpt-5-6-instant", model: "gpt-5-6-instant", effort: null },
+    { selected: "gpt-5-6-instant", model: "gpt-5-5", effort: null },
     {
       selected: "gpt-5-6-thinking::thinking-effort=standard",
       model: "gpt-5-6-thinking",
@@ -422,7 +422,7 @@ test("ChatGPT picker selections send their exact native model and thinking effor
       model: "gpt-5-6-thinking",
       effort: "extended"
     },
-    { selected: "gpt-5-5-instant", model: "gpt-5-5-instant", effort: null },
+    { selected: "gpt-5-5-instant", model: "gpt-5-5", effort: null },
     {
       selected: "gpt-5-5-thinking::thinking-effort=standard",
       model: "gpt-5-5-thinking",
