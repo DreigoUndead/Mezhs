@@ -31,6 +31,7 @@ public interface IIntegrationHost
 public interface ILoginModule
 {
     Task LoginAsync(CancellationToken cancellationToken = default);
+    Task OpenBrowserAsync(CancellationToken cancellationToken = default);
 }
 
 public interface IModelModule
