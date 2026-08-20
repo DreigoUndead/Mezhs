@@ -281,6 +281,19 @@ export default function App() {
     }
   }
 
+  async function openAccountBrowser(connection: Connection) {
+    setNotice(null);
+    try {
+      await expectJson(await fetch(
+        `${apiBase}/v1/connections/${encodeURIComponent(connection.id)}/browser`,
+        { method: "POST" },
+      ));
+      setNotice(`${connection.name} account browser is open.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Account browser could not be opened.");
+    }
+  }
+
   async function createCategory(event: FormEvent) {
     event.preventDefault();
     const name = newCategoryName.trim();
@@ -423,9 +436,14 @@ export default function App() {
         )}
 
         {selectedConnection?.requiresLogin && (
-          <button className="login-button" disabled={loginId === selectedConnection.id} onClick={() => void login(selectedConnection)}>
-            {loginId === selectedConnection.id ? "Waiting for authorization..." : "Open login window"}
-          </button>
+          <>
+            <button className="login-button" disabled={loginId === selectedConnection.id} onClick={() => void login(selectedConnection)}>
+              {loginId === selectedConnection.id ? "Waiting for authorization..." : "Open login window"}
+            </button>
+            <button className="login-button" onClick={() => void openAccountBrowser(selectedConnection)}>
+              Open account browser
+            </button>
+          </>
         )}
 
         <div className="groups-heading">
