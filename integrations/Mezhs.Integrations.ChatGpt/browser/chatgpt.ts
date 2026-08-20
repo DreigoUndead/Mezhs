@@ -234,7 +234,7 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
     }],
     model,
     parent_message_id: isNew ? "client-created-root" : args.parentMessageId,
-    client_prepare_state: "sent",
+    client_prepare_state: "success",
     timezone_offset_min: new Date().getTimezoneOffset(),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
     conversation_mode: isNew
@@ -308,18 +308,24 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
 }
 
 function conversationPreparePayload(payload) {
+  const message = payload.messages?.at(-1);
   const prepared = {
     action: payload.action,
     conversation_id: payload.conversation_id,
     parent_message_id: payload.parent_message_id || "client-created-root",
     model: payload.model,
-    client_prepare_state: "none",
+    client_prepare_state: "success",
     client_prepare_dispatch: "immediate",
     client_prepare_source: "context_change",
     timezone_offset_min: payload.timezone_offset_min,
     timezone: payload.timezone,
     conversation_mode: payload.conversation_mode || { kind: "primary_assistant" },
     system_hints: payload.system_hints || [],
+    partial_query: message ? {
+      id: message.id,
+      author: message.author,
+      content: message.content
+    } : undefined,
     supports_buffering: payload.supports_buffering,
     supported_encodings: payload.supported_encodings,
     client_contextual_info: {
