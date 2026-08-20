@@ -231,6 +231,20 @@ app.MapPost("/v1/connections/{connectionId}/login", async (
     return Results.Ok(new { connectionId, status = "ready" });
 });
 
+app.MapPost("/v1/connections/{connectionId}/browser", async (
+    string connectionId,
+    IntegrationRegistry integrations,
+    CancellationToken cancellationToken) =>
+{
+    if (!integrations.TryGet(connectionId, out var integration))
+        return Results.NotFound(new { error = $"Connection '{connectionId}' was not found." });
+    if (integration.Login is null)
+        return Results.BadRequest(new { error = $"Connection '{connectionId}' does not have an account browser." });
+
+    await integration.Login.OpenBrowserAsync(cancellationToken);
+    return Results.Ok(new { connectionId, status = "open" });
+});
+
 app.MapPost("/v1/messages", (PostMessageRequest request, MessageService messages) =>
 {
     try
