@@ -49,18 +49,27 @@ class FakeDebugger extends EventEmitter {
   }
 }
 
-test("ChatGPT account send preserves the native request and changes only model selection", async () => {
+test("ChatGPT account send sets native model preference and leaves the native request untouched", async () => {
   const chatgpt = loadChatGptModule();
   const browserDebugger = new FakeDebugger();
+  const sessionCalls = [];
+  const events = [];
   let currentUrl = "https://chatgpt.com/";
-  let sessionCalls = [];
 
   const session = {
-    fetch: async url => {
+    fetch: async (url, options = {}) => {
       const target = new URL(String(url));
-      sessionCalls.push(target.pathname);
+      sessionCalls.push({
+        method: options.method || "GET",
+        path: target.pathname,
+        search: target.search
+      });
       if (target.pathname === "/api/auth/session")
         return jsonResponse({ accessToken: "token" });
+      if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
+        events.push("preference");
+        return new Response("", { status: 200 });
+      }
       if (target.pathname === "/backend-api/conversation/native-conversation") {
         return jsonResponse({
           conversation_id: "native-conversation",
@@ -94,7 +103,10 @@ test("ChatGPT account send preserves the native request and changes only model s
   };
 
   const window = {
-    loadURL: async url => { currentUrl = url; },
+    loadURL: async url => {
+      events.push("load");
+      currentUrl = url;
+    },
     webContents: {
       debugger: browserDebugger,
       getURL: () => currentUrl
@@ -108,7 +120,8 @@ test("ChatGPT account send preserves the native request and changes only model s
       author: { role: "user" },
       content: { content_type: "text", parts: ["what model are you?"] }
     }],
-    model: "auto",
+    model: "native-generated-model",
+    thinking_effort: "native-generated-effort",
     parent_message_id: "client-created-root",
     client_prepare_state: "success",
     system_hints: [{ native: true }],
@@ -118,6 +131,7 @@ test("ChatGPT account send preserves the native request and changes only model s
 
   const page = {
     invoke: async (operation, args) => {
+      events.push("send");
       assert.equal(operation, "submitPrompt");
       assert.equal(args.prompt, "what model are you?");
       browserDebugger.emit("message", {}, "Fetch.requestPaused", {
@@ -150,29 +164,16 @@ test("ChatGPT account send preserves the native request and changes only model s
     sleep: async () => {}
   });
 
-  const forwarded = JSON.parse(
-    Buffer.from(browserDebugger.continued.postData, "base64").toString("utf8")
-  );
-  assert.equal(forwarded.model, "gpt-5-6-thinking");
-  assert.equal(forwarded.thinking_effort, "extended");
-  assert.deepEqual(forwarded.system_hints, nativeBody.system_hints);
-  assert.deepEqual(forwarded.client_contextual_info, nativeBody.client_contextual_info);
-  assert.deepEqual(
-    forwarded.future_field_mezhs_does_not_know,
-    nativeBody.future_field_mezhs_does_not_know
-  );
-  assert.ok(browserDebugger.continued.headers.some(header =>
-    header.name === "X-OAI-IS" && header.value === "native-is"
-  ));
-  assert.ok(browserDebugger.continued.headers.some(header =>
-    header.name === "OAI-Client-Version" && header.value === "native-client"
-  ));
-  assert.equal(browserDebugger.continued.headers.some(header =>
-    header.name.toLowerCase() === "content-length"
-  ), false);
+  assert.deepEqual(events.slice(0, 3), ["preference", "load", "send"]);
+  assert.deepEqual(browserDebugger.continued, { requestId: "request-1" });
   assert.deepEqual(sessionCalls, [
-    "/api/auth/session",
-    "/backend-api/conversation/native-conversation"
+    { method: "GET", path: "/api/auth/session", search: "" },
+    {
+      method: "PATCH",
+      path: "/backend-api/settings/user_last_used_model_config",
+      search: "?model_slug=gpt-5-6-thinking&thinking_effort=extended"
+    },
+    { method: "GET", path: "/backend-api/conversation/native-conversation", search: "" }
   ]);
   assert.equal(result.model, "gpt-5-6-thinking");
 });
