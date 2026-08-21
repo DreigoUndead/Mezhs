@@ -9,6 +9,7 @@ const API = Object.freeze({
   session: "/api/auth/session",
   projects: "/backend-api/gizmos/snorlax/sidebar",
   models: "/backend-api/models?history_and_training_disabled=false",
+  modelPreference: "/backend-api/settings/user_last_used_model_config",
   conversationPrepare: "/backend-api/f/conversation/prepare",
   requirementsPrepare: "/backend-api/sentinel/chat-requirements/prepare",
   requirementsFinalize: "/backend-api/sentinel/chat-requirements/finalize",
@@ -247,21 +248,31 @@ function canUseNativeSend({ window, page, args }, isNew) {
 }
 
 async function sendAccountMessage(context, isNew) {
+  const token = await requireToken(context.session);
+  const selection = parseModelSelection(context.args.model);
+  await setModelPreference(context.session, token, selection);
+
   if (canUseNativeSend(context, isNew))
-    return sendNativeAccountMessage(context, isNew);
-  return sendApiAccountMessage(context, isNew);
+    return sendNativeAccountMessage(context, isNew, token);
+  return sendApiAccountMessage(context, isNew, token, selection);
 }
 
-async function sendNativeAccountMessage({ window, session, page, args, sleep }, isNew) {
-  const token = await requireToken(session);
+async function setModelPreference(session, token, selection) {
+  if (!selection.model || selection.model === "auto") return;
+  const url = new URL(API.modelPreference, ORIGIN);
+  url.searchParams.set("model_slug", selection.model);
+  if (selection.thinkingEffort)
+    url.searchParams.set("thinking_effort", selection.thinkingEffort);
+  await apiFetch(session, token, url.pathname + url.search, { method: "PATCH" });
+}
+
+async function sendNativeAccountMessage({ window, session, page, args, sleep }, isNew, token) {
   await window.loadURL(isNew
     ? module.exports.homeUrl
     : `${ORIGIN}/c/${encodeURIComponent(args.conversationId)}`);
 
-  const selection = parseModelSelection(args.model);
-  const messageId = await interceptNativeConversationRequest(
+  const messageId = await observeNativeConversationRequest(
     window.webContents.debugger,
-    selection,
     () => page.invoke("submitPrompt", { prompt: args.prompt })
   );
   const conversationId = isNew
@@ -278,7 +289,7 @@ async function sendNativeAccountMessage({ window, session, page, args, sleep }, 
   );
 }
 
-async function interceptNativeConversationRequest(debuggerClient, selection, trigger) {
+async function observeNativeConversationRequest(debuggerClient, trigger) {
   let attachedHere = false;
   if (!debuggerClient.isAttached()) {
     debuggerClient.attach("1.3");
@@ -325,19 +336,8 @@ async function interceptNativeConversationRequest(debuggerClient, selection, tri
         throw new Error("ChatGPT native conversation request has no message id.");
       }
 
-      body.model = selection.model;
-      if (selection.thinkingEffort)
-        body.thinking_effort = selection.thinkingEffort;
-      else
-        delete body.thinking_effort;
-
-      const headers = Object.entries(params.request.headers || {})
-        .filter(([name]) => name.toLowerCase() !== "content-length")
-        .map(([name, value]) => ({ name, value: String(value) }));
       await debuggerClient.sendCommand("Fetch.continueRequest", {
-        requestId: params.requestId,
-        postData: Buffer.from(JSON.stringify(body), "utf8").toString("base64"),
-        headers
+        requestId: params.requestId
       });
       resolveRequest(messageId);
     } catch (error) {
@@ -372,8 +372,7 @@ async function waitForNativeConversationId(window, sleep) {
   throw new Error("ChatGPT native send did not open a conversation.");
 }
 
-async function sendApiAccountMessage({ window, session, args, sleep }, isNew) {
-  const token = await requireToken(session);
+async function sendApiAccountMessage({ window, session, args, sleep }, isNew, token, selection) {
   const uploaded = await uploadFiles(session, token, args.files || []);
   const messageId = randomUUID();
   const imageParts = uploaded
@@ -391,7 +390,6 @@ async function sendApiAccountMessage({ window, session, args, sleep }, isNew) {
   }));
 
   const projectMode = isNew && args.projectId;
-  const selection = parseModelSelection(args.model);
   const model = selection.model;
   const metadata = {
     selected_sources: [],
