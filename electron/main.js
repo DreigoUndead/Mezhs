@@ -138,6 +138,15 @@ function appendNetworkEntry(entry) {
     .catch(error => console.error(`Network capture write failed: ${error}`));
 }
 
+function appendExtraHeaders(requestId, headers) {
+  appendNetworkEntry({
+    at: new Date().toISOString(),
+    event: "request-extra-headers",
+    requestId,
+    headers: sanitizeHeaders(headers)
+  });
+}
+
 async function startNetworkCapture() {
   if (networkCapture || !window || !browserModule || !activeProfileDirectory)
     return networkCapture?.path || null;
@@ -151,12 +160,16 @@ async function startNetworkCapture() {
 
   const logPath = path.join(path.dirname(activeProfileDirectory), "network-capture.jsonl");
   await fs.writeFile(logPath, "", "utf8");
+  networkLogWrite = Promise.resolve();
   const capturedRequests = new Set();
+  const pendingExtraHeaders = new Map();
 
   const onMessage = async (_event, method, params) => {
     try {
       if (method === "Network.requestWillBeSent") {
         const request = params?.request;
+        const extraHeaders = pendingExtraHeaders.get(params.requestId);
+        pendingExtraHeaders.delete(params.requestId);
         if (!isCapturedRequest(request?.url)) return;
         capturedRequests.add(params.requestId);
         let postData = request?.postData || null;
@@ -177,13 +190,13 @@ async function startNetworkCapture() {
           headers: sanitizeHeaders(request?.headers),
           postData: sanitizePostData(postData)
         });
-      } else if (method === "Network.requestWillBeSentExtraInfo" && capturedRequests.has(params.requestId)) {
-        appendNetworkEntry({
-          at: new Date().toISOString(),
-          event: "request-extra-headers",
-          requestId: params.requestId,
-          headers: sanitizeHeaders(params.headers)
-        });
+        if (extraHeaders)
+          appendExtraHeaders(params.requestId, extraHeaders);
+      } else if (method === "Network.requestWillBeSentExtraInfo") {
+        if (capturedRequests.has(params.requestId))
+          appendExtraHeaders(params.requestId, params.headers);
+        else
+          pendingExtraHeaders.set(params.requestId, params.headers);
       } else if (method === "Network.responseReceived" && capturedRequests.has(params.requestId)) {
         appendNetworkEntry({
           at: new Date().toISOString(),
@@ -217,6 +230,12 @@ async function startNetworkCapture() {
   }
 
   networkCapture = { debuggerClient, attachedHere, onMessage, path: logPath };
+  appendNetworkEntry({
+    at: new Date().toISOString(),
+    event: "capture-start",
+    provider: browserModule.name,
+    homeUrl: browserModule.homeUrl
+  });
   console.error(`Network capture started: ${logPath}`);
   return logPath;
 }
