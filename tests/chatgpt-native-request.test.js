@@ -49,7 +49,7 @@ class FakeDebugger extends EventEmitter {
   }
 }
 
-test("ChatGPT project send uses the native project composer and leaves its request untouched", async () => {
+test("ChatGPT project send applies requested model to the native request", async () => {
   const chatgpt = loadChatGptModule();
   const browserDebugger = new FakeDebugger();
   const sessionCalls = [];
@@ -65,9 +65,10 @@ test("ChatGPT project send uses the native project composer and leaves its reque
         search: target.search
       });
       if (target.pathname === "/api/auth/session")
-        return jsonResponse({ accessToken: "token" });
+        return jsonResponse({ accessToken: "token", user: { id: "account-1" } });
       if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
         events.push("preference");
+        assert.equal(options.headers?.["ChatGPT-Account-Id"], "account-1");
         return new Response("", { status: 200 });
       }
       if (target.pathname === "/backend-api/conversation/native-conversation") {
@@ -83,7 +84,7 @@ test("ChatGPT project send uses the native project composer and leaves its reque
                 author: { role: "assistant" },
                 status: "finished_successfully",
                 content: { parts: ["answer"] },
-                metadata: { model_slug: "gpt-5-6-thinking" }
+                metadata: { model_slug: "gpt-5-5-thinking" }
               }
             },
             "request-1": {
@@ -93,7 +94,7 @@ test("ChatGPT project send uses the native project composer and leaves its reque
                 author: { role: "user" },
                 status: "finished_successfully",
                 content: { parts: ["what model are you?"] },
-                metadata: { resolved_model_slug: "gpt-5-6-thinking" }
+                metadata: { resolved_model_slug: "gpt-5-5-thinking" }
               }
             }
           }
@@ -122,8 +123,8 @@ test("ChatGPT project send uses the native project composer and leaves its reque
       author: { role: "user" },
       content: { content_type: "text", parts: ["what model are you?"] }
     }],
-    model: "native-generated-model",
-    thinking_effort: "native-generated-effort",
+    model: "gpt-5-6-thinking",
+    thinking_effort: "extended",
     conversation_mode: { kind: "gizmo_interaction", gizmo_id: "g-p-project" },
     parent_message_id: "client-created-root",
     client_prepare_state: "success",
@@ -161,24 +162,35 @@ test("ChatGPT project send uses the native project composer and leaves its reque
     page,
     args: {
       prompt: "what model are you?",
-      model: "gpt-5-6-thinking::thinking-effort=extended",
+      model: "gpt-5-5-thinking::thinking-effort=standard",
       projectId: "g-p-project",
       files: []
     },
     sleep: async () => {}
   });
 
-  assert.deepEqual(events.slice(0, 3), ["preference", "load", "send"]);
-  assert.deepEqual(browserDebugger.continued, { requestId: "request-1" });
+  assert.deepEqual(events.slice(0, 3), ["load", "preference", "send"]);
+  assert.equal(browserDebugger.continued.requestId, "request-1");
+  const continuedBody = JSON.parse(
+    Buffer.from(browserDebugger.continued.postData, "base64").toString("utf8")
+  );
+  assert.equal(continuedBody.model, "gpt-5-5-thinking");
+  assert.equal(continuedBody.thinking_effort, "standard");
+  assert.deepEqual(continuedBody.system_hints, nativeBody.system_hints);
+  assert.deepEqual(continuedBody.client_contextual_info, nativeBody.client_contextual_info);
+  assert.deepEqual(
+    continuedBody.future_field_mezhs_does_not_know,
+    nativeBody.future_field_mezhs_does_not_know
+  );
   assert.deepEqual(sessionCalls, [
     { method: "GET", path: "/api/auth/session", search: "" },
     {
       method: "PATCH",
       path: "/backend-api/settings/user_last_used_model_config",
-      search: "?model_slug=gpt-5-6-thinking&thinking_effort=extended"
+      search: "?model_slug=gpt-5-5-thinking&thinking_effort=standard"
     },
     { method: "GET", path: "/backend-api/conversation/native-conversation", search: "" }
   ]);
   assert.equal(result.projectId, "g-p-project");
-  assert.equal(result.model, "gpt-5-6-thinking");
+  assert.equal(result.model, "gpt-5-5-thinking");
 });
