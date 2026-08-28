@@ -242,7 +242,6 @@ function canUseNativeSend({ window, page, args }, isNew) {
     window?.webContents?.debugger &&
     typeof page?.invoke === "function" &&
     !(args.files || []).length &&
-    !(isNew && args.projectId) &&
     (isNew || args.conversationId)
   );
 }
@@ -267,9 +266,12 @@ async function setModelPreference(session, token, selection) {
 }
 
 async function sendNativeAccountMessage({ window, session, page, args, sleep }, isNew, token) {
-  await window.loadURL(isNew
-    ? module.exports.homeUrl
-    : `${ORIGIN}/c/${encodeURIComponent(args.conversationId)}`);
+  const targetUrl = isNew
+    ? args.projectId
+      ? `${ORIGIN}/g/${encodeURIComponent(args.projectId)}/project`
+      : module.exports.homeUrl
+    : `${ORIGIN}/c/${encodeURIComponent(args.conversationId)}`;
+  await window.loadURL(targetUrl);
 
   const messageId = await observeNativeConversationRequest(
     window.webContents.debugger,
