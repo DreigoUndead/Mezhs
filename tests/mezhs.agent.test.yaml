@@ -1,0 +1,51 @@
+version: 1
+
+server:
+  listen: http://127.0.0.1:5198
+
+transport:
+  type: electron
+  idleMinutes: 1
+  electronDirectory: ../electron
+
+storage:
+  root: data-agent-test/mezhs
+
+connections:
+  - id: test
+    name: Deterministic test integration
+    integration: mock
+
+extensions:
+  agent:
+    listen: http://127.0.0.1:5199
+    mezhsApi: http://127.0.0.1:5198
+    storage: data-agent-test/agent.sqlite
+
+    policies:
+      test:
+        connectionId: test
+        instructions: |
+          Complete the assigned deterministic test task.
+        completion:
+          requireDone: false
+        limits:
+          maxTurns: 3
+
+      test-alt:
+        connectionId: test
+        instructions: |
+          Alternative deterministic policy for ownership validation.
+        completion:
+          requireDone: false
+        limits:
+          maxTurns: 3
+
+      test-done:
+        connectionId: test
+        instructions: |
+          This policy requires an explicit completion claim.
+        completion:
+          requireDone: true
+        limits:
+          maxTurns: 1

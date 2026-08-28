@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Mezhs;
+using Mezhs.Api.Contracts;
 using Mezhs.Integrations;
 using Mezhs.Models;
 using Microsoft.Extensions.Hosting;

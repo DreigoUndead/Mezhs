@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Mezhs;
+using Mezhs.Api.Contracts;
 using Mezhs.Configuration;
 using Mezhs.Integrations;
 using Mezhs.Models;
@@ -102,19 +103,8 @@ app.MapGet("/v1/files/{fileId}/content", (
 });
 
 app.MapGet("/v1/chats", (string? connectionId, ChatStore chats) =>
-    Results.Ok(chats.GetChats(connectionId).Select(chat =>
-    {
-        var messages = chats.GetMessages(chat.ChatId);
-        return new
-        {
-            chat.ChatId,
-            ConnectionId = messages.LastOrDefault()?.ConnectionId ?? string.Empty,
-            chat.CategoryId,
-            chat.CreatedAt,
-            chat.UpdatedAt,
-            title = messages.FirstOrDefault(message => message.Role == "user")?.Content ?? "New chat"
-        };
-    })));
+    Results.Ok(chats.GetChats(connectionId)
+        .Select(chat => ToApiChat(chat, chats.GetMessages(chat.ChatId)))));
 
 app.MapPost("/v1/chats", (
     CreateChatRequest request,
@@ -123,15 +113,8 @@ app.MapPost("/v1/chats", (
 {
     integrations.Get(request.ConnectionId);
     var chat = chats.CreateChat(request.CategoryId);
-    return Results.Created($"/v1/chats/{chat.ChatId}", new
-    {
-        chat.ChatId,
-        request.ConnectionId,
-        chat.CategoryId,
-        chat.CreatedAt,
-        chat.UpdatedAt,
-        title = "New chat"
-    });
+    var response = ToApiChat(chat, [], request.ConnectionId);
+    return Results.Created($"/v1/chats/{chat.ChatId}", response);
 });
 
 app.MapDelete("/v1/chats", ([FromBody] DeleteChatsRequest request, ChatStore chats) =>
@@ -204,15 +187,7 @@ app.MapGet("/v1/chats/{chatId}", (string chatId, ChatStore chats) =>
     var chat = chats.GetChat(chatId);
     if (chat is null)
         return Results.NotFound(new { error = $"Chat '{chatId}' was not found." });
-    var messages = chats.GetMessages(chat.ChatId);
-    return Results.Ok(new
-    {
-        chat.ChatId,
-        ConnectionId = messages.LastOrDefault()?.ConnectionId ?? string.Empty,
-        chat.CategoryId,
-        chat.CreatedAt,
-        chat.UpdatedAt
-    });
+    return Results.Ok(ToApiChat(chat, chats.GetMessages(chat.ChatId)));
 });
 
 app.MapPatch("/v1/chats/{chatId}", (
@@ -230,6 +205,25 @@ app.MapGet("/v1/chats/{chatId}/messages", (string chatId, ChatStore chats) =>
 Console.WriteLine($"MEŽS config: {configPath}");
 Console.WriteLine($"MEŽS listening: {options.Server.Listen}");
 await app.RunAsync();
+
+static ApiChat ToApiChat(
+    ChatRecord chat,
+    IReadOnlyList<StoredMessage> messages,
+    string? connectionId = null)
+{
+    var resolvedConnectionId = connectionId
+        ?? messages.LastOrDefault()?.ConnectionId
+        ?? string.Empty;
+    var title = messages.FirstOrDefault(message => message.Role == "user")?.Content
+        ?? "New chat";
+    return new ApiChat(
+        chat.ChatId,
+        resolvedConnectionId,
+        chat.CategoryId,
+        chat.CreatedAt,
+        chat.UpdatedAt,
+        title);
+}
 
 static string? GetOption(string[] args, string name)
 {
