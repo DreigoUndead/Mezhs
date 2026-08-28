@@ -49,7 +49,7 @@ class FakeDebugger extends EventEmitter {
   }
 }
 
-test("ChatGPT account send sets native model preference and leaves the native request untouched", async () => {
+test("ChatGPT project send uses the native project composer and leaves its request untouched", async () => {
   const chatgpt = loadChatGptModule();
   const browserDebugger = new FakeDebugger();
   const sessionCalls = [];
@@ -73,6 +73,7 @@ test("ChatGPT account send sets native model preference and leaves the native re
       if (target.pathname === "/backend-api/conversation/native-conversation") {
         return jsonResponse({
           conversation_id: "native-conversation",
+          gizmo_id: "g-p-project",
           current_node: "assistant-1",
           mapping: {
             "assistant-1": {
@@ -105,6 +106,7 @@ test("ChatGPT account send sets native model preference and leaves the native re
   const window = {
     loadURL: async url => {
       events.push("load");
+      assert.equal(url, "https://chatgpt.com/g/g-p-project/project");
       currentUrl = url;
     },
     webContents: {
@@ -122,6 +124,7 @@ test("ChatGPT account send sets native model preference and leaves the native re
     }],
     model: "native-generated-model",
     thinking_effort: "native-generated-effort",
+    conversation_mode: { kind: "gizmo_interaction", gizmo_id: "g-p-project" },
     parent_message_id: "client-created-root",
     client_prepare_state: "success",
     system_hints: [{ native: true }],
@@ -147,7 +150,7 @@ test("ChatGPT account send sets native model preference and leaves the native re
           }
         }
       });
-      currentUrl = "https://chatgpt.com/c/native-conversation";
+      currentUrl = "https://chatgpt.com/g/g-p-project/c/native-conversation";
       await new Promise(resolve => setImmediate(resolve));
     }
   };
@@ -159,6 +162,7 @@ test("ChatGPT account send sets native model preference and leaves the native re
     args: {
       prompt: "what model are you?",
       model: "gpt-5-6-thinking::thinking-effort=extended",
+      projectId: "g-p-project",
       files: []
     },
     sleep: async () => {}
@@ -175,5 +179,6 @@ test("ChatGPT account send sets native model preference and leaves the native re
     },
     { method: "GET", path: "/backend-api/conversation/native-conversation", search: "" }
   ]);
+  assert.equal(result.projectId, "g-p-project");
   assert.equal(result.model, "gpt-5-6-thinking");
 });
