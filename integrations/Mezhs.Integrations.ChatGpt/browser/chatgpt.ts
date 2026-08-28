@@ -5,6 +5,7 @@ const { Buffer } = require("node:buffer");
 const { randomUUID } = require("node:crypto");
 
 const ORIGIN = "https://chatgpt.com";
+const accountIds = new WeakMap();
 const API = Object.freeze({
   session: "/api/auth/session",
   projects: "/backend-api/gizmos/snorlax/sidebar",
@@ -249,10 +250,11 @@ function canUseNativeSend({ window, page, args }, isNew) {
 async function sendAccountMessage(context, isNew) {
   const token = await requireToken(context.session);
   const selection = parseModelSelection(context.args.model);
-  await setModelPreference(context.session, token, selection);
 
   if (canUseNativeSend(context, isNew))
-    return sendNativeAccountMessage(context, isNew, token);
+    return sendNativeAccountMessage(context, isNew, token, selection);
+
+  await setModelPreference(context.session, token, selection);
   return sendApiAccountMessage(context, isNew, token, selection);
 }
 
@@ -265,16 +267,18 @@ async function setModelPreference(session, token, selection) {
   await apiFetch(session, token, url.pathname + url.search, { method: "PATCH" });
 }
 
-async function sendNativeAccountMessage({ window, session, page, args, sleep }, isNew, token) {
+async function sendNativeAccountMessage({ window, session, page, args, sleep }, isNew, token, selection) {
   const targetUrl = isNew
     ? args.projectId
       ? `${ORIGIN}/g/${encodeURIComponent(args.projectId)}/project`
       : module.exports.homeUrl
     : `${ORIGIN}/c/${encodeURIComponent(args.conversationId)}`;
   await window.loadURL(targetUrl);
+  await setModelPreference(session, token, selection);
 
   const messageId = await observeNativeConversationRequest(
     window.webContents.debugger,
+    selection,
     () => page.invoke("submitPrompt", { prompt: args.prompt })
   );
   const conversationId = isNew
@@ -291,7 +295,7 @@ async function sendNativeAccountMessage({ window, session, page, args, sleep }, 
   );
 }
 
-async function observeNativeConversationRequest(debuggerClient, trigger) {
+async function observeNativeConversationRequest(debuggerClient, selection, trigger) {
   let attachedHere = false;
   if (!debuggerClient.isAttached()) {
     debuggerClient.attach("1.3");
@@ -338,8 +342,26 @@ async function observeNativeConversationRequest(debuggerClient, trigger) {
         throw new Error("ChatGPT native conversation request has no message id.");
       }
 
+      const nativeModel = String(body.model || "").trim() || null;
+      if (selection.model && selection.model !== "auto")
+        body.model = selection.model;
+      if (Object.prototype.hasOwnProperty.call(body, "thinking_effort")) {
+        if (selection.thinkingEffort)
+          body.thinking_effort = selection.thinkingEffort;
+        else
+          delete body.thinking_effort;
+      }
+
+      console.error(
+        `ChatGPT native model: requested=${selection.model}` +
+        `${selection.thinkingEffort ? `/${selection.thinkingEffort}` : ""}, ` +
+        `composer=${nativeModel || "<none>"}` +
+        `${body.thinking_effort ? `/${body.thinking_effort}` : ""}`
+      );
+
       await debuggerClient.sendCommand("Fetch.continueRequest", {
-        requestId: params.requestId
+        requestId: params.requestId,
+        postData: Buffer.from(JSON.stringify(body)).toString("base64")
       });
       resolveRequest(messageId);
     } catch (error) {
@@ -743,8 +765,22 @@ async function accessToken(session) {
     credentials: "include",
     cache: "no-store"
   });
-  if (!response.ok) return null;
-  return (await response.json())?.accessToken || null;
+  if (!response.ok) {
+    accountIds.delete(session);
+    return null;
+  }
+
+  const auth = await response.json();
+  const accountId = String(
+    auth?.account?.id ||
+    auth?.accountId ||
+    auth?.account_id ||
+    auth?.user?.id ||
+    ""
+  ).trim();
+  if (accountId) accountIds.set(session, accountId);
+  else accountIds.delete(session);
+  return auth?.accessToken || null;
 }
 
 async function requireToken(session) {
@@ -754,9 +790,14 @@ async function requireToken(session) {
 }
 
 async function apiFetch(session, token, endpoint, options = {}) {
+  const accountId = accountIds.get(session);
   const response = await session.fetch(ORIGIN + endpoint, {
     ...options,
-    headers: { Authorization: `Bearer ${token}`, ...(options["headers"] || {}) },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
+      ...(options["headers"] || {})
+    },
     credentials: "include",
     cache: "no-store"
   });
