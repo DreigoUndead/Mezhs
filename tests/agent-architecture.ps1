@@ -23,6 +23,8 @@ $requiredFiles = @(
     "src/Mezhs.Agent.Api/Services/AgentService.cs",
     "src/Mezhs.Agent.Api/Services/AgentWorker.cs",
     "src/Mezhs.Agent.Api/Services/PolicyRegistry.cs",
+    "src/Mezhs.Agent.Web/Mezhs.Agent.Web.csproj",
+    "src/Mezhs.Agent.Web/Program.cs",
     "src/Mezhs.Agent.Web/package.json",
     "src/Mezhs.Agent.Web/src/App.tsx"
 )
@@ -35,8 +37,9 @@ foreach ($file in $requiredFiles) {
 $agentProject = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Mezhs.Agent.Api.csproj") -Raw
 if ($agentProject -match 'Mezhs\.Api\\Mezhs\.Api\.csproj' -or
     $agentProject -match 'Mezhs\.Integration' -or
-    $agentProject -match 'Mezhs\.Integrations') {
-    throw "Mezhs.Agent.Api must not reference the generic API implementation or integrations."
+    $agentProject -match 'Mezhs\.Integrations' -or
+    $agentProject -match 'Mezhs\.Agent\.Web') {
+    throw "Mezhs.Agent.Api must remain API-only and must not reference the generic API implementation, integrations, or Agent Web."
 }
 if ($agentProject -notmatch 'Mezhs\.Api\.Contracts') {
     throw "Mezhs.Agent.Api must use the shared compiler-checked HTTP contracts."
@@ -44,8 +47,17 @@ if ($agentProject -notmatch 'Mezhs\.Api\.Contracts') {
 if ($agentProject -notmatch 'Microsoft.Data.Sqlite') {
     throw "Mezhs.Agent.Api does not have durable SQLite storage."
 }
-if ($agentProject -notmatch 'Mezhs\.Agent\.Web') {
-    throw "Mezhs.Agent.Api is not building the separate Agent Web frontend."
+
+$agentWebProject = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/Mezhs.Agent.Web.csproj") -Raw
+$agentWebHost = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/Program.cs") -Raw
+if ($agentWebProject -notmatch 'Microsoft.NET.Sdk.Web' -or
+    $agentWebProject -notmatch 'Mezhs\.Web\.Lib') {
+    throw "Mezhs.Agent.Web is not a standalone web host consuming the shared web library."
+}
+if ($agentWebHost -notmatch 'Agent:BaseUrl' -or
+    $agentWebHost -notmatch 'IHttpClientFactory' -or
+    $agentWebHost -notmatch '/v1/\{\*\*path\}') {
+    throw "Mezhs.Agent.Web is not independently hosting the dashboard and forwarding its API boundary."
 }
 
 $genericProject = Get-Content (Join-Path $root "src/Mezhs.Api/Mezhs.Api.csproj") -Raw
@@ -213,4 +225,4 @@ if ($config -notmatch '(?ms)^\s+commands:\s*\r?\n\s+allow:\s*\r?\n\s+- SH') {
     throw "Default policy does not explicitly allow shell execution."
 }
 
-Write-Host "PASS: Agent Web stays additive, policy owns behavior/connection, command dispatch is extensible, shell context is isolated, and pause state is durable."
+Write-Host "PASS: Agent API/Web are separate projects, policy owns behavior/connection, command dispatch is extensible, shell context is isolated, and pause state is durable."
