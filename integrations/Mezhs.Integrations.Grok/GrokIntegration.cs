@@ -12,6 +12,7 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
 {
     private readonly BrowserAccountSession _session;
     private readonly ILoginModule _login;
+    private readonly IModelModule _models;
 
     public GrokAccountIntegration(
         IntegrationConnection connection,
@@ -19,24 +20,25 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
     {
         _session = CreateAccountSession();
         _login = new LoginModule(_session);
+        _models = new ModelModule(_session);
     }
 
     protected override Assembly BrowserModuleAssembly => typeof(GrokAccountIntegration).Assembly;
     protected override string BrowserModuleResourceName => "Mezhs.Integrations.Grok.BrowserModule";
 
     public override ILoginModule Login => _login;
+    public override IModelModule Models => _models;
 
     public override Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
         CancellationToken cancellationToken = default) =>
         _session.UseAsync(async (transport, token) =>
         {
-            var newChat = string.IsNullOrWhiteSpace(context.Chat.RemoteChatUrl);
             var response = await transport.InvokeAsync<GrokSendResponse>(
-                newChat ? "newChat" : "send",
+                "newChat",
                 new GrokSendRequest(
                     context.Prompt,
-                    context.Chat.RemoteChatUrl),
+                    context.Message.Model),
                 token);
             return new IntegrationSendResult(
                 response.Text,
@@ -55,15 +57,29 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
 
     private sealed record GrokSendRequest(
         string Prompt,
-        string? ChatUrl);
+        string? Model);
 
     private sealed record GrokSendResponse(
         string Text,
-        string ChatUrl);
+        string? ChatUrl);
 
     private sealed class LoginModule(BrowserAccountSession session) : ILoginModule
     {
         public Task LoginAsync(CancellationToken cancellationToken = default) =>
             session.LoginAsync(cancellationToken);
+
+        public Task OpenBrowserAsync(CancellationToken cancellationToken = default) =>
+            session.OpenBrowserAsync(cancellationToken);
+    }
+
+    private sealed class ModelModule(BrowserAccountSession session) : IModelModule
+    {
+        public Task<IReadOnlyList<IntegrationModel>> GetModelsAsync(
+            CancellationToken cancellationToken = default) =>
+            session.UseAuthorizedAsync<IReadOnlyList<IntegrationModel>>(async (transport, token) =>
+                await transport.InvokeAsync<IntegrationModel[]>(
+                    "getModels",
+                    cancellationToken: token),
+                cancellationToken);
     }
 }

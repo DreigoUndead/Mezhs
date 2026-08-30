@@ -44,6 +44,32 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapGet("/v1/connections", (IntegrationRegistry integrations) =>
     Results.Ok(integrations.GetConnections()));
 
+app.MapGet("/v1/connections/{connectionId}/models", async (
+    string connectionId,
+    IntegrationRegistry integrations,
+    CancellationToken cancellationToken) =>
+{
+    if (!integrations.TryGet(connectionId, out var integration))
+        return Results.NotFound(new { error = $"Connection '{connectionId}' was not found." });
+    if (integration.Models is null)
+        return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support model selection." });
+
+    try
+    {
+        var discovered = await integration.Models.GetModelsAsync(cancellationToken);
+        var models = new[] { new IntegrationModel(null, "Default") }
+            .Concat(discovered
+                .Where(model => !string.IsNullOrWhiteSpace(model.Id) && !string.IsNullOrWhiteSpace(model.Name))
+                .DistinctBy(model => model.Id, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+        return Results.Ok(models);
+    }
+    catch (IntegrationAuthorizationRequiredException ex)
+    {
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+});
+
 app.MapPost("/v1/files", async (
     HttpRequest request,
     IntegrationRegistry integrations,
@@ -175,6 +201,20 @@ app.MapPost("/v1/connections/{connectionId}/login", async (
 
     await integration.Login.LoginAsync(cancellationToken);
     return Results.Ok(new { connectionId, status = "ready" });
+});
+
+app.MapPost("/v1/connections/{connectionId}/browser", async (
+    string connectionId,
+    IntegrationRegistry integrations,
+    CancellationToken cancellationToken) =>
+{
+    if (!integrations.TryGet(connectionId, out var integration))
+        return Results.NotFound(new { error = $"Connection '{connectionId}' was not found." });
+    if (integration.Login is null)
+        return Results.BadRequest(new { error = $"Connection '{connectionId}' does not have an account browser." });
+
+    await integration.Login.OpenBrowserAsync(cancellationToken);
+    return Results.Ok(new { connectionId, status = "open" });
 });
 
 app.MapPost("/v1/messages", (PostMessageRequest request, MessageService messages) =>

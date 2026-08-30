@@ -5,6 +5,7 @@ import type {
   Chat,
   ChatMessage as Message,
   Connection,
+  ConnectionModel,
 } from "./providers/contracts";
 
 type Category = {
@@ -58,6 +59,9 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const apiBase = apiBaseUrl.replace(/\/$/, "");
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionId, setConnectionId] = useState("");
+  const [models, setModels] = useState<ConnectionModel[]>([]);
+  const [modelId, setModelId] = useState("");
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [newChatCategoryId, setNewChatCategoryId] = useState("");
@@ -72,7 +76,6 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [online, setOnline] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [loginId, setLoginId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showConversationManager, setShowConversationManager] = useState(false);
@@ -87,6 +90,10 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const selectedConnection = useMemo(
     () => connections.find((connection) => connection.id === connectionId),
     [connections, connectionId],
+  );
+  const selectedModel = useMemo(
+    () => models.find((model) => (model.id || "") === modelId),
+    [models, modelId],
   );
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
@@ -135,6 +142,34 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   }, [apiBase]);
 
   useEffect(() => () => providerRegistry.current.dispose(), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setModels([]);
+    setModelId("");
+    if (!selectedConnection?.supportsModels) {
+      setModelsLoading(false);
+      return () => { cancelled = true; };
+    }
+
+    setModelsLoading(true);
+    void providerRegistry.current.get(selectedConnection.id).getModels()
+      .then((available) => {
+        if (cancelled) return;
+        setModels(available);
+        const configured = selectedConnection.defaultModel || "";
+        setModelId(available.some((model) => (model.id || "") === configured) ? configured : "");
+      })
+      .catch((error) => {
+        if (!cancelled)
+          setNotice(error instanceof Error ? error.message : "Could not load models.");
+      })
+      .finally(() => {
+        if (!cancelled) setModelsLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedConnection]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -192,7 +227,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
     try {
       const request = await providerRegistry.current.get(connectionId).sendMessage(
         chatId,
-        { content, files: uploadedFiles },
+        { content, files: uploadedFiles, model: modelId || undefined },
         { categoryId: newChatCategoryId || null },
       );
       setChatId(request.chatId);
@@ -244,19 +279,6 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
       setNotice(error instanceof Error ? error.message : "Message could not be replayed.");
     } finally {
       setSending(false);
-    }
-  }
-
-  async function login(connection: Connection) {
-    setLoginId(connection.id);
-    setNotice("Complete authorization in the browser window. MEŽS will save this session.");
-    try {
-      await providerRegistry.current.get(connection.id).initialize();
-      setNotice(`${connection.name} is authorized and ready.`);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Authorization failed.");
-    } finally {
-      setLoginId(null);
     }
   }
 
@@ -452,11 +474,17 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
           </select>
         </div>
 
-        {selectedConnection?.requiresLogin && (
-          <button className="login-button" disabled={loginId === selectedConnection.id} onClick={() => void login(selectedConnection)}>
-            {loginId === selectedConnection.id ? "Waiting for authorization..." : "Open login window"}
-          </button>
+        {selectedConnection?.supportsModels && (
+          <label className="model-picker">
+            <span>Model</span>
+            <select value={modelId} onChange={(event) => setModelId(event.target.value)} disabled={modelsLoading || sending}>
+              {models.length > 0
+                ? models.map((model, index) => <option key={model.id || `default-${index}`} value={model.id || ""}>{model.name}</option>)
+                : <option value="">{modelsLoading ? "Loading models..." : "Default"}</option>}
+            </select>
+          </label>
         )}
+
 
         <div className="groups-heading">
           <span className="section-label">Groups</span>
@@ -646,6 +674,10 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
             </div>
           ) : messages.map((message) => {
             const messageConnection = connectionFor(message.connectionId);
+            const messageModelName = message.model &&
+              message.connectionId === selectedConnection?.id
+              ? models.find((model) => model.id === message.model)?.name || message.model
+              : message.model;
             return (
               <article key={message.messageId} className={`message ${message.role}`}>
                 <div className="message-avatar">{message.role === "assistant" ? "M" : "YOU"}</div>
@@ -653,6 +685,14 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
                   <div className="message-meta">
                     <strong>{message.role === "assistant" ? messageConnection?.name || "Assistant" : "You"}</strong>
                     <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    {message.model && (
+                      <span
+                        className="message-model"
+                        title={`${message.role === "user" ? "Requested" : "Provider-reported"} model ID: ${message.model}`}
+                      >
+                        {message.role === "user" ? "Requested: " : "Served: "}{messageModelName}
+                      </span>
+                    )}
                     {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
                   </div>
                   {message.content && <div className="message-content">{message.content}</div>}
@@ -678,7 +718,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
               </article>
             );
           })}
-          {sending && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>Working through it...</span></div>}
+          {sending && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>{selectedModel?.id ? `${selectedModel.name} is thinking...` : "Working through it..."}</span></div>}
           <div ref={endRef} />
         </section>
 

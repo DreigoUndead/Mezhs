@@ -5,11 +5,16 @@ const { Buffer } = require("node:buffer");
 const { randomUUID } = require("node:crypto");
 
 const ORIGIN = "https://chatgpt.com";
+const accountIds = new WeakMap();
 const API = Object.freeze({
   session: "/api/auth/session",
   projects: "/backend-api/gizmos/snorlax/sidebar",
-  requirements: "/backend-api/sentinel/chat-requirements",
-  conversation: "/backend-api/conversation",
+  models: "/backend-api/models?history_and_training_disabled=false",
+  modelPreference: "/backend-api/settings/user_last_used_model_config",
+  conversationPrepare: "/backend-api/f/conversation/prepare",
+  requirementsPrepare: "/backend-api/sentinel/chat-requirements/prepare",
+  requirementsFinalize: "/backend-api/sentinel/chat-requirements/finalize",
+  conversation: "/backend-api/f/conversation",
   conversationById: id => `/backend-api/conversation/${encodeURIComponent(id)}`,
   files: "/backend-api/files",
   fileUploaded: id => `/backend-api/files/${encodeURIComponent(id)}/uploaded`,
@@ -45,6 +50,12 @@ module.exports = {
       return projects;
     },
 
+    async getModels({ session }) {
+      const token = await requireToken(session);
+      const response = await apiJson(session, token, API.models);
+      return nativePickerModels(response);
+    },
+
     newChat(context) {
       return sendAccountMessage(context, true);
     },
@@ -53,8 +64,7 @@ module.exports = {
       return sendAccountMessage(context, false);
     },
 
-    // Anonymous ChatGPT remains on its old browser path. Account operations above
-    // use only the private API through Electron's authenticated Chromium session.
+    // Anonymous ChatGPT remains on its old browser path.
     async sendPrompt({ window, args }) {
       if (args.newChat) await window.loadURL(module.exports.homeUrl);
       const prompt = JSON.stringify(String(args.prompt || ""));
@@ -96,21 +106,295 @@ module.exports = {
         })()
       `, true);
     }
+  },
+
+  pageOperations: {
+    submitPrompt
   }
 };
 
-async function sendAccountMessage({ window, session, args, sleep }, isNew) {
-  const token = await requireToken(session);
-  const config = sentinelConfig(window);
-  const requirements = await apiJson(session, token, API.requirements, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ p: sentinelRequirementsToken(config) })
-  });
-  const proofToken = requirements?.proofofwork?.required
-    ? sentinelProofToken(requirements.proofofwork, config)
-    : null;
+function nativePickerModels(catalog) {
+  const models = new Map(
+    (catalog?.models || []).map(model => [
+      String(model?.slug || model?.id || "").trim().toLowerCase(),
+      model
+    ])
+  );
+  const result = [];
+  const seen = new Set();
+  for (const version of catalog?.versions || []) {
+    if (version?.enabled === false) continue;
+    const versionId = String(version?.id || "").trim();
+    const versionName = String(
+      version?.display_text_for_intelligence ||
+      version?.display_text ||
+      versionId
+    ).trim();
+    const nativePresets = version?.intelligence_presets || [];
+    const presets = nativePresets
+      .filter(preset => preset?.preset_type === "available" && preset?.enabled !== false);
 
+    if (nativePresets.length) {
+      for (const preset of presets) {
+        const model = String(preset?.model_slug || "").trim();
+        const effort = String(preset?.thinking_effort || "").trim();
+        const presetName = String(
+          preset?.selected_display_title ||
+          preset?.title ||
+          ""
+        ).trim();
+        const id = modelSelectionId(model, effort);
+        const name = [versionName, presetName].filter(Boolean).join(" · ");
+        const key = id.toLowerCase();
+        if (!model || !name || seen.has(key)) continue;
+        seen.add(key);
+        result.push({ id, name });
+      }
+      continue;
+    }
+
+    const canonicalId = versionId.toLowerCase() === "o3"
+      ? "o3"
+      : `gpt-${versionId.replace(/\./g, "-")}`;
+    const candidates = (version?.slugs || [])
+      .map(value => String(value || "").trim())
+      .filter(Boolean);
+    const id = candidates.find(candidate => candidate.toLowerCase() === canonicalId.toLowerCase()) ||
+      (models.has(canonicalId.toLowerCase()) ? canonicalId : null) ||
+      candidates.find(candidate => models.has(candidate.toLowerCase())) ||
+      candidates[0];
+    const model = id ? models.get(id.toLowerCase()) : null;
+    const name = String(
+      versionName ||
+      model?.title ||
+      model?.display_name ||
+      model?.name ||
+      id ||
+      ""
+    ).trim();
+    const key = String(id || "").toLowerCase();
+    if (!id || !name || seen.has(key)) continue;
+    seen.add(key);
+    result.push({ id, name });
+  }
+  return result;
+}
+
+const MODEL_SELECTION_SEPARATOR = "::thinking-effort=";
+const CHATGPT_WIRE_MODEL = Object.freeze({
+  "gpt-5-6-instant": "gpt-5-5",
+  "gpt-5-5-instant": "gpt-5-5"
+});
+
+function modelSelectionId(model, thinkingEffort) {
+  return thinkingEffort
+    ? `${model}${MODEL_SELECTION_SEPARATOR}${thinkingEffort}`
+    : model;
+}
+
+function parseModelSelection(value) {
+  const selected = String(value || "auto").trim() || "auto";
+  const separator = selected.lastIndexOf(MODEL_SELECTION_SEPARATOR);
+  const model = separator > 0 ? selected.slice(0, separator) : selected;
+  const thinkingEffort = separator > 0
+    ? selected.slice(separator + MODEL_SELECTION_SEPARATOR.length).trim() || null
+    : null;
+  return {
+    model: CHATGPT_WIRE_MODEL[model.toLowerCase()] || model,
+    thinkingEffort
+  };
+}
+
+async function submitPrompt({ args, sleep }) {
+  const prompt = String(args.prompt || "");
+  let editor = null;
+  for (let i = 0; i < 120 && !editor; i++) {
+    editor = document.querySelector(
+      '#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]'
+    );
+    if (!editor) await sleep(250);
+  }
+  if (!editor) throw new Error("ChatGPT prompt editor was not found.");
+
+  editor.focus();
+  document.execCommand("selectAll", false, null);
+  document.execCommand("insertText", false, prompt);
+  editor.dispatchEvent(new InputEvent("input", {
+    bubbles: true,
+    inputType: "insertText",
+    data: prompt
+  }));
+
+  let send = null;
+  for (let i = 0; i < 360 && (!send || send.disabled); i++) {
+    send = document.querySelector(
+      'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
+    );
+    if (!send || send.disabled) await sleep(250);
+  }
+  if (!send || send.disabled)
+    throw new Error("ChatGPT send button did not become available.");
+  send.click();
+  return true;
+}
+
+function canUseNativeSend({ window, page, args }, isNew) {
+  return Boolean(
+    window?.webContents?.debugger &&
+    typeof page?.invoke === "function" &&
+    !(args.files || []).length &&
+    (isNew || args.conversationId)
+  );
+}
+
+async function sendAccountMessage(context, isNew) {
+  const token = await requireToken(context.session);
+  const selection = parseModelSelection(context.args.model);
+
+  if (canUseNativeSend(context, isNew))
+    return sendNativeAccountMessage(context, isNew, token, selection);
+
+  await setModelPreference(context.session, token, selection);
+  return sendApiAccountMessage(context, isNew, token, selection);
+}
+
+async function setModelPreference(session, token, selection) {
+  if (!selection.model || selection.model === "auto") return;
+  const url = new URL(API.modelPreference, ORIGIN);
+  url.searchParams.set("model_slug", selection.model);
+  if (selection.thinkingEffort)
+    url.searchParams.set("thinking_effort", selection.thinkingEffort);
+  await apiFetch(session, token, url.pathname + url.search, { method: "PATCH" });
+}
+
+async function sendNativeAccountMessage({ window, session, page, args, sleep }, isNew, token, selection) {
+  const targetUrl = isNew
+    ? args.projectId
+      ? `${ORIGIN}/g/${encodeURIComponent(args.projectId)}/project`
+      : module.exports.homeUrl
+    : `${ORIGIN}/c/${encodeURIComponent(args.conversationId)}`;
+  await window.loadURL(targetUrl);
+  await setModelPreference(session, token, selection);
+
+  const messageId = await observeNativeConversationRequest(
+    window.webContents.debugger,
+    selection,
+    () => page.invoke("submitPrompt", { prompt: args.prompt })
+  );
+  const conversationId = isNew
+    ? await waitForNativeConversationId(window, sleep)
+    : args.conversationId;
+
+  return completeAccountMessage(
+    session,
+    token,
+    conversationId,
+    messageId,
+    sleep,
+    isNew
+  );
+}
+
+async function observeNativeConversationRequest(debuggerClient, selection, trigger) {
+  let attachedHere = false;
+  if (!debuggerClient.isAttached()) {
+    debuggerClient.attach("1.3");
+    attachedHere = true;
+  }
+
+  let resolveRequest;
+  let rejectRequest;
+  const request = new Promise((resolve, reject) => {
+    resolveRequest = resolve;
+    rejectRequest = reject;
+  });
+  const timeout = setTimeout(
+    () => rejectRequest(new Error("ChatGPT native send request was not observed.")),
+    60000
+  );
+
+  const onMessage = async (_event, method, params) => {
+    if (method !== "Fetch.requestPaused") return;
+    if (!String(params?.request?.url || "").endsWith(API.conversation)) {
+      await debuggerClient.sendCommand("Fetch.continueRequest", {
+        requestId: params.requestId
+      });
+      return;
+    }
+
+    try {
+      if (!params.request.postData) {
+        await debuggerClient.sendCommand("Fetch.failRequest", {
+          requestId: params.requestId,
+          errorReason: "Aborted"
+        });
+        throw new Error("ChatGPT native conversation request did not expose its body.");
+      }
+
+      const body = JSON.parse(params.request.postData);
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const messageId = String(messages.at(-1)?.id || "").trim();
+      if (!messageId) {
+        await debuggerClient.sendCommand("Fetch.failRequest", {
+          requestId: params.requestId,
+          errorReason: "Aborted"
+        });
+        throw new Error("ChatGPT native conversation request has no message id.");
+      }
+
+      const nativeModel = String(body.model || "").trim() || null;
+      if (selection.model && selection.model !== "auto")
+        body.model = selection.model;
+      if (selection.thinkingEffort)
+        body.thinking_effort = selection.thinkingEffort;
+      else
+        delete body.thinking_effort;
+
+      console.error(
+        `ChatGPT native model: requested=${selection.model}` +
+        `${selection.thinkingEffort ? `/${selection.thinkingEffort}` : ""}, ` +
+        `composer=${nativeModel || "<none>"}` +
+        `${body.thinking_effort ? `/${body.thinking_effort}` : ""}`
+      );
+
+      await debuggerClient.sendCommand("Fetch.continueRequest", {
+        requestId: params.requestId,
+        postData: Buffer.from(JSON.stringify(body)).toString("base64")
+      });
+      resolveRequest(messageId);
+    } catch (error) {
+      rejectRequest(error);
+    }
+  };
+
+  debuggerClient.on("message", onMessage);
+  try {
+    await debuggerClient.sendCommand("Fetch.enable", {
+      patterns: [{
+        urlPattern: `*${API.conversation}`,
+        requestStage: "Request"
+      }]
+    });
+    await trigger();
+    return await request;
+  } finally {
+    clearTimeout(timeout);
+    debuggerClient.removeListener("message", onMessage);
+    await debuggerClient.sendCommand("Fetch.disable").catch(() => {});
+    if (attachedHere && debuggerClient.isAttached()) debuggerClient.detach();
+  }
+}
+
+async function waitForNativeConversationId(window, sleep) {
+  for (let i = 0; i < 120; i++) {
+    const match = /\/c\/([^/?#]+)/.exec(String(window.webContents.getURL?.() || ""));
+    if (match) return decodeURIComponent(match[1]);
+    await sleep(500);
+  }
+  throw new Error("ChatGPT native send did not open a conversation.");
+}
+
+async function sendApiAccountMessage({ window, session, args, sleep }, isNew, token, selection) {
   const uploaded = await uploadFiles(session, token, args.files || []);
   const messageId = randomUUID();
   const imageParts = uploaded
@@ -126,42 +410,73 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
     mimeType: file.contentType,
     size: file.size
   }));
-  const headers = {
-    "Content-Type": "application/json",
-    "Accept": "text/event-stream",
-    "Oai-Language": "en-US",
-    "Oai-Session-Id": randomUUID()
-  };
-  const deviceId = (await session.cookies.get({ url: ORIGIN, name: "oai-did" }))[0]?.value;
-  if (deviceId) headers["Oai-Device-Id"] = deviceId;
-  if (requirements?.token)
-    headers["Openai-Sentinel-Chat-Requirements-Token"] = requirements.token;
-  if (proofToken)
-    headers["Openai-Sentinel-Proof-Token"] = proofToken;
 
   const projectMode = isNew && args.projectId;
+  const model = selection.model;
+  const metadata = {
+    selected_sources: [],
+    serialization_metadata: { custom_symbol_offsets: [] },
+    ...(attachments.length ? { attachments } : {})
+  };
   const payload = {
     action: "next",
     conversation_id: isNew ? undefined : args.conversationId,
     messages: [{
       id: messageId,
       author: { role: "user" },
+      create_time: Date.now() / 1000,
       content: {
         content_type: imageParts.length ? "multimodal_text" : "text",
         parts: [...imageParts, String(args.prompt || "")]
       },
-      metadata: attachments.length ? { attachments } : {}
+      metadata
     }],
-    model: "auto",
-    parent_message_id: isNew ? randomUUID() : args.parentMessageId,
+    model,
+    parent_message_id: isNew ? "client-created-root" : args.parentMessageId,
+    client_prepare_state: "success",
     timezone_offset_min: new Date().getTimezoneOffset(),
-    history_and_training_disabled: false,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
     conversation_mode: isNew
       ? projectMode
         ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
         : { kind: "primary_assistant" }
-      : undefined
+      : undefined,
+    system_hints: [],
+    supports_buffering: true,
+    supported_encodings: ["v1"],
+    client_contextual_info: clientContext(window),
+    paragen_cot_summary_display_override: "allow",
+    force_parallel_switch: "auto",
+    local_function_names: ["local.continue_in_work"]
   };
+  if (selection.thinkingEffort)
+    payload.thinking_effort = selection.thinkingEffort;
+
+  const config = sentinelConfig(window);
+  const turnTraceId = randomUUID();
+  const conduitToken = await getConduitToken(
+    session,
+    token,
+    turnTraceId,
+    conversationPreparePayload(payload)
+  );
+  const requirements = await getSentinelToken(session, token, config);
+
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "text/event-stream",
+    "Oai-Language": "en-US",
+    "Oai-Session-Id": randomUUID(),
+    "openai-sentinel-chat-requirements-token": requirements.token,
+    "x-conduit-token": conduitToken,
+    "x-oai-turn-trace-id": turnTraceId,
+    "x-openai-target-path": API.conversation,
+    "x-openai-target-route": API.conversation
+  };
+  const deviceId = (await session.cookies.get({ url: ORIGIN, name: "oai-did" }))[0]?.value;
+  if (deviceId) headers["Oai-Device-Id"] = deviceId;
+  if (requirements.proofToken)
+    headers["openai-sentinel-proof-token"] = requirements.proofToken;
 
   const response = await apiFetch(session, token, API.conversation, {
     method: "POST",
@@ -171,14 +486,142 @@ async function sendAccountMessage({ window, session, args, sleep }, isNew) {
   const conversationId = findConversationId(await response.text()) || args.conversationId;
   if (!conversationId) throw new Error("ChatGPT did not return a conversation id.");
 
-  const result = await waitForConversation(session, token, conversationId, messageId, sleep);
+  return completeAccountMessage(
+    session,
+    token,
+    conversationId,
+    messageId,
+    sleep,
+    isNew
+  );
+}
+
+async function completeAccountMessage(session, token, conversationId, messageId, sleep, isNew) {
+  let result;
+  try {
+    result = await waitForConversation(session, token, conversationId, messageId, sleep);
+  } catch (error) {
+    if (!isNew && isConversationUnavailable(error, conversationId))
+      return { conversationUnavailable: true };
+    throw error;
+  }
+
   return {
     text: result.text,
     conversationId,
     parentMessageId: result.parentMessageId,
     projectId: result.projectId,
     chatUrl: `${ORIGIN}/c/${conversationId}`,
-    artifacts: await downloadFiles(session, token, result.files)
+    artifacts: await downloadFiles(session, token, result.files),
+    model: result.model
+  };
+}
+
+function conversationPreparePayload(payload) {
+  const message = payload.messages?.at(-1);
+  const prepared = {
+    action: payload.action,
+    conversation_id: payload.conversation_id,
+    parent_message_id: payload.parent_message_id || "client-created-root",
+    model: payload.model,
+    client_prepare_state: "success",
+    client_prepare_dispatch: "immediate",
+    client_prepare_source: "context_change",
+    timezone_offset_min: payload.timezone_offset_min,
+    timezone: payload.timezone,
+    conversation_mode: payload.conversation_mode || { kind: "primary_assistant" },
+    system_hints: payload.system_hints || [],
+    partial_query: message ? {
+      id: message.id,
+      author: message.author,
+      content: message.content
+    } : undefined,
+    supports_buffering: payload.supports_buffering,
+    supported_encodings: payload.supported_encodings,
+    client_contextual_info: {
+      app_name: payload.client_contextual_info?.app_name || "chatgpt.com",
+      has_web_push_capabilities: Boolean(
+        payload.client_contextual_info?.has_web_push_capabilities
+      ),
+      web_push_notification_permission:
+        payload.client_contextual_info?.web_push_notification_permission || "default"
+    },
+    local_function_names: payload.local_function_names || []
+  };
+  if (payload.thinking_effort)
+    prepared.thinking_effort = payload.thinking_effort;
+  return prepared;
+}
+
+async function getConduitToken(session, token, turnTraceId, body) {
+  const response = await apiJson(session, token, API.conversationPrepare, {
+    method: "POST",
+    headers: {
+      "Accept": "*/*",
+      "Content-Type": "application/json",
+      "x-oai-turn-trace-id": turnTraceId,
+      "x-openai-target-path": API.conversationPrepare,
+      "x-openai-target-route": API.conversationPrepare
+    },
+    body: JSON.stringify(body)
+  });
+  const conduitToken = String(response?.conduit_token || "").trim();
+  if (!conduitToken)
+    throw new Error("ChatGPT conversation prepare did not return a conduit token.");
+  return conduitToken;
+}
+
+async function getSentinelToken(session, token, config) {
+  const prepared = await apiJson(session, token, API.requirementsPrepare, {
+    method: "POST",
+    headers: targetHeaders(API.requirementsPrepare),
+    body: JSON.stringify({ p: sentinelRequirementsToken(config) })
+  });
+  const prepareToken = String(prepared?.prepare_token || "").trim();
+  if (!prepareToken)
+    throw new Error("ChatGPT Sentinel prepare did not return a prepare token.");
+
+  const proofToken = prepared?.proofofwork?.required
+    ? sentinelProofToken(prepared.proofofwork, config)
+    : null;
+  const body = { prepare_token: prepareToken };
+  if (proofToken) body.proofofwork = proofToken;
+
+  const finalized = await apiJson(session, token, API.requirementsFinalize, {
+    method: "POST",
+    headers: targetHeaders(API.requirementsFinalize),
+    body: JSON.stringify(body)
+  });
+  const sentinelToken = String(finalized?.token || "").trim();
+  if (!sentinelToken)
+    throw new Error("ChatGPT Sentinel finalize did not return a token.");
+  return { token: sentinelToken, proofToken };
+}
+
+function targetHeaders(endpoint) {
+  return {
+    "Accept": "*/*",
+    "Content-Type": "application/json",
+    "x-openai-target-path": endpoint,
+    "x-openai-target-route": endpoint
+  };
+}
+
+function clientContext(window) {
+  const bounds = window?.getBounds?.() || {};
+  const width = Number(bounds.width) || 1200;
+  const height = Number(bounds.height) || 850;
+  return {
+    is_dark_mode: false,
+    time_since_loaded: 0,
+    page_height: height,
+    page_width: width,
+    pixel_ratio: 1,
+    screen_height: height,
+    screen_width: width,
+    app_name: "chatgpt.com",
+    has_web_push_capabilities: true,
+    web_push_notification_permission: "default"
   };
 }
 
@@ -320,8 +763,22 @@ async function accessToken(session) {
     credentials: "include",
     cache: "no-store"
   });
-  if (!response.ok) return null;
-  return (await response.json())?.accessToken || null;
+  if (!response.ok) {
+    accountIds.delete(session);
+    return null;
+  }
+
+  const auth = await response.json();
+  const accountId = String(
+    auth?.account?.id ||
+    auth?.accountId ||
+    auth?.account_id ||
+    auth?.user?.id ||
+    ""
+  ).trim();
+  if (accountId) accountIds.set(session, accountId);
+  else accountIds.delete(session);
+  return auth?.accessToken || null;
 }
 
 async function requireToken(session) {
@@ -331,15 +788,31 @@ async function requireToken(session) {
 }
 
 async function apiFetch(session, token, endpoint, options = {}) {
+  const accountId = accountIds.get(session);
   const response = await session.fetch(ORIGIN + endpoint, {
     ...options,
-    headers: { Authorization: `Bearer ${token}`, ...(options["headers"] || {}) },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
+      ...(options["headers"] || {})
+    },
     credentials: "include",
     cache: "no-store"
   });
   if (response.ok) return response;
+
   const detail = (await response.text()).slice(0, 1000);
-  throw new Error(`ChatGPT ${endpoint} failed with HTTP ${response.status}: ${detail}`);
+  const error = new Error(`ChatGPT ${endpoint} failed with HTTP ${response.status}: ${detail}`);
+  error.status = response.status;
+  error.endpoint = endpoint;
+  error.detail = detail;
+  throw error;
+}
+
+function isConversationUnavailable(error, conversationId) {
+  return error?.status === 404 &&
+    error?.endpoint === API.conversationById(conversationId) &&
+    /"code"\s*:\s*"conversation_inaccessible"/.test(String(error?.detail || ""));
 }
 
 async function apiJson(session, token, endpoint, options = {}) {
@@ -397,16 +870,34 @@ async function waitForConversation(session, token, conversationId, requestMessag
     const message = current?.message;
     if (message?.author?.role === "assistant" && message.status !== "in_progress") {
       const files = new Map();
+      const assistantModel = String(
+        message?.metadata?.resolved_model_slug ||
+        message?.metadata?.model_slug ||
+        ""
+      ).trim() || null;
+      let requestResolvedModel = null;
+      let requestFound = false;
       let node = current;
       while (node) {
-        if (node.message?.id === requestMessageId) break;
+        if (node.message?.id === requestMessageId) {
+          requestFound = true;
+          requestResolvedModel = String(
+            node.message?.metadata?.resolved_model_slug || ""
+          ).trim() || null;
+          break;
+        }
         collectFileRefs(node.message, files);
         node = conversation.mapping[node.parent];
+      }
+      if (!requestFound) {
+        await sleep(500);
+        continue;
       }
       return {
         text: (message.content?.parts || []).filter(x => typeof x === "string").join("\n").trim(),
         parentMessageId: message.id,
         projectId: conversation.gizmo_id || null,
+        model: assistantModel || requestResolvedModel,
         files
       };
     }

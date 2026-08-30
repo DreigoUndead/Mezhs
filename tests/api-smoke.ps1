@@ -90,6 +90,16 @@ try {
     if ($null -ne $plainConnection.integrationName) {
         throw 'Connection metadata still exposes redundant integrationName.'
     }
+    if (-not $plainConnection.supportsModels -or $plainConnection.defaultModel -ne 'mock-fast') {
+        throw 'Connection model metadata was invalid.'
+    }
+    $models = Invoke-RestMethod -Uri "$baseUrl/v1/connections/test/models"
+    if ($models.Count -ne 3 -or $null -ne $models[0].id -or $models[0].name -ne 'Default') {
+        throw 'Model endpoint did not prepend the provider-default option.'
+    }
+    if ((@($models[1].id, $models[2].id) -join ',') -ne 'mock-fast,mock-deep') {
+        throw 'Model endpoint did not return discovered integration models.'
+    }
     $login = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/connections/test-login/login"
     if ($login.status -ne 'ready') { throw 'Login module endpoint did not complete.' }
 
@@ -120,10 +130,14 @@ try {
             connectionId = 'test'
             categoryId = $category.categoryId
             content = 'hello'
+            model = 'mock-fast'
         })
 
     if (-not $created.messageId -or -not $created.chatId) {
         throw 'Message creation did not return identifiers.'
+    }
+    if ($created.model -ne 'mock-fast') {
+        throw 'Explicit model was not accepted on message creation.'
     }
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
@@ -136,6 +150,9 @@ try {
     } while ($true)
 
     if ($completed.reply.content -ne 'Echo: hello') { throw 'Unexpected reply.' }
+    if ($completed.model -ne 'mock-fast' -or $completed.reply.model -ne 'mock-served') {
+        throw 'Requested and provider-served models were not persisted separately.'
+    }
 
     # Backward-compatible follow-up: an existing chat may omit connectionId and
     # continues through the connection used by its latest message.
@@ -146,6 +163,7 @@ try {
         -Body (ConvertTo-Json @{
             chatId = $created.chatId
             content = 'implicit same connection'
+            model = 'mock-deep'
         })
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
@@ -158,6 +176,9 @@ try {
     } while ($true)
     if ($implicitCompleted.connectionId -ne 'test' -or $implicitCompleted.reply.connectionId -ne 'test') {
         throw 'Existing chat did not inherit its latest connection when connectionId was omitted.'
+    }
+    if ($implicitCompleted.model -ne 'mock-deep' -or $implicitCompleted.reply.model -ne 'mock-served') {
+        throw 'Per-message requested model was confused with the provider-served reply model.'
     }
 
     $uploadPath = Join-Path $PSScriptRoot 'attachment-smoke.txt'
@@ -213,6 +234,9 @@ try {
         if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Attachment message polling timed out.' }
         Start-Sleep -Milliseconds 50
     } while ($true)
+    if ($null -ne $attachmentCompleted.model -or $attachmentCompleted.reply.model -ne 'mock-served') {
+        throw 'New chat with an omitted requested model did not use provider Default.'
+    }
 
     $echoedFile = $attachmentCompleted.reply.files | Select-Object -First 1
     if ($echoedFile.name -ne 'echo-attachment-smoke.txt') { throw 'Integration output file was not imported.' }
@@ -246,7 +270,8 @@ try {
         throw 'A local upload could not be reused through another connection.'
     }
 
-    # Switch the same local chat back to the original connection.
+    # Switch the same local chat back to the original connection without a model.
+    # The API restores the last requested model used by this chat on that connection.
     $third = Invoke-RestMethod `
         -Method Post `
         -Uri "$baseUrl/v1/messages" `
@@ -268,6 +293,56 @@ try {
     if ($thirdCompleted.connectionId -ne 'test' -or $thirdCompleted.reply.connectionId -ne 'test') {
         throw 'Existing chat did not switch back to the original connection.'
     }
+    if ($thirdCompleted.model -ne 'mock-deep' -or $thirdCompleted.reply.model -ne 'mock-served') {
+        throw 'Existing chat did not restore the saved model for the selected connection.'
+    }
+
+    # A present but empty model explicitly resets the chat/connection to provider Default.
+    $resetDefault = Invoke-RestMethod `
+        -Method Post `
+        -Uri "$baseUrl/v1/messages" `
+        -ContentType 'application/json' `
+        -Body (ConvertTo-Json @{
+            connectionId = 'test'
+            chatId = $created.chatId
+            content = 'reset to default'
+            model = ''
+        })
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+    do {
+        $resetCompleted = Invoke-RestMethod -Uri "$baseUrl/v1/messages/$($resetDefault.messageId)"
+        if ($resetCompleted.status -eq 'Completed') { break }
+        if ($resetCompleted.status -eq 'Failed') { throw $resetCompleted.error }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Default reset polling timed out.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+    if ($null -ne $resetCompleted.model) {
+        throw 'Explicit empty model did not reset the saved model to provider Default.'
+    }
+
+    # Once Default is the latest saved selection, omission inherits Default as well.
+    $afterReset = Invoke-RestMethod `
+        -Method Post `
+        -Uri "$baseUrl/v1/messages" `
+        -ContentType 'application/json' `
+        -Body (ConvertTo-Json @{
+            connectionId = 'test'
+            chatId = $created.chatId
+            content = 'default again'
+        })
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+    do {
+        $afterResetCompleted = Invoke-RestMethod -Uri "$baseUrl/v1/messages/$($afterReset.messageId)"
+        if ($afterResetCompleted.status -eq 'Completed') { break }
+        if ($afterResetCompleted.status -eq 'Failed') { throw $afterResetCompleted.error }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Inherited Default polling timed out.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+    if ($null -ne $afterResetCompleted.model) {
+        throw 'Omitted model did not inherit the saved provider Default selection.'
+    }
 
     $chatList = Invoke-RestMethod -Uri "$baseUrl/v1/chats"
     $listedChat = $chatList | Where-Object { $_.chatId -eq $created.chatId }
@@ -276,15 +351,26 @@ try {
     }
 
     $history = Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($created.chatId)/messages"
-    if ($history.Count -ne 8) { throw "Expected 8 logged messages, got $($history.Count)." }
+    if ($history.Count -ne 12) { throw "Expected 12 logged messages, got $($history.Count)." }
     $userConnections = @($history | Where-Object { $_.role -eq 'user' } | ForEach-Object { $_.connectionId })
-    if (($userConnections -join ',') -ne 'test,test,test-login,test') {
-        throw "Expected user connections test,test,test-login,test; got $($userConnections -join ',')."
+    if (($userConnections -join ',') -ne 'test,test,test-login,test,test,test') {
+        throw "Expected user connections test,test,test-login,test,test,test; got $($userConnections -join ',')."
+    }
+    $userModels = @($history | Where-Object { $_.role -eq 'user' } | ForEach-Object {
+        if ($null -eq $_.model) { '' } else { $_.model }
+    })
+    if (($userModels -join ',') -ne 'mock-fast,mock-deep,,mock-deep,,') {
+        throw "Unexpected persisted user models: $($userModels -join ',')."
+    }
+    $assistantModels = @($history | Where-Object { $_.role -eq 'assistant' } | ForEach-Object { $_.model })
+    if (($assistantModels -join ',') -ne 'mock-served,mock-served,mock-served,mock-served,mock-served,mock-served') {
+        throw "Unexpected persisted assistant models: $($assistantModels -join ',')."
     }
 
     $replay = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/messages/$($created.messageId)/replay"
     if ($replay.replayOfMessageId -ne $created.messageId) { throw 'Replay linkage failed.' }
     if ($replay.connectionId -ne 'test') { throw 'Replay did not retain the original request connection.' }
+    if ($replay.model -ne 'mock-fast') { throw 'Replay did not retain the original request model.' }
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
     do {
@@ -344,7 +430,8 @@ try {
         throw 'Deleting a conversation also deleted reusable file storage.'
     }
 
-    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) implicit-follow-up=ok multi-connection=ok categories=ok files=ok downloads=ok deletion=ok api-errors=ok login=ok"
+    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) implicit-follow-up=ok multi-connection=ok categories=ok files=ok downloads=ok deletion=ok api-errors=ok login=ok models=ok model-restore=ok default-reset=ok"
+
 }
 finally {
     if (-not $process.HasExited) {

@@ -4,7 +4,7 @@ namespace Mezhs.Integrations.Browser;
 
 /// <summary>
 /// Owns one authenticated browser transport: serialized use, interactive login,
-/// hidden continuation, idle shutdown, and disposal.
+/// hidden continuation, passive authorized access, idle shutdown, and disposal.
 /// </summary>
 public sealed class BrowserAccountSession : IAsyncDisposable
 {
@@ -24,23 +24,22 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         _options = options;
     }
 
-    public async Task<TResult> UseAsync<TResult>(
+    public Task<TResult> UseAsync<TResult>(
+        Func<IChatBrowserTransport, CancellationToken, Task<TResult>> action,
+        CancellationToken cancellationToken = default) =>
+        UseCoreAsync(action, allowInteractiveLogin: true, cancellationToken);
+
+    public async Task<TResult> UseAuthorizedAsync<TResult>(
         Func<IChatBrowserTransport, CancellationToken, Task<TResult>> action,
         CancellationToken cancellationToken = default)
     {
-        await _gate.WaitAsync(cancellationToken);
         try
         {
-            ThrowIfDisposed();
-            CancelIdle();
-            await EnsureAuthorizedTransportAsync(cancellationToken);
-            return await action(_transport!, cancellationToken);
+            return await UseCoreAsync(action, allowInteractiveLogin: false, cancellationToken);
         }
-        finally
+        catch (BrowserAuthorizationRequiredException ex)
         {
-            if (!_disposed)
-                ScheduleIdle();
-            _gate.Release();
+            throw new IntegrationAuthorizationRequiredException(ex.Message);
         }
     }
 
@@ -53,6 +52,27 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             CancelIdle();
             await EnsureInteractiveLoginAsync(cancellationToken);
             await DisposeTransportAsync();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task OpenBrowserAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfDisposed();
+            CancelIdle();
+            if (_transport is null)
+                await EnsureTransportAsync(
+                    showBrowser: true,
+                    requireAuthorization: false,
+                    cancellationToken);
+            else
+                await _transport.ShowAsync(cancellationToken);
         }
         finally
         {
@@ -79,6 +99,33 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         {
             _gate.Release();
             _gate.Dispose();
+        }
+    }
+
+    private async Task<TResult> UseCoreAsync<TResult>(
+        Func<IChatBrowserTransport, CancellationToken, Task<TResult>> action,
+        bool allowInteractiveLogin,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfDisposed();
+            CancelIdle();
+            if (allowInteractiveLogin)
+                await EnsureAuthorizedTransportAsync(cancellationToken);
+            else
+                await EnsureTransportAsync(
+                    showBrowser: false,
+                    requireAuthorization: true,
+                    cancellationToken);
+            return await action(_transport!, cancellationToken);
+        }
+        finally
+        {
+            if (!_disposed)
+                ScheduleIdle();
+            _gate.Release();
         }
     }
 
