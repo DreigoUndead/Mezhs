@@ -50,16 +50,20 @@ public sealed class ShellCommandHandler(AgentStore store) : IAgentCommandHandler
         {
             StartInfo = invocation.StartInfo
         };
+        using var commandCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        commandCancellation.CancelAfter(context.Timeout);
 
+        Task<string>? stdoutTask = null;
+        Task<string>? stderrTask = null;
         try
         {
             if (!process.Start())
                 throw new InvalidOperationException("Host shell process could not be started.");
 
-            using var cancellation = cancellationToken.Register(() => TryKill(process));
-            var stdoutTask = process.StandardOutput.ReadToEndAsync();
-            var stderrTask = process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync(cancellationToken);
+            using var cancellation = commandCancellation.Token.Register(() => TryKill(process));
+            stdoutTask = process.StandardOutput.ReadToEndAsync();
+            stderrTask = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync(commandCancellation.Token);
             var stdout = await stdoutTask;
             var stderr = await stderrTask;
             var result = FormatResult(stdout, stderr);
@@ -73,6 +77,21 @@ public sealed class ShellCommandHandler(AgentStore store) : IAgentCommandHandler
                 exitCode,
                 result,
                 exitCode == 0 ? null : $"Shell exited with code {exitCode}.");
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            TryKill(process);
+            var result = await CaptureAvailableOutputAsync(stdoutTask, stderrTask);
+            var seconds = context.Timeout.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+            var error = $"Shell command timed out after {seconds} seconds.";
+            store.Fail(child.ExecutionId, error);
+            return new AgentCommandResult(
+                Name,
+                child.ExecutionId,
+                false,
+                null,
+                string.IsNullOrEmpty(result) ? null : result,
+                error);
         }
         catch (OperationCanceledException)
         {
@@ -166,6 +185,25 @@ public sealed class ShellCommandHandler(AgentStore store) : IAgentCommandHandler
             startInfo.Environment["MEZHS_CHAT_ID"] = parent.ChatId;
 
         return startInfo;
+    }
+
+    private static async Task<string> CaptureAvailableOutputAsync(
+        Task<string>? stdoutTask,
+        Task<string>? stderrTask)
+    {
+        if (stdoutTask is null || stderrTask is null)
+            return string.Empty;
+
+        try
+        {
+            var stdout = await stdoutTask.WaitAsync(TimeSpan.FromSeconds(2));
+            var stderr = await stderrTask.WaitAsync(TimeSpan.FromSeconds(2));
+            return FormatResult(stdout, stderr);
+        }
+        catch (TimeoutException)
+        {
+            return string.Empty;
+        }
     }
 
     private static string FormatResult(string stdout, string stderr)
