@@ -54,6 +54,37 @@ public sealed class MezhsClient(HttpClient client)
         return true;
     }
 
+    public async Task<ApiChat?> TryGetChatAsync(
+        string chatId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await client.GetAsync(
+                $"/v1/chats/{Uri.EscapeDataString(chatId)}",
+                cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                return null;
+            return await response.Content.ReadFromJsonAsync<ApiChat>(Json, cancellationToken);
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<ApiMessage>> GetMessagesAsync(
+        string chatId,
+        CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync(
+            $"/v1/chats/{Uri.EscapeDataString(chatId)}/messages",
+            cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<ApiMessage[]>(Json, cancellationToken)
+            ?? [];
+    }
+
     public async Task<string> SendMessageAsync(
         string chatId,
         string connectionId,
