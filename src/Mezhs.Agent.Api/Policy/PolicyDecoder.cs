@@ -40,6 +40,8 @@ public sealed class PolicyDecoder
 
     private PolicyContext Compile(string id, PolicyDefinition definition)
     {
+        if (definition.Commands is null)
+            throw new InvalidOperationException($"policies.{id}.commands must be a YAML mapping.");
         if (definition.Completion is null)
             throw new InvalidOperationException($"policies.{id}.completion must be a YAML mapping.");
         if (definition.Limits is null)
@@ -57,6 +59,9 @@ public sealed class PolicyDecoder
         var settings = new PolicySettings(
             connectionId,
             instructions,
+            new PolicyCommandSettings(
+                NormalizeCommandNames(definition.Commands.Allow, $"policies.{id}.commands.allow"),
+                NormalizeCommandNames(definition.Commands.Deny, $"policies.{id}.commands.deny")),
             new PolicyCompletionSettings(definition.Completion.RequireDone),
             new PolicyLimitsSettings(definition.Limits.MaxTurns));
 
@@ -93,7 +98,7 @@ public sealed class PolicyDecoder
     private static Func<PolicyCompletionContext, bool> CompileCompletionClaim(
         PolicySettings settings) =>
         settings.Completion.RequireDone
-            ? context => ContainsDone(context.AssistantReply)
+            ? context => context.CompletionClaimed
             : _ => true;
 
     private static IReadOnlyList<Func<PolicyCompletionContext, string?>> CompileCompletionValidators(
@@ -106,8 +111,18 @@ public sealed class PolicyDecoder
     private static IReadOnlyList<Func<PolicyActionContext, PolicyActionRuleResult>> CompileActionRules(
         PolicySettings settings)
     {
-        _ = settings;
-        return [];
+        var allowed = settings.Commands.Allow.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var denied = settings.Commands.Deny.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return
+        [
+            context => denied.Contains(context.Action.Kind)
+                ? new PolicyActionRuleResult(
+                    PolicyActionRuleDecision.Deny,
+                    $"Policy explicitly denies {context.Action.Kind} actions.")
+                : allowed.Contains(context.Action.Kind)
+                    ? new PolicyActionRuleResult(PolicyActionRuleDecision.Allow)
+                    : new PolicyActionRuleResult(PolicyActionRuleDecision.None)
+        ];
     }
 
     private static string CompileModelInstructions(PolicySettings settings)
@@ -115,15 +130,50 @@ public sealed class PolicyDecoder
         var rules = new List<string>();
         if (!string.IsNullOrWhiteSpace(settings.Instructions))
             rules.Add(settings.Instructions);
+
+        var shellAllowed = settings.Commands.Allow.Contains("SH", StringComparer.OrdinalIgnoreCase) &&
+            !settings.Commands.Deny.Contains("SH", StringComparer.OrdinalIgnoreCase);
+        if (shellAllowed)
+        {
+            rules.Add("""
+                To execute host shell text, emit a command block exactly in this form:
+                <SH
+                command text
+                SH>
+                The text inside the block is passed to the host shell unchanged. Multiple command blocks run in order.
+                """);
+        }
+
         if (settings.Completion.RequireDone)
-            rules.Add("Signal completion by returning DONE on a line by itself.");
+            rules.Add("Signal completion by returning <DONE> on a line by itself.");
         return string.Join("\n", rules);
     }
 
-    private static bool ContainsDone(string content) =>
-        content.Split('\n')
-            .Select(line => line.Trim().TrimEnd('\r'))
-            .Any(line => string.Equals(line, "DONE", StringComparison.Ordinal));
+    private static IReadOnlyList<string> NormalizeCommandNames(
+        IEnumerable<string>? values,
+        string path)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in values ?? [])
+        {
+            var value = raw?.Trim().ToUpperInvariant() ?? string.Empty;
+            if (!IsCommandName(value))
+                throw new InvalidOperationException(
+                    $"{path} contains invalid command name '{raw}'. Use A-Z, 0-9, '_' or '-' and start with A-Z.");
+            if (seen.Add(value))
+                result.Add(value);
+        }
+        return result;
+    }
+
+    private static bool IsCommandName(string value)
+    {
+        if (value.Length == 0 || value[0] is < 'A' or > 'Z')
+            return false;
+        return value.All(character =>
+            character is >= 'A' and <= 'Z' or >= '0' and <= '9' or '_' or '-');
+    }
 
     private static string Serialize(YamlNode node)
     {
