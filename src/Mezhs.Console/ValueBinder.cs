@@ -50,12 +50,15 @@ internal static class ValueBinder
         return ConvertScalar(scalar.Value, type);
     }
 
-    public static string Describe(Type type)
+    public static string Describe(Type type, CommandSyntax syntax)
     {
         if (Nullable.GetUnderlyingType(type) is { } nullable)
-            return $"{Describe(nullable)} | null";
+            return $"{Describe(nullable, syntax)} | null";
         if (TryGetEnumerableElementType(type, out var item))
-            return $"[{Describe(item)} ...]";
+        {
+            var collection = syntax.Tokens.First(x => x.Type == CommandSyntaxTokenType.Collection);
+            return $"{collection.Start}{Describe(item, syntax)} ...{collection.End}";
+        }
         return FriendlyName(type);
     }
 
