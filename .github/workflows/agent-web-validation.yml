@@ -1,0 +1,79 @@
+name: Agent Web validation
+
+on:
+  push:
+    branches:
+      - agent-api-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            src/Mezhs.Web/ClientApp/package-lock.json
+
+      - name: Validate
+        shell: pwsh
+        run: |
+          $script:overall = $true
+          $resultPath = ".agent-web-validation-result.txt"
+          "Agent Web validation - $env:GITHUB_SHA" | Set-Content $resultPath
+
+          function Run-Check([string]$name, [scriptblock]$command) {
+            Add-Content $resultPath ""
+            Add-Content $resultPath "=== $name ==="
+            try {
+              $global:LASTEXITCODE = 0
+              $output = & $command 2>&1 | Out-String
+              Add-Content $resultPath $output
+              $exitCode = $global:LASTEXITCODE
+              if ($null -eq $exitCode) { $exitCode = 0 }
+              if ($exitCode -ne 0) {
+                Add-Content $resultPath "RESULT: FAIL (exit $exitCode)"
+                $script:overall = $false
+              }
+              else {
+                Add-Content $resultPath "RESULT: PASS"
+              }
+            }
+            catch {
+              Add-Content $resultPath ($_ | Out-String)
+              Add-Content $resultPath "RESULT: FAIL (exception)"
+              $script:overall = $false
+            }
+          }
+
+          Run-Check "dotnet build" { dotnet build Mezhs.sln -c Release }
+          Run-Check "policy and command test" { pwsh ./tests/policy-decoder.ps1 }
+          Run-Check "agent architecture" { pwsh ./tests/agent-architecture.ps1 }
+          Run-Check "agent API smoke" { pwsh ./tests/agent-api-smoke.ps1 }
+          Run-Check "generic architecture" { pwsh ./tests/architecture.ps1 }
+
+          Add-Content $resultPath ""
+          Add-Content $resultPath ($(if ($script:overall) { "OVERALL: PASS" } else { "OVERALL: FAIL" }))
+
+      - name: Publish validation result
+        if: always()
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .agent-web-validation-result.txt
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "Record Agent Web validation [skip ci]"
+            git push
+          }
