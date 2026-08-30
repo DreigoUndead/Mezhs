@@ -135,13 +135,9 @@ public sealed class PolicyDecoder
             !settings.Commands.Deny.Contains("SH", StringComparer.OrdinalIgnoreCase);
         if (shellAllowed)
         {
-            rules.Add("""
-                To execute host shell text, emit a command block exactly in this form:
-                <SH
-                command text
-                SH>
-                The text inside the block is passed to the host shell unchanged. Multiple command blocks run in order.
-                """);
+            rules.Add(
+                "To execute host shell text, return <SH on a line by itself, then the shell text, then SH> on a line by itself. " +
+                "The text between those marker lines is passed to the host shell unchanged. Multiple command blocks run in order.");
         }
 
         if (settings.Completion.RequireDone)
