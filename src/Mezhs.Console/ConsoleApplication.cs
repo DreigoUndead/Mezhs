@@ -9,23 +9,27 @@ public abstract class ConsoleApplication
 
     public int Run()
     {
-        var nodes = CommandLineParser.Parse(Environment.CommandLine, Syntax);
-        return Execute(nodes.Skip(1).ToArray());
-    }
-
-    public int Run(string commandLine)
-    {
-        IReadOnlyList<ValueNode> nodes;
         try
         {
-            nodes = CommandLineParser.Parse(commandLine, Syntax);
+            var nodes = CommandLineParser.Parse(Environment.CommandLine, Syntax);
+            return Execute(nodes.Skip(1).ToArray());
         }
         catch (Exception ex)
         {
             return Error($"Invalid command syntax: {ex.Message}");
         }
+    }
 
-        return Execute(nodes);
+    public int Run(string commandLine)
+    {
+        try
+        {
+            return Execute(CommandLineParser.Parse(commandLine, Syntax));
+        }
+        catch (Exception ex)
+        {
+            return Error($"Invalid command syntax: {ex.Message}");
+        }
     }
 
     [Command(Description = "Show available commands or detailed help for one command.")]
