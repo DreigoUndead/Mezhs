@@ -28,3 +28,22 @@ connections:
   - id: grok-account
     name: Grok Account
     integration: grok-web-account
+
+extensions:
+  agent:
+    listen: http://127.0.0.1:5060
+    mezhsApi: http://127.0.0.1:5050
+    storage: data/agent.sqlite
+
+    policies:
+      default:
+        connectionId: chatgpt-sub
+        instructions: |
+          Complete the assigned task and keep actions auditable.
+        commands:
+          allow:
+            - SH
+        completion:
+          requireDone: true
+        limits:
+          maxTurns: 30

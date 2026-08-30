@@ -1,19 +1,6 @@
+using Mezhs.Api.Contracts;
+
 namespace Mezhs.Models;
-
-public enum MessageStatus
-{
-    Queued,
-    Running,
-    Completed,
-    Failed,
-    Cancelled
-}
-
-public enum FileSource
-{
-    User,
-    Assistant
-}
 
 public sealed class ChatRecord
 {
@@ -70,41 +57,7 @@ public sealed class StoredFile
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
-public sealed record PostMessageRequest(
-    string Content,
-    string? ConnectionId = null,
-    string? ChatId = null,
-    string? CategoryId = null,
-    IReadOnlyList<string>? FileIds = null);
-
 public sealed record CreateCategoryRequest(string Name);
-public sealed record CreateChatRequest(string ConnectionId, string? CategoryId = null);
 public sealed record DeleteChatsRequest(IReadOnlyList<string>? ChatIds);
 public sealed record UpdateCategoryRequest(string Name);
 public sealed record UpdateChatRequest(string? CategoryId);
-
-public sealed record ApiFile(
-    string FileId,
-    string ConnectionId,
-    string Name,
-    string ContentType,
-    long Size,
-    FileSource Source,
-    DateTimeOffset CreatedAt,
-    string ContentUrl,
-    string DownloadUrl);
-
-public sealed record ApiMessage(
-    string MessageId,
-    string ChatId,
-    string ConnectionId,
-    string Role,
-    string Content,
-    IReadOnlyList<ApiFile> Files,
-    MessageStatus Status,
-    DateTimeOffset CreatedAt,
-    DateTimeOffset? StartedAt,
-    DateTimeOffset? CompletedAt,
-    string? Error,
-    string? ReplayOfMessageId,
-    ApiMessage? Reply);

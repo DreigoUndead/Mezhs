@@ -4,6 +4,12 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Api", "src\Mezhs.Api\Mezhs.Api.csproj", "{94D76B09-F6C1-41DC-B503-07225404269C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Api.Contracts", "src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A08}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Agent.Api", "src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A07}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Agent.Web", "src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A09}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Web", "src\Mezhs.Web\Mezhs.Web.csproj", "{9A27915D-1118-4D44-93E6-A64E03437462}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Browser.Abstractions", "transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj", "{A61908C8-820F-49A1-9CC5-C5D53407EA63}"
@@ -32,6 +38,18 @@ Global
 		{94D76B09-F6C1-41DC-B503-07225404269C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{94D76B09-F6C1-41DC-B503-07225404269C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{94D76B09-F6C1-41DC-B503-07225404269C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A08}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A08}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A08}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A08}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A07}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A07}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A07}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A07}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A09}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A09}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A09}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A09}.Release|Any CPU.Build.0 = Release|Any CPU
 		{9A27915D-1118-4D44-93E6-A64E03437462}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{9A27915D-1118-4D44-93E6-A64E03437462}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9A27915D-1118-4D44-93E6-A64E03437462}.Release|Any CPU.ActiveCfg = Release|Any CPU

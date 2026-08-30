@@ -1,5 +1,26 @@
 [
   {
+    "Name": "API + Web + Agent",
+    "Projects": [
+      {
+        "Path": "src\\Mezhs.Api\\Mezhs.Api.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "src\\Mezhs.Web\\Mezhs.Web.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "src\\Mezhs.Agent.Api\\Mezhs.Agent.Api.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "src\\Mezhs.Agent.Web\\Mezhs.Agent.Web.csproj",
+        "Action": "Start"
+      }
+    ]
+  },
+  {
     "Name": "API + Web",
     "Projects": [
       {
@@ -8,6 +29,23 @@
       },
       {
         "Path": "src\\Mezhs.Web\\Mezhs.Web.csproj",
+        "Action": "Start"
+      }
+    ]
+  },
+  {
+    "Name": "API + Agent",
+    "Projects": [
+      {
+        "Path": "src\\Mezhs.Api\\Mezhs.Api.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "src\\Mezhs.Agent.Api\\Mezhs.Agent.Api.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "src\\Mezhs.Agent.Web\\Mezhs.Agent.Web.csproj",
         "Action": "Start"
       }
     ]
