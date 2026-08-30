@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, ReactNode } from "react";
+import type { FormEvent, KeyboardEvent, ReactNode, Ref } from "react";
 import type { ApiFile, ChatMessage } from "./providers/contracts";
 
 export type ChatSurfaceMessage = Pick<
@@ -13,6 +13,7 @@ export type ChatTranscriptProps = {
   apiBaseUrl?: string;
   busy?: boolean;
   emptyState?: ReactNode;
+  endRef?: Ref<HTMLDivElement>;
   getAuthorLabel?: (message: ChatSurfaceMessage) => string;
   getAvatarLabel?: (message: ChatSurfaceMessage) => string;
   onReplay?: (messageId: string) => void;
@@ -40,6 +41,7 @@ export function ChatTranscript({
   apiBaseUrl = "",
   busy = false,
   emptyState,
+  endRef,
   getAuthorLabel = defaultAuthorLabel,
   getAvatarLabel = defaultAvatarLabel,
   onReplay,
@@ -83,6 +85,7 @@ export function ChatTranscript({
         </article>
       ))}
       {busy && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>Working through it...</span></div>}
+      <div ref={endRef} />
     </section>
   );
 }
