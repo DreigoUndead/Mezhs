@@ -93,6 +93,9 @@ Assert(!deniedAction.Allowed && deniedAction.Error?.Contains("does not explicitl
     "Unconfigured executable action was not denied by default.");
 
 var parser = new AgentCommandParser();
+var instructionBatch = parser.Parse(normal.ModelInstructions);
+Assert(instructionBatch.Commands.Count == 0 && !instructionBatch.CompletionClaimed,
+    "Compiled model instructions contain text that the command parser can execute.");
 var batch = parser.Parse("before\n<SH\necho one\necho two\nSH>\n<DONE>\nafter");
 Assert(batch.CompletionClaimed, "<DONE> was not parsed as the completion marker.");
 Assert(batch.Commands.Count == 1 && batch.Commands[0].Name == "SH",
@@ -166,7 +169,7 @@ finally
     File.Delete(shellOptions.Storage + "-wal");
 }
 
-Console.WriteLine("PASS: typed policies, strict command parsing, <DONE>, fail-closed action authorization, and causal shell execution are working.");
+Console.WriteLine("PASS: typed policies, non-executable model instructions, strict command parsing, <DONE>, fail-closed action authorization, and causal shell execution are working.");
 
 static void Assert(bool condition, string message)
 {
