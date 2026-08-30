@@ -34,6 +34,7 @@ extensions:
           requireDone: false
         limits:
           maxTurns: 3
+          commandTimeoutSeconds: 2
 
       test-alt:
         connectionId: test
@@ -43,6 +44,7 @@ extensions:
           requireDone: false
         limits:
           maxTurns: 3
+          commandTimeoutSeconds: 2
 
       test-done:
         connectionId: test
@@ -52,3 +54,4 @@ extensions:
           requireDone: true
         limits:
           maxTurns: 1
+          commandTimeoutSeconds: 2
