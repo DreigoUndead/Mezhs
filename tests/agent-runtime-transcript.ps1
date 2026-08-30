@@ -35,10 +35,10 @@ function Wait-Health([string]$uri) {
     } while ($true)
 }
 
-function Start-AgentExecution([string]$input, [string]$chatId = "") {
+function Start-AgentExecution([string]$taskInput, [string]$chatId = "") {
     $body = @{
         policyId = "test"
-        input = $input
+        input = $taskInput
     }
     if ($chatId) { $body.chatId = $chatId }
     return Invoke-RestMethod `
