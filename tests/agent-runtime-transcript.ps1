@@ -63,6 +63,16 @@ function Wait-AgentExecution([string]$executionId) {
     } while ($true)
 }
 
+function Get-AgentMessages([string]$chatId) {
+    $response = Invoke-WebRequest -Uri "http://127.0.0.1:5219/v1/agent-chats/$chatId/messages"
+    return $response.Content | ConvertFrom-Json
+}
+
+function Get-AgentExecutions([string]$chatId) {
+    $response = Invoke-WebRequest -Uri "http://127.0.0.1:5219/v1/agent-chats/$chatId/executions"
+    return $response.Content | ConvertFrom-Json
+}
+
 $api = Start-Process -FilePath "dotnet" `
     -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Api\Mezhs.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $configPath) `
     -WorkingDirectory $root `
@@ -88,9 +98,14 @@ try {
     $firstExecution = Wait-AgentExecution $first.executionId
     if (-not $firstExecution.chatId) { throw "First execution did not attach a chat." }
 
-    $messages = @(Invoke-RestMethod -Uri "http://127.0.0.1:5219/v1/agent-chats/$($firstExecution.chatId)/messages")
-    $firstRequest = $messages | Where-Object { $_.role -eq "user" } | Select-Object -First 1
-    $firstReply = $messages | Where-Object { $_.role -eq "assistant" } | Select-Object -First 1
+    $chat = Invoke-RestMethod -Uri "http://127.0.0.1:5219/v1/agent-chats/$($firstExecution.chatId)"
+    if ($chat.title -ne "first transcript task") {
+        throw "Agent chat title exposed runtime bootstrap instead of the first task: '$($chat.title)'"
+    }
+
+    $messages = @(Get-AgentMessages $firstExecution.chatId)
+    $firstRequest = @($messages | Where-Object { $_.role -eq "user" })[0]
+    $firstReply = @($messages | Where-Object { $_.role -eq "assistant" })[0]
     if ($firstRequest.origin -ne "human") {
         throw "Manual agent task provenance was '$($firstRequest.origin)' instead of 'human'."
     }
@@ -109,7 +124,7 @@ try {
 
     $second = Start-AgentExecution "second transcript task" $firstExecution.chatId
     $null = Wait-AgentExecution $second.executionId
-    $messages = @(Invoke-RestMethod -Uri "http://127.0.0.1:5219/v1/agent-chats/$($firstExecution.chatId)/messages")
+    $messages = @(Get-AgentMessages $firstExecution.chatId)
     $humanRequests = @($messages | Where-Object { $_.role -eq "user" -and $_.origin -eq "human" })
     if ($humanRequests.Count -ne 2) {
         throw "Expected two human-origin task messages after continuation, got $($humanRequests.Count)."
@@ -125,7 +140,7 @@ try {
     $shellTask = "<SH`necho provenance-ok`nSH>"
     $third = Start-AgentExecution $shellTask $firstExecution.chatId
     $null = Wait-AgentExecution $third.executionId
-    $messages = @(Invoke-RestMethod -Uri "http://127.0.0.1:5219/v1/agent-chats/$($firstExecution.chatId)/messages")
+    $messages = @(Get-AgentMessages $firstExecution.chatId)
     $commandResults = @($messages | Where-Object { $_.role -eq "user" -and $_.origin -eq "command-result" })
     if ($commandResults.Count -lt 1) {
         throw "Shell round-trip did not persist command-result provenance."
@@ -139,8 +154,8 @@ try {
         throw "Legacy command-result framing is still in use."
     }
 
-    $executions = @(Invoke-RestMethod -Uri "http://127.0.0.1:5219/v1/agent-chats/$($firstExecution.chatId)/executions")
-    $shell = $executions | Where-Object { $_.kind -eq "Shell" } | Select-Object -First 1
+    $executions = @(Get-AgentExecutions $firstExecution.chatId)
+    $shell = @($executions | Where-Object { $_.kind -eq "Shell" })[0]
     if ($null -eq $shell -or $shell.status -ne "Completed" -or $shell.result -notmatch "provenance-ok") {
         throw "Shell execution evidence was not persisted correctly."
     }
@@ -148,7 +163,7 @@ try {
         throw "Shell command text was rewritten before execution: '$($shell.request)'"
     }
 
-    Write-Host "PASS: agent transcript provenance, one-time policy bootstrap, host-shell context, and command-result framing are correct."
+    Write-Host "PASS: agent transcript provenance, one-time policy bootstrap, host-shell context, task titles, and command-result framing are correct."
 }
 finally {
     if ($null -ne $agent -and -not $agent.HasExited) {
