@@ -280,6 +280,10 @@ test("ChatGPT o3 newChat follows the native protocol and reports the assistant m
 
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
+      assert.equal(target.search, "?model_slug=o3");
+      return textResponse("");
+    }
 
     if (target.pathname === "/backend-api/f/conversation/prepare") {
       prepareHeaders = options.headers;
@@ -443,6 +447,11 @@ test("ChatGPT picker selections send their current wire model and thinking effor
       const target = new URL(String(url));
       if (target.pathname === "/api/auth/session")
         return jsonResponse({ accessToken: "token" });
+      if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
+        assert.equal(target.searchParams.get("model_slug"), selection.model);
+        assert.equal(target.searchParams.get("thinking_effort"), selection.effort);
+        return textResponse("");
+      }
       if (target.pathname === "/backend-api/f/conversation/prepare") {
         preparePayload = JSON.parse(options.body);
         return jsonResponse({ conduit_token: "conduit" });
@@ -456,7 +465,13 @@ test("ChatGPT picker selections send their current wire model and thinking effor
         return textResponse('data: {"conversation_id":"conv-selection"}\n\n', 200, "text/event-stream");
       }
       if (target.pathname === "/backend-api/conversation/conv-selection")
-        return jsonResponse(completedConversation("conv-selection", null, selection.model));
+        return jsonResponse(completedConversation(
+          "conv-selection",
+          null,
+          selection.model,
+          conversationPayload.messages[0].id,
+          selection.model
+        ));
       throw new Error(`Unexpected request ${target}`);
     });
 
@@ -495,7 +510,12 @@ test("ChatGPT send continues the existing conversation through the current trans
     }
 
     if (target.pathname === "/backend-api/conversation/conv-existing")
-      return jsonResponse(completedConversation("conv-existing", "g-p-mezhs", "served-continuation"));
+      return jsonResponse(completedConversation(
+        "conv-existing",
+        "g-p-mezhs",
+        "served-continuation",
+        conversationPayload.messages[0].id
+      ));
 
     throw new Error(`Unexpected request ${target}`);
   });
