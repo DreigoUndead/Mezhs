@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import "@mezhs/web-lib/styles.css";
 import "./agent.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
