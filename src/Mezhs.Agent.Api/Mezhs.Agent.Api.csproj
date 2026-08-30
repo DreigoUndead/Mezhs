@@ -3,6 +3,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <FrontendRoot>$(MSBuildProjectDirectory)\..\Mezhs.Agent.Web\</FrontendRoot>
+    <WebLibraryRoot>$(MSBuildProjectDirectory)\..\Mezhs.Web.Lib\</WebLibraryRoot>
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(FrontendRoot)node_modules\**;$(FrontendRoot)dist\**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
@@ -11,5 +14,18 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\mezhs.yaml" Link="mezhs.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(FrontendRoot)**" Link="Mezhs.Agent.Web\%(RecursiveDir)%(Filename)%(Extension)" Exclude="$(FrontendRoot)node_modules\**;$(FrontendRoot)dist\**" />
+    <None Include="$(WebLibraryRoot)**" Link="Mezhs.Web.Lib\%(RecursiveDir)%(Filename)%(Extension)" />
+    <UpToDateCheckInput Include="$(FrontendRoot)src\**\*;$(FrontendRoot)index.html;$(FrontendRoot)package.json;$(FrontendRoot)package-lock.json;$(FrontendRoot)tsconfig.json;$(FrontendRoot)vite.config.*;$(WebLibraryRoot)src\**\*;$(WebLibraryRoot)package.json;$(WebLibraryRoot)tsconfig.json" />
+    <UpToDateCheckOutput Include="$(FrontendRoot)dist\index.html" />
   </ItemGroup>
+
+  <Target Name="BuildAgentFrontend" BeforeTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec WorkingDirectory="$(FrontendRoot)" Command="npm install" Condition="!Exists('$(FrontendRoot)node_modules') Or !Exists('$(FrontendRoot)node_modules\@mezhs\web-lib\package.json')" />
+    <Exec WorkingDirectory="$(FrontendRoot)" Command="npm run build" />
+    <ItemGroup>
+      <AgentWebFiles Include="$(FrontendRoot)dist\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(AgentWebFiles)" DestinationFolder="$(OutputPath)agent-web\%(RecursiveDir)" />
+  </Target>
 </Project>
