@@ -878,9 +878,11 @@ async function waitForConversation(session, token, conversationId, requestMessag
         ""
       ).trim() || null;
       let requestResolvedModel = null;
+      let requestFound = false;
       let node = current;
       while (node) {
         if (node.message?.id === requestMessageId) {
+          requestFound = true;
           requestResolvedModel = String(
             node.message?.metadata?.resolved_model_slug || ""
           ).trim() || null;
@@ -888,6 +890,10 @@ async function waitForConversation(session, token, conversationId, requestMessag
         }
         collectFileRefs(node.message, files);
         node = conversation.mapping[node.parent];
+      }
+      if (!requestFound) {
+        await sleep(500);
+        continue;
       }
       return {
         text: (message.content?.parts || []).filter(x => typeof x === "string").join("\n").trim(),
