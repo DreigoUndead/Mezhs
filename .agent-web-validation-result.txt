@@ -1,25 +1,26 @@
-Agent Web validation - afa7425d508f24b76b9b206b6fafd7d97b0f6b50
+Agent Web validation - 85213d7dcbad7946fc3d93246faae34992fc356a
 
 === dotnet build ===
   Determining projects to restore...
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 239 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 234 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 234 ms).
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 3 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 3 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj (in 1 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 638 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 234 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 645 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 5 ms).
   Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 3 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 1.35 sec).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 1.68 sec).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 5 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 1 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 38 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 4 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 1.69 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 2.19 sec).
   Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Release\net10.0\Mezhs.Browser.Abstractions.dll
   Mezhs.Api.Contracts -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\bin\Release\net10.0\Mezhs.Api.Contracts.dll
   Mezhs.Integration.Abstractions -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\bin\Release\net10.0\Mezhs.Integration.Abstractions.dll
   Mezhs.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Web\bin\Release\net10.0\Mezhs.Web.dll
-  Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Release\net10.0\Mezhs.Integrations.Mock.dll
+  Mezhs.Browser.Electron -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\bin\Release\net10.0\Mezhs.Browser.Electron.dll
   Mezhs.Agent.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll
+  Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Release\net10.0\Mezhs.Integrations.Mock.dll
   npm warn old lockfile
   npm warn old lockfile The package-lock.json file was created with an old version of npm,
   npm warn old lockfile so supplemental metadata must be fetched from the registry.
@@ -27,22 +28,10 @@ Agent Web validation - afa7425d508f24b76b9b206b6fafd7d97b0f6b50
   npm warn old lockfile This is a one-time fix-up, please be patient...
   npm warn old lockfile
   
-  added 75 packages, and audited 77 packages in 22s
+  added 75 packages, and audited 77 packages in 10s
   
   11 packages are looking for funding
     run `npm fund` for details
-  
-  added 75 packages, and audited 77 packages in 24s
-  
-  11 packages are looking for funding
-    run `npm fund` for details
-  
-  3 vulnerabilities (1 moderate, 2 high)
-  
-  To address all issues (including breaking changes), run:
-    npm audit fix --force
-  
-  Run `npm audit` for details.
   
   4 vulnerabilities (1 moderate, 3 high)
   
@@ -54,209 +43,64 @@ Agent Web validation - afa7425d508f24b76b9b206b6fafd7d97b0f6b50
   
   Run `npm audit` for details.
   
-  > mezhs-agent-web@0.1.0 build
-  > tsc --noEmit && vite build
+  added 75 packages, and audited 77 packages in 10s
   
+  11 packages are looking for funding
+    run `npm fund` for details
+  
+  3 vulnerabilities (1 moderate, 2 high)
+  
+  To address all issues (including breaking changes), run:
+    npm audit fix --force
+  
+  Run `npm audit` for details.
   
   > mezhs-web@0.1.0 build
   > tsc --noEmit && vite build
   
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(1,80): error TS2307: Cannot find module 'react' or its corresponding type declarations. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(88,29): error TS7006: Parameter 'connection' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(92,34): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(95,26): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(98,44): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(99,41): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(104,60): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(105,42): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(106,39): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(111,25): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(186,49): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(187,100): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(199,20): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(213,20): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(213,45): error TS7006: Parameter 'message' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(218,22): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(219,51): error TS7006: Parameter 'message' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(222,43): error TS7006: Parameter 'message' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(241,20): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(305,25): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(314,25): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(316,31): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(317,31): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(319,31): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(346,17): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(346,45): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(389,22): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(390,24): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(405,24): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(408,26): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(408,51): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(413,26): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(413,51): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(422,22): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(423,37): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(425,30): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(430,30): error TS7006: Parameter 'connection' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(434,5): error TS2307: Cannot find module 'react/jsx-runtime' or its corresponding type declarations. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(451,31): error TS7006: Parameter 'connection' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(463,55): error TS7006: Parameter 'value' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(475,28): error TS7006: Parameter 'category' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(479,39): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(485,88): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(502,31): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(504,47): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(518,49): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(573,34): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(602,41): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(627,34): error TS7006: Parameter 'category' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(647,29): error TS7006: Parameter 'message' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(661,43): error TS7006: Parameter 'file' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(690,36): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(727,65): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(727,112): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj(25,5): error MSB3073: The command "npm run build" exited with code 2.
-  Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Release\net10.0\Mezhs.Integration.Browser.dll
-  Mezhs.Browser.Electron -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\bin\Release\net10.0\Mezhs.Browser.Electron.dll
-  Mezhs.Integrations.Grok -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\bin\Release\net10.0\Mezhs.Integrations.Grok.dll
+  
+  > mezhs-agent-web@0.1.0 build
+  > tsc --noEmit && vite build
+  
   [36mvite v2.9.16 [32mbuilding for production...[36m[39m
   transforming...
-  Mezhs.Integrations.Gemini -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\bin\Release\net10.0\Mezhs.Integrations.Gemini.dll
-  Mezhs.Integrations.ChatGpt -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\bin\Release\net10.0\Mezhs.Integrations.ChatGpt.dll
   [32mΓ£ô[39m 37 modules transformed.
+  [36mvite v2.9.16 [32mbuilding for production...[36m[39m
   rendering chunks...
   [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.51 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[35massets/index.05016f07.css  [39m [2m20.25 KiB / gzip: 5.25 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[36massets/index.036844b1.js   [39m [2m161.53 KiB / gzip: 51.48 KiB[22m
+  transforming...
+  [32mΓ£ô[39m 37 modules transformed.
+  rendering chunks...
+  [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.44 KiB[22m
+  [90m[37m[2mdist/[22m[90m[39m[35massets/index.3b07ffe5.css  [39m [2m5.82 KiB / gzip: 2.03 KiB[22m
+  [90m[37m[2mdist/[22m[90m[39m[36massets/index.59076770.js   [39m [2m148.25 KiB / gzip: 47.98 KiB[22m
+  Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Release\net10.0\Mezhs.Integration.Browser.dll
+  Mezhs.Integrations.Grok -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\bin\Release\net10.0\Mezhs.Integrations.Grok.dll
+  Mezhs.Integrations.Gemini -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\bin\Release\net10.0\Mezhs.Integrations.Gemini.dll
+  Mezhs.Integrations.ChatGpt -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\bin\Release\net10.0\Mezhs.Integrations.ChatGpt.dll
   Mezhs.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Api\bin\Release\net10.0\Mezhs.Api.dll
 
-Build FAILED.
-
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(1,80): error TS2307: Cannot find module 'react' or its corresponding type declarations. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(88,29): error TS7006: Parameter 'connection' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(92,34): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(95,26): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(98,44): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(99,41): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(104,60): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(105,42): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(106,39): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(111,25): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(186,49): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(187,100): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(199,20): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(213,20): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(213,45): error TS7006: Parameter 'message' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(218,22): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(219,51): error TS7006: Parameter 'message' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(222,43): error TS7006: Parameter 'message' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(241,20): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(305,25): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(314,25): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(316,31): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(317,31): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(319,31): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(346,17): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(346,45): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(389,22): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(390,24): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(405,24): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(408,26): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(408,51): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(413,26): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(413,51): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(422,22): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(423,37): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(425,30): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(430,30): error TS7006: Parameter 'connection' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(434,5): error TS2307: Cannot find module 'react/jsx-runtime' or its corresponding type declarations. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(451,31): error TS7006: Parameter 'connection' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(463,55): error TS7006: Parameter 'value' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(475,28): error TS7006: Parameter 'category' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(479,39): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(485,88): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(502,31): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(504,47): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(518,49): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(573,34): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(602,41): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(627,34): error TS7006: Parameter 'category' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(647,29): error TS7006: Parameter 'message' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(661,43): error TS7006: Parameter 'file' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(690,36): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(727,65): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(727,112): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj(25,5): error MSB3073: The command "npm run build" exited with code 2.
+Build succeeded.
     0 Warning(s)
-    55 Error(s)
+    0 Error(s)
 
-Time Elapsed 00:00:51.84
+Time Elapsed 00:00:40.62
 
-RESULT: FAIL (exit 1)
+RESULT: PASS
 
 === policy and command test ===
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(1,80): error TS2307: Cannot find module 'react' or its corresponding type declarations. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(88,29): error TS7006: Parameter 'connection' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(92,34): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(95,26): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(98,44): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(99,41): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(104,60): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(105,42): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(106,39): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(111,25): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(186,49): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(187,100): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(199,20): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(213,20): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(213,45): error TS7006: Parameter 'message' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(218,22): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(219,51): error TS7006: Parameter 'message' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(222,43): error TS7006: Parameter 'message' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(241,20): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(305,25): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(314,25): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(316,31): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(317,31): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(319,31): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(346,17): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(346,45): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(389,22): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(390,24): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(405,24): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(408,26): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(408,51): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(413,26): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(413,51): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(422,22): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(423,37): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(425,30): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(430,30): error TS7006: Parameter 'connection' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(434,5): error TS2307: Cannot find module 'react/jsx-runtime' or its corresponding type declarations. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(451,31): error TS7006: Parameter 'connection' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(463,55): error TS7006: Parameter 'value' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(475,28): error TS7006: Parameter 'category' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(479,39): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(485,88): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(502,31): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(504,47): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(518,49): error TS7006: Parameter 'current' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(573,34): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(602,41): error TS7006: Parameter 'chat' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(627,34): error TS7006: Parameter 'category' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(647,29): error TS7006: Parameter 'message' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(661,43): error TS7006: Parameter 'file' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(690,36): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(727,65): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-../Mezhs.Web.Lib/src/MezhsChatApp.tsx(727,112): error TS7006: Parameter 'item' implicitly has an 'any' type. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
-D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj(25,5): error MSB3073: The command "npm run build" exited with code 2.
-
-The build failed. Fix the build errors and run again.
+Unhandled exception. System.IO.IOException: The process cannot access the file 'C:\Users\runneradmin\AppData\Local\Temp\mezhs-shell-test-84e250d64f89467e9c82e22c68acaa81.sqlite' because it is being used by another process.
+   at System.IO.FileSystem.DeleteFile(String fullPath)
+   at Program.<Main>$(String[] args) in C:\Users\runneradmin\AppData\Local\Temp\mezhs-policy-decoder-test-2fdd262e68944a6d999b1dbbee38a4a0\Program.cs:line 136
+   at Program.<Main>$(String[] args)
+   at Program.<Main>(String[] args)
 Exception: D:\a\Mezhs\Mezhs\tests\policy-decoder.ps1:174
 Line |
  174 |  … DE -ne 0) { throw "Policy/command test failed with exit code $LASTEXI …
      |                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-     | Policy/command test failed with exit code 1.
+     | Policy/command test failed with exit code -532462766.
 
 RESULT: FAIL (exit 1)
 
