@@ -2,6 +2,8 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 $coreFiles = @(
+    "src/Mezhs.Api/ApiExceptionHandler.cs",
+    "src/Mezhs.Api/RequestExceptions.cs",
     "src/Mezhs.Api/Program.cs",
     "src/Mezhs.Api/Models/ApiModels.cs",
     "src/Mezhs.Api/Configuration/MezhsConfigLoader.cs",
@@ -10,9 +12,10 @@ $coreFiles = @(
     "src/Mezhs.Api/Services/IntegrationHost.cs",
     "src/Mezhs.Api/Services/MessageService.cs",
     "src/Mezhs.Web/ClientApp/src/App.tsx",
-    "src/Mezhs.Web/ClientApp/src/providers/contracts.ts",
-    "src/Mezhs.Web/ClientApp/src/providers/apiChatProvider.ts",
-    "src/Mezhs.Web/ClientApp/src/providers/registry.ts",
+    "src/Mezhs.Web.Lib/src/MezhsChatApp.tsx",
+    "src/Mezhs.Web.Lib/src/providers/contracts.ts",
+    "src/Mezhs.Web.Lib/src/providers/apiChatProvider.ts",
+    "src/Mezhs.Web.Lib/src/providers/registry.ts",
     "electron/main.js"
 )
 $coreFiles += Get-ChildItem "$root/transports/Mezhs.Browser.Abstractions" -Recurse -File |
@@ -33,6 +36,8 @@ if ($matches) {
 }
 
 $requiredFiles = @(
+    "src/Mezhs.Api/ApiExceptionHandler.cs",
+    "src/Mezhs.Api/RequestExceptions.cs",
     "src/Mezhs.Integration.Abstractions/Mezhs.Integration.Abstractions.csproj",
     "src/Mezhs.Integration.Browser/Mezhs.Integration.Browser.csproj",
     "src/Mezhs.Integration.Browser/IBrowserIntegrationHost.cs",
@@ -41,7 +46,10 @@ $requiredFiles = @(
     "integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts",
     "integrations/Mezhs.Integrations.Gemini/Mezhs.Integrations.Gemini.csproj",
     "integrations/Mezhs.Integrations.Gemini/browser/gemini.ts",
-    "integrations/Mezhs.Integrations.Mock/Mezhs.Integrations.Mock.csproj"
+    "integrations/Mezhs.Integrations.Mock/Mezhs.Integrations.Mock.csproj",
+    "src/Mezhs.Web.Lib/package.json",
+    "src/Mezhs.Web.Lib/src/index.ts",
+    "src/Mezhs.Web.Lib/src/styles.css"
 )
 foreach ($file in $requiredFiles) {
     if (-not (Test-Path (Join-Path $root $file))) {
@@ -71,7 +79,7 @@ if ($legacyElectronModules) {
     throw "Electron still owns integration-specific modules: $($legacyElectronModules.Name -join ', ')"
 }
 
-$frontendAdapters = Get-ChildItem (Join-Path $root "src/Mezhs.Web/ClientApp/src/providers") -Filter "*.provider.ts" -File
+$frontendAdapters = Get-ChildItem (Join-Path $root "src/Mezhs.Web.Lib/src/providers") -Filter "*.provider.ts" -File
 if ($frontendAdapters) {
     throw "Frontend still duplicates integration registrations: $($frontendAdapters.Name -join ', ')"
 }
@@ -134,6 +142,28 @@ if ($messageService -notmatch 'BackgroundService' -or $messageService -notmatch 
     throw "MessageService does not own message processing through a host-managed queue."
 }
 
+$program = Get-Content (Join-Path $root "src/Mezhs.Api/Program.cs") -Raw
+$apiExceptionHandler = Get-Content (Join-Path $root "src/Mezhs.Api/ApiExceptionHandler.cs") -Raw
+$requestExceptions = Get-Content (Join-Path $root "src/Mezhs.Api/RequestExceptions.cs") -Raw
+if ($program -match 'catch\s*\(\s*(ArgumentException|KeyNotFoundException)') {
+    throw "Program endpoint mappings still translate domain exceptions with repeated try/catch blocks."
+}
+if ($program -notmatch 'AddExceptionHandler<ApiExceptionHandler>' -or
+    $program -notmatch 'AddProblemDetails' -or
+    $program -notmatch 'UseExceptionHandler') {
+    throw "The API exception handler is not registered as middleware."
+}
+if ($apiExceptionHandler -notmatch 'Status400BadRequest' -or
+    $apiExceptionHandler -notmatch 'Status404NotFound' -or
+    $apiExceptionHandler -notmatch 'WriteAsJsonAsync') {
+    throw "The API exception handler does not preserve the JSON 400/404 error contract."
+}
+if ($apiExceptionHandler -match 'ArgumentException|KeyNotFoundException' -or
+    $requestExceptions -notmatch 'RequestValidationException' -or
+    $requestExceptions -notmatch 'ResourceNotFoundException') {
+    throw "The API exception policy uses ambiguous runtime exceptions instead of explicit request exceptions."
+}
+
 $models = Get-Content (Join-Path $root "src/Mezhs.Api/Models/ApiModels.cs") -Raw
 $chatRecord = [regex]::Match($models, '(?s)public sealed class ChatRecord.*?(?=public sealed class ChatConnectionState)').Value
 if ($chatRecord -match 'ConnectionId') {
@@ -154,10 +184,26 @@ if ($chatGpt -match 'Task\.Run') {
     throw "ChatGPT idle disposal still wraps its timer in Task.Run."
 }
 
-$app = Get-Content (Join-Path $root "src/Mezhs.Web/ClientApp/src/App.tsx") -Raw
+$webHost = Get-Content (Join-Path $root "src/Mezhs.Web/ClientApp/src/App.tsx") -Raw
+$app = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/MezhsChatApp.tsx") -Raw
+if ($webHost -notmatch 'MezhsChatApp' -or $webHost -match 'ChatProviderRegistry|sendMessage|uploadFile') {
+    throw "Mezhs.Web is not a thin host over the shared generic web library."
+}
 $changeConnection = [regex]::Match($app, '(?s)function changeConnection\(id: string\).*?\n  }').Value
 if ($changeConnection -match 'newChat') {
     throw "Changing the selected connection still discards the active local chat."
+}
+if ($app -match '>U<' -or $app -match '"U"') {
+    throw "The shared web UI still contains the obsolete U brand mark."
+}
+if ($app -notmatch 'Delete selected' -or $app -notmatch 'Delete all shown') {
+    throw "The shared web UI does not expose selected and filtered conversation deletion."
+}
+if ($app -notmatch 'managerSearch' -or $app -notmatch 'Filter by title, connection, or group') {
+    throw "The conversation deletion window does not have its own filter."
+}
+if ($app -notmatch 'chat-options-menu' -or $app -notmatch "deleteConversations\(\[chat\].*false") {
+    throw "The main conversation list does not expose the two-click options-menu delete action."
 }
 
 $config = Get-Content (Join-Path $root "mezhs.yaml") -Raw

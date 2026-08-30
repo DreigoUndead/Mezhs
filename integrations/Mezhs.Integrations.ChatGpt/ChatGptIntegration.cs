@@ -75,7 +75,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                     ? await ResolveProjectIdAsync(transport, workspace, token)
                     : null;
                 var request = new ChatGptSendRequest(
-                    newChat ? ComposeConversation(context) : context.Message.Content,
+                    context.Prompt,
                     newChat ? null : context.Chat.RemoteConversationId,
                     newChat ? null : context.Chat.RemoteParentMessageId,
                     projectId,

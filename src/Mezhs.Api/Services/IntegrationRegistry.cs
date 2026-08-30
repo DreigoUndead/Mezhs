@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.Loader;
+using Mezhs;
 using Mezhs.Configuration;
 using Mezhs.Integrations;
 
@@ -26,7 +27,7 @@ public sealed class IntegrationRegistry : IAsyncDisposable
     public IChatIntegration Get(string connectionId) =>
         TryGet(connectionId, out var integration)
             ? integration
-            : throw new KeyNotFoundException($"Connection '{connectionId}' was not found.");
+            : throw new ResourceNotFoundException($"Connection '{connectionId}' was not found.");
 
     public object[] GetConnections() => _integrations.Values.Select(integration => new
     {

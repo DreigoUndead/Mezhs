@@ -93,7 +93,30 @@ public sealed record IntegrationSendContext(
     IntegrationChatContext Chat,
     IntegrationMessageContext Message,
     IReadOnlyList<IntegrationMessageContext> History,
-    IReadOnlyList<IntegrationInputFile> Files);
+    IReadOnlyList<IntegrationInputFile> Files,
+    bool RestoreConversation = false)
+{
+    public string Prompt
+    {
+        get
+        {
+            if (!RestoreConversation)
+                return Message.Content;
+
+            var history = History
+                .Where(message => message.Role == "assistant" || message.Completed)
+                .Select(message =>
+                    $"[{(message.Role == "assistant" ? "Assistant" : "User")}]\n{message.Content}")
+                .ToList();
+            if (history.Count == 0)
+                return Message.Content;
+
+            history.Add($"[User]\n{Message.Content}");
+            return "Continue the conversation below. Reply only to the latest user message.\n\n" +
+                   string.Join("\n\n", history);
+        }
+    }
+}
 
 public sealed record IntegrationInputFile(
     string FileId,

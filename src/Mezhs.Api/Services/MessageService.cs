@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
+using Mezhs;
 using Mezhs.Integrations;
 using Mezhs.Models;
 using Microsoft.Extensions.Hosting;
@@ -20,25 +21,25 @@ public sealed class MessageService(
     {
         var requestedFileIds = request.FileIds ?? [];
         if (string.IsNullOrWhiteSpace(request.Content) && requestedFileIds.Count == 0)
-            throw new ArgumentException("content or at least one file is required.");
+            throw new RequestValidationException("content or at least one file is required.");
 
         ChatRecord chat;
         string connectionId;
         if (string.IsNullOrWhiteSpace(request.ChatId))
         {
             if (string.IsNullOrWhiteSpace(request.ConnectionId))
-                throw new ArgumentException("connectionId is required when chatId is not provided.");
+                throw new RequestValidationException("connectionId is required when chatId is not provided.");
             connectionId = request.ConnectionId.Trim();
             chat = store.CreateChat(request.CategoryId);
         }
         else
         {
             chat = store.GetChat(request.ChatId)
-                ?? throw new KeyNotFoundException($"Chat '{request.ChatId}' was not found.");
+                ?? throw new ResourceNotFoundException($"Chat '{request.ChatId}' was not found.");
             connectionId = !string.IsNullOrWhiteSpace(request.ConnectionId)
                 ? request.ConnectionId.Trim()
                 : store.GetMessages(chat.ChatId).LastOrDefault()?.ConnectionId
-                    ?? throw new ArgumentException("connectionId is required for an empty chat.");
+                    ?? throw new RequestValidationException("connectionId is required for an empty chat.");
         }
 
         var integration = integrations.Get(connectionId);
@@ -48,11 +49,11 @@ public sealed class MessageService(
         if (model is not null && integration.Models is null)
             throw new ArgumentException($"Connection '{connectionId}' does not support model selection.");
         if (requestedFileIds.Count > 0 && !integration.Capabilities.FileInput)
-            throw new ArgumentException($"Connection '{connectionId}' does not support file input.");
+            throw new RequestValidationException($"Connection '{connectionId}' does not support file input.");
         var attachedFiles = files.GetMany(requestedFileIds);
         if (attachedFiles.Any(file => file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) &&
             !integration.Capabilities.ImageInput)
-            throw new ArgumentException($"Connection '{connectionId}' does not support image input.");
+            throw new RequestValidationException($"Connection '{connectionId}' does not support image input.");
 
         return ToApi(CreateMessage(
             chat,
@@ -66,11 +67,11 @@ public sealed class MessageService(
     public ApiMessage Replay(string messageId)
     {
         var original = store.GetMessage(messageId)
-            ?? throw new KeyNotFoundException($"Message '{messageId}' was not found.");
+            ?? throw new ResourceNotFoundException($"Message '{messageId}' was not found.");
         if (original.Role != "user")
-            throw new KeyNotFoundException("Only user request messages can be replayed.");
+            throw new ResourceNotFoundException("Only user request messages can be replayed.");
         var chat = store.GetChat(original.ChatId)
-            ?? throw new KeyNotFoundException($"Chat '{original.ChatId}' was not found.");
+            ?? throw new ResourceNotFoundException($"Chat '{original.ChatId}' was not found.");
         return ToApi(CreateMessage(
             chat,
             original.ConnectionId,
@@ -158,7 +159,7 @@ public sealed class MessageService(
             store.SaveMessage(message);
 
             var chat = store.GetChat(message.ChatId)
-                ?? throw new KeyNotFoundException($"Chat '{message.ChatId}' was not found.");
+                ?? throw new ResourceNotFoundException($"Chat '{message.ChatId}' was not found.");
             var historyMessages = BuildHistory(message);
             var remoteState = chat.RemoteStates.FirstOrDefault(state =>
                 string.Equals(state.ConnectionId, message.ConnectionId, StringComparison.OrdinalIgnoreCase));
@@ -184,7 +185,8 @@ public sealed class MessageService(
                         continueRemote ? remoteState!.RemoteParentMessageId : null),
                     ToIntegrationMessage(message),
                     historyMessages.Select(ToIntegrationMessage).ToArray(),
-                    inputFiles),
+                    inputFiles,
+                    RestoreConversation: !continueRemote),
                 CancellationToken.None);
 
             var replyFileIds = new List<string>();
@@ -239,10 +241,13 @@ public sealed class MessageService(
         }
         catch (Exception ex)
         {
+            if (store.GetChat(message.ChatId) is null)
+                return;
             message.Status = MessageStatus.Failed;
             message.Error = ex.Message;
             message.CompletedAt = DateTimeOffset.UtcNow;
-            store.SaveMessage(message);
+            try { store.SaveMessage(message); }
+            catch (ResourceNotFoundException) { }
         }
         finally
         {

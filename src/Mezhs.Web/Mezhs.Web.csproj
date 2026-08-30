@@ -4,18 +4,20 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <FrontendRoot>$(MSBuildProjectDirectory)\ClientApp\</FrontendRoot>
+    <WebLibraryRoot>$(MSBuildProjectDirectory)\..\Mezhs.Web.Lib\</WebLibraryRoot>
     <DefaultItemExcludes>$(DefaultItemExcludes);$(FrontendRoot)node_modules\**;$(FrontendRoot)dist\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
     <Content Remove="ClientApp\**" />
     <None Include="ClientApp\**" Exclude="ClientApp\node_modules\**;ClientApp\dist\**" />
-    <UpToDateCheckInput Include="$(FrontendRoot)src\**\*;$(FrontendRoot)index.html;$(FrontendRoot)package.json;$(FrontendRoot)package-lock.json;$(FrontendRoot)tsconfig.json;$(FrontendRoot)vite.config.*" />
+    <None Include="$(WebLibraryRoot)**" Link="Mezhs.Web.Lib\%(RecursiveDir)%(Filename)%(Extension)" />
+    <UpToDateCheckInput Include="$(FrontendRoot)src\**\*;$(FrontendRoot)index.html;$(FrontendRoot)package.json;$(FrontendRoot)package-lock.json;$(FrontendRoot)tsconfig.json;$(FrontendRoot)vite.config.*;$(WebLibraryRoot)src\**\*;$(WebLibraryRoot)package.json;$(WebLibraryRoot)tsconfig.json" />
     <UpToDateCheckOutput Include="$(FrontendRoot)dist\index.html" />
   </ItemGroup>
 
   <Target Name="BuildFrontend" BeforeTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
-    <Exec WorkingDirectory="$(FrontendRoot)" Command="npm install" Condition="!Exists('$(FrontendRoot)node_modules')" />
+    <Exec WorkingDirectory="$(FrontendRoot)" Command="npm install" Condition="!Exists('$(FrontendRoot)node_modules') Or !Exists('$(FrontendRoot)node_modules\@mezhs\web-lib\package.json')" />
     <Exec WorkingDirectory="$(FrontendRoot)" Command="npm run build" />
   </Target>
 </Project>

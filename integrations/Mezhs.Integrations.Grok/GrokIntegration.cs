@@ -37,7 +37,7 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
             var response = await transport.InvokeAsync<GrokSendResponse>(
                 "newChat",
                 new GrokSendRequest(
-                    ComposeConversation(context),
+                    context.Prompt,
                     context.Message.Model),
                 token);
             return new IntegrationSendResult(

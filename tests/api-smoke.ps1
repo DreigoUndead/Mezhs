@@ -7,6 +7,39 @@ $dataPath = Join-Path $PSScriptRoot 'data'
 $stdoutPath = Join-Path $PSScriptRoot 'api-smoke.out.log'
 $stderrPath = Join-Path $PSScriptRoot 'api-smoke.err.log'
 
+function Assert-ApiError {
+    param(
+        [Parameter(Mandatory = $true)][string]$Method,
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [string]$Body,
+        [Parameter(Mandatory = $true)][int]$ExpectedStatus,
+        [Parameter(Mandatory = $true)][string]$ExpectedError
+    )
+
+    $client = [Net.Http.HttpClient]::new()
+    $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::new($Method), $Uri)
+    $response = $null
+    try {
+        if ($null -ne $Body) {
+            $request.Content = [Net.Http.StringContent]::new($Body, [Text.Encoding]::UTF8, 'application/json')
+        }
+        $response = $client.SendAsync($request).GetAwaiter().GetResult()
+        $responseBody = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if ([int]$response.StatusCode -ne $ExpectedStatus) {
+            throw "Expected HTTP $ExpectedStatus from $Method $Uri, got $([int]$response.StatusCode): $responseBody"
+        }
+        $payload = $responseBody | ConvertFrom-Json
+        if ([string]$payload.error -notlike "*$ExpectedError*") {
+            throw "Expected JSON error containing '$ExpectedError', got: $responseBody"
+        }
+    }
+    finally {
+        if ($null -ne $response) { $response.Dispose() }
+        $request.Dispose()
+        $client.Dispose()
+    }
+}
+
 # Some launch environments expose both Path and PATH. Windows PowerShell's
 # Start-Process rejects that duplicate, so normalize it before spawning dotnet.
 $processPath = $env:Path
@@ -76,6 +109,18 @@ try {
         -ContentType 'application/json' `
         -Body '{"name":"Research"}'
     if (-not $category.categoryId) { throw 'Category creation did not return an identifier.' }
+
+    Assert-ApiError `
+        -Method 'POST' `
+        -Uri "$baseUrl/v1/categories" `
+        -Body '{"name":"Research"}' `
+        -ExpectedStatus 400 `
+        -ExpectedError 'already exists'
+    Assert-ApiError `
+        -Method 'DELETE' `
+        -Uri "$baseUrl/v1/chats/not-a-chat" `
+        -ExpectedStatus 404 `
+        -ExpectedError 'not-a-chat'
 
     $created = Invoke-RestMethod `
         -Method Post `
@@ -162,6 +207,14 @@ try {
     }
     $downloaded = (Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl$($uploaded.contentUrl)").Content
     if ($downloaded -notlike '*MEZHS-ATTACHMENT-SMOKE*') { throw 'Downloaded file content did not match.' }
+    $downloadResponse = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl$($uploaded.downloadUrl)"
+    if ($downloadResponse.Content -notlike '*MEZHS-ATTACHMENT-SMOKE*') {
+        throw 'Attachment download content did not match.'
+    }
+    $contentDisposition = [string]$downloadResponse.Headers['Content-Disposition']
+    if ($contentDisposition -notmatch 'attachment' -or $contentDisposition -notmatch 'attachment-smoke\.txt') {
+        throw "Attachment download filename was invalid: $contentDisposition"
+    }
 
     $attachmentMessage = Invoke-RestMethod `
         -Method Post `
@@ -319,6 +372,15 @@ try {
     if ($replay.connectionId -ne 'test') { throw 'Replay did not retain the original request connection.' }
     if ($replay.model -ne 'mock-fast') { throw 'Replay did not retain the original request model.' }
 
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+    do {
+        $replayCompleted = Invoke-RestMethod -Uri "$baseUrl/v1/messages/$($replay.messageId)"
+        if ($replayCompleted.status -eq 'Completed') { break }
+        if ($replayCompleted.status -eq 'Failed') { throw $replayCompleted.error }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Replay polling timed out.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+
     Invoke-RestMethod `
         -Method Patch `
         -Uri "$baseUrl/v1/chats/$($created.chatId)" `
@@ -326,7 +388,50 @@ try {
         -Body '{"categoryId":null}' | Out-Null
     Invoke-RestMethod -Method Delete -Uri "$baseUrl/v1/categories/$($category.categoryId)"
 
-    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) implicit-follow-up=ok multi-connection=ok model-restore=ok default-reset=ok categories=ok files=ok login=ok models=ok"
+    $singleDeleteChat = Invoke-RestMethod `
+        -Method Post `
+        -Uri "$baseUrl/v1/chats" `
+        -ContentType 'application/json' `
+        -Body '{"connectionId":"test"}'
+    Invoke-RestMethod -Method Delete -Uri "$baseUrl/v1/chats/$($singleDeleteChat.chatId)" | Out-Null
+
+    $bulkDeleteChatA = Invoke-RestMethod `
+        -Method Post `
+        -Uri "$baseUrl/v1/chats" `
+        -ContentType 'application/json' `
+        -Body '{"connectionId":"test"}'
+    $bulkDeleteChatB = Invoke-RestMethod `
+        -Method Post `
+        -Uri "$baseUrl/v1/chats" `
+        -ContentType 'application/json' `
+        -Body '{"connectionId":"test"}'
+    $bulkIds = @($created.chatId, $bulkDeleteChatA.chatId, $bulkDeleteChatB.chatId)
+    $bulkDeleteResult = Invoke-RestMethod `
+        -Method Delete `
+        -Uri "$baseUrl/v1/chats" `
+        -ContentType 'application/json' `
+        -Body (ConvertTo-Json @{ chatIds = $bulkIds })
+    if (@($bulkDeleteResult.deletedChatIds).Count -ne $bulkIds.Count) {
+        throw 'Bulk conversation deletion did not report every deleted chat.'
+    }
+
+    $remainingChats = @(Invoke-RestMethod -Uri "$baseUrl/v1/chats")
+    $deletedIds = @($singleDeleteChat.chatId) + $bulkIds
+    if ($remainingChats | Where-Object { $deletedIds -contains $_.chatId }) {
+        throw 'Deleted conversations remained in the chat list.'
+    }
+    foreach ($deletedId in $deletedIds) {
+        if (Test-Path -LiteralPath (Join-Path $dataPath "chats\$deletedId")) {
+            throw "Deleted conversation data remained on disk: $deletedId"
+        }
+    }
+    $fileAfterChatDeletion = (Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl$($uploaded.contentUrl)").Content
+    if ($fileAfterChatDeletion -notlike '*MEZHS-ATTACHMENT-SMOKE*') {
+        throw 'Deleting a conversation also deleted reusable file storage.'
+    }
+
+    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) implicit-follow-up=ok multi-connection=ok categories=ok files=ok downloads=ok deletion=ok api-errors=ok login=ok models=ok model-restore=ok default-reset=ok"
+
 }
 finally {
     if (-not $process.HasExited) {

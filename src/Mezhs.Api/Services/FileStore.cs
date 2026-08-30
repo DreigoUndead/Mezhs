@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Mezhs;
 using Mezhs.Configuration;
 using Mezhs.Models;
 
@@ -56,7 +57,7 @@ public sealed class FileStore(MezhsOptions options)
         foreach (var fileId in (fileIds ?? []).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var file = Get(fileId)
-                ?? throw new KeyNotFoundException($"File '{fileId}' was not found.");
+                ?? throw new ResourceNotFoundException($"File '{fileId}' was not found.");
             result.Add(file);
         }
         return result;

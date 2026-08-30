@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Mezhs;
 using Mezhs.Configuration;
 using Mezhs.Models;
 
@@ -23,6 +24,7 @@ public sealed class ChatStore(MezhsOptions options)
     public void Initialize()
     {
         Directory.CreateDirectory(_root);
+        CleanupDeletedChats();
         var connectionsRoot = Path.Combine(_root, "connections");
         Directory.CreateDirectory(connectionsRoot);
         Directory.CreateDirectory(Path.Combine(_root, "chats"));
@@ -62,7 +64,7 @@ public sealed class ChatStore(MezhsOptions options)
     public ChatRecord CreateChat(string? categoryId)
     {
         if (!string.IsNullOrWhiteSpace(categoryId) && !_categories.ContainsKey(categoryId))
-            throw new KeyNotFoundException($"Category '{categoryId}' was not found.");
+            throw new ResourceNotFoundException($"Category '{categoryId}' was not found.");
 
         var chat = new ChatRecord
         {
@@ -96,10 +98,10 @@ public sealed class ChatStore(MezhsOptions options)
     {
         name = name.Trim();
         if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("Category name is required.");
+            throw new RequestValidationException("Category name is required.");
         if (_categories.Values.Any(category =>
             string.Equals(category.Name, name, StringComparison.OrdinalIgnoreCase)))
-            throw new ArgumentException($"Category '{name}' already exists.");
+            throw new RequestValidationException($"Category '{name}' already exists.");
 
         string[] colors = ["#d7ff64", "#72d7c8", "#ffad66", "#bba2ff", "#ff8fa3", "#7bb8ff"];
         var category = new CategoryRecord
@@ -116,14 +118,14 @@ public sealed class ChatStore(MezhsOptions options)
     public CategoryRecord RenameCategory(string categoryId, string name)
     {
         if (!_categories.TryGetValue(categoryId, out var category))
-            throw new KeyNotFoundException($"Category '{categoryId}' was not found.");
+            throw new ResourceNotFoundException($"Category '{categoryId}' was not found.");
         name = name.Trim();
         if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("Category name is required.");
+            throw new RequestValidationException("Category name is required.");
         if (_categories.Values.Any(item =>
             item.CategoryId != categoryId &&
             string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)))
-            throw new ArgumentException($"Category '{name}' already exists.");
+            throw new RequestValidationException($"Category '{name}' already exists.");
 
         category.Name = name;
         SaveCategories();
@@ -133,7 +135,7 @@ public sealed class ChatStore(MezhsOptions options)
     public void DeleteCategory(string categoryId)
     {
         if (!_categories.TryRemove(categoryId, out _))
-            throw new KeyNotFoundException($"Category '{categoryId}' was not found.");
+            throw new ResourceNotFoundException($"Category '{categoryId}' was not found.");
         SaveCategories();
 
         foreach (var chat in _chats.Values.Where(chat =>
@@ -144,12 +146,75 @@ public sealed class ChatStore(MezhsOptions options)
         }
     }
 
+    public IReadOnlyList<string> DeleteChats(IEnumerable<string> chatIds)
+    {
+        var ids = chatIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (ids.Length == 0)
+            throw new RequestValidationException("At least one chatId is required.");
+
+        var stagedDirectories = new List<(string Original, string Staged)>();
+        lock (_writeLock)
+        {
+            var missing = ids.FirstOrDefault(id => !_chats.ContainsKey(id));
+            if (missing is not null)
+                throw new ResourceNotFoundException($"Chat '{missing}' was not found.");
+
+            var deletedRoot = Path.Combine(_root, ".deleted-chats");
+            Directory.CreateDirectory(deletedRoot);
+            try
+            {
+                foreach (var id in ids)
+                {
+                    var original = GetChatDirectory(id);
+                    if (!Directory.Exists(original)) continue;
+                    var staged = Path.Combine(deletedRoot, $"{id}-{Guid.NewGuid():N}");
+                    Directory.Move(original, staged);
+                    stagedDirectories.Add((original, staged));
+                }
+            }
+            catch
+            {
+                foreach (var (original, staged) in stagedDirectories.AsEnumerable().Reverse())
+                    if (Directory.Exists(staged) && !Directory.Exists(original))
+                        Directory.Move(staged, original);
+                throw;
+            }
+
+            foreach (var id in ids)
+            {
+                _chats.TryRemove(id, out _);
+                foreach (var messageId in _messages.Values
+                             .Where(message => string.Equals(
+                                 message.ChatId,
+                                 id,
+                                 StringComparison.OrdinalIgnoreCase))
+                             .Select(message => message.MessageId)
+                             .ToArray())
+                    _messages.TryRemove(messageId, out _);
+            }
+        }
+
+        foreach (var (_, staged) in stagedDirectories)
+        {
+            try { Directory.Delete(staged, recursive: true); }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Could not remove deleted chat data '{staged}': {ex.Message}");
+            }
+        }
+        return ids;
+    }
+
     public ChatRecord SetChatCategory(string chatId, string? categoryId)
     {
         var chat = GetChat(chatId)
-            ?? throw new KeyNotFoundException($"Chat '{chatId}' was not found.");
+            ?? throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
         if (!string.IsNullOrWhiteSpace(categoryId) && !_categories.ContainsKey(categoryId))
-            throw new KeyNotFoundException($"Category '{categoryId}' was not found.");
+            throw new ResourceNotFoundException($"Category '{categoryId}' was not found.");
 
         chat.CategoryId = string.IsNullOrWhiteSpace(categoryId) ? null : categoryId;
         SaveChat(chat);
@@ -168,22 +233,27 @@ public sealed class ChatStore(MezhsOptions options)
 
     public void SaveChat(ChatRecord chat)
     {
-        chat.UpdatedAt = DateTimeOffset.UtcNow;
-        _chats[chat.ChatId] = chat;
-        PersistChat(chat);
+        lock (_writeLock)
+        {
+            if (!_chats.ContainsKey(chat.ChatId))
+                throw new ResourceNotFoundException($"Chat '{chat.ChatId}' was not found.");
+            chat.UpdatedAt = DateTimeOffset.UtcNow;
+            PersistChat(chat);
+        }
     }
 
     public void SaveMessage(StoredMessage message)
     {
-        var chat = GetChat(message.ChatId)
-            ?? throw new KeyNotFoundException($"Chat '{message.ChatId}' was not found.");
-        _messages[message.MessageId] = message;
-        var directory = GetChatDirectory(chat.ChatId);
-        Directory.CreateDirectory(directory);
-        var line = JsonSerializer.Serialize(message, JsonOptions) + Environment.NewLine;
-
         lock (_writeLock)
+        {
+            var chat = GetChat(message.ChatId)
+                ?? throw new ResourceNotFoundException($"Chat '{message.ChatId}' was not found.");
+            _messages[message.MessageId] = message;
+            var directory = GetChatDirectory(chat.ChatId);
+            Directory.CreateDirectory(directory);
+            var line = JsonSerializer.Serialize(message, JsonOptions) + Environment.NewLine;
             File.AppendAllText(Path.Combine(directory, "messages.jsonl"), line);
+        }
     }
 
     public static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
@@ -298,6 +368,20 @@ public sealed class ChatStore(MezhsOptions options)
         {
             File.WriteAllText(temporary, json);
             File.Move(temporary, target, overwrite: true);
+        }
+    }
+
+    private void CleanupDeletedChats()
+    {
+        var deletedRoot = Path.Combine(_root, ".deleted-chats");
+        if (!Directory.Exists(deletedRoot)) return;
+        foreach (var directory in Directory.EnumerateDirectories(deletedRoot))
+        {
+            try { Directory.Delete(directory, recursive: true); }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Could not clean deleted chat data '{directory}': {ex.Message}");
+            }
         }
     }
 
