@@ -27,6 +27,9 @@ extensions:
         connectionId: test
         instructions: |
           Complete the assigned deterministic test task.
+        commands:
+          allow:
+            - SH
         completion:
           requireDone: false
         limits:
