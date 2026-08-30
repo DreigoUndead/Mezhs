@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json.Serialization;
 using Mezhs.Agent;
 using Mezhs.Agent.Commands;
@@ -28,6 +29,7 @@ builder.Services.AddSingleton<IAgentCommandHandler, ShellCommandHandler>();
 builder.Services.AddSingleton<AgentCommandInterpreter>();
 builder.Services.AddHttpClient<MezhsClient>(client =>
     client.BaseAddress = options.MezhsApi);
+builder.Services.AddSingleton<AgentDebugLogBuilder>();
 builder.Services.AddSingleton<AgentWorker>();
 builder.Services.AddHostedService<AgentWorker>(
     services => services.GetRequiredService<AgentWorker>());
@@ -130,6 +132,19 @@ app.MapGet("/v1/agent-chats/{chatId}/executions", (
     return Results.Ok(agentStore.GetExecutions(chatId));
 });
 
+app.MapGet("/v1/agent-chats/{chatId}/debug-log", async (
+    string chatId,
+    AgentDebugLogBuilder logs,
+    CancellationToken cancellationToken) =>
+{
+    var content = await logs.BuildAsync(chatId, cancellationToken);
+    var fileName = $"mezhs-agent-{SafeFilePart(chatId)}-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.log";
+    return Results.File(
+        Encoding.UTF8.GetBytes(content),
+        "text/plain; charset=utf-8",
+        fileName);
+});
+
 app.MapPost("/v1/executions", (
     CreateExecutionRequest request,
     AgentService agents) =>
@@ -215,6 +230,13 @@ static ApiChatHistoryMessage NormalizeAgentMessageOrigin(
     if (execution is null || string.Equals(execution.Source, "manual", StringComparison.OrdinalIgnoreCase))
         return message;
     return message with { Origin = execution.Source };
+}
+
+static string SafeFilePart(string value)
+{
+    var invalid = Path.GetInvalidFileNameChars().ToHashSet();
+    var result = new string(value.Select(character => invalid.Contains(character) ? '_' : character).ToArray());
+    return string.IsNullOrWhiteSpace(result) ? "chat" : result;
 }
 
 static string? GetOption(string[] args, string name)
