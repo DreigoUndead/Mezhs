@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
+using Mezhs.Agent.Commands;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
@@ -10,7 +11,9 @@ public sealed class AgentWorker(
     AgentStore store,
     PolicyRegistry policies,
     MezhsClient mezhs,
-    AgentPromptBuilder prompts) : BackgroundService
+    AgentPromptBuilder prompts,
+    PolicyEvaluationService evaluations,
+    AgentCommandInterpreter commands) : BackgroundService
 {
     private readonly Channel<string> _queue = Channel.CreateUnbounded<string>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
@@ -103,6 +106,7 @@ public sealed class AgentWorker(
                 execution.PolicyId,
                 execution.Source,
                 execution.SourceReference);
+            store.ValidateAgentChatRunnable(chatId);
 
             chatGate = _chatGates.GetOrAdd(chatId, _ => new SemaphoreSlim(1, 1));
             await chatGate.WaitAsync(cancellation.Token);
@@ -111,9 +115,11 @@ public sealed class AgentWorker(
             var nextPrompt = prompts.BuildInitial(execution, policy);
             for (var turn = 0; ; turn++)
             {
-                var evaluation = EvaluationContext(execution);
+                cancellation.Token.ThrowIfCancellationRequested();
+                store.ValidateAgentChatRunnable(chatId);
+
                 var turnDecision = policy.ValidateTurn(
-                    new PolicyTurnContext(evaluation, turn));
+                    new PolicyTurnContext(evaluations.Create(execution), turn));
                 if (!turnDecision.Allowed)
                 {
                     store.Fail(executionId, turnDecision.Error ?? "Policy rejected the next agent turn.");
@@ -126,9 +132,21 @@ public sealed class AgentWorker(
                     nextPrompt,
                     cancellation.Token);
 
-                evaluation = EvaluationContext(execution);
+                var interpretation = await commands.InterpretAsync(
+                    execution,
+                    policy,
+                    reply,
+                    cancellation.Token);
+                if (interpretation.Error is { } commandError)
+                {
+                    nextPrompt = prompts.BuildCommandCorrection(commandError);
+                    continue;
+                }
+
                 var completion = policy.EvaluateCompletion(
-                    new PolicyCompletionContext(evaluation, reply));
+                    new PolicyCompletionContext(
+                        evaluations.Create(execution),
+                        interpretation.CompletionClaimed));
                 if (completion.State == PolicyCompletionState.Accepted)
                 {
                     store.Complete(executionId, reply);
@@ -137,7 +155,9 @@ public sealed class AgentWorker(
 
                 nextPrompt = completion.State == PolicyCompletionState.Rejected
                     ? prompts.BuildPolicyCorrection(completion.Error)
-                    : prompts.BuildContinue();
+                    : interpretation.Results.Count > 0
+                        ? prompts.BuildCommandResults(interpretation.Results)
+                        : prompts.BuildContinue();
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -158,17 +178,5 @@ public sealed class AgentWorker(
                 chatGate.Release();
             _cancellations.TryRemove(executionId, out _);
         }
-    }
-
-    private PolicyEvaluationContext EvaluationContext(ExecutionRecord execution)
-    {
-        var evidence = store.GetExecutions(execution.ChatId)
-            .Where(record => string.Equals(
-                record.CorrelationId,
-                execution.CorrelationId,
-                StringComparison.OrdinalIgnoreCase))
-            .OrderBy(record => record.CreatedAt)
-            .ToArray();
-        return new PolicyEvaluationContext(execution, evidence);
     }
 }
