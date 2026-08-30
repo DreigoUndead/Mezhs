@@ -17,7 +17,7 @@ internal static class CommandDiscovery
     public static IReadOnlyList<CommandDescriptor> Discover(Type applicationType)
     {
         var commands = applicationType
-            .GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public)
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public)
             .Select(method => (method, attribute: method.GetCustomAttribute<CommandAttribute>()))
             .Where(x => x.attribute is not null)
             .Select(x => Describe(x.method, x.attribute!))
@@ -57,11 +57,6 @@ internal static class CommandDiscovery
                 errors.Add($"Parameter '{parameter.Name}' ({ValueBinder.FriendlyName(parameter.ParameterType)}): {reason}");
         }
 
-        return new CommandDescriptor(
-            method,
-            attribute.Name ?? method.Name,
-            attribute.Description,
-            attribute.Example,
-            errors);
+        return new CommandDescriptor(method, attribute.Name, attribute.Description, attribute.Example, errors);
     }
 }
