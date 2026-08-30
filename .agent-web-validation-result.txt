@@ -1,25 +1,27 @@
-Agent Web validation - bbfe9a321da46a909d381b59aca78f45ab29de61
+Agent Web validation - 2f811d5c8d07a56c314394b3e507f543964ac1dc
 
 === dotnet build ===
   Determining projects to restore...
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 212 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj (in 195 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 194 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 212 ms).
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 3 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 4 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 5 ms).
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 3 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 270 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 279 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 3 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 278 ms).
   Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj (in 1 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 1.3 sec).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 1.82 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 4 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 7 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 9 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 3 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 1.65 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 2.12 sec).
+  Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Release\net10.0\Mezhs.Browser.Abstractions.dll
   Mezhs.Integration.Abstractions -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\bin\Release\net10.0\Mezhs.Integration.Abstractions.dll
   Mezhs.Api.Contracts -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\bin\Release\net10.0\Mezhs.Api.Contracts.dll
-  Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Release\net10.0\Mezhs.Browser.Abstractions.dll
-  Mezhs.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Web\bin\Release\net10.0\Mezhs.Web.dll
-  Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Release\net10.0\Mezhs.Integrations.Mock.dll
   Mezhs.Agent.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll
+  Mezhs.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Web\bin\Release\net10.0\Mezhs.Web.dll
+  Mezhs.Browser.Electron -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\bin\Release\net10.0\Mezhs.Browser.Electron.dll
+  Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Release\net10.0\Mezhs.Integration.Browser.dll
+  Mezhs.Integrations.Gemini -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\bin\Release\net10.0\Mezhs.Integrations.Gemini.dll
   npm warn old lockfile
   npm warn old lockfile The package-lock.json file was created with an old version of npm,
   npm warn old lockfile so supplemental metadata must be fetched from the registry.
@@ -27,7 +29,7 @@ Agent Web validation - bbfe9a321da46a909d381b59aca78f45ab29de61
   npm warn old lockfile This is a one-time fix-up, please be patient...
   npm warn old lockfile
   
-  added 75 packages, and audited 77 packages in 11s
+  added 75 packages, and audited 77 packages in 10s
   
   11 packages are looking for funding
     run `npm fund` for details
@@ -63,21 +65,19 @@ Agent Web validation - bbfe9a321da46a909d381b59aca78f45ab29de61
   
   [36mvite v2.9.16 [32mbuilding for production...[36m[39m
   transforming...
-  [36mvite v2.9.16 [32mbuilding for production...[36m[39m
-  transforming...
   [32mΓ£ô[39m 37 modules transformed.
+  [36mvite v2.9.16 [32mbuilding for production...[36m[39m
   rendering chunks...
   [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.51 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[35massets/index.05016f07.css  [39m [2m20.25 KiB / gzip: 5.25 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[36massets/index.036844b1.js   [39m [2m161.53 KiB / gzip: 51.48 KiB[22m
+  transforming...
   [32mΓ£ô[39m 37 modules transformed.
   rendering chunks...
   [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.44 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[35massets/index.3b07ffe5.css  [39m [2m5.82 KiB / gzip: 2.03 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[36massets/index.59076770.js   [39m [2m148.25 KiB / gzip: 47.98 KiB[22m
-  Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Release\net10.0\Mezhs.Integration.Browser.dll
-  Mezhs.Browser.Electron -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\bin\Release\net10.0\Mezhs.Browser.Electron.dll
-  Mezhs.Integrations.Gemini -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\bin\Release\net10.0\Mezhs.Integrations.Gemini.dll
+  Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Release\net10.0\Mezhs.Integrations.Mock.dll
   Mezhs.Integrations.Grok -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\bin\Release\net10.0\Mezhs.Integrations.Grok.dll
   Mezhs.Integrations.ChatGpt -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\bin\Release\net10.0\Mezhs.Integrations.ChatGpt.dll
   Mezhs.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Api\bin\Release\net10.0\Mezhs.Api.dll
@@ -86,12 +86,12 @@ Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:37.60
+Time Elapsed 00:00:39.00
 
 RESULT: PASS
 
 === policy and command test ===
-PASS: typed policies, strict command parsing, <DONE>, fail-closed action authorization, and causal shell execution are working.
+PASS: typed policies, non-executable model instructions, strict command parsing, <DONE>, fail-closed action authorization, and causal shell execution are working.
 
 RESULT: PASS
 
@@ -101,13 +101,9 @@ PASS: Agent Web stays additive, policy owns behavior/connection, command dispatc
 RESULT: PASS
 
 === agent API smoke ===
-Exception: D:\a\Mezhs\Mezhs\tests\agent-api-smoke.ps1:290
-Line |
- 290 |          throw "Agent execution history did not round-trip through SQL …
-     |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-     | Agent execution history did not round-trip through SQLite.
+PASS: Agent API serves Agent Web, exposes all agent-chat data, preserves fixed policy/source, and enforces persisted pause/resume.
 
-RESULT: FAIL (exit 1)
+RESULT: PASS
 
 === diagnostic: tests/agent-smoke-agent.err.log ===
 
@@ -132,9 +128,9 @@ info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[100]
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[100]
       Sending HTTP request GET http://127.0.0.1:5198/health
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[101]
-      Received HTTP response headers after 34.6306ms - 200
+      Received HTTP response headers after 36.433ms - 200
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[101]
-      End processing HTTP request after 46.3792ms - 200
+      End processing HTTP request after 49.1643ms - 200
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
       Setting HTTP status code 200.
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
@@ -142,7 +138,7 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/runtime'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/runtime - 200 - application/json;+charset=utf-8 155.9529ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/runtime - 200 - application/json;+charset=utf-8 157.8103ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
       Request starting HTTP/1.1 GET http://127.0.0.1:5199/ - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
@@ -152,7 +148,7 @@ info: Microsoft.AspNetCore.StaticFiles.StaticFileMiddleware[2]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'Fallback {*path:nonfile}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/index.html - 200 452 text/html 9.4084ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/index.html - 200 452 text/html 9.7739ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
       Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1 - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
@@ -164,7 +160,7 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1 - 200 - application/json;+charset=utf-8 6.0495ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1 - 200 - application/json;+charset=utf-8 6.0519ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
       Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/policies/test - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
@@ -176,7 +172,7 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/policies/{policyId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/policies/test - 200 - application/json;+charset=utf-8 4.1065ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/policies/test - 200 - application/json;+charset=utf-8 4.1957ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
       Request starting HTTP/1.1 POST http://127.0.0.1:5199/v1/executions - application/json 53
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
@@ -192,9 +188,9 @@ info: Microsoft.AspNetCore.Http.Result.AcceptedResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: POST /v1/executions'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 POST http://127.0.0.1:5199/v1/executions - 202 - application/json;+charset=utf-8 54.7274ms
+      Request finished HTTP/1.1 POST http://127.0.0.1:5199/v1/executions - 202 - application/json;+charset=utf-8 57.6697ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_bb1193a7e0a74fb1b61451b5e57f0100 - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_f435e0f4b50c48388ebecfa6e1662c22 - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
@@ -204,41 +200,29 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_bb1193a7e0a74fb1b61451b5e57f0100 - 200 - application/json;+charset=utf-8 1.3119ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_f435e0f4b50c48388ebecfa6e1662c22 - 200 - application/json;+charset=utf-8 1.5049ms
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[101]
-      Received HTTP response headers after 36.6781ms - 201
+      Received HTTP response headers after 39.6567ms - 201
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[101]
-      End processing HTTP request after 36.8558ms - 201
+      End processing HTTP request after 39.852ms - 201
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[100]
       Start processing HTTP request POST http://127.0.0.1:5198/v1/messages
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[100]
       Sending HTTP request POST http://127.0.0.1:5198/v1/messages
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[101]
-      Received HTTP response headers after 40.403ms - 202
+      Received HTTP response headers after 40.3876ms - 202
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[101]
-      End processing HTTP request after 40.5137ms - 202
-info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_bb1193a7e0a74fb1b61451b5e57f0100 - - -
-info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
-      Executing endpoint 'HTTP: GET /v1/executions/{executionId}'
-info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
-      Setting HTTP status code 200.
-info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
-      Writing value of type 'ExecutionRecord' as Json.
-info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
-      Executed endpoint 'HTTP: GET /v1/executions/{executionId}'
-info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_bb1193a7e0a74fb1b61451b5e57f0100 - 200 - application/json;+charset=utf-8 0.7281ms
+      End processing HTTP request after 40.505ms - 202
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[100]
-      Start processing HTTP request GET http://127.0.0.1:5198/v1/messages/msg_af17872d74c34d5eafbcaeaa9aa76179
+      Start processing HTTP request GET http://127.0.0.1:5198/v1/messages/msg_3ac294eae87c42c59ae9e86c637bbeff
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[100]
-      Sending HTTP request GET http://127.0.0.1:5198/v1/messages/msg_af17872d74c34d5eafbcaeaa9aa76179
+      Sending HTTP request GET http://127.0.0.1:5198/v1/messages/msg_3ac294eae87c42c59ae9e86c637bbeff
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[101]
-      Received HTTP response headers after 2.5848ms - 200
+      Received HTTP response headers after 1.8034ms - 200
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[101]
-      End processing HTTP request after 2.7048ms - 200
+      End processing HTTP request after 1.8646ms - 200
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_bb1193a7e0a74fb1b61451b5e57f0100 - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_f435e0f4b50c48388ebecfa6e1662c22 - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
@@ -248,9 +232,9 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_bb1193a7e0a74fb1b61451b5e57f0100 - 200 - application/json;+charset=utf-8 0.6992ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_f435e0f4b50c48388ebecfa6e1662c22 - 200 - application/json;+charset=utf-8 0.4819ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_bb1193a7e0a74fb1b61451b5e57f0100 - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_f435e0f4b50c48388ebecfa6e1662c22 - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
@@ -260,17 +244,29 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_bb1193a7e0a74fb1b61451b5e57f0100 - 200 - application/json;+charset=utf-8 0.7097ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_f435e0f4b50c48388ebecfa6e1662c22 - 200 - application/json;+charset=utf-8 0.5148ms
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_f435e0f4b50c48388ebecfa6e1662c22 - - -
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
+      Executing endpoint 'HTTP: GET /v1/executions/{executionId}'
+info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
+      Setting HTTP status code 200.
+info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
+      Writing value of type 'ExecutionRecord' as Json.
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
+      Executed endpoint 'HTTP: GET /v1/executions/{executionId}'
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_f435e0f4b50c48388ebecfa6e1662c22 - 200 - application/json;+charset=utf-8 0.9183ms
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[100]
-      Start processing HTTP request GET http://127.0.0.1:5198/v1/messages/msg_af17872d74c34d5eafbcaeaa9aa76179
+      Start processing HTTP request GET http://127.0.0.1:5198/v1/messages/msg_3ac294eae87c42c59ae9e86c637bbeff
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[100]
-      Sending HTTP request GET http://127.0.0.1:5198/v1/messages/msg_af17872d74c34d5eafbcaeaa9aa76179
+      Sending HTTP request GET http://127.0.0.1:5198/v1/messages/msg_3ac294eae87c42c59ae9e86c637bbeff
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[101]
-      Received HTTP response headers after 1.0051ms - 200
+      Received HTTP response headers after 1.2751ms - 200
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[101]
-      End processing HTTP request after 1.1279ms - 200
+      End processing HTTP request after 1.3918ms - 200
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_bb1193a7e0a74fb1b61451b5e57f0100 - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_f435e0f4b50c48388ebecfa6e1662c22 - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
@@ -280,19 +276,7 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_bb1193a7e0a74fb1b61451b5e57f0100 - 200 - application/json;+charset=utf-8 0.4803ms
-info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_bb1193a7e0a74fb1b61451b5e57f0100 - - -
-info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
-      Executing endpoint 'HTTP: GET /v1/executions/{executionId}'
-info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
-      Setting HTTP status code 200.
-info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
-      Writing value of type 'ExecutionRecord' as Json.
-info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
-      Executed endpoint 'HTTP: GET /v1/executions/{executionId}'
-info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_bb1193a7e0a74fb1b61451b5e57f0100 - 200 - application/json;+charset=utf-8 0.4282ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_f435e0f4b50c48388ebecfa6e1662c22 - 200 - application/json;+charset=utf-8 0.8265ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
       Request starting HTTP/1.1 POST http://127.0.0.1:5199/v1/executions - application/json 73
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
@@ -304,9 +288,13 @@ info: Microsoft.AspNetCore.Http.Result.AcceptedResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: POST /v1/executions'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 POST http://127.0.0.1:5199/v1/executions - 202 - application/json;+charset=utf-8 1.3315ms
+      Request finished HTTP/1.1 POST http://127.0.0.1:5199/v1/executions - 202 - application/json;+charset=utf-8 1.2194ms
+info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[100]
+      Start processing HTTP request POST http://127.0.0.1:5198/v1/chats
+info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[100]
+      Sending HTTP request POST http://127.0.0.1:5198/v1/chats
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_ca20408e48164e7297ac35222780abdf - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_0010add38bb24355a93ffb87cca7f98e - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
@@ -316,33 +304,29 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_ca20408e48164e7297ac35222780abdf - 200 - application/json;+charset=utf-8 15.5668ms
-info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[100]
-      Start processing HTTP request POST http://127.0.0.1:5198/v1/chats
-info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[100]
-      Sending HTTP request POST http://127.0.0.1:5198/v1/chats
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_0010add38bb24355a93ffb87cca7f98e - 200 - application/json;+charset=utf-8 0.3790ms
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[101]
-      Received HTTP response headers after 1.6664ms - 201
+      Received HTTP response headers after 1.9082ms - 201
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[101]
-      End processing HTTP request after 1.7611ms - 201
+      End processing HTTP request after 1.9733ms - 201
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[100]
       Start processing HTTP request POST http://127.0.0.1:5198/v1/messages
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[100]
       Sending HTTP request POST http://127.0.0.1:5198/v1/messages
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[101]
-      Received HTTP response headers after 1.5012ms - 202
+      Received HTTP response headers after 2.0742ms - 202
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[101]
-      End processing HTTP request after 1.5494ms - 202
+      End processing HTTP request after 2.1694ms - 202
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[100]
-      Start processing HTTP request GET http://127.0.0.1:5198/v1/messages/msg_ca1721fcab8e434693e816c8c823985b
+      Start processing HTTP request GET http://127.0.0.1:5198/v1/messages/msg_ad9906593cf54c358e4558fb82cafb15
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[100]
-      Sending HTTP request GET http://127.0.0.1:5198/v1/messages/msg_ca1721fcab8e434693e816c8c823985b
+      Sending HTTP request GET http://127.0.0.1:5198/v1/messages/msg_ad9906593cf54c358e4558fb82cafb15
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[101]
-      Received HTTP response headers after 0.4843ms - 200
+      Received HTTP response headers after 0.5294ms - 200
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[101]
-      End processing HTTP request after 0.5317ms - 200
+      End processing HTTP request after 0.5947ms - 200
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_ca20408e48164e7297ac35222780abdf - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_0010add38bb24355a93ffb87cca7f98e - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
@@ -352,9 +336,9 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_ca20408e48164e7297ac35222780abdf - 200 - application/json;+charset=utf-8 0.4321ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_0010add38bb24355a93ffb87cca7f98e - 200 - application/json;+charset=utf-8 0.6525ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_ca20408e48164e7297ac35222780abdf - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_0010add38bb24355a93ffb87cca7f98e - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
@@ -364,17 +348,17 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_ca20408e48164e7297ac35222780abdf - 200 - application/json;+charset=utf-8 0.6928ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_0010add38bb24355a93ffb87cca7f98e - 200 - application/json;+charset=utf-8 0.6016ms
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[100]
-      Start processing HTTP request GET http://127.0.0.1:5198/v1/messages/msg_ca1721fcab8e434693e816c8c823985b
+      Start processing HTTP request GET http://127.0.0.1:5198/v1/messages/msg_ad9906593cf54c358e4558fb82cafb15
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[100]
-      Sending HTTP request GET http://127.0.0.1:5198/v1/messages/msg_ca1721fcab8e434693e816c8c823985b
+      Sending HTTP request GET http://127.0.0.1:5198/v1/messages/msg_ad9906593cf54c358e4558fb82cafb15
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[101]
-      Received HTTP response headers after 0.8769ms - 200
+      Received HTTP response headers after 1.9194ms - 200
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[101]
-      End processing HTTP request after 1.0077ms - 200
+      End processing HTTP request after 2.0464ms - 200
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_ca20408e48164e7297ac35222780abdf - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_0010add38bb24355a93ffb87cca7f98e - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
@@ -384,19 +368,31 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/executions/{executionId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_ca20408e48164e7297ac35222780abdf - 200 - application/json;+charset=utf-8 0.7369ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_0010add38bb24355a93ffb87cca7f98e - 200 - application/json;+charset=utf-8 0.5836ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/agent-chats/chat_dd3e75a0c3d14954a78eb66ba12a9a0b - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_0010add38bb24355a93ffb87cca7f98e - - -
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
+      Executing endpoint 'HTTP: GET /v1/executions/{executionId}'
+info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
+      Setting HTTP status code 200.
+info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
+      Writing value of type 'ExecutionRecord' as Json.
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
+      Executed endpoint 'HTTP: GET /v1/executions/{executionId}'
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/executions/exec_0010add38bb24355a93ffb87cca7f98e - 200 - application/json;+charset=utf-8 0.7314ms
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/agent-chats/chat_4d30daa1ba7e47f3b00c9de8e29b99f9 - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/agent-chats/{chatId}'
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[100]
-      Start processing HTTP request GET http://127.0.0.1:5198/v1/chats/chat_dd3e75a0c3d14954a78eb66ba12a9a0b
+      Start processing HTTP request GET http://127.0.0.1:5198/v1/chats/chat_4d30daa1ba7e47f3b00c9de8e29b99f9
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[100]
-      Sending HTTP request GET http://127.0.0.1:5198/v1/chats/chat_dd3e75a0c3d14954a78eb66ba12a9a0b
+      Sending HTTP request GET http://127.0.0.1:5198/v1/chats/chat_4d30daa1ba7e47f3b00c9de8e29b99f9
 info: System.Net.Http.HttpClient.MezhsClient.ClientHandler[101]
-      Received HTTP response headers after 2.4828ms - 200
+      Received HTTP response headers after 3.3214ms - 200
 info: System.Net.Http.HttpClient.MezhsClient.LogicalHandler[101]
-      End processing HTTP request after 2.6054ms - 200
+      End processing HTTP request after 3.4235ms - 200
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
       Setting HTTP status code 200.
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
@@ -404,11 +400,9 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/agent-chats/{chatId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/agent-chats/chat_dd3e75a0c3d14954a78eb66ba12a9a0b - 200 - application/json;+charset=utf-8 10.6436ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5199/v1/agent-chats/chat_4d30daa1ba7e47f3b00c9de8e29b99f9 - 200 - application/json;+charset=utf-8 11.9080ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/agent-chats/chat_dd3e75a0c3d14954a78eb66ba12a9a0b/messages - - -
-info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
-      Executing endpoint 'HTTP: GET /v1/agent-chats/{chatId}/messages'
+      Request starting HTTP/1.1 GET http://127.0.0.1:5199/v1/agent-chats/chat_4d30daa1ba7e47f3b00c9de8e29b99f9/messages - - -
 
 
 === diagnostic: tests/agent-smoke-api.err.log ===
@@ -436,7 +430,7 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /health'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5198/health - 200 - application/json;+charset=utf-8 265.6213ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5198/health - 200 - application/json;+charset=utf-8 278.7925ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
       Request starting HTTP/1.1 GET http://127.0.0.1:5198/health - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
@@ -448,7 +442,7 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /health'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5198/health - 200 - application/json;+charset=utf-8 1.7878ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5198/health - 200 - application/json;+charset=utf-8 1.6737ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
       Request starting HTTP/1.1 POST http://127.0.0.1:5198/v1/chats - application/json;+charset=utf-8 -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
@@ -460,7 +454,7 @@ info: Microsoft.AspNetCore.Http.Result.CreatedResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: POST /v1/chats'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 POST http://127.0.0.1:5198/v1/chats - 201 - application/json;+charset=utf-8 30.2054ms
+      Request finished HTTP/1.1 POST http://127.0.0.1:5198/v1/chats - 201 - application/json;+charset=utf-8 33.4026ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
       Request starting HTTP/1.1 POST http://127.0.0.1:5198/v1/messages - application/json;+charset=utf-8 -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
@@ -472,9 +466,9 @@ info: Microsoft.AspNetCore.Http.Result.AcceptedResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: POST /v1/messages'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 POST http://127.0.0.1:5198/v1/messages - 202 - application/json;+charset=utf-8 38.9415ms
+      Request finished HTTP/1.1 POST http://127.0.0.1:5198/v1/messages - 202 - application/json;+charset=utf-8 38.6629ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_af17872d74c34d5eafbcaeaa9aa76179 - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_3ac294eae87c42c59ae9e86c637bbeff - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/messages/{messageId}'
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
@@ -484,9 +478,9 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/messages/{messageId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_af17872d74c34d5eafbcaeaa9aa76179 - 200 - application/json;+charset=utf-8 1.6781ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_3ac294eae87c42c59ae9e86c637bbeff - 200 - application/json;+charset=utf-8 1.2899ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_af17872d74c34d5eafbcaeaa9aa76179 - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_3ac294eae87c42c59ae9e86c637bbeff - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/messages/{messageId}'
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
@@ -496,7 +490,7 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/messages/{messageId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_af17872d74c34d5eafbcaeaa9aa76179 - 200 - application/json;+charset=utf-8 0.4819ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_3ac294eae87c42c59ae9e86c637bbeff - 200 - application/json;+charset=utf-8 0.5757ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
       Request starting HTTP/1.1 POST http://127.0.0.1:5198/v1/chats - application/json;+charset=utf-8 -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
@@ -508,7 +502,7 @@ info: Microsoft.AspNetCore.Http.Result.CreatedResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: POST /v1/chats'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 POST http://127.0.0.1:5198/v1/chats - 201 - application/json;+charset=utf-8 1.0927ms
+      Request finished HTTP/1.1 POST http://127.0.0.1:5198/v1/chats - 201 - application/json;+charset=utf-8 1.2982ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
       Request starting HTTP/1.1 POST http://127.0.0.1:5198/v1/messages - application/json;+charset=utf-8 -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
@@ -520,9 +514,9 @@ info: Microsoft.AspNetCore.Http.Result.AcceptedResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: POST /v1/messages'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 POST http://127.0.0.1:5198/v1/messages - 202 - application/json;+charset=utf-8 1.0910ms
+      Request finished HTTP/1.1 POST http://127.0.0.1:5198/v1/messages - 202 - application/json;+charset=utf-8 1.3670ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_ca1721fcab8e434693e816c8c823985b - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_ad9906593cf54c358e4558fb82cafb15 - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/messages/{messageId}'
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
@@ -532,9 +526,9 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/messages/{messageId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_ca1721fcab8e434693e816c8c823985b - 200 - application/json;+charset=utf-8 0.1764ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_ad9906593cf54c358e4558fb82cafb15 - 200 - application/json;+charset=utf-8 0.1626ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_ca1721fcab8e434693e816c8c823985b - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_ad9906593cf54c358e4558fb82cafb15 - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/messages/{messageId}'
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
@@ -544,9 +538,9 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/messages/{messageId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_ca1721fcab8e434693e816c8c823985b - 200 - application/json;+charset=utf-8 0.4442ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5198/v1/messages/msg_ad9906593cf54c358e4558fb82cafb15 - 200 - application/json;+charset=utf-8 0.4183ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5198/v1/chats/chat_dd3e75a0c3d14954a78eb66ba12a9a0b - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5198/v1/chats/chat_4d30daa1ba7e47f3b00c9de8e29b99f9 - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/chats/{chatId}'
 info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
@@ -556,9 +550,9 @@ info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
       Executed endpoint 'HTTP: GET /v1/chats/{chatId}'
 info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
-      Request finished HTTP/1.1 GET http://127.0.0.1:5198/v1/chats/chat_dd3e75a0c3d14954a78eb66ba12a9a0b - 200 - application/json;+charset=utf-8 1.9794ms
+      Request finished HTTP/1.1 GET http://127.0.0.1:5198/v1/chats/chat_4d30daa1ba7e47f3b00c9de8e29b99f9 - 200 - application/json;+charset=utf-8 2.7074ms
 info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
-      Request starting HTTP/1.1 GET http://127.0.0.1:5198/v1/chats/chat_dd3e75a0c3d14954a78eb66ba12a9a0b/messages - - -
+      Request starting HTTP/1.1 GET http://127.0.0.1:5198/v1/chats/chat_4d30daa1ba7e47f3b00c9de8e29b99f9/messages - - -
 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
       Executing endpoint 'HTTP: GET /v1/chats/{chatId}/messages'
 
@@ -568,4 +562,4 @@ PASS: chats are connection-neutral, message processing is owned, integrations re
 
 RESULT: PASS
 
-OVERALL: FAIL
+OVERALL: PASS
