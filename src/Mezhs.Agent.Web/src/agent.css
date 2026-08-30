@@ -285,6 +285,49 @@
   font-size: 11px;
 }
 
+.agent-protocol-events {
+  margin-top: 12px;
+  display: grid;
+  gap: 7px;
+}
+
+.agent-protocol-card {
+  padding: 9px 10px;
+  border: 1px solid #d8d2c8;
+  border-radius: 10px;
+  background: #f4f1ea;
+}
+
+.agent-protocol-card > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.agent-protocol-card strong {
+  color: #4e552e;
+  font: 700 10px ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.agent-protocol-card span,
+.agent-protocol-card small {
+  color: #918b82;
+  font-size: 9px;
+}
+
+.agent-protocol-card pre {
+  margin: 7px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #575149;
+  font: 10px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.agent-done-card {
+  border-color: #c8dda0;
+  background: #f1f7e3;
+}
+
 .agent-execution-details {
   flex: 0 0 auto;
   max-height: 34vh;
