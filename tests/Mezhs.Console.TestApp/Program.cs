@@ -12,16 +12,24 @@ internal class TestApplication : ConsoleApplication
         {
             ("Echo nullable", () => Expect("Echo hello", "hello:null")),
             ("Literal null", () => Expect("Echo hello null", "hello:null")),
+            ("Non-nullable literal null", () =>
+            {
+                var result = RunCase("Echo null");
+                if (result.ExitCode != 2 || !result.Error.Contains("non-nullable parameter 'value'", StringComparison.Ordinal))
+                    throw new InvalidOperationException($"Unexpected result: {result.ExitCode} {result.Error}");
+            }),
             ("Enumerable", () => Expect("Insert [1 5 6] tail", "1,5,6|tail")),
             ("Nested enumerable", () => Expect("Nested [[1 2] [3 4]]", "1,2;3,4")),
             ("Quoted string", () => Expect("Echo \"hello world\"", "hello world:null")),
             ("Invalid command help", () => Expect("Help Broken", "ComplexObject")),
             ("Invalid enumerable help", () => Expect("Help BrokenEnumerable", "cannot be constructed from command input")),
+            ("Invalid ValueTask help", () => Expect("Help AsyncBroken", "Task/ValueTask return types are not supported")),
             ("Invalid command isolated", () =>
             {
                 if (RunCase("Echo ok").ExitCode != 0) throw new InvalidOperationException("Valid command failed.");
                 if (RunCase("Broken nope").ExitCode != 3) throw new InvalidOperationException("Invalid command did not return exit code 3.");
                 if (RunCase("BrokenEnumerable [1 2]").ExitCode != 3) throw new InvalidOperationException("Unconstructable enumerable command did not return exit code 3.");
+                if (RunCase("AsyncBroken").ExitCode != 3) throw new InvalidOperationException("ValueTask command did not return exit code 3.");
             }),
             ("Inherited Help", () => Expect("Help Help", "Show available commands")),
             ("Inherited Validate", () => Expect("Validate", "Broken: INVALID")),
@@ -76,6 +84,9 @@ internal class TestApplication : ConsoleApplication
 
     [Command(Description = "Intentionally invalid enumerable type.")]
     public void BrokenEnumerable(IOrderedEnumerable<int> values) { }
+
+    [Command(Description = "Intentionally invalid asynchronous command.")]
+    public ValueTask AsyncBroken() => ValueTask.CompletedTask;
 
     private void Expect(string command, string expected)
     {
