@@ -18,6 +18,7 @@ $requiredFiles = @(
     "src/Mezhs.Agent.Api/Policy/PolicyContext.cs",
     "src/Mezhs.Agent.Api/Policy/PolicyDecoder.cs",
     "src/Mezhs.Agent.Api/Policy/PolicyEvaluationService.cs",
+    "src/Mezhs.Agent.Api/Services/AgentDebugLogBuilder.cs",
     "src/Mezhs.Agent.Api/Services/AgentPromptBuilder.cs",
     "src/Mezhs.Agent.Api/Services/MezhsClient.cs",
     "src/Mezhs.Agent.Api/Services/AgentService.cs",
@@ -59,6 +60,9 @@ if ($agentWebHost -notmatch 'Agent:BaseUrl' -or
     $agentWebHost -notmatch '/v1/\{\*\*path\}') {
     throw "Mezhs.Agent.Web is not independently hosting the dashboard and forwarding its API boundary."
 }
+if ($agentWebHost -notmatch 'ContentDisposition') {
+    throw "Agent Web proxy does not preserve downloadable Agent API response metadata."
+}
 
 $genericProject = Get-Content (Join-Path $root "src/Mezhs.Api/Mezhs.Api.csproj") -Raw
 $genericWebProject = Get-Content (Join-Path $root "src/Mezhs.Web/Mezhs.Web.csproj") -Raw
@@ -94,6 +98,10 @@ if ($policyModels -notmatch 'PolicyDefinition' -or
     $policyDecoder -notmatch 'Deserialize<Dictionary<string, PolicyDefinition>>') {
     throw "Policy YAML is not mapped through hard typed models."
 }
+if ($policyModels -notmatch 'CommandTimeoutSeconds' -or
+    $policyDecoder -notmatch 'commandTimeoutSeconds must be greater than zero') {
+    throw "Command timeout is not a typed, validated policy limit."
+}
 if ($policyDecoder -match 'GeneratedRegex' -or
     $policyDecoder -match 'Dictionary<string, object\?>') {
     throw "Policy decoding still relies on ad-hoc regex/dictionary schema machinery."
@@ -116,6 +124,8 @@ $promptBuilder = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Services/Agen
 $commandParser = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Commands/AgentCommandParser.cs") -Raw
 $commandInterpreter = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Commands/AgentCommandInterpreter.cs") -Raw
 $shellHandler = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Commands/ShellCommandHandler.cs") -Raw
+$debugLogBuilder = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Services/AgentDebugLogBuilder.cs") -Raw
+$agentProgram = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Program.cs") -Raw
 if ($worker -notmatch 'BackgroundService' -or $worker -notmatch 'Channel<string>') {
     throw "Agent execution is not owned by a host-managed worker queue."
 }
@@ -143,8 +153,9 @@ if ($commandParser -notmatch 'AgentCommandBatch' -or
 }
 if ($commandInterpreter -notmatch 'IEnumerable<IAgentCommandHandler>' -or
     $commandInterpreter -notmatch 'ValidateAction' -or
-    $commandInterpreter -notmatch '_handlers') {
-    throw "Agent command dispatch is not extensible and policy-governed."
+    $commandInterpreter -notmatch '_handlers' -or
+    $commandInterpreter -notmatch 'CommandTimeoutSeconds') {
+    throw "Agent command dispatch is not extensible, policy-governed, and timeout-aware."
 }
 if ($shellHandler -notmatch 'ProcessStartInfo' -or
     $shellHandler -notmatch 'MEZHS_EXECUTION_ID' -or
@@ -152,8 +163,18 @@ if ($shellHandler -notmatch 'ProcessStartInfo' -or
     $shellHandler -notmatch 'MEZHS_CORRELATION_ID') {
     throw "Shell execution does not propagate MEŽS execution context out of band."
 }
+if ($shellHandler -notmatch 'CancelAfter\(context\.Timeout\)' -or
+    $shellHandler -notmatch 'timed out after') {
+    throw "Shell execution is not bounded by the policy command timeout."
+}
 if ($shellHandler -match 'Environment\.SetEnvironmentVariable') {
     throw "Shell execution mutates the Agent process environment."
+}
+if ($debugLogBuilder -notmatch '=== ACTIVE ===' -or
+    $debugLogBuilder -notmatch '=== EXECUTIONS ===' -or
+    $debugLogBuilder -notmatch '=== CHAT MESSAGES ===' -or
+    $agentProgram -notmatch '/v1/agent-chats/\{chatId\}/debug-log') {
+    throw "Agent API does not expose a durable chat/execution debug log."
 }
 
 $client = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Services/MezhsClient.cs") -Raw
@@ -216,6 +237,11 @@ if ($agentWeb -notmatch '/v1/agent-chats' -or
     $agentWeb -match 'connectionId:\s*effective') {
     throw "Agent Web does not provide the intended manual-first chat and pause workflow."
 }
+if ($agentWeb -notmatch 'Stop agent execution' -or
+    $agentWeb -notmatch '/cancel' -or
+    $agentWeb -notmatch '/debug-log') {
+    throw "Agent Web does not expose live command stop/debug controls."
+}
 
 $config = Get-Content (Join-Path $root "mezhs.yaml") -Raw
 if ($config -notmatch '(?m)^extensions:' -or $config -notmatch '(?m)^\s+agent:') {
@@ -224,5 +250,8 @@ if ($config -notmatch '(?m)^extensions:' -or $config -notmatch '(?m)^\s+agent:')
 if ($config -notmatch '(?ms)^\s+commands:\s*\r?\n\s+allow:\s*\r?\n\s+- SH') {
     throw "Default policy does not explicitly allow shell execution."
 }
+if ($config -notmatch '(?m)^\s+commandTimeoutSeconds:\s+120\s*$') {
+    throw "Default policy does not configure the expected 120-second command timeout."
+}
 
-Write-Host "PASS: Agent API/Web are separate projects, policy owns behavior/connection, command dispatch is extensible, shell context is isolated, and pause state is durable."
+Write-Host "PASS: Agent API/Web are separate projects, policy owns behavior/connection/timeouts, command execution is auditable/stoppable, shell context is isolated, and pause state is durable."
