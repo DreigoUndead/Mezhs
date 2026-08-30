@@ -32,7 +32,8 @@ public sealed record PostMessageRequest(
     string? ConnectionId = null,
     string? ChatId = null,
     string? CategoryId = null,
-    IReadOnlyList<string>? FileIds = null);
+    IReadOnlyList<string>? FileIds = null,
+    string? Origin = null);
 
 public sealed record ApiFile(
     string FileId,
@@ -50,6 +51,7 @@ public sealed record ApiMessage(
     string ChatId,
     string ConnectionId,
     string Role,
+    string Origin,
     string Content,
     IReadOnlyList<ApiFile> Files,
     MessageStatus Status,
@@ -65,6 +67,7 @@ public sealed record ApiChatHistoryMessage(
     string ChatId,
     string ConnectionId,
     string Role,
+    string Origin,
     string Content,
     IReadOnlyList<string> FileIds,
     string? ParentMessageId,
