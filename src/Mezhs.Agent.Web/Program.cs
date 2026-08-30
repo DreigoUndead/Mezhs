@@ -38,6 +38,8 @@ app.Map("/v1/{**path}", async context =>
     context.Response.StatusCode = (int)response.StatusCode;
     if (response.Content.Headers.ContentType is not null)
         context.Response.ContentType = response.Content.Headers.ContentType.ToString();
+    if (response.Content.Headers.ContentDisposition is not null)
+        context.Response.Headers.ContentDisposition = response.Content.Headers.ContentDisposition.ToString();
     await response.Content.CopyToAsync(context.Response.Body, context.RequestAborted);
 });
 
