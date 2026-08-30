@@ -1,5 +1,10 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { expectJson } from "@mezhs/web-lib";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ChatComposer,
+  ChatTranscript,
+  expectJson,
+  type ChatSurfaceMessage,
+} from "@mezhs/web-lib";
 
 type Runtime = {
   status: string;
@@ -99,6 +104,18 @@ function statusTone(status: ExecutionStatus) {
   return "active";
 }
 
+function toSharedMessage(message: AgentChatMessage): ChatSurfaceMessage {
+  return {
+    messageId: message.messageId,
+    connectionId: message.connectionId,
+    role: message.role,
+    content: message.content,
+    status: message.status,
+    createdAt: message.createdAt,
+    error: message.error,
+  };
+}
+
 export default function App() {
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const [policies, setPolicies] = useState<AgentPolicy[]>([]);
@@ -119,7 +136,7 @@ export default function App() {
   const activeExecution = executions.find((execution) =>
     execution.kind === "Agent" && activeStatuses.has(execution.status));
   const latestAgentExecution = executions.find((execution) => execution.kind === "Agent");
-
+  const sharedMessages = useMemo(() => messages.map(toSharedMessage), [messages]);
   const shellExecutions = useMemo(
     () => executions.filter((execution) => execution.kind === "Shell"),
     [executions],
@@ -196,8 +213,7 @@ export default function App() {
       setPolicyId(policies[0].id);
   }
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
+  async function submit() {
     const input = draft.trim();
     const effectivePolicyId = selectedChat?.policyId ?? policyId;
     if (!input || !effectivePolicyId || sending || activeExecution || selectedChat?.paused)
@@ -276,98 +292,107 @@ export default function App() {
     setNotice(null);
   }
 
+  const composerDisabled = sending || !!activeExecution || !!selectedChat?.paused;
+  const composerPlaceholder = selectedChat?.paused
+    ? "Resume this agent chat to continue"
+    : activeExecution
+      ? "Agent execution is running"
+      : creating
+        ? "Describe the task for this agent"
+        : "Continue this agent chat";
+
   return (
     <div className="agent-shell">
       <aside className="agent-sidebar">
-        <div className="brand-row">
-          <div>
-            <div className="eyebrow">MEŽS</div>
-            <h1>Agent</h1>
-          </div>
-          <span className={`health-dot ${runtime?.mezhsApiHealthy ? "online" : "offline"}`}
+        <div className="agent-brand-row">
+          <div className="agent-brand-mark">M</div>
+          <div><strong>MEŽS Agent</strong><span>Policy-controlled chats</span></div>
+          <span className={`health-dot ${runtime?.mezhsApiHealthy ? "online" : ""}`}
             title={runtime?.mezhsApiHealthy ? "MEŽS API online" : "MEŽS API unavailable"} />
         </div>
 
-        <button className="primary wide" type="button" onClick={beginNewChat}>
-          + New agent chat
-        </button>
+        <button className="new-chat" type="button" onClick={beginNewChat}><span>+</span> New agent chat</button>
 
-        <div className="sidebar-label">Agent chats</div>
-        <nav className="chat-list" aria-label="Agent chats">
+        <span className="section-label">Agent chats</span>
+        <nav className="agent-chat-list" aria-label="Agent chats">
           {chats.map((chat) => (
             <button
               type="button"
               key={chat.chatId}
-              className={`chat-row ${selectedChatId === chat.chatId && !creating ? "selected" : ""}`}
+              className={`agent-chat-row ${selectedChatId === chat.chatId && !creating ? "selected" : ""}`}
               onClick={() => selectChat(chat.chatId)}
             >
-              <span className="chat-title">{displayTitle(chat)}</span>
-              <span className="chat-meta">
-                <span>{chat.policyId}</span>
-                <span>·</span>
-                <span>{chat.originSource}</span>
-                {chat.paused && <span className="paused-mini">paused</span>}
-              </span>
+              <span className="agent-chat-title">{displayTitle(chat)}</span>
+              <small>{chat.policyId} · {chat.originSource}</small>
+              {chat.paused && <i>paused</i>}
             </button>
           ))}
-          {chats.length === 0 && <div className="empty-sidebar">No agent chats yet.</div>}
+          {chats.length === 0 && <p className="agent-empty-sidebar">No agent chats yet.</p>}
         </nav>
+
+        <div className="agent-sidebar-footer">
+          <span className={`status-pill ${runtime?.mezhsApiHealthy ? "ready" : "offline"}`}>
+            {runtime?.mezhsApiHealthy ? "API ready" : "API offline"}
+          </span>
+        </div>
       </aside>
 
-      <main className="agent-main">
-        {notice && <div className="notice">{notice}</div>}
-
+      <main className="agent-main-panel">
         {creating || !selectedChat ? (
-          <section className="new-chat-panel">
-            <div className="section-kicker">Manual execution</div>
-            <h2>New agent chat</h2>
-            <p>
-              Choose any configured policy. The web UI is the source of this execution; the policy still owns
-              the chat rules, connection and executable capabilities.
-            </p>
-
-            <label className="field-label" htmlFor="policy">Policy</label>
-            <select
-              id="policy"
-              value={policyId}
-              onChange={(event) => setPolicyId(event.target.value)}
-              disabled={sending}
-            >
-              {policies.map((policy) => (
-                <option key={policy.id} value={policy.id}>
-                  {policy.id} · {policy.connectionId}
-                </option>
-              ))}
-            </select>
-
-            {selectedPolicy && (
-              <div className="policy-summary">
-                <strong>{selectedPolicy.id}</strong>
-                <span>Connection: {selectedPolicy.connectionId}</span>
-                {selectedPolicy.modelInstructions && <p>{selectedPolicy.modelInstructions}</p>}
+          <>
+            <header className="agent-header">
+              <div>
+                <span className="eyebrow">Manual execution</span>
+                <h1>New agent chat</h1>
               </div>
-            )}
+            </header>
 
-            <Composer
-              draft={draft}
-              setDraft={setDraft}
-              disabled={sending || !policyId}
-              label={sending ? "Starting…" : "Start agent chat"}
+            <section className="agent-new-chat">
+              <p>Choose a policy for this chat. The policy fixes its rules, connection and executable capabilities.</p>
+              <label className="agent-field-label" htmlFor="policy">Policy</label>
+              <select
+                id="policy"
+                value={policyId}
+                onChange={(event) => setPolicyId(event.target.value)}
+                disabled={sending}
+              >
+                {policies.map((policy) => (
+                  <option key={policy.id} value={policy.id}>{policy.id} · {policy.connectionId}</option>
+                ))}
+              </select>
+              {selectedPolicy && (
+                <div className="agent-policy-summary">
+                  <strong>{selectedPolicy.id}</strong>
+                  <span>Connection: {selectedPolicy.connectionId}</span>
+                  {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
+                </div>
+              )}
+            </section>
+
+            <ChatComposer
+              value={draft}
+              onChange={setDraft}
               onSubmit={submit}
+              placeholder={composerPlaceholder}
+              disabled={!policyId}
+              busy={sending}
+              notice={notice}
+              onDismissNotice={() => setNotice(null)}
+              disclaimer="Agent actions are governed by the selected policy and recorded in execution history."
             />
-          </section>
+          </>
         ) : (
           <>
-            <header className="chat-header">
-              <div className="chat-heading">
-                <div className="section-kicker">{selectedChat.originSource} · {selectedChat.policyId}</div>
-                <h2>{displayTitle(selectedChat)}</h2>
-                <div className="header-meta">
+            <header className="agent-header">
+              <div>
+                <span className="eyebrow">{selectedChat.originSource} · {selectedChat.policyId}</span>
+                <h1>{displayTitle(selectedChat)}</h1>
+                <div className="agent-header-meta">
                   <span>{selectedChat.connectionId || selectedPolicy?.connectionId || "connection unavailable"}</span>
                   <span>·</span>
                   <span>{shortId(selectedChat.chatId)}</span>
                   {latestAgentExecution && (
-                    <span className={`status-pill ${statusTone(latestAgentExecution.status)}`}>
+                    <span className={`agent-execution-status ${statusTone(latestAgentExecution.status)}`}>
                       {latestAgentExecution.status}
                     </span>
                   )}
@@ -375,112 +400,58 @@ export default function App() {
               </div>
               <button
                 type="button"
-                className={selectedChat.paused ? "primary" : "secondary"}
+                className={selectedChat.paused ? "agent-primary" : "agent-secondary"}
                 onClick={() => void togglePause()}
                 disabled={togglingPause}
-                title={selectedChat.paused
-                  ? "Allow new executions again"
-                  : "Pause this chat and cancel queued/running execution"}
               >
                 {togglingPause ? "Updating…" : selectedChat.paused ? "Resume" : "Pause"}
               </button>
             </header>
 
-            {selectedChat.paused && (
-              <div className="paused-banner">
-                This agent chat is paused. New executions are blocked until it is resumed.
-              </div>
-            )}
+            {selectedChat.paused && <div className="agent-paused-banner">This agent chat is paused. New executions are blocked until it is resumed.</div>}
 
-            <section className="transcript" aria-label="Conversation">
-              {messages.map((message) => (
-                <article key={message.messageId} className={`message ${message.role}`}>
-                  <div className="message-role">{message.role === "assistant" ? "Agent" : "MEŽS"}</div>
-                  <pre>{message.content}</pre>
-                  {message.fileIds.length > 0 && (
-                    <div className="file-row">
-                      <span>{message.fileIds.length} attachment{message.fileIds.length === 1 ? "" : "s"}</span>
-                    </div>
-                  )}
-                  {message.error && <div className="message-error">{message.error}</div>}
-                  <time>{formatTime(message.createdAt)}</time>
-                </article>
-              ))}
-              {messages.length === 0 && <div className="empty-transcript">No conversation messages yet.</div>}
-            </section>
+            <ChatTranscript
+              messages={sharedMessages}
+              busy={!!activeExecution}
+              emptyState={<div className="agent-empty-chat">No conversation messages yet.</div>}
+              getAuthorLabel={(message) => message.role === "assistant" ? "Agent" : "You"}
+              getAvatarLabel={(message) => message.role === "assistant" ? "M" : "YOU"}
+            />
 
-            <div className="composer-wrap">
-              <Composer
-                draft={draft}
-                setDraft={setDraft}
-                disabled={sending || !!activeExecution || selectedChat.paused}
-                label={selectedChat.paused
-                  ? "Paused"
-                  : activeExecution
-                    ? `${activeExecution.status}…`
-                    : sending
-                      ? "Starting…"
-                      : "Run agent"}
-                onSubmit={submit}
-              />
-            </div>
+            <ChatComposer
+              value={draft}
+              onChange={setDraft}
+              onSubmit={submit}
+              placeholder={composerPlaceholder}
+              disabled={composerDisabled}
+              busy={sending}
+              notice={notice}
+              onDismissNotice={() => setNotice(null)}
+              disclaimer="Agent actions are governed by policy and recorded in execution history."
+            />
 
-            <details className="execution-details">
-              <summary>
-                Execution history
-                {shellExecutions.length > 0 && <span>{shellExecutions.length} shell</span>}
-              </summary>
-              <div className="execution-list">
+            <details className="agent-execution-details">
+              <summary>Execution history {shellExecutions.length > 0 && <span>{shellExecutions.length} shell</span>}</summary>
+              <div className="agent-execution-list">
                 {executions.map((execution) => (
-                  <div className="execution-row" key={execution.executionId}>
-                    <div className="execution-topline">
+                  <article className="agent-execution-row" key={execution.executionId}>
+                    <div className="agent-execution-topline">
                       <strong>{execution.kind}</strong>
-                      <span className={`status-pill ${statusTone(execution.status)}`}>{execution.status}</span>
+                      <span className={`agent-execution-status ${statusTone(execution.status)}`}>{execution.status}</span>
                       {execution.exitCode !== undefined && <span>exit {execution.exitCode}</span>}
                       <time>{formatTime(execution.createdAt)}</time>
                     </div>
                     <code>{execution.request}</code>
                     {execution.result && <pre>{execution.result}</pre>}
-                    {execution.error && <div className="message-error">{execution.error}</div>}
-                  </div>
+                    {execution.error && <pre className="agent-error-output">{execution.error}</pre>}
+                  </article>
                 ))}
-                {executions.length === 0 && <div className="empty-transcript">No executions recorded.</div>}
+                {executions.length === 0 && <p>No execution records yet.</p>}
               </div>
             </details>
           </>
         )}
       </main>
     </div>
-  );
-}
-
-type ComposerProps = {
-  draft: string;
-  setDraft: (value: string) => void;
-  disabled: boolean;
-  label: string;
-  onSubmit: (event: FormEvent) => void;
-};
-
-function Composer({ draft, setDraft, disabled, label, onSubmit }: ComposerProps) {
-  return (
-    <form className="composer" onSubmit={onSubmit}>
-      <textarea
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        placeholder="Tell the agent what to do…"
-        rows={4}
-        disabled={disabled}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            event.currentTarget.form?.requestSubmit();
-          }
-        }}
-      />
-      <button className="primary" type="submit" disabled={disabled || !draft.trim()}>
-        {label}
-      </button>
-    </form>
   );
 }
