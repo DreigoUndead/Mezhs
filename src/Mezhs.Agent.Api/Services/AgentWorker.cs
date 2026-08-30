@@ -143,6 +143,15 @@ public sealed class AgentWorker(
                     continue;
                 }
 
+                // Command execution is a round trip. The model must see the actual host
+                // results before this turn can satisfy completion, even if it also emitted
+                // <DONE> or the policy does not require an explicit completion marker.
+                if (interpretation.Results.Count > 0)
+                {
+                    nextPrompt = prompts.BuildCommandResults(interpretation.Results);
+                    continue;
+                }
+
                 var completion = policy.EvaluateCompletion(
                     new PolicyCompletionContext(
                         evaluations.Create(execution),
@@ -155,9 +164,7 @@ public sealed class AgentWorker(
 
                 nextPrompt = completion.State == PolicyCompletionState.Rejected
                     ? prompts.BuildPolicyCorrection(completion.Error)
-                    : interpretation.Results.Count > 0
-                        ? prompts.BuildCommandResults(interpretation.Results)
-                        : prompts.BuildContinue();
+                    : prompts.BuildContinue();
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
