@@ -10,10 +10,12 @@ using Mezhs.Api.Contracts;
 
 var configPath = FindConfigPath(GetOption(args, "--config"));
 var options = AgentConfigLoader.Load(configPath);
-
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    WebRootPath = FindAgentWebRoot()
+});
 builder.WebHost.UseUrls(options.Listen.ToString());
-builder.WebHost.UseWebRoot(FindAgentWebRoot());
 builder.Services.ConfigureHttpJsonOptions(json =>
     json.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
