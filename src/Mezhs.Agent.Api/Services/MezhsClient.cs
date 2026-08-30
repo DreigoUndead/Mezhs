@@ -73,7 +73,7 @@ public sealed class MezhsClient(HttpClient client)
         }
     }
 
-    public async Task<IReadOnlyList<ApiMessage>> GetMessagesAsync(
+    public async Task<IReadOnlyList<ApiChatHistoryMessage>> GetMessagesAsync(
         string chatId,
         CancellationToken cancellationToken)
     {
@@ -81,7 +81,7 @@ public sealed class MezhsClient(HttpClient client)
             $"/v1/chats/{Uri.EscapeDataString(chatId)}/messages",
             cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
-        return await response.Content.ReadFromJsonAsync<ApiMessage[]>(Json, cancellationToken)
+        return await response.Content.ReadFromJsonAsync<ApiChatHistoryMessage[]>(Json, cancellationToken)
             ?? [];
     }
 
