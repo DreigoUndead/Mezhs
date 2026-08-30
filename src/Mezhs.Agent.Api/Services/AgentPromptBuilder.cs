@@ -92,6 +92,7 @@ public sealed class AgentPromptBuilder
                Host shell: {HostShellDescription()}
                The text inside an SH command is already passed directly to that shell. Do not wrap it in another shell invocation such as cmd /c, powershell -Command, sh -c, or bash -c unless the assigned task specifically requires a nested shell.
                One SH block is one shell execution. Its succeeded flag reflects that shell process's final exit code, not whether every statement in a compound script succeeded. When independent success/failure evidence matters, use separate SH blocks or explicitly preserve failures with the host shell's normal operators/error-level handling.
+               Each executable agent command has a timeout of {policy.Settings.Limits.CommandTimeoutSeconds} seconds. A timed-out command is stopped and returned as failed evidence; do not assume it completed.
 
                """
             : string.Empty;
