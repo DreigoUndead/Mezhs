@@ -61,10 +61,23 @@ jobs:
           Run-Check "policy and command test" { pwsh ./tests/policy-decoder.ps1 }
           Run-Check "agent architecture" { pwsh ./tests/agent-architecture.ps1 }
           Run-Check "agent API smoke" { pwsh ./tests/agent-api-smoke.ps1 }
+          foreach ($log in @(
+            "tests/agent-smoke-agent.err.log",
+            "tests/agent-smoke-agent.out.log",
+            "tests/agent-smoke-api.err.log",
+            "tests/agent-smoke-api.out.log"
+          )) {
+            if (Test-Path -LiteralPath $log) {
+              Add-Content $resultPath ""
+              Add-Content $resultPath "=== diagnostic: $log ==="
+              Add-Content $resultPath (Get-Content -LiteralPath $log -Raw)
+            }
+          }
           Run-Check "generic architecture" { pwsh ./tests/architecture.ps1 }
 
           Add-Content $resultPath ""
           Add-Content $resultPath ($(if ($script:overall) { "OVERALL: PASS" } else { "OVERALL: FAIL" }))
+          if (-not $script:overall) { exit 1 }
 
       - name: Publish validation result
         if: always()
