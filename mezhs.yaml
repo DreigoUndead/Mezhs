@@ -47,3 +47,4 @@ extensions:
           requireDone: true
         limits:
           maxTurns: 30
+          commandTimeoutSeconds: 120
