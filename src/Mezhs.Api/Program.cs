@@ -199,7 +199,7 @@ app.MapGet("/v1/chats/{chatId}/messages", (string chatId, ChatStore chats) =>
 {
     if (chats.GetChat(chatId) is null)
         return Results.NotFound(new { error = $"Chat '{chatId}' was not found." });
-    return Results.Ok(chats.GetMessages(chatId));
+    return Results.Ok(chats.GetMessages(chatId).Select(ToApiHistoryMessage));
 });
 
 Console.WriteLine($"MEŽS config: {configPath}");
@@ -223,6 +223,36 @@ static ApiChat ToApiChat(
         chat.CreatedAt,
         chat.UpdatedAt,
         title);
+}
+
+static ApiChatHistoryMessage ToApiHistoryMessage(StoredMessage message)
+{
+    var origin = message.Origin;
+    if (string.IsNullOrWhiteSpace(origin) ||
+        (string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
+         string.Equals(origin, "human", StringComparison.OrdinalIgnoreCase)))
+    {
+        origin = string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase)
+            ? "assistant"
+            : "human";
+    }
+
+    return new ApiChatHistoryMessage(
+        message.MessageId,
+        message.ChatId,
+        message.ConnectionId,
+        message.Role,
+        origin,
+        message.Content,
+        message.FileIds,
+        message.ParentMessageId,
+        message.ReplayOfMessageId,
+        message.ReplyMessageId,
+        message.Status,
+        message.Error,
+        message.CreatedAt,
+        message.StartedAt,
+        message.CompletedAt);
 }
 
 static string? GetOption(string[] args, string name)
