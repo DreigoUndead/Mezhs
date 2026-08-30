@@ -109,12 +109,24 @@ try {
         throw "Agent API cannot reach the generic MEŽS API."
     }
 
-    $policy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/test"
-    if ($policy.modelInstructions -notlike "*deterministic test task*") {
-        throw "Compiled policy did not expose model instructions."
+    $dashboard = Invoke-WebRequest -Uri "http://127.0.0.1:5199/"
+    if ($dashboard.StatusCode -ne 200 -or $dashboard.Content -notmatch '<title>MEŽS Agent</title>') {
+        throw "Agent API did not serve the Agent Web dashboard at its root."
     }
-    if ($policy.snapshot -notmatch "requireDone: false" -or $policy.snapshot -notmatch "maxTurns: 3") {
-        throw "Compiled policy snapshot does not contain normalized effective completion/limit rules."
+    $metadata = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1"
+    if ($metadata.name -ne "MEŽS Agent" -or $metadata.dashboard -ne "/") {
+        throw "Agent API metadata endpoint does not describe the dashboard."
+    }
+
+    $policy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/test"
+    if ($policy.modelInstructions -notlike "*deterministic test task*" -or
+        $policy.modelInstructions -notlike "*<SH*") {
+        throw "Compiled policy did not expose task/shell model instructions."
+    }
+    if ($policy.snapshot -notmatch "requireDone: false" -or
+        $policy.snapshot -notmatch "maxTurns: 3" -or
+        $policy.snapshot -notmatch "SH") {
+        throw "Compiled policy snapshot does not contain normalized effective command/completion/limit rules."
     }
 
     $created = Invoke-RestMethod `
@@ -153,7 +165,7 @@ try {
         -ContentType "application/json" `
         -Body (ConvertTo-Json @{
             policyId = "test-done"
-            input = "reply without DONE"
+            input = "reply without DONE command"
         })
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
     do {
@@ -163,11 +175,20 @@ try {
         Start-Sleep -Milliseconds 100
     } while ($true)
     if ($doneExecution.status -ne "Failed" -or $doneExecution.error -notlike "*limit of 1 turns*") {
-        throw "Compiled DONE/turn policy was not enforced by the runtime."
+        throw "Compiled <DONE>/turn policy was not enforced by the runtime."
     }
 
     $chat = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($execution.chatId)"
-    if ($chat.policyId -ne "test") { throw "Agent chat policy metadata was not persisted." }
+    if ($chat.policyId -ne "test" -or $chat.originSource -ne "manual" -or $chat.paused) {
+        throw "Agent chat policy/source/pause metadata was not persisted correctly."
+    }
+    if ($chat.title -notlike "*hello agent*") {
+        throw "Agent chat API did not expose the underlying MEŽS chat title."
+    }
+    $messages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($execution.chatId)/messages"
+    if (@($messages).Count -lt 2) {
+        throw "Agent chat API did not expose the underlying MEŽS conversation."
+    }
 
     $client = [Net.Http.HttpClient]::new()
     try {
@@ -193,14 +214,75 @@ try {
             $content.Dispose()
             if ($null -ne $response) { $response.Dispose() }
         }
+
+        $pauseBody = ConvertTo-Json @{ paused = $true }
+        $pauseContent = [Net.Http.StringContent]::new(
+            $pauseBody,
+            [Text.Encoding]::UTF8,
+            "application/json")
+        try {
+            $pauseResponse = $client.PatchAsync(
+                "http://127.0.0.1:5199/v1/agent-chats/$($execution.chatId)",
+                $pauseContent).GetAwaiter().GetResult()
+            $pauseResponseBody = $pauseResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            if ([int]$pauseResponse.StatusCode -ne 200 -or $pauseResponseBody -notmatch '"paused":true') {
+                throw "Agent chat could not be paused: HTTP $([int]$pauseResponse.StatusCode): $pauseResponseBody"
+            }
+        }
+        finally {
+            $pauseContent.Dispose()
+            if ($null -ne $pauseResponse) { $pauseResponse.Dispose() }
+        }
+
+        $pausedExecutionBody = ConvertTo-Json @{
+            policyId = "test"
+            chatId = $execution.chatId
+            input = "must be rejected while paused"
+        }
+        $pausedExecutionContent = [Net.Http.StringContent]::new(
+            $pausedExecutionBody,
+            [Text.Encoding]::UTF8,
+            "application/json")
+        try {
+            $pausedExecutionResponse = $client.PostAsync(
+                "http://127.0.0.1:5199/v1/executions",
+                $pausedExecutionContent).GetAwaiter().GetResult()
+            $pausedExecutionResponseBody = $pausedExecutionResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            if ([int]$pausedExecutionResponse.StatusCode -ne 400 -or $pausedExecutionResponseBody -notlike "*is paused*") {
+                throw "Paused chat accepted execution: HTTP $([int]$pausedExecutionResponse.StatusCode): $pausedExecutionResponseBody"
+            }
+        }
+        finally {
+            $pausedExecutionContent.Dispose()
+            if ($null -ne $pausedExecutionResponse) { $pausedExecutionResponse.Dispose() }
+        }
+
+        $resumeBody = ConvertTo-Json @{ paused = $false }
+        $resumeContent = [Net.Http.StringContent]::new(
+            $resumeBody,
+            [Text.Encoding]::UTF8,
+            "application/json")
+        try {
+            $resumeResponse = $client.PatchAsync(
+                "http://127.0.0.1:5199/v1/agent-chats/$($execution.chatId)",
+                $resumeContent).GetAwaiter().GetResult()
+            $resumeResponseBody = $resumeResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            if ([int]$resumeResponse.StatusCode -ne 200 -or $resumeResponseBody -notmatch '"paused":false') {
+                throw "Agent chat could not be resumed: HTTP $([int]$resumeResponse.StatusCode): $resumeResponseBody"
+            }
+        }
+        finally {
+            $resumeContent.Dispose()
+            if ($null -ne $resumeResponse) { $resumeResponse.Dispose() }
+        }
     }
     finally {
         $client.Dispose()
     }
 
     $chatAfterConflict = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($execution.chatId)"
-    if ($chatAfterConflict.policyId -ne "test") {
-        throw "Rejected policy conflict changed durable agent chat ownership."
+    if ($chatAfterConflict.policyId -ne "test" -or $chatAfterConflict.paused) {
+        throw "Rejected policy conflict/pause cycle changed durable agent chat ownership or state."
     }
 
     $history = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($execution.chatId)/executions"
@@ -213,7 +295,7 @@ try {
         throw "Agent SQLite database was not created."
     }
 
-    Write-Host "PASS: policy YAML compiles to runtime validation/model rules/snapshots and AgentWorker consumes those decisions."
+    Write-Host "PASS: Agent API serves Agent Web, exposes all agent-chat data, preserves fixed policy/source, and enforces persisted pause/resume."
 }
 finally {
     if ($null -ne $agent -and -not $agent.HasExited) {
