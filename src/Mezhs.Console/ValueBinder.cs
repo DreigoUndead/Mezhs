@@ -12,7 +12,19 @@ internal static class ValueBinder
             return CanBind(nullable, out reason);
 
         if (TryGetEnumerableElementType(type, out var elementType))
-            return CanBind(elementType, out reason);
+        {
+            if (!CanBind(elementType, out reason))
+                return false;
+
+            if (CanMaterializeEnumerable(type, elementType))
+            {
+                reason = null;
+                return true;
+            }
+
+            reason = $"Enumerable type '{FriendlyName(type)}' cannot be constructed from command input.";
+            return false;
+        }
 
         if (CanConvertScalar(type))
         {
@@ -104,6 +116,19 @@ internal static class ValueBinder
             return enumerableCtor.Invoke([result]);
 
         throw new FormatException($"Enumerable type '{FriendlyName(targetType)}' cannot be constructed.");
+    }
+
+    private static bool CanMaterializeEnumerable(Type targetType, Type elementType)
+    {
+        if (targetType.IsArray)
+            return true;
+
+        var listType = typeof(List<>).MakeGenericType(elementType);
+        if (targetType.IsAssignableFrom(listType))
+            return true;
+
+        var enumerableType = typeof(IEnumerable<>).MakeGenericType(elementType);
+        return targetType.GetConstructor([enumerableType]) is not null;
     }
 
     private static bool TryGetEnumerableElementType(Type type, out Type elementType)
