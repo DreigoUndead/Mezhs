@@ -29,7 +29,7 @@ internal static class HelpWriter
         foreach (var parameter in command.Method.GetParameters()) global::System.Console.Write(IsOptional(parameter) ? $" [{parameter.Name}]" : $" <{parameter.Name}>");
         global::System.Console.WriteLine();
         foreach (var parameter in command.Method.GetParameters())
-            global::System.Console.WriteLine($"  {parameter.Name}: {ValueBinder.Describe(parameter.ParameterType)} ({(IsOptional(parameter) ? "optional" : "required")})");
+            global::System.Console.WriteLine($"  {parameter.Name}: {ValueBinder.Describe(parameter.ParameterType, syntax)} ({(IsOptional(parameter) ? "optional" : "required")})");
         WriteEnvironment(syntax);
     }
 
