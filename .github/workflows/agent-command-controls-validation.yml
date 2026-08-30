@@ -1,0 +1,39 @@
+name: Temporary Agent command controls validation
+
+on:
+  push:
+    branches:
+      - agent-api-foundation
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build
+        shell: pwsh
+        run: dotnet build Mezhs.sln -c Release
+      - name: Policy and shell timeout
+        shell: pwsh
+        run: pwsh ./tests/policy-decoder.ps1
+      - name: Agent runtime transcript
+        shell: pwsh
+        run: pwsh ./tests/agent-runtime-transcript.ps1
+      - name: Agent shared UI
+        shell: pwsh
+        run: pwsh ./tests/agent-web-shared-ui.ps1
+      - name: Agent API smoke
+        shell: pwsh
+        run: pwsh ./tests/agent-api-smoke.ps1
+      - name: Agent architecture
+        shell: pwsh
+        run: pwsh ./tests/agent-architecture.ps1
+      - name: Generic architecture
+        shell: pwsh
+        run: pwsh ./tests/architecture.ps1
