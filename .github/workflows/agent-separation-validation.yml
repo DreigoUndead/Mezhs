@@ -31,3 +31,5 @@ jobs:
       - name: Generic architecture
         shell: pwsh
         run: pwsh ./tests/architecture.ps1
+
+# Temporary workflow: remove after validation.
