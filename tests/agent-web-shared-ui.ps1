@@ -51,8 +51,21 @@ if ($agentApp -notmatch 'Command results JSON:' -or
     throw "Agent Web does not render command results as expandable in-chat evidence."
 }
 
+if ($agentApp -notmatch '<details className="agent-protocol-card agent-command-request"' -or
+    $agentApp -notmatch 'protocolExecutionMap' -or
+    $agentApp -notmatch 'Stop agent execution' -or
+    $agentCss -notmatch '(?m)^\.agent-command-request') {
+    throw "Agent-issued command blocks are not collapsible, status-linked, and stoppable."
+}
+
+if ($agentApp -notmatch 'Download log' -or
+    $agentApp -notmatch '/debug-log' -or
+    $agentCss -notmatch '(?m)^\.agent-download') {
+    throw "Agent Web does not expose the selected chat debug-log download."
+}
+
 if ($agentApp -match 'Full command output and status are recorded in execution history') {
     throw "Agent Web still replaces command results with the old placeholder instead of showing evidence in chat."
 }
 
-Write-Host "PASS: Agent Web reuses shared chat UI and exposes sticky scroll, policy prompt, and expandable command evidence."
+Write-Host "PASS: Agent Web reuses shared chat UI and exposes sticky scroll, policy prompt, collapsible command status/stop controls, expandable results, and debug-log download."
