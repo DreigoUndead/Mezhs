@@ -127,6 +127,13 @@ public abstract class ConsoleApplication
             var parameter = parameters[i];
             if (i < values.Count)
             {
+                if (values[i] is ScalarNode { Value: var value } &&
+                    value.Equals("null", StringComparison.OrdinalIgnoreCase) &&
+                    !IsNullable(parameter, nullability))
+                {
+                    throw new FormatException($"null is not valid for non-nullable parameter '{parameter.Name}'.");
+                }
+
                 result[i] = ValueBinder.Bind(values[i], parameter.ParameterType);
                 continue;
             }
@@ -137,8 +144,7 @@ public abstract class ConsoleApplication
                 continue;
             }
 
-            if (Nullable.GetUnderlyingType(parameter.ParameterType) is not null ||
-                (!parameter.ParameterType.IsValueType && nullability.Create(parameter).ReadState == NullabilityState.Nullable))
+            if (IsNullable(parameter, nullability))
             {
                 result[i] = null;
                 continue;
@@ -149,6 +155,10 @@ public abstract class ConsoleApplication
 
         return result;
     }
+
+    private static bool IsNullable(ParameterInfo parameter, NullabilityInfoContext nullability) =>
+        Nullable.GetUnderlyingType(parameter.ParameterType) is not null ||
+        (!parameter.ParameterType.IsValueType && nullability.Create(parameter).ReadState == NullabilityState.Nullable);
 
     private static void WriteResult(object? result, Type returnType)
     {
