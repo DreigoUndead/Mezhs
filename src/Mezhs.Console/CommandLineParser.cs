@@ -67,16 +67,20 @@ internal sealed class CommandLineParser
             {
                 if (_position >= _input.Length)
                     throw Error("Unterminated escape sequence.");
+
                 var escaped = _input[_position++];
-                result.Append(escaped switch
+                switch (escaped)
                 {
-                    '"' => '"',
-                    '\\' => '\\',
-                    'n' => '\n',
-                    'r' => '\r',
-                    't' => '\t',
-                    _ => escaped
-                });
+                    case '"': result.Append('"'); break;
+                    case '\\': result.Append('\\'); break;
+                    case 'n': result.Append('\n'); break;
+                    case 'r': result.Append('\r'); break;
+                    case 't': result.Append('\t'); break;
+                    default:
+                        result.Append('\\');
+                        result.Append(escaped);
+                        break;
+                }
                 continue;
             }
 
