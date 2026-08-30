@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, ReactNode } from "react";
+import { FormEvent, KeyboardEvent, ReactNode, UIEvent, useEffect, useRef } from "react";
 import type { ApiFile, ChatMessage } from "./providers/contracts";
 
 export type ChatSurfaceMessage = Pick<
@@ -18,9 +18,12 @@ export type ChatTranscriptProps = {
   renderMessageFooter?: (message: ChatSurfaceMessage) => ReactNode;
   onReplay?: (messageId: string) => void;
   replayDisabled?: boolean;
+  autoScroll?: boolean;
+  autoScrollResetKey?: string;
 };
 
 const terminalStatuses = new Set(["Completed", "Failed", "Cancelled"]);
+const autoScrollThreshold = 96;
 
 function formatBytes(value: number) {
   if (value < 1024) return `${value} B`;
@@ -46,11 +49,47 @@ export function ChatTranscript({
   renderMessageFooter,
   onReplay,
   replayDisabled = false,
+  autoScroll = false,
+  autoScrollResetKey,
 }: ChatTranscriptProps) {
   const apiBase = apiBaseUrl.replace(/\/$/, "");
+  const transcriptRef = useRef<HTMLElement | null>(null);
+  const followsBottomRef = useRef(true);
+
+  useEffect(() => {
+    if (!autoScroll) return;
+    followsBottomRef.current = true;
+    const frame = window.requestAnimationFrame(() => {
+      const transcript = transcriptRef.current;
+      if (transcript) transcript.scrollTop = transcript.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [autoScroll, autoScrollResetKey]);
+
+  useEffect(() => {
+    if (!autoScroll || !followsBottomRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      const transcript = transcriptRef.current;
+      if (!transcript) return;
+      transcript.scrollTo({ top: transcript.scrollHeight, behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [autoScroll, messages, busy]);
+
+  function handleScroll(event: UIEvent<HTMLElement>) {
+    if (!autoScroll) return;
+    const transcript = event.currentTarget;
+    const distanceFromBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
+    followsBottomRef.current = distanceFromBottom <= autoScrollThreshold;
+  }
 
   return (
-    <section className={`conversation ${messages.length === 0 ? "conversation-empty" : ""}`} aria-live="polite">
+    <section
+      ref={transcriptRef}
+      className={`conversation ${messages.length === 0 ? "conversation-empty" : ""}`}
+      aria-live="polite"
+      onScroll={handleScroll}
+    >
       {messages.length === 0 ? (emptyState ?? <div className="shared-chat-empty">No messages yet.</div>) : messages.map((message) => (
         <article key={message.messageId} className={`message ${message.role}`}>
           <div className="message-avatar">{getAvatarLabel(message)}</div>
