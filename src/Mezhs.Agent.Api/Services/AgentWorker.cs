@@ -4,6 +4,7 @@ using Mezhs.Agent.Commands;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
+using Mezhs.Api.Contracts;
 
 namespace Mezhs.Agent.Services;
 
@@ -87,6 +88,7 @@ public sealed class AgentWorker(
             var policy = policies.Get(execution.PolicyId);
 
             var chatId = execution.ChatId;
+            var previouslyOwnedAgentChat = chatId is null ? null : store.GetAgentChat(chatId);
             if (string.IsNullOrWhiteSpace(chatId))
             {
                 chatId = await mezhs.CreateChatAsync(
@@ -112,7 +114,12 @@ public sealed class AgentWorker(
             await chatGate.WaitAsync(cancellation.Token);
             chatGateAcquired = true;
 
-            var nextPrompt = prompts.BuildInitial(execution, policy);
+            var existingMessages = await mezhs.GetMessagesAsync(chatId, cancellation.Token);
+            var hasCompletedAgentHistory = existingMessages.Any(message =>
+                message.Role == "user" && message.Status == MessageStatus.Completed);
+            var includePolicyInstructions = previouslyOwnedAgentChat is null || !hasCompletedAgentHistory;
+            var nextPrompt = prompts.BuildInitial(execution, policy, includePolicyInstructions);
+
             for (var turn = 0; ; turn++)
             {
                 cancellation.Token.ThrowIfCancellationRequested();
