@@ -108,6 +108,12 @@ internal static class ValueBinder
 
     private static bool TryGetEnumerableElementType(Type type, out Type elementType)
     {
+        if (type == typeof(string))
+        {
+            elementType = null!;
+            return false;
+        }
+
         if (type.IsArray)
         {
             elementType = type.GetElementType()!;
