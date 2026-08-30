@@ -40,6 +40,9 @@ extensions:
         connectionId: chatgpt-sub
         instructions: |
           Complete the assigned task and keep actions auditable.
+        commands:
+          allow:
+            - SH
         completion:
           requireDone: true
         limits:
