@@ -10,14 +10,12 @@ using Mezhs.Api.Contracts;
 
 var configPath = FindConfigPath(GetOption(args, "--config"));
 var options = AgentConfigLoader.Load(configPath);
-var builder = WebApplication.CreateBuilder(new WebApplicationOptions
-{
-    Args = args,
-    WebRootPath = FindAgentWebRoot()
-});
+var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(options.Listen.ToString());
 builder.Services.ConfigureHttpJsonOptions(json =>
     json.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
+    policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(options);
@@ -37,15 +35,15 @@ builder.Services.AddSingleton<AgentService>();
 
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseCors();
 
 var store = app.Services.GetRequiredService<AgentStore>();
 store.Initialize();
 
-app.MapGet("/v1", () => Results.Ok(new
+app.MapGet("/", () => Results.Ok(new
 {
     name = "MEŽS Agent",
     version = 1,
-    dashboard = "/",
     endpoints = new[]
     {
         "/v1/runtime",
@@ -158,10 +156,6 @@ app.MapPost("/v1/executions/{executionId}/cancel", (
     AgentWorker worker) =>
     Results.Ok(worker.Cancel(executionId)));
 
-app.UseDefaultFiles();
-app.UseStaticFiles();
-app.MapFallbackToFile("index.html");
-
 Console.WriteLine($"MEŽS Agent config: {configPath}");
 Console.WriteLine($"MEŽS Agent listening: {options.Listen}");
 Console.WriteLine($"MEŽS API: {options.MezhsApi}");
@@ -221,30 +215,4 @@ static string FindConfigPath(string? configuredPath)
         return outputCandidate;
 
     return currentCandidate;
-}
-
-static string FindAgentWebRoot()
-{
-    var outputCandidate = Path.Combine(AppContext.BaseDirectory, "agent-web");
-    if (File.Exists(Path.Combine(outputCandidate, "index.html")))
-        return outputCandidate;
-
-    var directory = new DirectoryInfo(AppContext.BaseDirectory);
-    while (directory is not null)
-    {
-        if (File.Exists(Path.Combine(directory.FullName, "Mezhs.sln")))
-        {
-            var repositoryCandidate = Path.Combine(
-                directory.FullName,
-                "src",
-                "Mezhs.Agent.Web",
-                "dist");
-            if (File.Exists(Path.Combine(repositoryCandidate, "index.html")))
-                return repositoryCandidate;
-        }
-        directory = directory.Parent;
-    }
-
-    throw new DirectoryNotFoundException(
-        "The Mezhs.Agent.Web frontend build was not found. Build the project before starting MEŽS Agent.");
 }
