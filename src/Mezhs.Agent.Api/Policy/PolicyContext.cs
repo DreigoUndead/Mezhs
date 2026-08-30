@@ -88,7 +88,7 @@ public sealed record PolicyTurnContext(
 
 public sealed record PolicyCompletionContext(
     PolicyEvaluationContext Execution,
-    string AssistantReply);
+    bool CompletionClaimed);
 
 public sealed record PolicyAction(
     string Kind,
