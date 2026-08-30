@@ -36,6 +36,7 @@ type AgentChatMessage = {
   chatId: string;
   connectionId: string;
   role: "user" | "assistant";
+  origin: string;
   content: string;
   fileIds: string[];
   parentMessageId?: string;
@@ -72,8 +73,20 @@ type Execution = {
   completedAt?: string;
 };
 
+type ProtocolCommand = {
+  name: string;
+  body?: string;
+};
+
+type ProtocolView = {
+  content: string;
+  commands: ProtocolCommand[];
+  completionClaimed: boolean;
+};
+
 const activeStatuses = new Set<ExecutionStatus>(["Queued", "Running"]);
 const terminalStatuses = new Set<ExecutionStatus>(["Completed", "Failed", "Cancelled", "Interrupted"]);
+const commandName = /^[A-Z][A-Z0-9_-]*$/;
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return expectJson<T>(await fetch(path, init));
@@ -104,12 +117,87 @@ function statusTone(status: ExecutionStatus) {
   return "active";
 }
 
-function toSharedMessage(message: AgentChatMessage): ChatSurfaceMessage {
+function originLabel(origin: string) {
+  const normalized = origin.trim().toLocaleLowerCase();
+  if (!normalized || normalized === "human" || normalized === "manual") return "You";
+  if (normalized === "command-result") return "Command result";
+  if (normalized === "agent-runtime") return "MEŽS Agent";
+  return origin
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part[0].toLocaleUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function originAvatar(origin: string) {
+  const label = originLabel(origin);
+  if (label === "You") return "YOU";
+  if (label === "MEŽS Agent") return "M";
+  if (label === "Command result") return "CMD";
+  return label.slice(0, 3).toLocaleUpperCase();
+}
+
+function inspectProtocol(content: string): ProtocolView {
+  const lines = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const visible: string[] = [];
+  const commands: ProtocolCommand[] = [];
+  let completionClaimed = false;
+
+  for (let index = 0; index < lines.length; index++) {
+    const trimmed = lines[index].trim();
+    const marker = trimmed.match(/^<([A-Z][A-Z0-9_-]*)>$/);
+    if (marker && commandName.test(marker[1])) {
+      if (marker[1] === "DONE") completionClaimed = true;
+      else commands.push({ name: marker[1] });
+      continue;
+    }
+
+    const block = trimmed.match(/^<([A-Z][A-Z0-9_-]*)$/);
+    if (block && commandName.test(block[1])) {
+      const name = block[1];
+      const close = lines.findIndex((line, candidate) =>
+        candidate > index && line.trim() === `${name}>`);
+      if (close >= 0) {
+        commands.push({
+          name,
+          body: lines.slice(index + 1, close).join("\n"),
+        });
+        index = close;
+        continue;
+      }
+    }
+
+    visible.push(lines[index]);
+  }
+
+  return {
+    content: visible.join("\n").trim(),
+    commands,
+    completionClaimed,
+  };
+}
+
+function executionFromEnvelope(content: string, executions: Execution[]) {
+  const match = content.match(/^\[MEŽS AGENT EXECUTION ([^\]]+)]/);
+  return match ? executions.find((execution) => execution.executionId === match[1]) : undefined;
+}
+
+function toSharedMessage(message: AgentChatMessage, executions: Execution[]): ChatSurfaceMessage {
+  let content = message.content;
+  if (message.role === "assistant") {
+    content = inspectProtocol(message.content).content;
+  } else if (message.origin === "command-result") {
+    content = "MEŽS returned command execution results to the agent. Full command output and status are recorded in execution history.";
+  } else if (message.origin !== "agent-runtime") {
+    content = executionFromEnvelope(message.content, executions)?.request ?? content;
+  }
+
   return {
     messageId: message.messageId,
     connectionId: message.connectionId,
     role: message.role,
-    content: message.content,
+    origin: message.origin,
+    content,
     status: message.status,
     createdAt: message.createdAt,
     error: message.error,
@@ -136,7 +224,15 @@ export default function App() {
   const activeExecution = executions.find((execution) =>
     execution.kind === "Agent" && activeStatuses.has(execution.status));
   const latestAgentExecution = executions.find((execution) => execution.kind === "Agent");
-  const sharedMessages = useMemo(() => messages.map(toSharedMessage), [messages]);
+  const sharedMessages = useMemo(
+    () => messages.map((message) => toSharedMessage(message, executions)),
+    [messages, executions],
+  );
+  const protocolByMessageId = useMemo(() => new Map(
+    messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => [message.messageId, inspectProtocol(message.content)]),
+  ), [messages]);
   const shellExecutions = useMemo(
     () => executions.filter((execution) => execution.kind === "Shell"),
     [executions],
@@ -414,8 +510,28 @@ export default function App() {
               messages={sharedMessages}
               busy={!!activeExecution}
               emptyState={<div className="agent-empty-chat">No conversation messages yet.</div>}
-              getAuthorLabel={(message) => message.role === "assistant" ? "Agent" : "You"}
-              getAvatarLabel={(message) => message.role === "assistant" ? "M" : "YOU"}
+              getAuthorLabel={(message) => message.role === "assistant" ? "Agent" : originLabel(message.origin)}
+              getAvatarLabel={(message) => message.role === "assistant" ? "M" : originAvatar(message.origin)}
+              renderMessageFooter={(message) => {
+                const protocol = protocolByMessageId.get(message.messageId);
+                if (!protocol || (protocol.commands.length === 0 && !protocol.completionClaimed)) return null;
+                return (
+                  <div className="agent-protocol-events">
+                    {protocol.commands.map((command, index) => (
+                      <div className="agent-protocol-card" key={`${command.name}-${index}`}>
+                        <div><strong>{command.name}</strong><span>Agent command requested</span></div>
+                        {command.body && <pre>{command.body}</pre>}
+                        <small>Execution evidence and result are recorded in execution history.</small>
+                      </div>
+                    ))}
+                    {protocol.completionClaimed && (
+                      <div className="agent-protocol-card agent-done-card">
+                        <div><strong>DONE</strong><span>Completion claimed</span></div>
+                      </div>
+                    )}
+                  </div>
+                );
+              }}
             />
 
             <ChatComposer
