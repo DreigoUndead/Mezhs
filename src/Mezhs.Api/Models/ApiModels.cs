@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Mezhs.Models;
 
 public enum MessageStatus
@@ -71,13 +73,29 @@ public sealed class StoredFile
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
-public sealed record PostMessageRequest(
-    string Content,
-    string? ConnectionId = null,
-    string? ChatId = null,
-    string? CategoryId = null,
-    IReadOnlyList<string>? FileIds = null,
-    string? Model = null);
+public sealed class PostMessageRequest
+{
+    private string? _model;
+
+    public string Content { get; init; } = "";
+    public string? ConnectionId { get; init; }
+    public string? ChatId { get; init; }
+    public string? CategoryId { get; init; }
+    public IReadOnlyList<string>? FileIds { get; init; }
+
+    public string? Model
+    {
+        get => _model;
+        init
+        {
+            _model = value;
+            ModelSpecified = true;
+        }
+    }
+
+    [JsonIgnore]
+    public bool ModelSpecified { get; private set; }
+}
 
 public sealed record CreateCategoryRequest(string Name);
 public sealed record CreateChatRequest(string ConnectionId, string? CategoryId = null);
