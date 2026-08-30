@@ -7,6 +7,8 @@ namespace Mezhs.Agent.Commands;
 
 public sealed class ShellCommandHandler(AgentStore store) : IAgentCommandHandler
 {
+    private static readonly Encoding Utf8WithoutBom = new UTF8Encoding(false);
+
     public string Name => "SH";
 
     public async Task<AgentCommandResult> ExecuteAsync(
@@ -40,9 +42,13 @@ public sealed class ShellCommandHandler(AgentStore store) : IAgentCommandHandler
                 "Shell execution could not enter the running state.");
         }
 
+        using var invocation = CreateInvocation(
+            context.ParentExecution,
+            child,
+            commandText);
         using var process = new Process
         {
-            StartInfo = CreateStartInfo(context.ParentExecution, child, commandText)
+            StartInfo = invocation.StartInfo
         };
 
         try
@@ -88,10 +94,59 @@ public sealed class ShellCommandHandler(AgentStore store) : IAgentCommandHandler
         }
     }
 
-    private static ProcessStartInfo CreateStartInfo(
+    private static ShellInvocation CreateInvocation(
         ExecutionRecord parent,
         ExecutionRecord child,
         string commandText)
+    {
+        if (OperatingSystem.IsWindows())
+            return CreateWindowsInvocation(parent, child, commandText);
+
+        var startInfo = CreateBaseStartInfo(parent, child);
+        startInfo.FileName = "/bin/sh";
+        startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add(commandText);
+        return new ShellInvocation(startInfo, null);
+    }
+
+    private static ShellInvocation CreateWindowsInvocation(
+        ExecutionRecord parent,
+        ExecutionRecord child,
+        string commandText)
+    {
+        var commandFile = Path.Combine(
+            Path.GetTempPath(),
+            $"mezhs-shell-{child.ExecutionId}-{Guid.NewGuid():N}.cmd");
+
+        // cmd.exe's /C command-line argument path is not reliable for multiline text.
+        // Keep the recorded/requested command untouched and execute that exact text as
+        // a UTF-8 batch payload instead. The small /C wrapper only selects UTF-8 and
+        // calls the payload; it never interpolates the agent-provided shell text.
+        File.WriteAllText(commandFile, commandText, Utf8WithoutBom);
+
+        try
+        {
+            var startInfo = CreateBaseStartInfo(parent, child);
+            startInfo.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
+            startInfo.StandardOutputEncoding = Encoding.UTF8;
+            startInfo.StandardErrorEncoding = Encoding.UTF8;
+            startInfo.ArgumentList.Add("/D");
+            startInfo.ArgumentList.Add("/Q");
+            startInfo.ArgumentList.Add("/S");
+            startInfo.ArgumentList.Add("/C");
+            startInfo.ArgumentList.Add($"chcp 65001>nul & call \"{commandFile}\"");
+            return new ShellInvocation(startInfo, commandFile);
+        }
+        catch
+        {
+            TryDelete(commandFile);
+            throw;
+        }
+    }
+
+    private static ProcessStartInfo CreateBaseStartInfo(
+        ExecutionRecord parent,
+        ExecutionRecord child)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -100,21 +155,6 @@ public sealed class ShellCommandHandler(AgentStore store) : IAgentCommandHandler
             RedirectStandardError = true,
             CreateNoWindow = true
         };
-
-        if (OperatingSystem.IsWindows())
-        {
-            startInfo.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
-            startInfo.ArgumentList.Add("/D");
-            startInfo.ArgumentList.Add("/S");
-            startInfo.ArgumentList.Add("/C");
-            startInfo.ArgumentList.Add(commandText);
-        }
-        else
-        {
-            startInfo.FileName = "/bin/sh";
-            startInfo.ArgumentList.Add("-c");
-            startInfo.ArgumentList.Add(commandText);
-        }
 
         startInfo.Environment["MEZHS_EXECUTION_ID"] = child.ExecutionId;
         startInfo.Environment["MEZHS_PARENT_EXECUTION_ID"] = parent.ExecutionId;
@@ -129,19 +169,34 @@ public sealed class ShellCommandHandler(AgentStore store) : IAgentCommandHandler
     private static string FormatResult(string stdout, string stderr)
     {
         var result = new StringBuilder();
-        if (!string.IsNullOrEmpty(stdout))
-        {
-            result.AppendLine("stdout:");
-            result.Append(stdout.TrimEnd('\r', '\n'));
-        }
-        if (!string.IsNullOrEmpty(stderr))
-        {
-            if (result.Length > 0)
-                result.AppendLine();
-            result.AppendLine("stderr:");
-            result.Append(stderr.TrimEnd('\r', '\n'));
-        }
+        AppendStream(result, "stdout", stdout);
+        AppendStream(result, "stderr", stderr);
         return result.ToString();
+    }
+
+    private static void AppendStream(StringBuilder result, string name, string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return;
+
+        if (result.Length > 0)
+            result.AppendLine();
+
+        var normalized = value.TrimEnd('\r', '\n');
+        var firstBreak = normalized.IndexOfAny(['\r', '\n']);
+        if (firstBreak < 0)
+        {
+            result.Append(name).Append(": ").Append(normalized);
+            return;
+        }
+
+        result.Append(name).Append(": ").Append(normalized[..firstBreak]);
+        var remainderStart = firstBreak;
+        while (remainderStart < normalized.Length &&
+               normalized[remainderStart] is '\r' or '\n')
+            remainderStart++;
+        if (remainderStart < normalized.Length)
+            result.AppendLine().Append(normalized[remainderStart..]);
     }
 
     private static void TryKill(Process process)
@@ -153,6 +208,31 @@ public sealed class ShellCommandHandler(AgentStore store) : IAgentCommandHandler
         }
         catch (InvalidOperationException)
         {
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private sealed class ShellInvocation(ProcessStartInfo startInfo, string? temporaryCommandFile) : IDisposable
+    {
+        public ProcessStartInfo StartInfo { get; } = startInfo;
+
+        public void Dispose()
+        {
+            if (!string.IsNullOrWhiteSpace(temporaryCommandFile))
+                TryDelete(temporaryCommandFile);
         }
     }
 }
