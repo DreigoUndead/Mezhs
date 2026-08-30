@@ -1,9 +1,9 @@
-import type { FormEvent, KeyboardEvent, ReactNode, Ref } from "react";
+import { FormEvent, KeyboardEvent, ReactNode } from "react";
 import type { ApiFile, ChatMessage } from "./providers/contracts";
 
 export type ChatSurfaceMessage = Pick<
   ChatMessage,
-  "messageId" | "connectionId" | "role" | "content" | "status" | "createdAt" | "error"
+  "messageId" | "connectionId" | "role" | "origin" | "content" | "status" | "createdAt" | "error"
 > & {
   files?: ApiFile[];
 };
@@ -13,9 +13,9 @@ export type ChatTranscriptProps = {
   apiBaseUrl?: string;
   busy?: boolean;
   emptyState?: ReactNode;
-  endRef?: Ref<HTMLDivElement>;
   getAuthorLabel?: (message: ChatSurfaceMessage) => string;
   getAvatarLabel?: (message: ChatSurfaceMessage) => string;
+  renderMessageFooter?: (message: ChatSurfaceMessage) => ReactNode;
   onReplay?: (messageId: string) => void;
   replayDisabled?: boolean;
 };
@@ -41,9 +41,9 @@ export function ChatTranscript({
   apiBaseUrl = "",
   busy = false,
   emptyState,
-  endRef,
   getAuthorLabel = defaultAuthorLabel,
   getAvatarLabel = defaultAvatarLabel,
+  renderMessageFooter,
   onReplay,
   replayDisabled = false,
 }: ChatTranscriptProps) {
@@ -78,6 +78,7 @@ export function ChatTranscript({
               </div>
             )}
             {message.error && <p className="message-error">{message.error}</p>}
+            {renderMessageFooter?.(message)}
             {onReplay && message.role === "user" && terminalStatuses.has(message.status) && (
               <button className="replay" onClick={() => onReplay(message.messageId)} disabled={replayDisabled}>Replay request</button>
             )}
@@ -85,7 +86,6 @@ export function ChatTranscript({
         </article>
       ))}
       {busy && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>Working through it...</span></div>}
-      <div ref={endRef} />
     </section>
   );
 }
