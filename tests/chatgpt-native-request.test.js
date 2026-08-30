@@ -194,3 +194,129 @@ test("ChatGPT project send applies requested model to the native request", async
   assert.equal(result.projectId, "g-p-project");
   assert.equal(result.model, "gpt-5-5-thinking");
 });
+
+test("ChatGPT follow-up ignores the previous finished assistant while waiting for the new turn", async () => {
+  const chatgpt = loadChatGptModule();
+  const browserDebugger = new FakeDebugger();
+  let currentUrl = "https://chatgpt.com/c/native-conversation";
+  let conversationReads = 0;
+
+  const staleConversation = {
+    conversation_id: "native-conversation",
+    current_node: "assistant-old",
+    mapping: {
+      "assistant-old": {
+        parent: "request-old",
+        message: {
+          id: "assistant-old",
+          author: { role: "assistant" },
+          status: "finished_successfully",
+          content: { parts: ["GPT-5.5 Thinking"] },
+          metadata: { model_slug: "gpt-5-5-thinking" }
+        }
+      },
+      "request-old": {
+        parent: null,
+        message: {
+          id: "request-old",
+          author: { role: "user" },
+          status: "finished_successfully",
+          content: { parts: ["what model are you?"] }
+        }
+      }
+    }
+  };
+
+  const freshConversation = {
+    conversation_id: "native-conversation",
+    current_node: "assistant-new",
+    mapping: {
+      "assistant-new": {
+        parent: "request-new-node",
+        message: {
+          id: "assistant-new",
+          author: { role: "assistant" },
+          status: "finished_successfully",
+          content: { parts: ["GPT-5.6 Sol"] },
+          metadata: { model_slug: "gpt-5-6-thinking" }
+        }
+      },
+      "request-new-node": {
+        parent: "assistant-old",
+        message: {
+          id: "native-message-2",
+          author: { role: "user" },
+          status: "finished_successfully",
+          content: { parts: ["and now?"] },
+          metadata: { resolved_model_slug: "gpt-5-6-thinking" }
+        }
+      },
+      ...staleConversation.mapping
+    }
+  };
+
+  const session = {
+    fetch: async (url, options = {}) => {
+      const target = new URL(String(url));
+      if (target.pathname === "/api/auth/session")
+        return jsonResponse({ accessToken: "token", user: { id: "account-1" } });
+      if (target.pathname === "/backend-api/settings/user_last_used_model_config")
+        return new Response("", { status: 200 });
+      if (target.pathname === "/backend-api/conversation/native-conversation") {
+        conversationReads++;
+        return jsonResponse(conversationReads === 1 ? staleConversation : freshConversation);
+      }
+      throw new Error(`Unexpected session request ${target}`);
+    }
+  };
+
+  const window = {
+    loadURL: async url => { currentUrl = url; },
+    webContents: {
+      debugger: browserDebugger,
+      getURL: () => currentUrl
+    }
+  };
+
+  const page = {
+    invoke: async () => {
+      browserDebugger.emit("message", {}, "Fetch.requestPaused", {
+        requestId: "request-2",
+        request: {
+          url: "https://chatgpt.com/backend-api/f/conversation",
+          postData: JSON.stringify({
+            action: "next",
+            conversation_id: "native-conversation",
+            messages: [{ id: "native-message-2", author: { role: "user" } }],
+            model: "gpt-5-5-thinking",
+            thinking_effort: "standard"
+          })
+        }
+      });
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  };
+
+  const result = await chatgpt.operations.send({
+    window,
+    session,
+    page,
+    args: {
+      prompt: "and now?",
+      conversationId: "native-conversation",
+      parentMessageId: "assistant-old",
+      model: "gpt-5-6-thinking::thinking-effort=standard",
+      files: []
+    },
+    sleep: async () => {}
+  });
+
+  assert.equal(conversationReads, 2);
+  assert.equal(result.text, "GPT-5.6 Sol");
+  assert.equal(result.model, "gpt-5-6-thinking");
+  const continuedBody = JSON.parse(
+    Buffer.from(browserDebugger.continued.postData, "base64").toString("utf8")
+  );
+  assert.equal(continuedBody.model, "gpt-5-6-thinking");
+  assert.equal(continuedBody.thinking_effort, "standard");
+});
