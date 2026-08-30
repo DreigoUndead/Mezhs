@@ -162,6 +162,7 @@ try {
     }
     if ($policy.snapshot -notmatch "requireDone: false" -or
         $policy.snapshot -notmatch "maxTurns: 3" -or
+        $policy.snapshot -notmatch "commandTimeoutSeconds: 2" -or
         $policy.snapshot -notmatch "SH") {
         throw "Compiled policy snapshot does not contain normalized effective command/completion/limit rules."
     }
@@ -192,7 +193,8 @@ try {
         throw "Agent did not route its task through the mock MEŽS integration."
     }
     if ($execution.policySnapshot -notmatch "requireDone: false" -or
-        $execution.policySnapshot -notmatch "maxTurns: 3") {
+        $execution.policySnapshot -notmatch "maxTurns: 3" -or
+        $execution.policySnapshot -notmatch "commandTimeoutSeconds: 2") {
         throw "Execution did not retain the compiled effective policy snapshot."
     }
 
@@ -225,6 +227,16 @@ try {
     $messages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($execution.chatId)/messages"
     if (@($messages).Count -lt 2) {
         throw "Agent chat API did not expose the underlying MEŽS conversation."
+    }
+
+    $debugResponse = Invoke-WebRequest -Uri "http://127.0.0.1:5200/v1/agent-chats/$($execution.chatId)/debug-log"
+    if ($debugResponse.StatusCode -ne 200 -or
+        $debugResponse.Headers["Content-Disposition"] -notmatch "attachment" -or
+        $debugResponse.Content -notmatch "=== ACTIVE ===" -or
+        $debugResponse.Content -notmatch "=== EXECUTIONS ===" -or
+        $debugResponse.Content -notmatch "=== CHAT MESSAGES ===" -or
+        $debugResponse.Content -notmatch [regex]::Escape($execution.executionId)) {
+        throw "Agent Web did not proxy a useful downloadable debug log."
     }
 
     $client = [Net.Http.HttpClient]::new()
@@ -332,7 +344,7 @@ try {
         throw "Agent SQLite database was not created."
     }
 
-    Write-Host "PASS: Agent API and Agent Web run separately, Agent Web proxies the API, and fixed policy/source/pause behavior is preserved."
+    Write-Host "PASS: Agent API/Web run separately, proxy debug logs, retain timeout policy snapshots, and preserve fixed policy/source/pause behavior."
 }
 finally {
     if ($null -ne $agentWeb -and -not $agentWeb.HasExited) {
