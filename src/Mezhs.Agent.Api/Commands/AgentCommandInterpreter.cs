@@ -5,7 +5,8 @@ namespace Mezhs.Agent.Commands;
 
 public sealed record AgentCommandExecutionContext(
     ExecutionRecord ParentExecution,
-    AgentCommand Command);
+    AgentCommand Command,
+    TimeSpan Timeout);
 
 public sealed record AgentCommandResult(
     string Name,
@@ -62,6 +63,7 @@ public sealed class AgentCommandInterpreter
         }
 
         var results = new List<AgentCommandResult>();
+        var timeout = TimeSpan.FromSeconds(policy.Settings.Limits.CommandTimeoutSeconds);
         foreach (var command in batch.Commands)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -85,7 +87,7 @@ public sealed class AgentCommandInterpreter
             }
 
             results.Add(await handler.ExecuteAsync(
-                new AgentCommandExecutionContext(execution, command),
+                new AgentCommandExecutionContext(execution, command, timeout),
                 cancellationToken));
         }
 
