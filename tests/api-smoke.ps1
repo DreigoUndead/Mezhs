@@ -182,7 +182,7 @@ try {
         Start-Sleep -Milliseconds 50
     } while ($true)
     if ($null -ne $attachmentCompleted.model -or $attachmentCompleted.reply.model -ne 'mock-served') {
-        throw 'Omitted requested model was not kept separate from the provider-served reply model.'
+        throw 'New chat with an omitted requested model did not use provider Default.'
     }
 
     $echoedFile = $attachmentCompleted.reply.files | Select-Object -First 1
@@ -218,8 +218,7 @@ try {
     }
 
     # Switch the same local chat back to the original connection without a model.
-    # Even though the connection has defaultModel configured for UI selection,
-    # an omitted API model remains omitted.
+    # The API restores the last requested model used by this chat on that connection.
     $third = Invoke-RestMethod `
         -Method Post `
         -Uri "$baseUrl/v1/messages" `
@@ -241,8 +240,55 @@ try {
     if ($thirdCompleted.connectionId -ne 'test' -or $thirdCompleted.reply.connectionId -ne 'test') {
         throw 'Existing chat did not switch back to the original connection.'
     }
-    if ($null -ne $thirdCompleted.model -or $thirdCompleted.reply.model -ne 'mock-served') {
-        throw 'Configured defaultModel leaked into the request or provider-served reply model was lost.'
+    if ($thirdCompleted.model -ne 'mock-deep' -or $thirdCompleted.reply.model -ne 'mock-served') {
+        throw 'Existing chat did not restore the saved model for the selected connection.'
+    }
+
+    # A present but empty model explicitly resets the chat/connection to provider Default.
+    $resetDefault = Invoke-RestMethod `
+        -Method Post `
+        -Uri "$baseUrl/v1/messages" `
+        -ContentType 'application/json' `
+        -Body (ConvertTo-Json @{
+            connectionId = 'test'
+            chatId = $created.chatId
+            content = 'reset to default'
+            model = ''
+        })
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+    do {
+        $resetCompleted = Invoke-RestMethod -Uri "$baseUrl/v1/messages/$($resetDefault.messageId)"
+        if ($resetCompleted.status -eq 'Completed') { break }
+        if ($resetCompleted.status -eq 'Failed') { throw $resetCompleted.error }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Default reset polling timed out.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+    if ($null -ne $resetCompleted.model) {
+        throw 'Explicit empty model did not reset the saved model to provider Default.'
+    }
+
+    # Once Default is the latest saved selection, omission inherits Default as well.
+    $afterReset = Invoke-RestMethod `
+        -Method Post `
+        -Uri "$baseUrl/v1/messages" `
+        -ContentType 'application/json' `
+        -Body (ConvertTo-Json @{
+            connectionId = 'test'
+            chatId = $created.chatId
+            content = 'default again'
+        })
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+    do {
+        $afterResetCompleted = Invoke-RestMethod -Uri "$baseUrl/v1/messages/$($afterReset.messageId)"
+        if ($afterResetCompleted.status -eq 'Completed') { break }
+        if ($afterResetCompleted.status -eq 'Failed') { throw $afterResetCompleted.error }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Inherited Default polling timed out.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+    if ($null -ne $afterResetCompleted.model) {
+        throw 'Omitted model did not inherit the saved provider Default selection.'
     }
 
     $chatList = Invoke-RestMethod -Uri "$baseUrl/v1/chats"
@@ -252,19 +298,19 @@ try {
     }
 
     $history = Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($created.chatId)/messages"
-    if ($history.Count -ne 8) { throw "Expected 8 logged messages, got $($history.Count)." }
+    if ($history.Count -ne 12) { throw "Expected 12 logged messages, got $($history.Count)." }
     $userConnections = @($history | Where-Object { $_.role -eq 'user' } | ForEach-Object { $_.connectionId })
-    if (($userConnections -join ',') -ne 'test,test,test-login,test') {
-        throw "Expected user connections test,test,test-login,test; got $($userConnections -join ',')."
+    if (($userConnections -join ',') -ne 'test,test,test-login,test,test,test') {
+        throw "Expected user connections test,test,test-login,test,test,test; got $($userConnections -join ',')."
     }
     $userModels = @($history | Where-Object { $_.role -eq 'user' } | ForEach-Object {
         if ($null -eq $_.model) { '' } else { $_.model }
     })
-    if (($userModels -join ',') -ne 'mock-fast,mock-deep,,') {
+    if (($userModels -join ',') -ne 'mock-fast,mock-deep,,mock-deep,,') {
         throw "Unexpected persisted user models: $($userModels -join ',')."
     }
     $assistantModels = @($history | Where-Object { $_.role -eq 'assistant' } | ForEach-Object { $_.model })
-    if (($assistantModels -join ',') -ne 'mock-served,mock-served,mock-served,mock-served') {
+    if (($assistantModels -join ',') -ne 'mock-served,mock-served,mock-served,mock-served,mock-served,mock-served') {
         throw "Unexpected persisted assistant models: $($assistantModels -join ',')."
     }
 
@@ -280,7 +326,7 @@ try {
         -Body '{"categoryId":null}' | Out-Null
     Invoke-RestMethod -Method Delete -Uri "$baseUrl/v1/categories/$($category.categoryId)"
 
-    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) implicit-follow-up=ok multi-connection=ok categories=ok files=ok login=ok models=ok"
+    Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) implicit-follow-up=ok multi-connection=ok model-restore=ok default-reset=ok categories=ok files=ok login=ok models=ok"
 }
 finally {
     if (-not $process.HasExited) {
