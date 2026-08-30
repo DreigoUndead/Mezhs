@@ -3,36 +3,33 @@ using Mezhs.Console;
 
 return new TestApplication().Run();
 
-internal class TestApplication : ConsoleApplication
+internal sealed class TestApplication : ConsoleApplication
 {
     [Command(Description = "Run the console framework regression suite.")]
     public string Test()
     {
         var tests = new (string Name, Action Body)[]
         {
+            ("CallerMemberName command", () => Expect("Help Echo", "Echo")),
+            ("Explicit command name", () => Expect("renamed 5", "5", new RenamedCommandApplication())),
             ("Echo nullable", () => Expect("Echo hello", "hello:null")),
             ("Literal null", () => Expect("Echo hello null", "hello:null")),
-            ("Non-nullable literal null", () =>
-            {
-                var result = RunCase("Echo null");
-                if (result.ExitCode != 2 || !result.Error.Contains("non-nullable parameter 'value'", StringComparison.Ordinal))
-                    throw new InvalidOperationException($"Unexpected result: {result.ExitCode} {result.Error}");
-            }),
-            ("Enumerable", () => Expect("Insert [1 5 6] tail", "1,5,6|tail")),
-            ("Nested enumerable", () => Expect("Nested [[1 2] [3 4]]", "1,2;3,4")),
+            ("Non-nullable literal null", () => ExpectFailure("Required null", 2, new NullabilityApplication())),
+            ("Enumerable", () => Expect("Insert [1 5 6] tail", "1,5,6|tail", new CollectionApplication())),
+            ("Nested enumerable", () => Expect("Nested [[1 2] [3 4]]", "1,2;3,4", new CollectionApplication())),
             ("Quoted string", () => Expect("Echo \"hello world\"", "hello world:null")),
-            ("Invalid command help", () => Expect("Help Broken", "ComplexObject")),
-            ("Invalid enumerable help", () => Expect("Help BrokenEnumerable", "cannot be constructed from command input")),
-            ("Invalid ValueTask help", () => Expect("Help AsyncBroken", "Task/ValueTask return types are not supported")),
+            ("Invalid command help", () => Expect("Help Broken", "ComplexObject", new InvalidApplication())),
+            ("Invalid enumerable help", () => Expect("Help BrokenEnumerable", "cannot be constructed from command input", new InvalidApplication())),
+            ("Invalid ValueTask help", () => Expect("Help AsyncBroken", "Task/ValueTask return types are not supported", new InvalidApplication())),
             ("Invalid command isolated", () =>
             {
                 if (RunCase("Echo ok").ExitCode != 0) throw new InvalidOperationException("Valid command failed.");
-                if (RunCase("Broken nope").ExitCode != 3) throw new InvalidOperationException("Invalid command did not return exit code 3.");
-                if (RunCase("BrokenEnumerable [1 2]").ExitCode != 3) throw new InvalidOperationException("Unconstructable enumerable command did not return exit code 3.");
-                if (RunCase("AsyncBroken").ExitCode != 3) throw new InvalidOperationException("ValueTask command did not return exit code 3.");
+                if (RunCase("Broken nope", new InvalidApplication()).ExitCode != 3) throw new InvalidOperationException("Invalid command did not return exit code 3.");
+                if (RunCase("BrokenEnumerable [1 2]", new InvalidApplication()).ExitCode != 3) throw new InvalidOperationException("Unconstructable enumerable command did not return exit code 3.");
             }),
             ("Inherited Help", () => Expect("Help Help", "Show available commands")),
-            ("Inherited Validate", () => Expect("Validate", "Broken: INVALID")),
+            ("Inherited Validate", () => Expect("Validate", "All commands are valid.")),
+            ("Invalid Validate", () => Expect("Validate", "Broken: INVALID", new InvalidApplication())),
             ("Current culture conversion", TestCulture),
             ("Syntax override", () =>
             {
@@ -67,34 +64,20 @@ internal class TestApplication : ConsoleApplication
     [Command(Description = "Echo a string and optional number.")]
     public string Echo(string value, int? count = null) => $"{value}:{count?.ToString() ?? "null"}";
 
-    [Command(Description = "Insert integer values.", Example = "Insert [1 5 6] tail")]
-    public string Insert(IEnumerable<int> values, string tail) => $"{string.Join(',', values)}|{tail}";
-
-    [Command(Description = "Insert nested integer values.")]
-    public string Nested(IEnumerable<IEnumerable<int>> values) => string.Join(';', values.Select(x => string.Join(',', x)));
-
-    [Command(Description = "Parse a date using the current OS culture.")]
-    public string Date(DateTime value) => value.ToString("O");
-
-    [Command(Description = "Parse a decimal using the current OS culture.")]
-    public decimal Decimal(decimal value) => value;
-
-    [Command(Description = "Intentionally invalid; help must report this without breaking other commands.")]
-    public void Broken(ComplexObject value) { }
-
-    [Command(Description = "Intentionally invalid enumerable type.")]
-    public void BrokenEnumerable(IOrderedEnumerable<int> values) { }
-
-    [Command(Description = "Intentionally invalid asynchronous command.")]
-    public ValueTask AsyncBroken() => ValueTask.CompletedTask;
-
-    private void Expect(string command, string expected)
+    private void Expect(string command, string expected, ConsoleApplication? application = null)
     {
-        var result = RunCase(command);
+        var result = RunCase(command, application);
         if (result.ExitCode != 0)
             throw new InvalidOperationException($"Exit code {result.ExitCode}. Error: {result.Error}");
         if (!result.Out.Contains(expected, StringComparison.Ordinal))
             throw new InvalidOperationException($"Expected '{expected}' in output '{result.Out}'.");
+    }
+
+    private void ExpectFailure(string command, int exitCode, ConsoleApplication application)
+    {
+        var result = RunCase(command, application);
+        if (result.ExitCode != exitCode)
+            throw new InvalidOperationException($"Expected exit code {exitCode} but got {result.ExitCode}. Output: {result.Out} Error: {result.Error}");
     }
 
     private void TestCulture()
@@ -103,8 +86,8 @@ internal class TestApplication : ConsoleApplication
         try
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("lv-LV");
-            Expect("Decimal 1,5", "1,5");
-            Expect("Help Date", "OS culture: lv-LV");
+            Expect("Decimal 1,5", "1,5", new CultureApplication());
+            Expect("Help Date", "OS culture: lv-LV", new CultureApplication());
         }
         finally
         {
@@ -128,7 +111,7 @@ internal class TestApplication : ConsoleApplication
         }
     }
 
-    private static RunResult RunCase(string command, TestApplication? application = null, bool setContext = true)
+    private static RunResult RunCase(string command, ConsoleApplication? application = null, bool setContext = true)
     {
         var previousOut = Console.Out;
         var previousError = Console.Error;
@@ -154,12 +137,43 @@ internal class TestApplication : ConsoleApplication
     private sealed record RunResult(int ExitCode, string Out, string Error);
 }
 
-internal sealed class AlternateSyntaxApplication : TestApplication
+internal sealed class CollectionApplication : ConsoleApplication
+{
+    [Command] public string Insert(IEnumerable<int> values, string tail) => $"{string.Join(',', values)}|{tail}";
+    [Command] public string Nested(IEnumerable<IEnumerable<int>> values) => string.Join(';', values.Select(x => string.Join(',', x)));
+}
+
+internal sealed class AlternateSyntaxApplication : ConsoleApplication
 {
     protected override CommandSyntax Syntax => new([
         new(CommandSyntaxTokenType.Quote, '\'', '\'', '\\'),
         new(CommandSyntaxTokenType.Collection, '(', ')')
     ]);
+
+    [Command] public string Insert(IEnumerable<int> values, string tail) => $"{string.Join(',', values)}|{tail}";
+}
+
+internal sealed class CultureApplication : ConsoleApplication
+{
+    [Command] public string Date(DateTime value) => value.ToString("O");
+    [Command] public decimal Decimal(decimal value) => value;
+}
+
+internal sealed class InvalidApplication : ConsoleApplication
+{
+    [Command] public void Broken(ComplexObject value) { }
+    [Command] public void BrokenEnumerable(IOrderedEnumerable<int> values) { }
+    [Command] public ValueTask AsyncBroken() => ValueTask.CompletedTask;
+}
+
+internal sealed class NullabilityApplication : ConsoleApplication
+{
+    [Command] public string Required(string value) => value;
+}
+
+internal sealed class RenamedCommandApplication : ConsoleApplication
+{
+    [Command("renamed")] public int OriginalName(int value) => value;
 }
 
 internal sealed record ComplexObject(int Val1, int Val2, int Val3);
