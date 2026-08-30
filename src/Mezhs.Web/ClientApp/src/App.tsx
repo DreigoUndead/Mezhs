@@ -65,7 +65,6 @@ export default function App() {
   const [online, setOnline] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [loginId, setLoginId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
@@ -262,38 +261,6 @@ export default function App() {
     }
   }
 
-  async function login(connection: Connection) {
-    setLoginId(connection.id);
-    setNotice("Complete authorization in the browser window. MEŽS will save this session.");
-    try {
-      await providerRegistry.current.get(connection.id).initialize();
-      setNotice(`${connection.name} is authorized and ready.`);
-      if (connection.id === connectionId && connection.supportsModels) {
-        const available = await providerRegistry.current.get(connection.id).getModels();
-        setModels(available);
-        const configured = connection.defaultModel || "";
-        setModelId(available.some((model) => (model.id || "") === configured) ? configured : "");
-      }
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Authorization failed.");
-    } finally {
-      setLoginId(null);
-    }
-  }
-
-  async function openAccountBrowser(connection: Connection) {
-    setNotice(null);
-    try {
-      await expectJson(await fetch(
-        `${apiBase}/v1/connections/${encodeURIComponent(connection.id)}/browser`,
-        { method: "POST" },
-      ));
-      setNotice(`${connection.name} account browser is open.`);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Account browser could not be opened.");
-    }
-  }
-
   async function createCategory(event: FormEvent) {
     event.preventDefault();
     const name = newCategoryName.trim();
@@ -433,17 +400,6 @@ export default function App() {
                 : <option value="">{modelsLoading ? "Loading models..." : "Default"}</option>}
             </select>
           </label>
-        )}
-
-        {selectedConnection?.requiresLogin && (
-          <>
-            <button className="login-button" disabled={loginId === selectedConnection.id} onClick={() => void login(selectedConnection)}>
-              {loginId === selectedConnection.id ? "Waiting for authorization..." : "Open login window"}
-            </button>
-            <button className="login-button" onClick={() => void openAccountBrowser(selectedConnection)}>
-              Open account browser
-            </button>
-          </>
         )}
 
         <div className="groups-heading">
