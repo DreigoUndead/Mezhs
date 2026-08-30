@@ -59,3 +59,19 @@ public sealed record ApiMessage(
     string? Error,
     string? ReplayOfMessageId,
     ApiMessage? Reply);
+
+public sealed record ApiChatHistoryMessage(
+    string MessageId,
+    string ChatId,
+    string ConnectionId,
+    string Role,
+    string Content,
+    IReadOnlyList<string> FileIds,
+    string? ParentMessageId,
+    string? ReplayOfMessageId,
+    string? ReplyMessageId,
+    MessageStatus Status,
+    string? Error,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? StartedAt,
+    DateTimeOffset? CompletedAt);
