@@ -81,7 +81,7 @@ app.MapGet("/v1/agent-chats", async (
     CancellationToken cancellationToken) =>
 {
     var views = await Task.WhenAll(agentStore.GetAgentChats()
-        .Select(record => ToViewAsync(record, mezhs, cancellationToken)));
+        .Select(record => ToViewAsync(record, agentStore, mezhs, cancellationToken)));
     return Results.Ok(views);
 });
 
@@ -94,18 +94,19 @@ app.MapGet("/v1/agent-chats/{chatId}", async (
     var chat = agentStore.GetAgentChat(chatId);
     return chat is null
         ? Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." })
-        : Results.Ok(await ToViewAsync(chat, mezhs, cancellationToken));
+        : Results.Ok(await ToViewAsync(chat, agentStore, mezhs, cancellationToken));
 });
 
 app.MapPatch("/v1/agent-chats/{chatId}", async (
     string chatId,
     UpdateAgentChatRequest request,
     AgentService agents,
+    AgentStore agentStore,
     MezhsClient mezhs,
     CancellationToken cancellationToken) =>
 {
     var chat = agents.SetPaused(chatId, request.Paused);
-    return Results.Ok(await ToViewAsync(chat, mezhs, cancellationToken));
+    return Results.Ok(await ToViewAsync(chat, agentStore, mezhs, cancellationToken));
 });
 
 app.MapGet("/v1/agent-chats/{chatId}/messages", async (
@@ -164,17 +165,23 @@ await app.RunAsync();
 
 static async Task<AgentChatView> ToViewAsync(
     AgentChatRecord record,
+    AgentStore store,
     MezhsClient mezhs,
     CancellationToken cancellationToken)
 {
     var chat = await mezhs.TryGetChatAsync(record.ChatId, cancellationToken);
+    var firstTask = store.GetExecutions(record.ChatId)
+        .Where(execution => execution.Kind == AgentExecutionKind.Agent && execution.ParentExecutionId is null)
+        .OrderBy(execution => execution.CreatedAt)
+        .ThenBy(execution => execution.ExecutionId, StringComparer.Ordinal)
+        .FirstOrDefault()?.Request;
     return new AgentChatView(
         record.ChatId,
         record.PolicyId,
         record.OriginSource,
         record.OriginReference,
         record.Paused,
-        chat?.Title,
+        string.IsNullOrWhiteSpace(firstTask) ? chat?.Title : firstTask,
         chat?.ConnectionId,
         record.CreatedAt,
         record.UpdatedAt);
