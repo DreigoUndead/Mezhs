@@ -1,6 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { expectJson } from "@mezhs/web-lib";
-import type { ChatMessage } from "@mezhs/web-lib";
 
 type Runtime = {
   status: string;
@@ -25,6 +24,23 @@ type AgentChat = {
   connectionId?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+type AgentChatMessage = {
+  messageId: string;
+  chatId: string;
+  connectionId: string;
+  role: "user" | "assistant";
+  content: string;
+  fileIds: string[];
+  parentMessageId?: string;
+  replayOfMessageId?: string;
+  replyMessageId?: string;
+  status: "Queued" | "Running" | "Completed" | "Failed" | "Cancelled";
+  error?: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
 };
 
 type ExecutionStatus = "Queued" | "Running" | "Completed" | "Failed" | "Cancelled" | "Interrupted";
@@ -88,7 +104,7 @@ export default function App() {
   const [policies, setPolicies] = useState<AgentPolicy[]>([]);
   const [chats, setChats] = useState<AgentChat[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [creating, setCreating] = useState(false);
   const [policyId, setPolicyId] = useState("");
@@ -158,7 +174,7 @@ export default function App() {
   async function loadSelected(chatId: string, reportErrors = true) {
     try {
       const [messageValues, executionValues] = await Promise.all([
-        api<ChatMessage[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/messages`),
+        api<AgentChatMessage[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/messages`),
         api<Execution[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/executions`),
       ]);
       setMessages(messageValues);
@@ -219,7 +235,7 @@ export default function App() {
   }
 
   async function waitForAttachedChat(executionId: string) {
-    for (var attempt = 0; attempt < 80; attempt++) {
+    for (let attempt = 0; attempt < 80; attempt++) {
       const execution = await api<Execution>(`/v1/executions/${encodeURIComponent(executionId)}`);
       if (execution.chatId)
         return execution.chatId;
@@ -381,9 +397,9 @@ export default function App() {
                 <article key={message.messageId} className={`message ${message.role}`}>
                   <div className="message-role">{message.role === "assistant" ? "Agent" : "MEŽS"}</div>
                   <pre>{message.content}</pre>
-                  {message.files.length > 0 && (
+                  {message.fileIds.length > 0 && (
                     <div className="file-row">
-                      {message.files.map((file) => <span key={file.fileId}>{file.name}</span>)}
+                      <span>{message.fileIds.length} attachment{message.fileIds.length === 1 ? "" : "s"}</span>
                     </div>
                   )}
                   {message.error && <div className="message-error">{message.error}</div>}
