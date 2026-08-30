@@ -73,7 +73,7 @@ public sealed class MessageService(
             original.ConnectionId,
             original.Content,
             original.FileIds,
-            original.Origin,
+            NormalizeStoredOrigin(original),
             original.MessageId));
     }
 
@@ -338,7 +338,7 @@ public sealed class MessageService(
             message.ChatId,
             message.ConnectionId,
             message.Role,
-            message.Origin,
+            NormalizeStoredOrigin(message),
             message.Content,
             files.GetMany(message.FileIds)
                 .Select(FileStore.ToApi)
@@ -350,6 +350,20 @@ public sealed class MessageService(
             message.Error,
             message.ReplayOfMessageId,
             reply);
+    }
+
+    private static string NormalizeStoredOrigin(StoredMessage message)
+    {
+        var origin = message.Origin?.Trim();
+        if (string.IsNullOrWhiteSpace(origin) ||
+            (string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
+             string.Equals(origin, "human", StringComparison.OrdinalIgnoreCase)))
+        {
+            return string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase)
+                ? "assistant"
+                : "human";
+        }
+        return origin;
     }
 
     private static string NormalizeOrigin(string? origin) =>
