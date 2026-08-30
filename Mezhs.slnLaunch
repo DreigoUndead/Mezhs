@@ -13,6 +13,10 @@
       {
         "Path": "src\\Mezhs.Agent.Api\\Mezhs.Agent.Api.csproj",
         "Action": "Start"
+      },
+      {
+        "Path": "src\\Mezhs.Agent.Web\\Mezhs.Agent.Web.csproj",
+        "Action": "Start"
       }
     ]
   },
@@ -38,6 +42,10 @@
       },
       {
         "Path": "src\\Mezhs.Agent.Api\\Mezhs.Agent.Api.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "src\\Mezhs.Agent.Web\\Mezhs.Agent.Web.csproj",
         "Action": "Start"
       }
     ]
