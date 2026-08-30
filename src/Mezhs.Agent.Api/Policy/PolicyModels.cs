@@ -23,6 +23,7 @@ public sealed class PolicyCompletionDefinition
 public sealed class PolicyLimitsDefinition
 {
     public int MaxTurns { get; set; } = 30;
+    public int CommandTimeoutSeconds { get; set; } = 120;
 }
 
 public sealed record PolicySettings(
@@ -37,4 +38,6 @@ public sealed record PolicyCommandSettings(
     IReadOnlyList<string> Deny);
 
 public sealed record PolicyCompletionSettings(bool RequireDone);
-public sealed record PolicyLimitsSettings(int MaxTurns);
+public sealed record PolicyLimitsSettings(
+    int MaxTurns,
+    int CommandTimeoutSeconds);
