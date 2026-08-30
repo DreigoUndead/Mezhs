@@ -56,6 +56,7 @@ public sealed class MessageService(
             connectionId,
             request.Content ?? string.Empty,
             attachedFiles.Select(file => file.FileId).ToArray(),
+            NormalizeOrigin(request.Origin),
             replayOf: null));
     }
 
@@ -72,6 +73,7 @@ public sealed class MessageService(
             original.ConnectionId,
             original.Content,
             original.FileIds,
+            original.Origin,
             original.MessageId));
     }
 
@@ -115,6 +117,7 @@ public sealed class MessageService(
         string connectionId,
         string content,
         IReadOnlyList<string> fileIds,
+        string origin,
         string? replayOf)
     {
         var message = new StoredMessage
@@ -123,6 +126,7 @@ public sealed class MessageService(
             ChatId = chat.ChatId,
             ConnectionId = connectionId,
             Role = "user",
+            Origin = origin,
             Content = content,
             FileIds = fileIds,
             ReplayOfMessageId = replayOf,
@@ -213,6 +217,7 @@ public sealed class MessageService(
                 ChatId = chat.ChatId,
                 ConnectionId = message.ConnectionId,
                 Role = "assistant",
+                Origin = "assistant",
                 Content = result.Text,
                 FileIds = replyFileIds,
                 ParentMessageId = message.MessageId,
@@ -333,6 +338,7 @@ public sealed class MessageService(
             message.ChatId,
             message.ConnectionId,
             message.Role,
+            message.Origin,
             message.Content,
             files.GetMany(message.FileIds)
                 .Select(FileStore.ToApi)
@@ -345,4 +351,7 @@ public sealed class MessageService(
             message.ReplayOfMessageId,
             reply);
     }
+
+    private static string NormalizeOrigin(string? origin) =>
+        string.IsNullOrWhiteSpace(origin) ? "human" : origin.Trim();
 }
