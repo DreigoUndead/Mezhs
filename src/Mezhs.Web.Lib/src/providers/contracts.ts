@@ -31,6 +31,7 @@ export type ChatMessage = {
   chatId: string;
   connectionId: string;
   role: "user" | "assistant";
+  origin: string;
   content: string;
   files: ApiFile[];
   status: "Queued" | "Running" | "Completed" | "Failed" | "Cancelled";
