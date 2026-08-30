@@ -16,10 +16,12 @@ internal class TestApplication : ConsoleApplication
             ("Nested enumerable", () => Expect("Nested [[1 2] [3 4]]", "1,2;3,4")),
             ("Quoted string", () => Expect("Echo \"hello world\"", "hello world:null")),
             ("Invalid command help", () => Expect("Help Broken", "ComplexObject")),
+            ("Invalid enumerable help", () => Expect("Help BrokenEnumerable", "cannot be constructed from command input")),
             ("Invalid command isolated", () =>
             {
                 if (RunCase("Echo ok").ExitCode != 0) throw new InvalidOperationException("Valid command failed.");
                 if (RunCase("Broken nope").ExitCode != 3) throw new InvalidOperationException("Invalid command did not return exit code 3.");
+                if (RunCase("BrokenEnumerable [1 2]").ExitCode != 3) throw new InvalidOperationException("Unconstructable enumerable command did not return exit code 3.");
             }),
             ("Inherited Help", () => Expect("Help Help", "Show available commands")),
             ("Inherited Validate", () => Expect("Validate", "Broken: INVALID")),
@@ -71,6 +73,9 @@ internal class TestApplication : ConsoleApplication
 
     [Command(Description = "Intentionally invalid; help must report this without breaking other commands.")]
     public void Broken(ComplexObject value) { }
+
+    [Command(Description = "Intentionally invalid enumerable type.")]
+    public void BrokenEnumerable(IOrderedEnumerable<int> values) { }
 
     private void Expect(string command, string expected)
     {
