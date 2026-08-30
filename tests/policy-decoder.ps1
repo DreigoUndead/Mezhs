@@ -139,6 +139,7 @@ try
         parser,
         new PolicyEvaluationService(store),
         new IAgentCommandHandler[] { new ShellCommandHandler(store) });
+
     var interpreted = await interpreter.InterpretAsync(
         root,
         normal,
@@ -150,14 +151,51 @@ try
     Assert(interpreted.Results.Count == 1 && interpreted.Results[0].Succeeded,
         "Shell command did not execute successfully.");
 
-    var child = store.GetExecutions("chat_shell")
-        .Single(record => record.Kind == AgentExecutionKind.Shell);
-    Assert(child.ParentExecutionId == root.ExecutionId,
+    var simpleChild = store.GetExecutions("chat_shell")
+        .Single(record => record.Kind == AgentExecutionKind.Shell && record.Request == "echo MEZHS_SHELL_OK");
+    Assert(simpleChild.ParentExecutionId == root.ExecutionId,
         "Shell execution did not preserve parent execution causality.");
-    Assert(child.CorrelationId == root.CorrelationId,
+    Assert(simpleChild.CorrelationId == root.CorrelationId,
         "Shell execution did not preserve the correlation id.");
-    Assert(child.ExitCode == 0 && child.Result?.Contains("MEZHS_SHELL_OK", StringComparison.Ordinal) == true,
-        "Shell execution result/exit code was not persisted.");
+    Assert(simpleChild.ExitCode == 0 && simpleChild.Result?.Contains("stdout: MEZHS_SHELL_OK", StringComparison.Ordinal) == true,
+        "Shell execution result/exit code was not persisted with an informative stdout preview.");
+
+    var multilineText = OperatingSystem.IsWindows()
+        ? "echo MULTILINE_A\necho MULTILINE_B\nexit /b 9"
+        : "echo MULTILINE_A\necho MULTILINE_B\nexit 9";
+    var multiline = await interpreter.InterpretAsync(
+        root,
+        normal,
+        $"<SH\n{multilineText}\nSH>",
+        CancellationToken.None);
+    Assert(multiline.Error is null && multiline.Results.Count == 1,
+        $"Multiline shell command failed at the interpreter layer: {multiline.Error}");
+    Assert(!multiline.Results[0].Succeeded && multiline.Results[0].ExitCode == 9,
+        "Multiline shell command was truncated or lost its final nonzero exit code.");
+
+    var multilineChild = store.GetExecutions("chat_shell")
+        .Single(record => record.Kind == AgentExecutionKind.Shell && record.Request == multilineText);
+    Assert(multilineChild.ExitCode == 9,
+        "Persisted multiline shell execution lost exit code 9.");
+    Assert(multilineChild.Result?.Contains("stdout: MULTILINE_A", StringComparison.Ordinal) == true &&
+           multilineChild.Result.Contains("MULTILINE_B", StringComparison.Ordinal),
+        $"Multiline shell execution did not preserve all output. Result: {multilineChild.Result}");
+
+    const string unicodeText = "āčēģīķļņšūž ✓";
+    var unicode = await interpreter.InterpretAsync(
+        root,
+        normal,
+        $"<SH\necho {unicodeText}\nSH>",
+        CancellationToken.None);
+    Assert(unicode.Error is null && unicode.Results.Count == 1 && unicode.Results[0].Succeeded,
+        $"Unicode shell command failed: {unicode.Error ?? unicode.Results.FirstOrDefault()?.Error}");
+    Assert(unicode.Results[0].Output?.Contains(unicodeText, StringComparison.Ordinal) == true,
+        $"Unicode shell output was transcoded or corrupted. Result: {unicode.Results[0].Output}");
+
+    var unicodeChild = store.GetExecutions("chat_shell")
+        .Single(record => record.Kind == AgentExecutionKind.Shell && record.Request == $"echo {unicodeText}");
+    Assert(unicodeChild.Result?.Contains($"stdout: {unicodeText}", StringComparison.Ordinal) == true,
+        $"Persisted Unicode shell output was corrupted. Result: {unicodeChild.Result}");
 }
 finally
 {
@@ -169,7 +207,7 @@ finally
     File.Delete(shellOptions.Storage + "-wal");
 }
 
-Console.WriteLine("PASS: typed policies, non-executable model instructions, strict command parsing, <DONE>, fail-closed action authorization, and causal shell execution are working.");
+Console.WriteLine("PASS: typed policies, strict command parsing, causal shell execution, multiline scripts, Unicode output, and informative command evidence are working.");
 
 static void Assert(bool condition, string message)
 {
