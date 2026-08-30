@@ -88,15 +88,16 @@ public sealed class MezhsClient(HttpClient client)
     public async Task<string> SendMessageAsync(
         string chatId,
         string connectionId,
-        string content,
+        AgentPrompt prompt,
         CancellationToken cancellationToken)
     {
         using var response = await client.PostAsJsonAsync(
             "/v1/messages",
             new PostMessageRequest(
-                Content: content,
+                Content: prompt.Content,
                 ConnectionId: connectionId,
-                ChatId: chatId),
+                ChatId: chatId,
+                Origin: prompt.Origin),
             Json,
             cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
