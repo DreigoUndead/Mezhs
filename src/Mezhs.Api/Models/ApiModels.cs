@@ -34,6 +34,7 @@ public sealed class StoredMessage
     public required string ChatId { get; init; }
     public required string ConnectionId { get; init; }
     public required string Role { get; init; }
+    public string Origin { get; init; } = "human";
     public required string Content { get; init; }
     public IReadOnlyList<string> FileIds { get; init; } = [];
     public string? ParentMessageId { get; init; }
