@@ -27,6 +27,7 @@ public sealed class AgentStore(AgentOptions options)
                 PolicyId TEXT NOT NULL,
                 OriginSource TEXT NOT NULL,
                 OriginReference TEXT NULL,
+                Paused INTEGER NOT NULL DEFAULT 0,
                 CreatedAt TEXT NOT NULL,
                 UpdatedAt TEXT NOT NULL
             );
@@ -60,6 +61,7 @@ public sealed class AgentStore(AgentOptions options)
                 ON Executions(Status);
             """;
         command.ExecuteNonQuery();
+        EnsureColumn(connection, "AgentChats", "Paused", "INTEGER NOT NULL DEFAULT 0");
 
         lock (_writeLock)
         {
@@ -107,26 +109,31 @@ public sealed class AgentStore(AgentOptions options)
             Request = request,
             PolicySnapshot = policySnapshot
         };
+        InsertExecution(record);
+        return record;
+    }
 
-        lock (_writeLock)
+    public ExecutionRecord CreateChildExecution(
+        ExecutionRecord parent,
+        AgentExecutionKind kind,
+        string request)
+    {
+        var record = new ExecutionRecord
         {
-            using var connection = Open();
-            using var command = connection.CreateCommand();
-            command.CommandText = """
-                INSERT INTO Executions (
-                    ExecutionId, ParentExecutionId, CorrelationId, Kind, ChatId,
-                    PolicyId, ConnectionId, Source, SourceReference, Status,
-                    Request, Result, Error, ExitCode, PolicySnapshot,
-                    CreatedAt, StartedAt, CompletedAt)
-                VALUES (
-                    $executionId, NULL, $correlationId, $kind, $chatId,
-                    $policyId, $connectionId, $source, $sourceReference, $status,
-                    $request, NULL, NULL, NULL, $policySnapshot,
-                    $createdAt, NULL, NULL);
-                """;
-            BindExecution(command, record);
-            command.ExecuteNonQuery();
-        }
+            ExecutionId = AgentIds.New("exec"),
+            ParentExecutionId = parent.ExecutionId,
+            CorrelationId = parent.CorrelationId,
+            Kind = kind,
+            ChatId = parent.ChatId,
+            PolicyId = parent.PolicyId,
+            ConnectionId = parent.ConnectionId,
+            Source = parent.Source,
+            SourceReference = parent.SourceReference,
+            Status = AgentExecutionStatus.Queued,
+            Request = request,
+            PolicySnapshot = parent.PolicySnapshot
+        };
+        InsertExecution(record);
         return record;
     }
 
@@ -184,6 +191,34 @@ public sealed class AgentStore(AgentOptions options)
             EnsurePolicyMatches(chatId, existing.PolicyId, policyId);
     }
 
+    public void ValidateAgentChatRunnable(string chatId)
+    {
+        if (GetAgentChat(chatId) is { Paused: true })
+            throw new RequestValidationException(
+                $"Agent chat '{chatId}' is paused. Resume it before starting another execution.");
+    }
+
+    public AgentChatRecord SetAgentChatPaused(string chatId, bool paused)
+    {
+        lock (_writeLock)
+        {
+            using var connection = Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                UPDATE AgentChats
+                SET Paused = $paused,
+                    UpdatedAt = $updatedAt
+                WHERE ChatId = $chatId;
+                """;
+            command.Parameters.AddWithValue("$paused", paused ? 1 : 0);
+            command.Parameters.AddWithValue("$updatedAt", Format(DateTimeOffset.UtcNow));
+            command.Parameters.AddWithValue("$chatId", chatId);
+            if (command.ExecuteNonQuery() != 1)
+                throw new ResourceNotFoundException($"Agent chat '{chatId}' was not found.");
+        }
+        return GetAgentChat(chatId)!;
+    }
+
     public void AttachChat(string executionId, string chatId)
     {
         UpdateActive(
@@ -214,9 +249,9 @@ public sealed class AgentStore(AgentOptions options)
                 insert.Transaction = transaction;
                 insert.CommandText = """
                     INSERT INTO AgentChats (
-                        ChatId, PolicyId, OriginSource, OriginReference, CreatedAt, UpdatedAt)
+                        ChatId, PolicyId, OriginSource, OriginReference, Paused, CreatedAt, UpdatedAt)
                     VALUES (
-                        $chatId, $policyId, $originSource, $originReference, $createdAt, $updatedAt)
+                        $chatId, $policyId, $originSource, $originReference, 0, $createdAt, $updatedAt)
                     ON CONFLICT(ChatId) DO NOTHING;
                     """;
                 insert.Parameters.AddWithValue("$chatId", chatId);
@@ -286,6 +321,41 @@ public sealed class AgentStore(AgentOptions options)
             error: null);
     }
 
+    public void CompleteShell(
+        string executionId,
+        int exitCode,
+        string? result)
+    {
+        var status = exitCode == 0
+            ? AgentExecutionStatus.Completed
+            : AgentExecutionStatus.Failed;
+        var error = exitCode == 0 ? null : $"Shell exited with code {exitCode}.";
+
+        lock (_writeLock)
+        {
+            using var connection = Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                UPDATE Executions
+                SET Status = $status,
+                    Result = $result,
+                    Error = $error,
+                    ExitCode = $exitCode,
+                    CompletedAt = $completedAt
+                WHERE ExecutionId = $executionId
+                  AND Status = $running;
+                """;
+            command.Parameters.AddWithValue("$status", status.ToString());
+            command.Parameters.AddWithValue("$result", Db(result));
+            command.Parameters.AddWithValue("$error", Db(error));
+            command.Parameters.AddWithValue("$exitCode", exitCode);
+            command.Parameters.AddWithValue("$completedAt", Format(DateTimeOffset.UtcNow));
+            command.Parameters.AddWithValue("$executionId", executionId);
+            command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
+            command.ExecuteNonQuery();
+        }
+    }
+
     public void Fail(string executionId, string error)
     {
         Finish(
@@ -333,6 +403,29 @@ public sealed class AgentStore(AgentOptions options)
             command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
             var changed = command.ExecuteNonQuery() == 1;
             return (GetExecution(executionId)!, changed);
+        }
+    }
+
+    private void InsertExecution(ExecutionRecord record)
+    {
+        lock (_writeLock)
+        {
+            using var connection = Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO Executions (
+                    ExecutionId, ParentExecutionId, CorrelationId, Kind, ChatId,
+                    PolicyId, ConnectionId, Source, SourceReference, Status,
+                    Request, Result, Error, ExitCode, PolicySnapshot,
+                    CreatedAt, StartedAt, CompletedAt)
+                VALUES (
+                    $executionId, $parentExecutionId, $correlationId, $kind, $chatId,
+                    $policyId, $connectionId, $source, $sourceReference, $status,
+                    $request, NULL, NULL, NULL, $policySnapshot,
+                    $createdAt, NULL, NULL);
+                """;
+            BindExecution(command, record);
+            command.ExecuteNonQuery();
         }
     }
 
@@ -410,6 +503,27 @@ public sealed class AgentStore(AgentOptions options)
         return connection;
     }
 
+    private static void EnsureColumn(
+        SqliteConnection connection,
+        string table,
+        string column,
+        string definition)
+    {
+        using var inspect = connection.CreateCommand();
+        inspect.CommandText = $"PRAGMA table_info({table});";
+        using var reader = inspect.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+        reader.Close();
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
+        alter.ExecuteNonQuery();
+    }
+
     private static void EnsurePolicyMatches(
         string chatId,
         string existingPolicyId,
@@ -423,6 +537,7 @@ public sealed class AgentStore(AgentOptions options)
     private static void BindExecution(SqliteCommand command, ExecutionRecord record)
     {
         command.Parameters.AddWithValue("$executionId", record.ExecutionId);
+        command.Parameters.AddWithValue("$parentExecutionId", Db(record.ParentExecutionId));
         command.Parameters.AddWithValue("$correlationId", record.CorrelationId);
         command.Parameters.AddWithValue("$kind", record.Kind.ToString());
         command.Parameters.AddWithValue("$chatId", Db(record.ChatId));
@@ -464,6 +579,7 @@ public sealed class AgentStore(AgentOptions options)
         PolicyId = reader.GetString(reader.GetOrdinal("PolicyId")),
         OriginSource = reader.GetString(reader.GetOrdinal("OriginSource")),
         OriginReference = GetNullableString(reader, "OriginReference"),
+        Paused = reader.GetInt64(reader.GetOrdinal("Paused")) != 0,
         CreatedAt = Parse(reader.GetString(reader.GetOrdinal("CreatedAt"))),
         UpdatedAt = Parse(reader.GetString(reader.GetOrdinal("UpdatedAt")))
     };
