@@ -345,12 +345,10 @@ async function observeNativeConversationRequest(debuggerClient, selection, trigg
       const nativeModel = String(body.model || "").trim() || null;
       if (selection.model && selection.model !== "auto")
         body.model = selection.model;
-      if (Object.prototype.hasOwnProperty.call(body, "thinking_effort")) {
-        if (selection.thinkingEffort)
-          body.thinking_effort = selection.thinkingEffort;
-        else
-          delete body.thinking_effort;
-      }
+      if (selection.thinkingEffort)
+        body.thinking_effort = selection.thinkingEffort;
+      else
+        delete body.thinking_effort;
 
       console.error(
         `ChatGPT native model: requested=${selection.model}` +
