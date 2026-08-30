@@ -87,7 +87,7 @@ internal sealed class TestApplication : ConsoleApplication
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("lv-LV");
             Expect("Decimal 1,5", "1,5", new CultureApplication());
-            Expect("Help Date", "OS culture: lv-LV", new CultureApplication());
+            Expect("Help Date", "Culture: lv-LV", new CultureApplication());
         }
         finally
         {
