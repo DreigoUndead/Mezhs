@@ -1,0 +1,33 @@
+name: Temporary Agent separation validation
+
+on:
+  push:
+    branches:
+      - agent-api-foundation
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build
+        shell: pwsh
+        run: dotnet build Mezhs.sln -c Release
+      - name: Policy and commands
+        shell: pwsh
+        run: pwsh ./tests/policy-decoder.ps1
+      - name: Agent architecture
+        shell: pwsh
+        run: pwsh ./tests/agent-architecture.ps1
+      - name: Agent API and Web smoke
+        shell: pwsh
+        run: pwsh ./tests/agent-api-smoke.ps1
+      - name: Generic architecture
+        shell: pwsh
+        run: pwsh ./tests/architecture.ps1
