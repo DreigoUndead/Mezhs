@@ -43,8 +43,8 @@ internal static class CommandDiscovery
         var errors = new List<string>();
         if (method.IsGenericMethodDefinition || method.ContainsGenericParameters)
             errors.Add("Generic command methods are not supported.");
-        if (typeof(Task).IsAssignableFrom(method.ReturnType))
-            errors.Add("Task return types are not supported. Console commands must complete synchronously.");
+        if (IsAsyncReturnType(method.ReturnType))
+            errors.Add("Task/ValueTask return types are not supported. Console commands must complete synchronously.");
 
         foreach (var parameter in method.GetParameters())
         {
@@ -59,4 +59,9 @@ internal static class CommandDiscovery
 
         return new CommandDescriptor(method, attribute.Name, attribute.Description, attribute.Example, errors);
     }
+
+    private static bool IsAsyncReturnType(Type type) =>
+        typeof(Task).IsAssignableFrom(type) ||
+        type == typeof(ValueTask) ||
+        (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ValueTask<>));
 }
