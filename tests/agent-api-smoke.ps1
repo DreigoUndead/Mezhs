@@ -9,6 +9,8 @@ $apiOut = Join-Path $PSScriptRoot "agent-smoke-api.out.log"
 $apiErr = Join-Path $PSScriptRoot "agent-smoke-api.err.log"
 $agentOut = Join-Path $PSScriptRoot "agent-smoke-agent.out.log"
 $agentErr = Join-Path $PSScriptRoot "agent-smoke-agent.err.log"
+$webOut = Join-Path $PSScriptRoot "agent-smoke-web.out.log"
+$webErr = Join-Path $PSScriptRoot "agent-smoke-web.err.log"
 $invalidOut = Join-Path $PSScriptRoot "agent-smoke-invalid.out.log"
 $invalidErr = Join-Path $PSScriptRoot "agent-smoke-invalid.err.log"
 
@@ -25,6 +27,8 @@ foreach ($path in @(
     $apiErr,
     $agentOut,
     $agentErr,
+    $webOut,
+    $webErr,
     $invalidOut,
     $invalidErr
 )) {
@@ -72,6 +76,7 @@ $api = Start-Process -FilePath "dotnet" `
     -PassThru
 
 $agent = $null
+$agentWeb = $null
 try {
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
     do {
@@ -109,13 +114,45 @@ try {
         throw "Agent API cannot reach the generic MEŽS API."
     }
 
-    $dashboard = Invoke-WebRequest -Uri "http://127.0.0.1:5199/"
-    if ($dashboard.StatusCode -ne 200 -or $dashboard.Content -notmatch '<title>MEŽS Agent</title>') {
-        throw "Agent API did not serve the Agent Web dashboard at its root."
+    $agentMetadata = Invoke-RestMethod -Uri "http://127.0.0.1:5199/"
+    if ($agentMetadata.name -ne "MEŽS Agent") {
+        throw "Agent API root does not expose API metadata."
     }
-    $metadata = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1"
-    if ($metadata.name -ne "MEŽS Agent" -or $metadata.dashboard -ne "/") {
-        throw "Agent API metadata endpoint does not describe the dashboard."
+
+    $agentWeb = Start-Process -FilePath "dotnet" `
+        -ArgumentList @(
+            "run",
+            "--project", (Join-Path $root "src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj"),
+            "-c", "Release",
+            "--no-build",
+            "--no-launch-profile",
+            "--",
+            "--urls", "http://127.0.0.1:5200",
+            "--Agent:BaseUrl", "http://127.0.0.1:5199"
+        ) `
+        -WorkingDirectory $root `
+        -RedirectStandardOutput $webOut `
+        -RedirectStandardError $webErr `
+        -WindowStyle Hidden `
+        -PassThru
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
+    do {
+        try {
+            $dashboard = Invoke-WebRequest -Uri "http://127.0.0.1:5200/"
+            if ($dashboard.StatusCode -eq 200) { break }
+        }
+        catch {
+            if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }
+            Start-Sleep -Milliseconds 200
+        }
+    } while ($true)
+    if ($dashboard.Content -notmatch '<title>MEŽS Agent</title>') {
+        throw "Mezhs.Agent.Web did not serve the Agent dashboard."
+    }
+    $proxiedRuntime = Invoke-RestMethod -Uri "http://127.0.0.1:5200/v1/runtime"
+    if (-not $proxiedRuntime.mezhsApiHealthy) {
+        throw "Mezhs.Agent.Web did not forward /v1 to Mezhs.Agent.Api."
     }
 
     $policy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/test"
@@ -295,9 +332,13 @@ try {
         throw "Agent SQLite database was not created."
     }
 
-    Write-Host "PASS: Agent API serves Agent Web, exposes all agent-chat data, preserves fixed policy/source, and enforces persisted pause/resume."
+    Write-Host "PASS: Agent API and Agent Web run separately, Agent Web proxies the API, and fixed policy/source/pause behavior is preserved."
 }
 finally {
+    if ($null -ne $agentWeb -and -not $agentWeb.HasExited) {
+        Stop-Process -Id $agentWeb.Id -Force
+        $agentWeb.WaitForExit()
+    }
     if ($null -ne $agent -and -not $agent.HasExited) {
         Stop-Process -Id $agent.Id -Force
         $agent.WaitForExit()
