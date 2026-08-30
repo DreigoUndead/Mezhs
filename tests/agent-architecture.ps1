@@ -7,6 +7,9 @@ $requiredFiles = @(
     "src/Mezhs.Api.Contracts/ApiContracts.cs",
     "src/Mezhs.Agent.Api/Mezhs.Agent.Api.csproj",
     "src/Mezhs.Agent.Api/Program.cs",
+    "src/Mezhs.Agent.Api/Commands/AgentCommandParser.cs",
+    "src/Mezhs.Agent.Api/Commands/AgentCommandInterpreter.cs",
+    "src/Mezhs.Agent.Api/Commands/ShellCommandHandler.cs",
     "src/Mezhs.Agent.Api/Configuration/AgentConfigLoader.cs",
     "src/Mezhs.Agent.Api/Configuration/AgentOptions.cs",
     "src/Mezhs.Agent.Api/Models/AgentModels.cs",
@@ -14,11 +17,14 @@ $requiredFiles = @(
     "src/Mezhs.Agent.Api/Policy/PolicyModels.cs",
     "src/Mezhs.Agent.Api/Policy/PolicyContext.cs",
     "src/Mezhs.Agent.Api/Policy/PolicyDecoder.cs",
+    "src/Mezhs.Agent.Api/Policy/PolicyEvaluationService.cs",
     "src/Mezhs.Agent.Api/Services/AgentPromptBuilder.cs",
     "src/Mezhs.Agent.Api/Services/MezhsClient.cs",
     "src/Mezhs.Agent.Api/Services/AgentService.cs",
     "src/Mezhs.Agent.Api/Services/AgentWorker.cs",
-    "src/Mezhs.Agent.Api/Services/PolicyRegistry.cs"
+    "src/Mezhs.Agent.Api/Services/PolicyRegistry.cs",
+    "src/Mezhs.Agent.Web/package.json",
+    "src/Mezhs.Agent.Web/src/App.tsx"
 )
 foreach ($file in $requiredFiles) {
     if (-not (Test-Path (Join-Path $root $file))) {
@@ -38,10 +44,14 @@ if ($agentProject -notmatch 'Mezhs\.Api\.Contracts') {
 if ($agentProject -notmatch 'Microsoft.Data.Sqlite') {
     throw "Mezhs.Agent.Api does not have durable SQLite storage."
 }
+if ($agentProject -notmatch 'Mezhs\.Agent\.Web') {
+    throw "Mezhs.Agent.Api is not building the separate Agent Web frontend."
+}
 
 $genericProject = Get-Content (Join-Path $root "src/Mezhs.Api/Mezhs.Api.csproj") -Raw
-if ($genericProject -match 'Mezhs\.Agent') {
-    throw "The generic MEŽS API depends on the agent extension."
+$genericWebProject = Get-Content (Join-Path $root "src/Mezhs.Web/Mezhs.Web.csproj") -Raw
+if ($genericProject -match 'Mezhs\.Agent' -or $genericWebProject -match 'Mezhs\.Agent') {
+    throw "Generic MEŽS projects depend on the agent extension."
 }
 if ($genericProject -notmatch 'Mezhs\.Api\.Contracts') {
     throw "The generic MEŽS API is not using the shared HTTP contracts."
@@ -59,7 +69,7 @@ if ($agentOptions -notmatch 'required Uri Listen' -or
 if ($agentConfig -notmatch 'new PolicyDecoder\(\)\.DecodePolicies') {
     throw "AgentConfigLoader is interpreting policy semantics instead of delegating them to PolicyDecoder."
 }
-if ($agentConfig -match 'RequireDone|MaxTurns|ContainsDone') {
+if ($agentConfig -match 'RequireDone|MaxTurns|ValidateAction|commands\.allow') {
     throw "Policy-specific semantics leaked back into AgentConfigLoader."
 }
 
@@ -68,6 +78,7 @@ $policyDecoder = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Policy/Policy
 $policyContext = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Policy/PolicyContext.cs") -Raw
 if ($policyModels -notmatch 'PolicyDefinition' -or
     $policyModels -notmatch 'PolicySettings' -or
+    $policyModels -notmatch 'PolicyCommandSettings' -or
     $policyDecoder -notmatch 'Deserialize<Dictionary<string, PolicyDefinition>>') {
     throw "Policy YAML is not mapped through hard typed models."
 }
@@ -83,25 +94,54 @@ if ($policyContext -notmatch 'ValidateTurn' -or
 if ($policyContext -notmatch 'does not explicitly allow') {
     throw "PolicyContext no longer defaults executable actions to deny."
 }
+if ($policyDecoder -notmatch 'PolicyActionRuleDecision\.Deny' -or
+    $policyDecoder -notmatch 'PolicyActionRuleDecision\.Allow') {
+    throw "Typed command allow/deny rules are not compiled into PolicyContext."
+}
 
 $worker = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Services/AgentWorker.cs") -Raw
 $promptBuilder = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Services/AgentPromptBuilder.cs") -Raw
+$commandParser = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Commands/AgentCommandParser.cs") -Raw
+$commandInterpreter = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Commands/AgentCommandInterpreter.cs") -Raw
+$shellHandler = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Commands/ShellCommandHandler.cs") -Raw
 if ($worker -notmatch 'BackgroundService' -or $worker -notmatch 'Channel<string>') {
     throw "Agent execution is not owned by a host-managed worker queue."
 }
 if ($worker -notmatch 'ConcurrentDictionary<string, SemaphoreSlim>') {
     throw "Agent executions are not serialized per chat."
 }
-if ($worker -match 'ContainsDone|RequireDone|MaxTurns|BuildInitialPrompt|BuildContinuePrompt|BuildPolicyCorrectionPrompt') {
-    throw "AgentWorker is interpreting policy/prompt details instead of consuming dedicated components."
+if ($worker -match 'ContainsDone|RequireDone|MaxTurns|TryBlockStart|<SH|ProcessStartInfo') {
+    throw "AgentWorker is interpreting policy/command details instead of consuming dedicated components."
 }
-if ($worker -notmatch 'ValidateTurn' -or $worker -notmatch 'EvaluateCompletion') {
-    throw "AgentWorker is bypassing PolicyContext runtime decisions."
+if ($worker -notmatch 'ValidateTurn' -or
+    $worker -notmatch 'EvaluateCompletion' -or
+    $worker -notmatch 'InterpretAsync') {
+    throw "AgentWorker is bypassing PolicyContext or AgentCommandInterpreter decisions."
 }
 if ($promptBuilder -notmatch 'BuildInitial' -or
     $promptBuilder -notmatch 'BuildContinue' -or
-    $promptBuilder -notmatch 'BuildPolicyCorrection') {
+    $promptBuilder -notmatch 'BuildPolicyCorrection' -or
+    $promptBuilder -notmatch 'BuildCommandResults') {
     throw "Agent prompts are not owned by AgentPromptBuilder."
+}
+if ($commandParser -notmatch 'AgentCommandBatch' -or
+    $commandParser -notmatch 'Nested or mismatched' -or
+    $commandParser -notmatch 'CompletionClaimed') {
+    throw "Agent commands are not parsed through the strict shared command parser."
+}
+if ($commandInterpreter -notmatch 'IEnumerable<IAgentCommandHandler>' -or
+    $commandInterpreter -notmatch 'ValidateAction' -or
+    $commandInterpreter -notmatch '_handlers') {
+    throw "Agent command dispatch is not extensible and policy-governed."
+}
+if ($shellHandler -notmatch 'ProcessStartInfo' -or
+    $shellHandler -notmatch 'MEZHS_EXECUTION_ID' -or
+    $shellHandler -notmatch 'MEZHS_PARENT_EXECUTION_ID' -or
+    $shellHandler -notmatch 'MEZHS_CORRELATION_ID') {
+    throw "Shell execution does not propagate MEŽS execution context out of band."
+}
+if ($shellHandler -match 'Environment\.SetEnvironmentVariable') {
+    throw "Shell execution mutates the Agent process environment."
 }
 
 $client = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Services/MezhsClient.cs") -Raw
@@ -122,6 +162,7 @@ foreach ($required in @(
     'ParentExecutionId',
     'CorrelationId',
     'PolicySnapshot',
+    'Paused',
     'Interrupted'
 )) {
     if ($store -notmatch [regex]::Escape($required)) {
@@ -135,10 +176,41 @@ if ($store -notmatch 'ON CONFLICT\(ChatId\) DO NOTHING' -or
     $store -notmatch 'EnsurePolicyMatches') {
     throw "Agent chat policy ownership is not claimed atomically and enforced by the store."
 }
+if ($store -notmatch 'CreateChildExecution' -or
+    $store -notmatch 'SetAgentChatPaused') {
+    throw "Agent child execution causality or persisted pause state is missing from AgentStore."
+}
+
+$service = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Services/AgentService.cs") -Raw
+if ($service -match 'request\.ConnectionId' -or $service -notmatch 'policy\.ConnectionId') {
+    throw "Manual execution can override the policy-owned connection."
+}
+if ($service -notmatch 'source: "manual"') {
+    throw "Manual Agent Web execution no longer records a truthful manual source."
+}
+if ($service -notmatch 'SetPaused' -or $service -notmatch 'worker\.Cancel') {
+    throw "Agent chat pause does not persist and stop active root executions."
+}
+
+$agentWeb = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/App.tsx") -Raw
+$agentWebPackage = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/package.json") -Raw
+if ($agentWebPackage -notmatch '@mezhs/web-lib') {
+    throw "Agent Web is not consuming the shared MEŽS web library."
+}
+if ($agentWeb -notmatch '/v1/agent-chats' -or
+    $agentWeb -notmatch '/v1/executions' -or
+    $agentWeb -notmatch 'New agent chat' -or
+    $agentWeb -notmatch 'Pause' -or
+    $agentWeb -match 'connectionId:\s*effective') {
+    throw "Agent Web does not provide the intended manual-first chat and pause workflow."
+}
 
 $config = Get-Content (Join-Path $root "mezhs.yaml") -Raw
 if ($config -notmatch '(?m)^extensions:' -or $config -notmatch '(?m)^\s+agent:') {
     throw "Agent extension is not configured through the shared MEŽS YAML."
 }
+if ($config -notmatch '(?ms)^\s+commands:\s*\r?\n\s+allow:\s*\r?\n\s+- SH') {
+    throw "Default policy does not explicitly allow shell execution."
+}
 
-Write-Host "PASS: typed policy models compile into PolicyContext, prompts are separate, and Agent/API wire contracts are compiler-checked."
+Write-Host "PASS: Agent Web stays additive, policy owns behavior/connection, command dispatch is extensible, shell context is isolated, and pause state is durable."
