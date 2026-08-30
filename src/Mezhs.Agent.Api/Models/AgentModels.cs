@@ -63,7 +63,6 @@ public sealed class ExecutionRecord
 public sealed record CreateExecutionRequest(
     string PolicyId,
     string Input,
-    string? ConnectionId = null,
     string? ChatId = null);
 
 public sealed record UpdateAgentChatRequest(bool Paused);
