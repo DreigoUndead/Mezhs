@@ -27,6 +27,7 @@ using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
+using Microsoft.Data.Sqlite;
 
 var options = AgentConfigLoader.Load(args[0]);
 var normal = options.Policies["test"];
@@ -157,6 +158,9 @@ try
 }
 finally
 {
+    // Microsoft.Data.Sqlite pools disposed connections. Clear the pool before removing
+    // the temporary database so this deterministic test also works on Windows.
+    SqliteConnection.ClearAllPools();
     File.Delete(shellOptions.Storage);
     File.Delete(shellOptions.Storage + "-shm");
     File.Delete(shellOptions.Storage + "-wal");
