@@ -118,11 +118,13 @@ public sealed class ShellCommandHandler(AgentStore store) : IAgentCommandHandler
             Path.GetTempPath(),
             $"mezhs-shell-{child.ExecutionId}-{Guid.NewGuid():N}.cmd");
 
-        // cmd.exe's /C command-line argument path is not reliable for multiline text.
-        // Keep the recorded/requested command untouched and execute that exact text as
-        // a UTF-8 batch payload instead. The small /C wrapper only selects UTF-8 and
-        // calls the payload; it never interpolates the agent-provided shell text.
-        File.WriteAllText(commandFile, commandText, Utf8WithoutBom);
+        // /C is reliable for a simple batch-file invocation but not for arbitrary
+        // multiline agent text. Prepend only the host transport setup, then preserve
+        // the agent-provided body byte-for-byte after that prefix in the payload.
+        // The first line is ASCII so cmd.exe can switch to UTF-8 before it reads the
+        // subsequent Unicode command lines.
+        var payload = "@chcp 65001>nul\r\n" + commandText;
+        File.WriteAllText(commandFile, payload, Utf8WithoutBom);
 
         try
         {
@@ -132,9 +134,9 @@ public sealed class ShellCommandHandler(AgentStore store) : IAgentCommandHandler
             startInfo.StandardErrorEncoding = Encoding.UTF8;
             startInfo.ArgumentList.Add("/D");
             startInfo.ArgumentList.Add("/Q");
-            startInfo.ArgumentList.Add("/S");
             startInfo.ArgumentList.Add("/C");
-            startInfo.ArgumentList.Add($"chcp 65001>nul & call \"{commandFile}\"");
+            startInfo.ArgumentList.Add("call");
+            startInfo.ArgumentList.Add(commandFile);
             return new ShellInvocation(startInfo, commandFile);
         }
         catch
