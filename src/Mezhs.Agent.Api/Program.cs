@@ -116,7 +116,8 @@ app.MapGet("/v1/agent-chats/{chatId}/messages", async (
 {
     if (agentStore.GetAgentChat(chatId) is null)
         return Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." });
-    return Results.Ok(await mezhs.GetMessagesAsync(chatId, cancellationToken));
+    var messages = await mezhs.GetMessagesAsync(chatId, cancellationToken);
+    return Results.Ok(messages.Select(message => NormalizeAgentMessageOrigin(message, agentStore)));
 });
 
 app.MapGet("/v1/agent-chats/{chatId}/executions", (
@@ -177,6 +178,36 @@ static async Task<AgentChatView> ToViewAsync(
         chat?.ConnectionId,
         record.CreatedAt,
         record.UpdatedAt);
+}
+
+static ApiChatHistoryMessage NormalizeAgentMessageOrigin(
+    ApiChatHistoryMessage message,
+    AgentStore store)
+{
+    if (!string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase) ||
+        !string.Equals(message.Origin, "human", StringComparison.OrdinalIgnoreCase))
+        return message;
+
+    if (message.Content.StartsWith("Agent command results:", StringComparison.Ordinal) ||
+        message.Content.StartsWith("MEŽS runtime command results follow.", StringComparison.Ordinal))
+        return message with { Origin = "command-result" };
+
+    if (message.Content.StartsWith("Policy rejected your completion claim:", StringComparison.Ordinal) ||
+        message.Content.StartsWith("MEŽS rejected an agent command:", StringComparison.Ordinal) ||
+        message.Content.StartsWith("Continue the assigned agent task according to the applicable policy.", StringComparison.Ordinal))
+        return message with { Origin = "agent-runtime" };
+
+    const string executionPrefix = "[MEŽS AGENT EXECUTION ";
+    if (!message.Content.StartsWith(executionPrefix, StringComparison.Ordinal))
+        return message;
+    var end = message.Content.IndexOf(']', executionPrefix.Length);
+    if (end < 0)
+        return message;
+    var executionId = message.Content[executionPrefix.Length..end].Trim();
+    var execution = store.GetExecution(executionId);
+    if (execution is null || string.Equals(execution.Source, "manual", StringComparison.OrdinalIgnoreCase))
+        return message;
+    return message with { Origin = execution.Source };
 }
 
 static string? GetOption(string[] args, string name)
