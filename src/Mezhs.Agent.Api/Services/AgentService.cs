@@ -17,19 +17,19 @@ public sealed class AgentService(
             throw new RequestValidationException("input is required.");
 
         var policy = policies.Get(policyId);
-        var connectionId = string.IsNullOrWhiteSpace(request.ConnectionId)
-            ? policy.ConnectionId
-            : request.ConnectionId.Trim();
         var chatId = string.IsNullOrWhiteSpace(request.ChatId)
             ? null
             : request.ChatId.Trim();
 
         if (chatId is not null)
+        {
             store.ValidateAgentChatPolicy(chatId, policyId);
+            store.ValidateAgentChatRunnable(chatId);
+        }
 
         var execution = store.CreateRootExecution(
             policyId,
-            connectionId,
+            policy.ConnectionId,
             chatId,
             source: "manual",
             sourceReference: null,
@@ -37,5 +37,21 @@ public sealed class AgentService(
             policies.Snapshot(policyId));
         worker.Enqueue(execution.ExecutionId);
         return execution;
+    }
+
+    public AgentChatRecord SetPaused(string chatId, bool paused)
+    {
+        var chat = store.SetAgentChatPaused(chatId, paused);
+        if (!paused)
+            return chat;
+
+        foreach (var execution in store.GetExecutions(chatId)
+                     .Where(record =>
+                         record.Kind == AgentExecutionKind.Agent &&
+                         record.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running))
+        {
+            worker.Cancel(execution.ExecutionId);
+        }
+        return store.GetAgentChat(chatId)!;
     }
 }
