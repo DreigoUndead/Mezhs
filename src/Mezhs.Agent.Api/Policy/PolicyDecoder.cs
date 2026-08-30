@@ -55,6 +55,9 @@ public sealed class PolicyDecoder
         if (definition.Limits.MaxTurns <= 0)
             throw new InvalidOperationException(
                 $"policies.{id}.limits.maxTurns must be greater than zero.");
+        if (definition.Limits.CommandTimeoutSeconds <= 0)
+            throw new InvalidOperationException(
+                $"policies.{id}.limits.commandTimeoutSeconds must be greater than zero.");
 
         var settings = new PolicySettings(
             connectionId,
@@ -63,7 +66,9 @@ public sealed class PolicyDecoder
                 NormalizeCommandNames(definition.Commands.Allow, $"policies.{id}.commands.allow"),
                 NormalizeCommandNames(definition.Commands.Deny, $"policies.{id}.commands.deny")),
             new PolicyCompletionSettings(definition.Completion.RequireDone),
-            new PolicyLimitsSettings(definition.Limits.MaxTurns));
+            new PolicyLimitsSettings(
+                definition.Limits.MaxTurns,
+                definition.Limits.CommandTimeoutSeconds));
 
         var turnValidators = CompileTurnValidators(settings);
         var completionClaim = CompileCompletionClaim(settings);
