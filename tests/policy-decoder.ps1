@@ -39,12 +39,16 @@ Assert(!normal.Settings.Completion.RequireDone,
     "Typed PolicyContext lost requireDone=false.");
 Assert(normal.Settings.Limits.MaxTurns == 3,
     "Typed PolicyContext lost maxTurns=3.");
+Assert(normal.Settings.Limits.CommandTimeoutSeconds == 2,
+    "Typed PolicyContext lost commandTimeoutSeconds=2.");
 Assert(normal.Settings.Commands.Allow.SequenceEqual(new[] { "SH" }),
     "Typed PolicyContext lost the configured command allow-list.");
 Assert(normal.Snapshot.Contains("requireDone: false", StringComparison.Ordinal),
     "Effective snapshot lost requireDone=false.");
 Assert(normal.Snapshot.Contains("maxTurns: 3", StringComparison.Ordinal),
     "Effective snapshot lost maxTurns=3.");
+Assert(normal.Snapshot.Contains("commandTimeoutSeconds: 2", StringComparison.Ordinal),
+    "Effective snapshot lost commandTimeoutSeconds=2.");
 Assert(normal.Snapshot.Contains("SH", StringComparison.Ordinal),
     "Effective snapshot lost command permissions.");
 Assert(normal.ModelInstructions.Contains("<SH", StringComparison.Ordinal),
@@ -196,6 +200,29 @@ try
         .Single(record => record.Kind == AgentExecutionKind.Shell && record.Request == $"echo {unicodeText}");
     Assert(unicodeChild.Result?.Contains($"stdout: {unicodeText}", StringComparison.Ordinal) == true,
         $"Persisted Unicode shell output was corrupted. Result: {unicodeChild.Result}");
+
+    var timeoutText = OperatingSystem.IsWindows()
+        ? "ping -n 6 127.0.0.1 >nul"
+        : "sleep 5";
+    var started = DateTimeOffset.UtcNow;
+    var timedOut = await interpreter.InterpretAsync(
+        root,
+        normal,
+        $"<SH\n{timeoutText}\nSH>",
+        CancellationToken.None);
+    var elapsed = DateTimeOffset.UtcNow - started;
+    Assert(timedOut.Error is null && timedOut.Results.Count == 1 && !timedOut.Results[0].Succeeded,
+        "Timed-out command did not return failed command evidence.");
+    Assert(timedOut.Results[0].Error?.Contains("timed out after 2 seconds", StringComparison.Ordinal) == true,
+        $"Timed-out command returned the wrong error: {timedOut.Results[0].Error}");
+    Assert(elapsed < TimeSpan.FromSeconds(5),
+        $"Configured command timeout was not enforced promptly. Elapsed: {elapsed}.");
+
+    var timeoutChild = store.GetExecutions("chat_shell")
+        .Single(record => record.Kind == AgentExecutionKind.Shell && record.Request == timeoutText);
+    Assert(timeoutChild.Status == AgentExecutionStatus.Failed &&
+           timeoutChild.Error?.Contains("timed out after 2 seconds", StringComparison.Ordinal) == true,
+        "Timed-out shell execution was not persisted as failed timeout evidence.");
 }
 finally
 {
@@ -207,7 +234,7 @@ finally
     File.Delete(shellOptions.Storage + "-wal");
 }
 
-Console.WriteLine("PASS: typed policies, strict command parsing, causal shell execution, multiline scripts, Unicode output, and informative command evidence are working.");
+Console.WriteLine("PASS: typed policies, strict command parsing, causal shell execution, multiline scripts, Unicode output, command timeouts, and informative command evidence are working.");
 
 static void Assert(bool condition, string message)
 {
