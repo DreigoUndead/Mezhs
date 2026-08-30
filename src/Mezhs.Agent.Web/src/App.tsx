@@ -84,9 +84,23 @@ type ProtocolView = {
   completionClaimed: boolean;
 };
 
+type CommandResultPayload = {
+  command: string;
+  executionId?: string;
+  succeeded?: boolean;
+  exitCode?: number;
+  output?: string;
+  error?: string;
+};
+
+type CommandEvidence = CommandResultPayload & {
+  execution?: Execution;
+};
+
 const activeStatuses = new Set<ExecutionStatus>(["Queued", "Running"]);
 const terminalStatuses = new Set<ExecutionStatus>(["Completed", "Failed", "Cancelled", "Interrupted"]);
 const commandName = /^[A-Z][A-Z0-9_-]*$/;
+const executionEnvelope = /^\[MEŽS AGENT EXECUTION ([^\]]+)]/;
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return expectJson<T>(await fetch(path, init));
@@ -178,7 +192,7 @@ function inspectProtocol(content: string): ProtocolView {
 }
 
 function executionFromEnvelope(content: string, executions: Execution[]) {
-  const match = content.match(/^\[MEŽS AGENT EXECUTION ([^\]]+)]/);
+  const match = content.match(executionEnvelope);
   return match ? executions.find((execution) => execution.executionId === match[1]) : undefined;
 }
 
@@ -187,7 +201,7 @@ function toSharedMessage(message: AgentChatMessage, executions: Execution[]): Ch
   if (message.role === "assistant") {
     content = inspectProtocol(message.content).content;
   } else if (message.origin === "command-result") {
-    content = "MEŽS returned command execution results to the agent. Full command output and status are recorded in execution history.";
+    content = "";
   } else if (message.origin !== "agent-runtime") {
     content = executionFromEnvelope(message.content, executions)?.request ?? content;
   }
@@ -202,6 +216,137 @@ function toSharedMessage(message: AgentChatMessage, executions: Execution[]): Ch
     createdAt: message.createdAt,
     error: message.error,
   };
+}
+
+function extractJsonArray(content: string): unknown[] | null {
+  const marker = "Command results JSON:";
+  const markerIndex = content.indexOf(marker);
+  if (markerIndex < 0) return null;
+  const start = content.indexOf("[", markerIndex + marker.length);
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < content.length; index++) {
+    const character = content[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+    } else if (character === "[") {
+      depth++;
+    } else if (character === "]") {
+      depth--;
+      if (depth === 0) {
+        try {
+          const parsed = JSON.parse(content.slice(start, index + 1));
+          return Array.isArray(parsed) ? parsed : null;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function parseCommandResults(content: string): CommandResultPayload[] {
+  const parsed = extractJsonArray(content);
+  if (!parsed) return [];
+
+  return parsed.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const item = value as Record<string, unknown>;
+    const command = typeof item.command === "string" ? item.command : "COMMAND";
+    return [{
+      command,
+      executionId: typeof item.executionId === "string" ? item.executionId : undefined,
+      succeeded: typeof item.succeeded === "boolean" ? item.succeeded : undefined,
+      exitCode: typeof item.exitCode === "number" ? item.exitCode : undefined,
+      output: typeof item.output === "string" ? item.output : undefined,
+      error: typeof item.error === "string" ? item.error : undefined,
+    }];
+  });
+}
+
+function commandEvidenceForMessage(message: AgentChatMessage, executions: Execution[]): CommandEvidence[] {
+  if (message.origin !== "command-result") return [];
+  const parsed = parseCommandResults(message.content);
+  if (parsed.length === 0) {
+    return [{ command: "RESULT", output: message.content }];
+  }
+  return parsed.map((result) => ({
+    ...result,
+    execution: result.executionId
+      ? executions.find((execution) => execution.executionId === result.executionId)
+      : undefined,
+  }));
+}
+
+function compactPreview(value?: string, fallback = "No output") {
+  if (!value) return fallback;
+  const line = value
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((part) => part.trim())
+    .find(Boolean);
+  if (!line) return fallback;
+  return line.length > 150 ? `${line.slice(0, 147)}…` : line;
+}
+
+function evidenceStatus(evidence: CommandEvidence) {
+  if (evidence.execution) return evidence.execution.status;
+  if (evidence.succeeded === false) return "Failed";
+  if (evidence.succeeded === true) return "Completed";
+  return "Result";
+}
+
+function evidenceExitCode(evidence: CommandEvidence) {
+  return evidence.execution?.exitCode ?? evidence.exitCode;
+}
+
+function evidenceOutput(evidence: CommandEvidence) {
+  return evidence.execution?.result ?? evidence.output;
+}
+
+function evidenceError(evidence: CommandEvidence) {
+  return evidence.execution?.error ?? evidence.error;
+}
+
+function evidenceRequest(evidence: CommandEvidence) {
+  return evidence.execution?.request;
+}
+
+function isStartPolicyPrompt(message: AgentChatMessage) {
+  return message.role === "user" &&
+    executionEnvelope.test(message.content) &&
+    message.content.includes("Agent command protocol:");
+}
+
+function policyPromptPreview(content: string) {
+  const marker = "Policy instructions:";
+  const markerIndex = content.indexOf(marker);
+  if (markerIndex >= 0) {
+    const instruction = content
+      .slice(markerIndex + marker.length)
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean);
+    if (instruction) return compactPreview(instruction);
+  }
+  return compactPreview(content, "Initial policy and agent protocol");
 }
 
 export default function App() {
@@ -228,11 +373,20 @@ export default function App() {
     () => messages.map((message) => toSharedMessage(message, executions)),
     [messages, executions],
   );
+  const messageById = useMemo(
+    () => new Map(messages.map((message) => [message.messageId, message])),
+    [messages],
+  );
   const protocolByMessageId = useMemo(() => new Map(
     messages
       .filter((message) => message.role === "assistant")
       .map((message) => [message.messageId, inspectProtocol(message.content)]),
   ), [messages]);
+  const commandEvidenceByMessageId = useMemo(() => new Map(
+    messages
+      .filter((message) => message.origin === "command-result")
+      .map((message) => [message.messageId, commandEvidenceForMessage(message, executions)]),
+  ), [messages, executions]);
   const shellExecutions = useMemo(
     () => executions.filter((execution) => execution.kind === "Shell"),
     [executions],
@@ -509,27 +663,104 @@ export default function App() {
             <ChatTranscript
               messages={sharedMessages}
               busy={!!activeExecution}
+              autoScroll
+              autoScrollResetKey={selectedChat.chatId}
               emptyState={<div className="agent-empty-chat">No conversation messages yet.</div>}
               getAuthorLabel={(message) => message.role === "assistant" ? "Agent" : originLabel(message.origin)}
               getAvatarLabel={(message) => message.role === "assistant" ? "M" : originAvatar(message.origin)}
               renderMessageFooter={(message) => {
+                const rawMessage = messageById.get(message.messageId);
                 const protocol = protocolByMessageId.get(message.messageId);
-                if (!protocol || (protocol.commands.length === 0 && !protocol.completionClaimed)) return null;
+                const evidence = commandEvidenceByMessageId.get(message.messageId) ?? [];
+                const startPrompt = rawMessage && isStartPolicyPrompt(rawMessage)
+                  ? rawMessage.content
+                  : null;
+                const hasProtocol = !!protocol &&
+                  (protocol.commands.length > 0 || protocol.completionClaimed);
+                if (!startPrompt && evidence.length === 0 && !hasProtocol) return null;
+
                 return (
-                  <div className="agent-protocol-events">
-                    {protocol.commands.map((command, index) => (
-                      <div className="agent-protocol-card" key={`${command.name}-${index}`}>
-                        <div><strong>{command.name}</strong><span>Agent command requested</span></div>
-                        {command.body && <pre>{command.body}</pre>}
-                        <small>Execution evidence and result are recorded in execution history.</small>
-                      </div>
-                    ))}
-                    {protocol.completionClaimed && (
-                      <div className="agent-protocol-card agent-done-card">
-                        <div><strong>DONE</strong><span>Completion claimed</span></div>
+                  <>
+                    {startPrompt && (
+                      <details className="agent-start-prompt">
+                        <summary>
+                          <div><strong>Start policy prompt</strong><span>{selectedChat.policyId}</span></div>
+                          <code>{policyPromptPreview(startPrompt)}</code>
+                        </summary>
+                        <div className="agent-start-prompt-body">
+                          <span>Exact prompt sent to the model for the first agent turn</span>
+                          <pre>{startPrompt}</pre>
+                        </div>
+                      </details>
+                    )}
+
+                    {evidence.length > 0 && (
+                      <div className="agent-command-results">
+                        {evidence.map((result, index) => {
+                          const output = evidenceOutput(result);
+                          const error = evidenceError(result);
+                          const request = evidenceRequest(result);
+                          const status = evidenceStatus(result);
+                          const exitCode = evidenceExitCode(result);
+                          return (
+                            <details className="agent-command-result" key={`${result.executionId ?? result.command}-${index}`}>
+                              <summary>
+                                <div className="agent-command-result-heading">
+                                  <strong>{result.command}</strong>
+                                  <span>{status}</span>
+                                  {exitCode !== undefined && <span>exit {exitCode}</span>}
+                                </div>
+                                <code>{compactPreview(output || error || request)}</code>
+                              </summary>
+                              <div className="agent-command-result-body">
+                                {result.executionId && (
+                                  <div className="agent-command-result-meta">
+                                    <span>execution</span><code>{result.executionId}</code>
+                                  </div>
+                                )}
+                                {request && (
+                                  <section>
+                                    <span>Command</span>
+                                    <pre>{request}</pre>
+                                  </section>
+                                )}
+                                {output && (
+                                  <section>
+                                    <span>Output</span>
+                                    <pre>{output}</pre>
+                                  </section>
+                                )}
+                                {error && (
+                                  <section className="agent-command-result-error">
+                                    <span>Error</span>
+                                    <pre>{error}</pre>
+                                  </section>
+                                )}
+                                {!request && !output && !error && <p>No command evidence was returned.</p>}
+                              </div>
+                            </details>
+                          );
+                        })}
                       </div>
                     )}
-                  </div>
+
+                    {hasProtocol && protocol && (
+                      <div className="agent-protocol-events">
+                        {protocol.commands.map((command, index) => (
+                          <div className="agent-protocol-card" key={`${command.name}-${index}`}>
+                            <div><strong>{command.name}</strong><span>Agent command requested</span></div>
+                            {command.body && <pre>{command.body}</pre>}
+                            <small>Execution evidence and result are shown in the following runtime turn and retained in execution history.</small>
+                          </div>
+                        ))}
+                        {protocol.completionClaimed && (
+                          <div className="agent-protocol-card agent-done-card">
+                            <div><strong>DONE</strong><span>Completion claimed</span></div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
                 );
               }}
             />
