@@ -22,9 +22,21 @@ public sealed class AgentChatRecord
     public required string PolicyId { get; set; }
     public required string OriginSource { get; init; }
     public string? OriginReference { get; init; }
+    public bool Paused { get; set; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
+
+public sealed record AgentChatView(
+    string ChatId,
+    string PolicyId,
+    string OriginSource,
+    string? OriginReference,
+    bool Paused,
+    string? Title,
+    string? ConnectionId,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
 
 public sealed class ExecutionRecord
 {
@@ -53,6 +65,8 @@ public sealed record CreateExecutionRequest(
     string Input,
     string? ConnectionId = null,
     string? ChatId = null);
+
+public sealed record UpdateAgentChatRequest(bool Paused);
 
 public sealed record AgentPolicyView(
     string Id,
