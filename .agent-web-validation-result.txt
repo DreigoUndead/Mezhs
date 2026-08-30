@@ -1,26 +1,25 @@
-Agent Web validation - 85213d7dcbad7946fc3d93246faae34992fc356a
+Agent Web validation - cb427b716c107720ff7168808d90ae71947919c8
 
 === dotnet build ===
   Determining projects to restore...
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 638 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 234 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 645 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 5 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 5 ms).
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 1 ms).
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 38 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj (in 229 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 229 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 278 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 230 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 4 ms).
   Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 4 ms).
   Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 1.69 sec).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 2.19 sec).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 8 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 5 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 7 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 2.28 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 3.09 sec).
   Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Release\net10.0\Mezhs.Browser.Abstractions.dll
-  Mezhs.Api.Contracts -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\bin\Release\net10.0\Mezhs.Api.Contracts.dll
   Mezhs.Integration.Abstractions -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\bin\Release\net10.0\Mezhs.Integration.Abstractions.dll
+  Mezhs.Api.Contracts -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\bin\Release\net10.0\Mezhs.Api.Contracts.dll
   Mezhs.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Web\bin\Release\net10.0\Mezhs.Web.dll
-  Mezhs.Browser.Electron -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\bin\Release\net10.0\Mezhs.Browser.Electron.dll
-  Mezhs.Agent.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll
   Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Release\net10.0\Mezhs.Integrations.Mock.dll
+  Mezhs.Agent.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll
   npm warn old lockfile
   npm warn old lockfile The package-lock.json file was created with an old version of npm,
   npm warn old lockfile so supplemental metadata must be fetched from the registry.
@@ -28,7 +27,7 @@ Agent Web validation - 85213d7dcbad7946fc3d93246faae34992fc356a
   npm warn old lockfile This is a one-time fix-up, please be patient...
   npm warn old lockfile
   
-  added 75 packages, and audited 77 packages in 10s
+  added 75 packages, and audited 77 packages in 9s
   
   11 packages are looking for funding
     run `npm fund` for details
@@ -43,7 +42,7 @@ Agent Web validation - 85213d7dcbad7946fc3d93246faae34992fc356a
   
   Run `npm audit` for details.
   
-  added 75 packages, and audited 77 packages in 10s
+  added 75 packages, and audited 77 packages in 9s
   
   11 packages are looking for funding
     run `npm fund` for details
@@ -64,19 +63,20 @@ Agent Web validation - 85213d7dcbad7946fc3d93246faae34992fc356a
   
   [36mvite v2.9.16 [32mbuilding for production...[36m[39m
   transforming...
-  [32mΓ£ô[39m 37 modules transformed.
   [36mvite v2.9.16 [32mbuilding for production...[36m[39m
+  transforming...
+  [32mΓ£ô[39m 37 modules transformed.
   rendering chunks...
   [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.51 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[35massets/index.05016f07.css  [39m [2m20.25 KiB / gzip: 5.25 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[36massets/index.036844b1.js   [39m [2m161.53 KiB / gzip: 51.48 KiB[22m
-  transforming...
   [32mΓ£ô[39m 37 modules transformed.
   rendering chunks...
   [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.44 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[35massets/index.3b07ffe5.css  [39m [2m5.82 KiB / gzip: 2.03 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[36massets/index.59076770.js   [39m [2m148.25 KiB / gzip: 47.98 KiB[22m
   Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Release\net10.0\Mezhs.Integration.Browser.dll
+  Mezhs.Browser.Electron -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\bin\Release\net10.0\Mezhs.Browser.Electron.dll
   Mezhs.Integrations.Grok -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\bin\Release\net10.0\Mezhs.Integrations.Grok.dll
   Mezhs.Integrations.Gemini -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\bin\Release\net10.0\Mezhs.Integrations.Gemini.dll
   Mezhs.Integrations.ChatGpt -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\bin\Release\net10.0\Mezhs.Integrations.ChatGpt.dll
@@ -86,23 +86,14 @@ Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:40.62
+Time Elapsed 00:00:41.01
 
 RESULT: PASS
 
 === policy and command test ===
-Unhandled exception. System.IO.IOException: The process cannot access the file 'C:\Users\runneradmin\AppData\Local\Temp\mezhs-shell-test-84e250d64f89467e9c82e22c68acaa81.sqlite' because it is being used by another process.
-   at System.IO.FileSystem.DeleteFile(String fullPath)
-   at Program.<Main>$(String[] args) in C:\Users\runneradmin\AppData\Local\Temp\mezhs-policy-decoder-test-2fdd262e68944a6d999b1dbbee38a4a0\Program.cs:line 136
-   at Program.<Main>$(String[] args)
-   at Program.<Main>(String[] args)
-Exception: D:\a\Mezhs\Mezhs\tests\policy-decoder.ps1:174
-Line |
- 174 |  … DE -ne 0) { throw "Policy/command test failed with exit code $LASTEXI …
-     |                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-     | Policy/command test failed with exit code -532462766.
+PASS: typed policies, strict command parsing, <DONE>, fail-closed action authorization, and causal shell execution are working.
 
-RESULT: FAIL (exit 1)
+RESULT: PASS
 
 === agent architecture ===
 PASS: Agent Web stays additive, policy owns behavior/connection, command dispatch is extensible, shell context is isolated, and pause state is durable.
@@ -117,6 +108,43 @@ Line |
      | No connection could be made because the target machine actively refused it.
 
 RESULT: FAIL (exit 1)
+
+=== diagnostic: tests/agent-smoke-agent.err.log ===
+Unhandled exception. System.NotSupportedException: The web root changed from "D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\bin\Release\net10.0\" to "D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\bin\Release\net10.0\agent-web\". Changing the host configuration using WebApplicationBuilder.WebHost is not supported. Use WebApplication.CreateBuilder(WebApplicationOptions) instead.
+   at Microsoft.AspNetCore.Builder.ConfigureWebHostBuilder.UseSetting(String key, String value)
+   at Program.<Main>$(String[] args) in D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Program.cs:line 16
+   at Program.<Main>(String[] args)
+
+
+=== diagnostic: tests/agent-smoke-agent.out.log ===
+
+=== diagnostic: tests/agent-smoke-api.err.log ===
+
+=== diagnostic: tests/agent-smoke-api.out.log ===
+Using launch settings from D:\a\Mezhs\Mezhs\src\Mezhs.Api\Properties\launchSettings.json...
+MEŽS config: D:\a\Mezhs\Mezhs\tests\mezhs.agent.test.yaml
+MEŽS listening: http://127.0.0.1:5198
+info: Microsoft.Hosting.Lifetime[14]
+      Now listening on: http://127.0.0.1:5198
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+info: Microsoft.Hosting.Lifetime[0]
+      Hosting environment: Development
+info: Microsoft.Hosting.Lifetime[0]
+      Content root path: D:\a\Mezhs\Mezhs\src\Mezhs.Api
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET http://127.0.0.1:5198/health - - -
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
+      Executing endpoint 'HTTP: GET /health'
+info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
+      Setting HTTP status code 200.
+info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
+      Writing value of type '<>f__AnonymousType2`1' as Json.
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
+      Executed endpoint 'HTTP: GET /health'
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET http://127.0.0.1:5198/health - 200 - application/json;+charset=utf-8 307.1422ms
+
 
 === generic architecture ===
 PASS: chats are connection-neutral, message processing is owned, integrations register directly, browser contracts are concise, and provider-specific behavior stays outside core.
