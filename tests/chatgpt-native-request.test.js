@@ -320,3 +320,151 @@ test("ChatGPT follow-up ignores the previous finished assistant while waiting fo
   assert.equal(continuedBody.model, "gpt-5-6-thinking");
   assert.equal(continuedBody.thinking_effort, "standard");
 });
+
+async function runNativeOverrideCase({ selectedModel, nativeBody, resolvedModel }) {
+  const chatgpt = loadChatGptModule();
+  const browserDebugger = new FakeDebugger();
+  const calls = [];
+  let currentUrl = "https://chatgpt.com/";
+  const messageId = nativeBody.messages.at(-1).id;
+
+  const session = {
+    fetch: async (url, options = {}) => {
+      const target = new URL(String(url));
+      calls.push({
+        method: options.method || "GET",
+        path: target.pathname,
+        search: target.search
+      });
+      if (target.pathname === "/api/auth/session")
+        return jsonResponse({ accessToken: "token", user: { id: "account-1" } });
+      if (target.pathname === "/backend-api/settings/user_last_used_model_config")
+        return new Response("", { status: 200 });
+      if (target.pathname === "/backend-api/conversation/native-conversation") {
+        return jsonResponse({
+          conversation_id: "native-conversation",
+          current_node: "assistant",
+          mapping: {
+            assistant: {
+              parent: "request",
+              message: {
+                id: "assistant",
+                author: { role: "assistant" },
+                status: "finished_successfully",
+                content: { parts: ["answer"] },
+                metadata: { model_slug: resolvedModel }
+              }
+            },
+            request: {
+              parent: null,
+              message: {
+                id: messageId,
+                author: { role: "user" },
+                status: "finished_successfully",
+                content: { parts: ["test"] },
+                metadata: { resolved_model_slug: resolvedModel }
+              }
+            }
+          }
+        });
+      }
+      throw new Error(`Unexpected session request ${target}`);
+    }
+  };
+
+  const window = {
+    loadURL: async url => { currentUrl = url; },
+    webContents: {
+      debugger: browserDebugger,
+      getURL: () => currentUrl
+    }
+  };
+
+  const page = {
+    invoke: async () => {
+      browserDebugger.emit("message", {}, "Fetch.requestPaused", {
+        requestId: "request",
+        request: {
+          url: "https://chatgpt.com/backend-api/f/conversation",
+          postData: JSON.stringify(nativeBody)
+        }
+      });
+      currentUrl = "https://chatgpt.com/c/native-conversation";
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  };
+
+  const result = await chatgpt.operations.newChat({
+    window,
+    session,
+    page,
+    args: {
+      prompt: "test",
+      model: selectedModel,
+      files: []
+    },
+    sleep: async () => {}
+  });
+
+  return {
+    body: JSON.parse(Buffer.from(browserDebugger.continued.postData, "base64").toString("utf8")),
+    calls,
+    result
+  };
+}
+
+test("ChatGPT native send injects selected thinking effort when the composer omits it", async () => {
+  const nativeBody = {
+    action: "next",
+    messages: [{ id: "native-message-effort", author: { role: "user" } }],
+    model: "gpt-5-6-thinking",
+    future_field: { keep: true }
+  };
+
+  const sent = await runNativeOverrideCase({
+    selectedModel: "gpt-5-6-thinking::thinking-effort=extended",
+    nativeBody,
+    resolvedModel: "gpt-5-6-thinking"
+  });
+
+  assert.equal(sent.body.model, "gpt-5-6-thinking");
+  assert.equal(sent.body.thinking_effort, "extended");
+  assert.deepEqual(sent.body.future_field, nativeBody.future_field);
+  assert.ok(sent.calls.some(call =>
+    call.path === "/backend-api/settings/user_last_used_model_config" &&
+    call.search === "?model_slug=gpt-5-6-thinking&thinking_effort=extended"));
+});
+
+test("ChatGPT native send removes composer thinking effort when the selection has none", async () => {
+  const sent = await runNativeOverrideCase({
+    selectedModel: "gpt-5-6-thinking",
+    nativeBody: {
+      action: "next",
+      messages: [{ id: "native-message-no-effort", author: { role: "user" } }],
+      model: "gpt-5-6-thinking",
+      thinking_effort: "extended"
+    },
+    resolvedModel: "gpt-5-6-thinking"
+  });
+
+  assert.equal(sent.body.model, "gpt-5-6-thinking");
+  assert.equal(Object.prototype.hasOwnProperty.call(sent.body, "thinking_effort"), false);
+});
+
+test("ChatGPT Instant compatibility alias remains applied to preference and native request", async () => {
+  const sent = await runNativeOverrideCase({
+    selectedModel: "gpt-5-6-instant",
+    nativeBody: {
+      action: "next",
+      messages: [{ id: "native-message-instant", author: { role: "user" } }],
+      model: "gpt-5-6-instant"
+    },
+    resolvedModel: "gpt-5-5"
+  });
+
+  assert.equal(sent.body.model, "gpt-5-5");
+  assert.ok(sent.calls.some(call =>
+    call.path === "/backend-api/settings/user_last_used_model_config" &&
+    call.search === "?model_slug=gpt-5-5"));
+  assert.equal(sent.result.model, "gpt-5-5");
+});
