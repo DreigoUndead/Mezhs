@@ -1,0 +1,99 @@
+OVERALL: PASS
+BUILD_EXIT_CODE: 0
+  Determining projects to restore...
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 599 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 599 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 665 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 665 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Shared\Mezhs.Log.Shared.csproj (in 6 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Console\Mezhs.Console.csproj (in 3 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 7 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 7 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Data\Mezhs.Log.Data.csproj (in 5 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 5 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 4 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj (in 5 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 1.36 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Sql\Mezhs.Log.Sql.csproj (in 1.85 sec).
+  Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Release\net10.0\Mezhs.Browser.Abstractions.dll
+  Mezhs.Integration.Abstractions -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\bin\Release\net10.0\Mezhs.Integration.Abstractions.dll
+  Mezhs.Console -> D:\a\Mezhs\Mezhs\src\Mezhs.Console\bin\Release\net10.0\Mezhs.Console.dll
+  Mezhs.Browser.Electron -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\bin\Release\net10.0\Mezhs.Browser.Electron.dll
+  Mezhs.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Web\bin\Release\net10.0\Mezhs.Web.dll
+  Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Release\net10.0\Mezhs.Integration.Browser.dll
+  Mezhs.Integrations.Grok -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\bin\Release\net10.0\Mezhs.Integrations.Grok.dll
+  Mezhs.Integrations.Gemini -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\bin\Release\net10.0\Mezhs.Integrations.Gemini.dll
+  npm warn old lockfile
+  npm warn old lockfile The package-lock.json file was created with an old version of npm,
+  npm warn old lockfile so supplemental metadata must be fetched from the registry.
+  npm warn old lockfile
+  npm warn old lockfile This is a one-time fix-up, please be patient...
+  npm warn old lockfile
+  
+  added 75 packages, and audited 77 packages in 8s
+  
+  11 packages are looking for funding
+    run `npm fund` for details
+  
+  4 vulnerabilities (1 moderate, 3 high)
+  
+  To address issues that do not require attention, run:
+    npm audit fix
+  
+  To address all issues (including breaking changes), run:
+    npm audit fix --force
+  
+  Run `npm audit` for details.
+  
+  > mezhs-web@0.1.0 build
+  > tsc --noEmit && vite build
+  
+  [36mvite v2.9.16 [32mbuilding for production...[36m[39m
+  transforming...
+  [32mΓ£ô[39m 37 modules transformed.
+  rendering chunks...
+  [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.51 KiB[22m
+  [90m[37m[2mdist/[22m[90m[39m[35massets/index.6c85d195.css  [39m [2m20.92 KiB / gzip: 5.36 KiB[22m
+  [90m[37m[2mdist/[22m[90m[39m[36massets/index.2875a82c.js   [39m [2m162.60 KiB / gzip: 51.79 KiB[22m
+  Mezhs.Integrations.ChatGpt -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\bin\Release\net10.0\Mezhs.Integrations.ChatGpt.dll
+  Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Release\net10.0\Mezhs.Integrations.Mock.dll
+  Mezhs.Log.Shared -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Shared\bin\Release\net10.0\Mezhs.Log.Shared.dll
+  Mezhs.Log.Sql -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Sql\bin\Release\net10.0\Mezhs.Log.Sql.dll
+  Mezhs.Log.Data -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Data\bin\Release\net10.0\Mezhs.Log.Data.dll
+  Mezhs.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Api\bin\Release\net10.0\Mezhs.Api.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:36.73
+CONSOLE_TEST_EXIT_CODE: 0
+Using launch settings from tests\Mezhs.Console.TestApp\Properties\launchSettings.json...
+MEZHS INFO: No execution context found. Running standalone.
+PASS: CallerMemberName command
+PASS: Explicit command name
+PASS: Echo nullable
+PASS: Literal null
+PASS: Quoted null
+PASS: Non-nullable literal null
+PASS: Enumerable
+PASS: Nested enumerable
+PASS: Object dictionary
+PASS: Typed dictionary
+PASS: Nested dynamic values
+PASS: Optional default help
+PASS: Quoted string
+PASS: Invalid command help
+PASS: Invalid enumerable help
+PASS: Invalid ValueTask help
+PASS: Invalid command isolated
+PASS: Inherited Help
+PASS: Inherited Validate
+PASS: Invalid Validate
+PASS: Current culture conversion
+PASS: Syntax override
+PASS: Missing MEZHS context warning
+PASS: 23/23 tests
+LOG_TEST_EXIT_CODE: 0
+MEZHS INFO: No execution context found. Running standalone.
+PASS: log regression suite
