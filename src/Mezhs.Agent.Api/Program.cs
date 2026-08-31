@@ -195,7 +195,6 @@ static async Task<AgentChatView> ToViewAsync(
         record.OriginSource,
         record.OriginReference,
         record.Paused,
-        record.Environment,
         string.IsNullOrWhiteSpace(firstTask) ? chat?.Title : firstTask,
         chat?.ConnectionId,
         record.CreatedAt,
