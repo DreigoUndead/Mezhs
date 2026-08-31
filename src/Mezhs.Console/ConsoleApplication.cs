@@ -60,6 +60,9 @@ public abstract class ConsoleApplication
         }
     }
 
+    [Command(Description = "Run application self-tests.")]
+    public virtual string Test() => "No tests are defined for this application.";
+
     protected virtual object? ExecuteCommand(MethodInfo method, object?[] arguments) =>
         method.Invoke(this, arguments);
 
