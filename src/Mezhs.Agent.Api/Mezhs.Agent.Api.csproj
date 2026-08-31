@@ -8,6 +8,7 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
     <ProjectReference Include="..\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj" />
+    <ProjectReference Include="..\Mezhs.Api.Client\Mezhs.Api.Client.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\mezhs.yaml" Link="mezhs.yaml" CopyToOutputDirectory="PreserveNewest" />
