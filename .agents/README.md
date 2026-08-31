@@ -51,6 +51,7 @@ The skills are not rigid coding rules. They are a sanity loop:
 - Is the logic necessary?
 - Is the solution bloated?
 - Can architecture remove opportunities for mistakes?
+- Can/should I build this generically enough that other logic can use it?
 - Is abstraction justified by real repetition/inconsistency rather than hypothetical reuse?
 - Is the result simple, direct, robust, obvious, and difficult to misuse?
 
