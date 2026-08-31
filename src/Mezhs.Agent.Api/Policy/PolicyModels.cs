@@ -1,12 +1,22 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Mezhs.Agent.Policy;
 
 public sealed class PolicyDefinition
 {
-    public string ConnectionId { get; set; } = "";
+    [Required]
+    public string? ConnectionId { get; set; }
+
     public string Instructions { get; set; } = "";
-    public PolicyCommandsDefinition Commands { get; set; } = new();
-    public PolicyCompletionDefinition Completion { get; set; } = new();
-    public PolicyLimitsDefinition Limits { get; set; } = new();
+
+    [Required]
+    public PolicyCommandsDefinition? Commands { get; set; }
+
+    [Required]
+    public PolicyCompletionDefinition? Completion { get; set; }
+
+    [Required]
+    public PolicyLimitsDefinition? Limits { get; set; }
 }
 
 public sealed class PolicyCommandsDefinition
@@ -22,7 +32,10 @@ public sealed class PolicyCompletionDefinition
 
 public sealed class PolicyLimitsDefinition
 {
+    [Range(1, int.MaxValue)]
     public int MaxTurns { get; set; } = 30;
+
+    [Range(1, int.MaxValue)]
     public int CommandTimeoutSeconds { get; set; } = 120;
 }
 
