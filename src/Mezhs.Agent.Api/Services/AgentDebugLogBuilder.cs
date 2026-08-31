@@ -2,12 +2,13 @@ using System.Globalization;
 using System.Text;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
+using Mezhs.Api.Client;
 
 namespace Mezhs.Agent.Services;
 
 public sealed class AgentDebugLogBuilder(
     AgentStore store,
-    MezhsClient mezhs)
+    MezhsApiClient mezhs)
 {
     public async Task<string> BuildAsync(
         string chatId,
@@ -30,6 +31,8 @@ public sealed class AgentDebugLogBuilder(
         log.AppendLine($"originSource: {chat.OriginSource}");
         log.AppendLine($"originReference: {chat.OriginReference ?? "-"}");
         log.AppendLine($"paused: {chat.Paused}");
+        if (chat.Environment.Count > 0)
+            log.AppendLine($"environment: {string.Join(", ", chat.Environment.Keys.Order(StringComparer.OrdinalIgnoreCase))}");
         log.AppendLine();
 
         var active = executions
