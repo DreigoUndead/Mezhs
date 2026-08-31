@@ -23,6 +23,7 @@ public sealed class AgentChatRecord
     public required string OriginSource { get; init; }
     public string? OriginReference { get; init; }
     public bool Paused { get; set; }
+    public IReadOnlyDictionary<string, string> Environment { get; init; } = new Dictionary<string, string>();
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
@@ -33,6 +34,7 @@ public sealed record AgentChatView(
     string OriginSource,
     string? OriginReference,
     bool Paused,
+    IReadOnlyDictionary<string, string> Environment,
     string? Title,
     string? ConnectionId,
     DateTimeOffset CreatedAt,
@@ -51,6 +53,7 @@ public sealed class ExecutionRecord
     public string? SourceReference { get; init; }
     public required AgentExecutionStatus Status { get; set; }
     public required string Request { get; init; }
+    public IReadOnlyDictionary<string, string> Environment { get; init; } = new Dictionary<string, string>();
     public string? Result { get; set; }
     public string? Error { get; set; }
     public int? ExitCode { get; set; }
@@ -63,7 +66,8 @@ public sealed class ExecutionRecord
 public sealed record CreateExecutionRequest(
     string PolicyId,
     string Input,
-    string? ChatId = null);
+    string? ChatId = null,
+    IReadOnlyDictionary<string, string>? Environment = null);
 
 public sealed record UpdateAgentChatRequest(bool Paused);
 
