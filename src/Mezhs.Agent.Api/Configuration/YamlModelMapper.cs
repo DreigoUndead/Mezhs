@@ -1,3 +1,4 @@
+using System.Collections;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Text;
@@ -26,6 +27,17 @@ public static class YamlModelMapper
         if (value is string || value.GetType().IsValueType || !visited.Add(value))
             return;
 
+        if (value is IDictionary dictionary)
+        {
+            foreach (DictionaryEntry entry in dictionary)
+            {
+                if (entry.Value is null)
+                    throw new InvalidOperationException($"{path}.{entry.Key} is required.");
+                Validate(entry.Value, $"{path}.{entry.Key}", visited);
+            }
+            return;
+        }
+
         var context = new ValidationContext(value);
         var results = new List<ValidationResult>();
         if (!Validator.TryValidateObject(value, context, results, validateAllProperties: true))
@@ -44,7 +56,7 @@ public static class YamlModelMapper
             if (child is null || child is string)
                 continue;
             var childPath = $"{path}.{char.ToLowerInvariant(property.Name[0])}{property.Name[1..]}";
-            if (child is System.Collections.IEnumerable items)
+            if (child is IEnumerable items)
             {
                 var index = 0;
                 foreach (var item in items)
