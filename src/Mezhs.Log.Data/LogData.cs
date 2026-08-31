@@ -136,18 +136,20 @@ public sealed class LogData(LogShared shared)
             return new Document();
 
         var lines = File.ReadAllLines(path);
-        var nextId = 1;
-        var entries = new List<LogEntry>();
-        var i = 0;
-        if (lines.Length > 0 && NextIdRegex.Match(lines[0]) is { Success: true } nextMatch)
-        {
-            nextId = int.Parse(nextMatch.Groups["id"].Value, CultureInfo.InvariantCulture);
-            i = 1;
-        }
+        if (lines.Length == 0)
+            return new Document();
 
+        var nextMatch = NextIdRegex.Match(lines[0]);
+        if (!nextMatch.Success)
+            throw new FormatException($"'{path}' is not a Mezhs.Log.Data file.");
+
+        var nextId = int.Parse(nextMatch.Groups["id"].Value, CultureInfo.InvariantCulture);
+        var entries = new List<LogEntry>();
+        var i = 1;
         while (i < lines.Length)
         {
-            if (!HeaderRegex.Match(lines[i]) is { Success: true } header)
+            var header = HeaderRegex.Match(lines[i]);
+            if (!header.Success)
             {
                 i++;
                 continue;
