@@ -5,16 +5,17 @@ using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
 using Mezhs.Api.Contracts;
+using Mezhs.Api.Client;
 
 namespace Mezhs.Agent.Services;
 
 public sealed class AgentWorker(
     AgentStore store,
     PolicyRegistry policies,
-    MezhsClient mezhs,
+    MezhsApiClient mezhs,
     AgentPromptBuilder prompts,
     PolicyEvaluationService evaluations,
-    AgentCommandInterpreter commands) : BackgroundService
+    Interpreter commands) : BackgroundService
 {
     private readonly Channel<string> _queue = Channel.CreateUnbounded<string>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
@@ -107,7 +108,8 @@ public sealed class AgentWorker(
                 chatId,
                 execution.PolicyId,
                 execution.Source,
-                execution.SourceReference);
+                execution.SourceReference,
+                execution.Environment);
             store.ValidateAgentChatRunnable(chatId);
 
             chatGate = _chatGates.GetOrAdd(chatId, _ => new SemaphoreSlim(1, 1));
@@ -136,7 +138,8 @@ public sealed class AgentWorker(
                 var reply = await mezhs.SendMessageAsync(
                     chatId,
                     execution.ConnectionId,
-                    nextPrompt,
+                    nextPrompt.Content,
+                    nextPrompt.Origin,
                     cancellation.Token);
 
                 var interpretation = await commands.InterpretAsync(
@@ -150,9 +153,6 @@ public sealed class AgentWorker(
                     continue;
                 }
 
-                // Command execution is a round trip. The model must see the actual host
-                // results before this turn can satisfy completion, even if it also emitted
-                // <DONE> or the policy does not require an explicit completion marker.
                 if (interpretation.Results.Count > 0)
                 {
                     nextPrompt = prompts.BuildCommandResults(interpretation.Results);
@@ -180,7 +180,6 @@ public sealed class AgentWorker(
         }
         catch (OperationCanceledException)
         {
-            // User cancellation is persisted before the token is cancelled.
         }
         catch (Exception ex)
         {
