@@ -3,25 +3,25 @@ EXIT_CODE: 0
 
 
   Determining projects to restore...
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\Mezhs.Agent.Api.Client.csproj (in 220 ms).
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 223 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 221 ms).
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Client\Mezhs.Api.Client.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 6 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 13 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 4 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 181 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 157 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 181 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\Mezhs.Agent.Api.Client.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 3 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 4 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 4 ms).
   Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 3 ms).
   Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj (in 1 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 1.24 sec).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 2.4 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj (in 1 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Client\Mezhs.Api.Client.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 1.09 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 1.45 sec).
   Mezhs.Api.Contracts -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\bin\Release\net10.0\Mezhs.Api.Contracts.dll
   Mezhs.Agent.Api.Client -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\bin\Release\net10.0\Mezhs.Agent.Api.Client.dll
-  Mezhs.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Web\bin\Release\net10.0\Mezhs.Web.dll
   Mezhs.Agent.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\bin\Release\net10.0\Mezhs.Agent.Web.dll
+  Mezhs.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Web\bin\Release\net10.0\Mezhs.Web.dll
   Mezhs.Api.Client -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Client\bin\Release\net10.0\Mezhs.Api.Client.dll
   npm warn old lockfile
   npm warn old lockfile The package-lock.json file was created with an old version of npm,
@@ -30,7 +30,7 @@ EXIT_CODE: 0
   npm warn old lockfile This is a one-time fix-up, please be patient...
   npm warn old lockfile
   
-  added 75 packages, and audited 77 packages in 9s
+  added 75 packages, and audited 77 packages in 8s
   
   11 packages are looking for funding
     run `npm fund` for details
@@ -45,6 +45,10 @@ EXIT_CODE: 0
   
   Run `npm audit` for details.
   
+  > mezhs-web@0.1.0 build
+  > tsc --noEmit && vite build
+  
+  
   added 75 packages, and audited 77 packages in 11s
   
   11 packages are looking for funding
@@ -57,10 +61,6 @@ EXIT_CODE: 0
   
   Run `npm audit` for details.
   
-  > mezhs-web@0.1.0 build
-  > tsc --noEmit && vite build
-  
-  
   > mezhs-agent-web@0.1.0 build
   > tsc --noEmit && vite build
   
@@ -72,6 +72,7 @@ EXIT_CODE: 0
   [90m[37m[2mdist/[22m[90m[39m[35massets/index.05016f07.css  [39m [2m20.25 KiB / gzip: 5.25 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[36massets/index.870da85b.js   [39m [2m161.70 KiB / gzip: 51.55 KiB[22m
   Mezhs.Integration.Abstractions -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\bin\Release\net10.0\Mezhs.Integration.Abstractions.dll
+  Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Release\net10.0\Mezhs.Browser.Abstractions.dll
   [36mvite v2.9.16 [32mbuilding for production...[36m[39m
   transforming...
   [32mΓ£ô[39m 40 modules transformed.
@@ -79,18 +80,17 @@ EXIT_CODE: 0
   [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.44 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[35massets/index.bdfd6545.css  [39m [2m29.82 KiB / gzip: 6.76 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[36massets/index.85ab295b.js   [39m [2m160.52 KiB / gzip: 51.52 KiB[22m
-  Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Release\net10.0\Mezhs.Browser.Abstractions.dll
-  Mezhs.Agent.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll
   Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Release\net10.0\Mezhs.Integration.Browser.dll
+  Mezhs.Agent.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll
   Mezhs.Browser.Electron -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\bin\Release\net10.0\Mezhs.Browser.Electron.dll
+  Mezhs.Integrations.ChatGpt -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\bin\Release\net10.0\Mezhs.Integrations.ChatGpt.dll
   Mezhs.Integrations.Gemini -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\bin\Release\net10.0\Mezhs.Integrations.Gemini.dll
   Mezhs.Integrations.Grok -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\bin\Release\net10.0\Mezhs.Integrations.Grok.dll
   Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Release\net10.0\Mezhs.Integrations.Mock.dll
-  Mezhs.Integrations.ChatGpt -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\bin\Release\net10.0\Mezhs.Integrations.ChatGpt.dll
   Mezhs.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Api\bin\Release\net10.0\Mezhs.Api.dll
 
 Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:43.91
+Time Elapsed 00:00:37.18
