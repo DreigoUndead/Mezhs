@@ -1,5 +1,6 @@
 import { FormEvent, KeyboardEvent, ReactNode, UIEvent, useEffect, useRef } from "react";
 import type { ApiFile, ChatMessage } from "./providers/contracts";
+import { useAutoResizeTextArea } from "./useAutoResizeTextArea";
 
 export type ChatSurfaceMessage = Pick<
   ChatMessage,
@@ -156,6 +157,9 @@ export function ChatComposer({
   disclaimer,
   leadingActions,
 }: ChatComposerProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useAutoResizeTextArea(textareaRef, value);
+
   function submit(event?: FormEvent) {
     event?.preventDefault();
     if (disabled || busy || !value.trim()) return;
@@ -179,6 +183,7 @@ export function ChatComposer({
       )}
       <form className="composer" onSubmit={submit}>
         <textarea
+          ref={textareaRef}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKey}

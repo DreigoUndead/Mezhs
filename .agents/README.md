@@ -12,6 +12,14 @@ There is deliberately no eFlex-specific skill in this repository. eFlex was used
 
 Every modification to this repository — code, configuration, tests, documentation, tooling, or `.agents` content — must follow `repository-change-workflow`. That skill is the source of truth for branch/review/merge behavior.
 
+## Local checkout vs GitHub tooling
+
+For agent tasks that operate on an already checked-out local repository, prefer the host shell for repository inspection, builds, tests, and other work that must reflect the exact local working tree. This keeps changes and verification tied to the same checkout the developer is running locally.
+
+Use the GitHub integration when the task is primarily remote repository work, such as inspecting remote branches, reviewing issues or pull requests, or creating commits/PRs against GitHub state.
+
+When editing source through an agent, a proper patch/edit operation is preferred when available. Rewriting files through shell scripts or small Python one-liners is acceptable as a fallback, but should not be the first choice when a dedicated edit mechanism exists.
+
 ## Validation when local tooling is unavailable
 
 If required local tooling such as .NET or PowerShell is unavailable, use a temporary GitHub Actions workflow on the same review branch rather than stopping at "validation unavailable."

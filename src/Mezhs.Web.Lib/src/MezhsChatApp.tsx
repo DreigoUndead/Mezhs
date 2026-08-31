@@ -1,5 +1,6 @@
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ChatProviderRegistry } from "./providers/registry";
+import { useAutoResizeTextArea } from "./useAutoResizeTextArea";
 import type {
   ApiFile,
   Chat,
@@ -82,6 +83,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const providerRegistry = useRef(new ChatProviderRegistry());
 
   const selectedConnection = useMemo(
@@ -377,6 +379,8 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
     setCategoryFilter(id);
     if (id !== "all" && id !== "uncategorized") setNewChatCategoryId(id);
   }
+
+  useAutoResizeTextArea(composerRef, draft);
 
   function handleComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -697,6 +701,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
               </div>
             )}
             <textarea
+              ref={composerRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={handleComposerKey}

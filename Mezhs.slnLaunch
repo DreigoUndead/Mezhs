@@ -7,10 +7,6 @@
         "Action": "Start"
       },
       {
-        "Path": "src\\Mezhs.Web\\Mezhs.Web.csproj",
-        "Action": "Start"
-      },
-      {
         "Path": "src\\Mezhs.Agent.Api\\Mezhs.Agent.Api.csproj",
         "Action": "Start"
       },
