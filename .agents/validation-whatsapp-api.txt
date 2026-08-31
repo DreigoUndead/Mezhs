@@ -1,5 +1,6 @@
 npm install exit: 0
 adapter import exit: 0
+syntax check exit: 0
 npm test exit: 0
 
 === npm install ===
@@ -13,6 +14,8 @@ found 0 vulnerabilities
 
 === adapter import ===
 
+=== syntax check ===
+
 === npm test ===
 
 > test
@@ -22,17 +25,17 @@ TAP version 13
 # Subtest: messages are ordered and can be paged around anchors
 ok 1 - messages are ordered and can be paged around anchors
   ---
-  duration_ms: 9.603284
+  duration_ms: 9.500487
   ...
 # Subtest: messages can be filtered by chat and text
 ok 2 - messages can be filtered by chat and text
   ---
-  duration_ms: 0.286945
+  duration_ms: 0.298839
   ...
 # Subtest: history updates also produce chat entries
 ok 3 - history updates also produce chat entries
   ---
-  duration_ms: 0.286084
+  duration_ms: 0.298629
   ...
 1..3
 # tests 3
@@ -42,6 +45,6 @@ ok 3 - history updates also produce chat entries
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 70.109315
+# duration_ms 68.735044
 
 OVERALL: PASS
