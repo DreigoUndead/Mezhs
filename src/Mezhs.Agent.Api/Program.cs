@@ -7,7 +7,7 @@ using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
 using Mezhs.Agent.Services;
-using Mezhs.Api.Contracts;
+using Mezhs.Api.Client;
 
 var configPath = FindConfigPath(GetOption(args, "--config"));
 var options = AgentConfigLoader.Load(configPath);
@@ -24,10 +24,10 @@ builder.Services.AddSingleton<AgentStore>();
 builder.Services.AddSingleton<PolicyRegistry>();
 builder.Services.AddSingleton<PolicyEvaluationService>();
 builder.Services.AddSingleton<AgentPromptBuilder>();
-builder.Services.AddSingleton<AgentCommandParser>();
-builder.Services.AddSingleton<IAgentCommandHandler, ShellCommandHandler>();
-builder.Services.AddSingleton<AgentCommandInterpreter>();
-builder.Services.AddHttpClient<MezhsClient>(client =>
+builder.Services.AddSingleton<Parser>();
+builder.Services.AddSingleton<Shell>();
+builder.Services.AddSingleton<Interpreter>();
+builder.Services.AddHttpClient<MezhsApiClient>(client =>
     client.BaseAddress = options.MezhsApi);
 builder.Services.AddSingleton<AgentDebugLogBuilder>();
 builder.Services.AddSingleton<AgentWorker>();
@@ -57,7 +57,7 @@ app.MapGet("/", () => Results.Ok(new
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
 app.MapGet("/v1/runtime", async (
-    MezhsClient mezhs,
+    MezhsApiClient mezhs,
     CancellationToken cancellationToken) =>
 {
     var mezhsApiHealthy = await mezhs.IsHealthyAsync(cancellationToken);
@@ -79,7 +79,7 @@ app.MapGet("/v1/policies/{policyId}", (
 
 app.MapGet("/v1/agent-chats", async (
     AgentStore agentStore,
-    MezhsClient mezhs,
+    MezhsApiClient mezhs,
     CancellationToken cancellationToken) =>
 {
     var views = await Task.WhenAll(agentStore.GetAgentChats()
@@ -90,7 +90,7 @@ app.MapGet("/v1/agent-chats", async (
 app.MapGet("/v1/agent-chats/{chatId}", async (
     string chatId,
     AgentStore agentStore,
-    MezhsClient mezhs,
+    MezhsApiClient mezhs,
     CancellationToken cancellationToken) =>
 {
     var chat = agentStore.GetAgentChat(chatId);
@@ -104,7 +104,7 @@ app.MapPatch("/v1/agent-chats/{chatId}", async (
     UpdateAgentChatRequest request,
     AgentService agents,
     AgentStore agentStore,
-    MezhsClient mezhs,
+    MezhsApiClient mezhs,
     CancellationToken cancellationToken) =>
 {
     var chat = agents.SetPaused(chatId, request.Paused);
@@ -114,13 +114,12 @@ app.MapPatch("/v1/agent-chats/{chatId}", async (
 app.MapGet("/v1/agent-chats/{chatId}/messages", async (
     string chatId,
     AgentStore agentStore,
-    MezhsClient mezhs,
+    MezhsApiClient mezhs,
     CancellationToken cancellationToken) =>
 {
     if (agentStore.GetAgentChat(chatId) is null)
         return Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." });
-    var messages = await mezhs.GetMessagesAsync(chatId, cancellationToken);
-    return Results.Ok(messages.Select(message => NormalizeAgentMessageOrigin(message, agentStore)));
+    return Results.Ok(await mezhs.GetMessagesAsync(chatId, cancellationToken));
 });
 
 app.MapGet("/v1/agent-chats/{chatId}/executions", (
@@ -181,7 +180,7 @@ await app.RunAsync();
 static async Task<AgentChatView> ToViewAsync(
     AgentChatRecord record,
     AgentStore store,
-    MezhsClient mezhs,
+    MezhsApiClient mezhs,
     CancellationToken cancellationToken)
 {
     var chat = await mezhs.TryGetChatAsync(record.ChatId, cancellationToken);
@@ -196,40 +195,11 @@ static async Task<AgentChatView> ToViewAsync(
         record.OriginSource,
         record.OriginReference,
         record.Paused,
+        record.Environment,
         string.IsNullOrWhiteSpace(firstTask) ? chat?.Title : firstTask,
         chat?.ConnectionId,
         record.CreatedAt,
         record.UpdatedAt);
-}
-
-static ApiChatHistoryMessage NormalizeAgentMessageOrigin(
-    ApiChatHistoryMessage message,
-    AgentStore store)
-{
-    if (!string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase) ||
-        !string.Equals(message.Origin, "human", StringComparison.OrdinalIgnoreCase))
-        return message;
-
-    if (message.Content.StartsWith("Agent command results:", StringComparison.Ordinal) ||
-        message.Content.StartsWith("MEŽS runtime command results follow.", StringComparison.Ordinal))
-        return message with { Origin = "command-result" };
-
-    if (message.Content.StartsWith("Policy rejected your completion claim:", StringComparison.Ordinal) ||
-        message.Content.StartsWith("MEŽS rejected an agent command:", StringComparison.Ordinal) ||
-        message.Content.StartsWith("Continue the assigned agent task according to the applicable policy.", StringComparison.Ordinal))
-        return message with { Origin = "agent-runtime" };
-
-    const string executionPrefix = "[MEŽS AGENT EXECUTION ";
-    if (!message.Content.StartsWith(executionPrefix, StringComparison.Ordinal))
-        return message;
-    var end = message.Content.IndexOf(']', executionPrefix.Length);
-    if (end < 0)
-        return message;
-    var executionId = message.Content[executionPrefix.Length..end].Trim();
-    var execution = store.GetExecution(executionId);
-    if (execution is null || string.Equals(execution.Source, "manual", StringComparison.OrdinalIgnoreCase))
-        return message;
-    return message with { Origin = execution.Source };
 }
 
 static string SafeFilePart(string value)
