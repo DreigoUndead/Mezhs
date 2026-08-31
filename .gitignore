@@ -5,6 +5,8 @@ obj/
 electron/node_modules/
 src/Mezhs.Web/ClientApp/node_modules/
 src/Mezhs.Web/ClientApp/dist/
+src/Mezhs.WhatsApp.Api/node_modules/
+src/Mezhs.WhatsApp.Api/data/
 profiles/
 *.log
 chatgpt-auth.json
