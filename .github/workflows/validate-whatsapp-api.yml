@@ -1,0 +1,67 @@
+name: Validate WhatsApp API
+
+on:
+  push:
+    branches:
+      - feature/whatsapp-api
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/whatsapp-api
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: src/Mezhs.WhatsApp.Api/package.json
+
+      - name: Validate
+        id: validate
+        shell: bash
+        run: |
+          set +e
+          cd src/Mezhs.WhatsApp.Api
+          npm install 2>&1 | tee /tmp/npm-install.log
+          install_code=${PIPESTATUS[0]}
+          if [ "$install_code" -eq 0 ]; then
+            npm test 2>&1 | tee /tmp/npm-test.log
+            test_code=${PIPESTATUS[0]}
+          else
+            test_code=99
+            echo "Tests not run because npm install failed." | tee /tmp/npm-test.log
+          fi
+          cd ../..
+          {
+            echo "npm install exit: $install_code"
+            echo "npm test exit: $test_code"
+            echo
+            echo "=== npm install ==="
+            cat /tmp/npm-install.log
+            echo
+            echo "=== npm test ==="
+            cat /tmp/npm-test.log
+            echo
+            if [ "$install_code" -eq 0 ] && [ "$test_code" -eq 0 ]; then
+              echo "OVERALL: PASS"
+            else
+              echo "OVERALL: FAIL"
+            fi
+          } > .agents/validation-whatsapp-api.txt
+
+      - name: Commit validation result
+        if: always()
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .agents/validation-whatsapp-api.txt
+          git commit -m "Record WhatsApp API validation [skip ci]" || exit 0
+          git push
