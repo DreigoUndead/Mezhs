@@ -224,7 +224,7 @@ static string FindConfigPath(string? configuredPath)
     if (!string.IsNullOrWhiteSpace(configuredPath))
         return Path.GetFullPath(configuredPath);
 
-    var currentCandidate = Path.GetFullPath("mezhs.yaml");
+    var currentCandidate = Path.GetFullPath("agent.yaml");
     if (File.Exists(currentCandidate))
         return currentCandidate;
 
@@ -233,14 +233,14 @@ static string FindConfigPath(string? configuredPath)
     {
         if (File.Exists(Path.Combine(directory.FullName, "Mezhs.sln")))
         {
-            var repositoryCandidate = Path.Combine(directory.FullName, "mezhs.yaml");
+            var repositoryCandidate = Path.Combine(directory.FullName, "agent.yaml");
             if (File.Exists(repositoryCandidate))
                 return repositoryCandidate;
         }
         directory = directory.Parent;
     }
 
-    var outputCandidate = Path.Combine(AppContext.BaseDirectory, "mezhs.yaml");
+    var outputCandidate = Path.Combine(AppContext.BaseDirectory, "agent.yaml");
     if (File.Exists(outputCandidate))
         return outputCandidate;
 
