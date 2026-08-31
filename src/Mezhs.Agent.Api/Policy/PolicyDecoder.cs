@@ -17,7 +17,7 @@ public sealed class PolicyDecoder
     {
         var definitions = YamlModelMapper.Map<Dictionary<string, PolicyDefinition>>(
             policiesNode,
-            "extensions.agent.policies");
+            "policies");
         if (definitions.Count == 0)
             throw new InvalidOperationException("At least one agent policy must be configured.");
 
