@@ -24,32 +24,39 @@ jobs:
           cache-dependency-path: src/Mezhs.WhatsApp.Api/package.json
 
       - name: Validate
-        id: validate
         shell: bash
         run: |
           set +e
           cd src/Mezhs.WhatsApp.Api
           npm install 2>&1 | tee /tmp/npm-install.log
           install_code=${PIPESTATUS[0]}
+          import_code=99
+          test_code=99
           if [ "$install_code" -eq 0 ]; then
+            node -e "import('./src/whatsapp-account.js')" 2>&1 | tee /tmp/import.log
+            import_code=${PIPESTATUS[0]}
             npm test 2>&1 | tee /tmp/npm-test.log
             test_code=${PIPESTATUS[0]}
           else
-            test_code=99
+            echo "Adapter import not run because npm install failed." | tee /tmp/import.log
             echo "Tests not run because npm install failed." | tee /tmp/npm-test.log
           fi
           cd ../..
           {
             echo "npm install exit: $install_code"
+            echo "adapter import exit: $import_code"
             echo "npm test exit: $test_code"
             echo
             echo "=== npm install ==="
             cat /tmp/npm-install.log
             echo
+            echo "=== adapter import ==="
+            cat /tmp/import.log
+            echo
             echo "=== npm test ==="
             cat /tmp/npm-test.log
             echo
-            if [ "$install_code" -eq 0 ] && [ "$test_code" -eq 0 ]; then
+            if [ "$install_code" -eq 0 ] && [ "$import_code" -eq 0 ] && [ "$test_code" -eq 0 ]; then
               echo "OVERALL: PASS"
             else
               echo "OVERALL: FAIL"
