@@ -34,6 +34,7 @@ public static class AgentConfigLoader
             "listen",
             "mezhsApi",
             "storage",
+            "messages",
             "policies");
 
         var configDirectory = Path.GetDirectoryName(Path.GetFullPath(path))!;
@@ -44,6 +45,9 @@ public static class AgentConfigLoader
             Storage = Resolve(
                 configDirectory,
                 RequiredValue(agent, "storage", "extensions.agent.storage")),
+            Messages = YamlModelMapper.Map<AgentRuntimeMessages>(
+                RequiredMapping(agent, "messages", "extensions.agent.messages"),
+                "extensions.agent.messages"),
             Policies = new PolicyDecoder().DecodePolicies(
                 RequiredMapping(agent, "policies", "extensions.agent.policies"))
         };
