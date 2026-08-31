@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
 using Microsoft.Data.Sqlite;
@@ -7,6 +8,7 @@ namespace Mezhs.Agent.Persistence;
 
 public sealed class AgentStore(AgentOptions options)
 {
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly string _path = options.Storage;
     private readonly object _writeLock = new();
 
@@ -28,6 +30,7 @@ public sealed class AgentStore(AgentOptions options)
                 OriginSource TEXT NOT NULL,
                 OriginReference TEXT NULL,
                 Paused INTEGER NOT NULL DEFAULT 0,
+                EnvironmentJson TEXT NOT NULL DEFAULT '{}',
                 CreatedAt TEXT NOT NULL,
                 UpdatedAt TEXT NOT NULL
             );
@@ -44,6 +47,7 @@ public sealed class AgentStore(AgentOptions options)
                 SourceReference TEXT NULL,
                 Status TEXT NOT NULL,
                 Request TEXT NOT NULL,
+                EnvironmentJson TEXT NOT NULL DEFAULT '{}',
                 Result TEXT NULL,
                 Error TEXT NULL,
                 ExitCode INTEGER NULL,
@@ -62,6 +66,8 @@ public sealed class AgentStore(AgentOptions options)
             """;
         command.ExecuteNonQuery();
         EnsureColumn(connection, "AgentChats", "Paused", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn(connection, "AgentChats", "EnvironmentJson", "TEXT NOT NULL DEFAULT '{}'");
+        EnsureColumn(connection, "Executions", "EnvironmentJson", "TEXT NOT NULL DEFAULT '{}'");
 
         lock (_writeLock)
         {
@@ -92,6 +98,7 @@ public sealed class AgentStore(AgentOptions options)
         string source,
         string? sourceReference,
         string request,
+        IReadOnlyDictionary<string, string> environment,
         string policySnapshot)
     {
         var executionId = AgentIds.New("exec");
@@ -107,6 +114,7 @@ public sealed class AgentStore(AgentOptions options)
             SourceReference = sourceReference,
             Status = AgentExecutionStatus.Queued,
             Request = request,
+            Environment = environment,
             PolicySnapshot = policySnapshot
         };
         InsertExecution(record);
@@ -131,6 +139,7 @@ public sealed class AgentStore(AgentOptions options)
             SourceReference = parent.SourceReference,
             Status = AgentExecutionStatus.Queued,
             Request = request,
+            Environment = parent.Environment,
             PolicySnapshot = parent.PolicySnapshot
         };
         InsertExecution(record);
@@ -236,9 +245,11 @@ public sealed class AgentStore(AgentOptions options)
         string chatId,
         string policyId,
         string originSource,
-        string? originReference)
+        string? originReference,
+        IReadOnlyDictionary<string, string> environment)
     {
         var now = DateTimeOffset.UtcNow;
+        var environmentJson = SerializeEnvironment(environment);
         lock (_writeLock)
         {
             using var connection = Open();
@@ -249,30 +260,38 @@ public sealed class AgentStore(AgentOptions options)
                 insert.Transaction = transaction;
                 insert.CommandText = """
                     INSERT INTO AgentChats (
-                        ChatId, PolicyId, OriginSource, OriginReference, Paused, CreatedAt, UpdatedAt)
+                        ChatId, PolicyId, OriginSource, OriginReference, Paused, EnvironmentJson, CreatedAt, UpdatedAt)
                     VALUES (
-                        $chatId, $policyId, $originSource, $originReference, 0, $createdAt, $updatedAt)
+                        $chatId, $policyId, $originSource, $originReference, 0, $environmentJson, $createdAt, $updatedAt)
                     ON CONFLICT(ChatId) DO NOTHING;
                     """;
                 insert.Parameters.AddWithValue("$chatId", chatId);
                 insert.Parameters.AddWithValue("$policyId", policyId);
                 insert.Parameters.AddWithValue("$originSource", originSource);
                 insert.Parameters.AddWithValue("$originReference", Db(originReference));
+                insert.Parameters.AddWithValue("$environmentJson", environmentJson);
                 insert.Parameters.AddWithValue("$createdAt", Format(now));
                 insert.Parameters.AddWithValue("$updatedAt", Format(now));
                 insert.ExecuteNonQuery();
             }
 
             string existingPolicyId;
+            string existingEnvironmentJson;
             using (var select = connection.CreateCommand())
             {
                 select.Transaction = transaction;
-                select.CommandText = "SELECT PolicyId FROM AgentChats WHERE ChatId = $chatId;";
+                select.CommandText = "SELECT PolicyId, EnvironmentJson FROM AgentChats WHERE ChatId = $chatId;";
                 select.Parameters.AddWithValue("$chatId", chatId);
-                existingPolicyId = select.ExecuteScalar() as string
-                    ?? throw new InvalidOperationException($"Agent chat '{chatId}' could not be claimed.");
+                using var reader = select.ExecuteReader();
+                if (!reader.Read())
+                    throw new InvalidOperationException($"Agent chat '{chatId}' could not be claimed.");
+                existingPolicyId = reader.GetString(0);
+                existingEnvironmentJson = reader.GetString(1);
             }
             EnsurePolicyMatches(chatId, existingPolicyId, policyId);
+            if (!EnvironmentEquals(DeserializeEnvironment(existingEnvironmentJson), environment))
+                throw new RequestValidationException(
+                    $"Agent chat '{chatId}' already has a different environment. Environment is fixed when the chat is first claimed.");
 
             using (var update = connection.CreateCommand())
             {
@@ -314,21 +333,12 @@ public sealed class AgentStore(AgentOptions options)
 
     public void Complete(string executionId, string? result)
     {
-        Finish(
-            executionId,
-            AgentExecutionStatus.Completed,
-            result,
-            error: null);
+        Finish(executionId, AgentExecutionStatus.Completed, result, error: null);
     }
 
-    public void CompleteShell(
-        string executionId,
-        int exitCode,
-        string? result)
+    public void CompleteShell(string executionId, int exitCode, string? result)
     {
-        var status = exitCode == 0
-            ? AgentExecutionStatus.Completed
-            : AgentExecutionStatus.Failed;
+        var status = exitCode == 0 ? AgentExecutionStatus.Completed : AgentExecutionStatus.Failed;
         var error = exitCode == 0 ? null : $"Shell exited with code {exitCode}.";
 
         lock (_writeLock)
@@ -358,12 +368,7 @@ public sealed class AgentStore(AgentOptions options)
 
     public void Fail(string executionId, string error)
     {
-        Finish(
-            executionId,
-            AgentExecutionStatus.Failed,
-            result: null,
-            error,
-            includeQueued: true);
+        Finish(executionId, AgentExecutionStatus.Failed, result: null, error, includeQueued: true);
     }
 
     public void Interrupt(string executionId)
@@ -416,12 +421,12 @@ public sealed class AgentStore(AgentOptions options)
                 INSERT INTO Executions (
                     ExecutionId, ParentExecutionId, CorrelationId, Kind, ChatId,
                     PolicyId, ConnectionId, Source, SourceReference, Status,
-                    Request, Result, Error, ExitCode, PolicySnapshot,
+                    Request, EnvironmentJson, Result, Error, ExitCode, PolicySnapshot,
                     CreatedAt, StartedAt, CompletedAt)
                 VALUES (
                     $executionId, $parentExecutionId, $correlationId, $kind, $chatId,
                     $policyId, $connectionId, $source, $sourceReference, $status,
-                    $request, NULL, NULL, NULL, $policySnapshot,
+                    $request, $environmentJson, NULL, NULL, NULL, $policySnapshot,
                     $createdAt, NULL, NULL);
                 """;
             BindExecution(command, record);
@@ -470,10 +475,7 @@ public sealed class AgentStore(AgentOptions options)
         }
     }
 
-    private void UpdateActive(
-        string executionId,
-        string sql,
-        Action<SqliteCommand> bind)
+    private void UpdateActive(string executionId, string sql, Action<SqliteCommand> bind)
     {
         lock (_writeLock)
         {
@@ -503,11 +505,7 @@ public sealed class AgentStore(AgentOptions options)
         return connection;
     }
 
-    private static void EnsureColumn(
-        SqliteConnection connection,
-        string table,
-        string column,
-        string definition)
+    private static void EnsureColumn(SqliteConnection connection, string table, string column, string definition)
     {
         using var inspect = connection.CreateCommand();
         inspect.CommandText = $"PRAGMA table_info({table});";
@@ -524,10 +522,7 @@ public sealed class AgentStore(AgentOptions options)
         alter.ExecuteNonQuery();
     }
 
-    private static void EnsurePolicyMatches(
-        string chatId,
-        string existingPolicyId,
-        string requestedPolicyId)
+    private static void EnsurePolicyMatches(string chatId, string existingPolicyId, string requestedPolicyId)
     {
         if (!string.Equals(existingPolicyId, requestedPolicyId, StringComparison.OrdinalIgnoreCase))
             throw new RequestValidationException(
@@ -547,6 +542,7 @@ public sealed class AgentStore(AgentOptions options)
         command.Parameters.AddWithValue("$sourceReference", Db(record.SourceReference));
         command.Parameters.AddWithValue("$status", record.Status.ToString());
         command.Parameters.AddWithValue("$request", record.Request);
+        command.Parameters.AddWithValue("$environmentJson", SerializeEnvironment(record.Environment));
         command.Parameters.AddWithValue("$policySnapshot", record.PolicySnapshot);
         command.Parameters.AddWithValue("$createdAt", Format(record.CreatedAt));
     }
@@ -564,6 +560,7 @@ public sealed class AgentStore(AgentOptions options)
         SourceReference = GetNullableString(reader, "SourceReference"),
         Status = Enum.Parse<AgentExecutionStatus>(reader.GetString(reader.GetOrdinal("Status"))),
         Request = reader.GetString(reader.GetOrdinal("Request")),
+        Environment = DeserializeEnvironment(reader.GetString(reader.GetOrdinal("EnvironmentJson"))),
         Result = GetNullableString(reader, "Result"),
         Error = GetNullableString(reader, "Error"),
         ExitCode = GetNullableInt(reader, "ExitCode"),
@@ -580,9 +577,23 @@ public sealed class AgentStore(AgentOptions options)
         OriginSource = reader.GetString(reader.GetOrdinal("OriginSource")),
         OriginReference = GetNullableString(reader, "OriginReference"),
         Paused = reader.GetInt64(reader.GetOrdinal("Paused")) != 0,
+        Environment = DeserializeEnvironment(reader.GetString(reader.GetOrdinal("EnvironmentJson"))),
         CreatedAt = Parse(reader.GetString(reader.GetOrdinal("CreatedAt"))),
         UpdatedAt = Parse(reader.GetString(reader.GetOrdinal("UpdatedAt")))
     };
+
+    private static string SerializeEnvironment(IReadOnlyDictionary<string, string> environment) =>
+        JsonSerializer.Serialize(environment, Json);
+
+    private static IReadOnlyDictionary<string, string> DeserializeEnvironment(string value) =>
+        JsonSerializer.Deserialize<Dictionary<string, string>>(value, Json)
+        ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    private static bool EnvironmentEquals(
+        IReadOnlyDictionary<string, string> left,
+        IReadOnlyDictionary<string, string> right) =>
+        left.Count == right.Count && left.All(pair =>
+            right.TryGetValue(pair.Key, out var value) && string.Equals(pair.Value, value, StringComparison.Ordinal));
 
     private static string? GetNullableString(SqliteDataReader reader, string name)
     {
