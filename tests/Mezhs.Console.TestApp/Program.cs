@@ -14,9 +14,21 @@ internal sealed class TestApplication : ConsoleApplication
             ("Explicit command name", () => Expect("renamed 5", "5", new RenamedCommandApplication())),
             ("Echo nullable", () => Expect("Echo hello", "hello:null")),
             ("Literal null", () => Expect("Echo hello null", "hello:null")),
+            ("Quoted null", () => Expect("Echo \"null\"", "null:null")),
             ("Non-nullable literal null", () => ExpectFailure("Required null", 2, new NullabilityApplication())),
             ("Enumerable", () => Expect("Insert [1 5 6] tail", "1,5,6|tail", new CollectionApplication())),
             ("Nested enumerable", () => Expect("Nested [[1 2] [3 4]]", "1,2;3,4", new CollectionApplication())),
+            ("Object dictionary", () => Expect(
+                "Map {name:\"test value\" count:5 active:true missing:null}",
+                "name=String:test value|count=Int64:5|active=Boolean:True|missing=null",
+                new ObjectApplication())),
+            ("Typed dictionary", () => Expect("Typed {first:1 second:2}", "first=1,second=2", new ObjectApplication())),
+            ("Nested dynamic values", () => Expect("Nested {values:[1 2] child:{name:test}}", "values=Object[]|child=Dictionary", new ObjectApplication())),
+            ("Optional default help", () =>
+            {
+                Expect("Help Limited", "[limit=50]", new ObjectApplication());
+                Expect("Help Limited", "default: 50", new ObjectApplication());
+            }),
             ("Quoted string", () => Expect("Echo \"hello world\"", "hello world:null")),
             ("Invalid command help", () => Expect("Help Broken", "ComplexObject", new InvalidApplication())),
             ("Invalid enumerable help", () => Expect("Help BrokenEnumerable", "cannot be constructed from command input", new InvalidApplication())),
@@ -88,6 +100,7 @@ internal sealed class TestApplication : ConsoleApplication
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("lv-LV");
             Expect("Decimal 1,5", "1,5", new CultureApplication());
             Expect("Help Date", "Culture: lv-LV", new CultureApplication());
+            Expect("Map {value:1,5}", "value=Double:1,5", new ObjectApplication());
         }
         finally
         {
@@ -141,6 +154,26 @@ internal sealed class CollectionApplication : ConsoleApplication
 {
     [Command] public string Insert(IEnumerable<int> values, string tail) => $"{string.Join(',', values)}|{tail}";
     [Command] public string Nested(IEnumerable<IEnumerable<int>> values) => string.Join(';', values.Select(x => string.Join(',', x)));
+}
+
+internal sealed class ObjectApplication : ConsoleApplication
+{
+    [Command]
+    public string Map(IReadOnlyDictionary<string, object?> values) =>
+        string.Join('|', values.Select(x => x.Value is null
+            ? $"{x.Key}=null"
+            : $"{x.Key}={x.Value.GetType().Name}:{x.Value}"));
+
+    [Command]
+    public string Typed(IReadOnlyDictionary<string, int> values) =>
+        string.Join(',', values.Select(x => $"{x.Key}={x.Value}"));
+
+    [Command]
+    public string Nested(IReadOnlyDictionary<string, object?> values) =>
+        $"values={values["values"]!.GetType().Name}|child={values["child"]!.GetType().Name.Split('`')[0]}";
+
+    [Command]
+    public int Limited(int limit = 50) => limit;
 }
 
 internal sealed class AlternateSyntaxApplication : ConsoleApplication
