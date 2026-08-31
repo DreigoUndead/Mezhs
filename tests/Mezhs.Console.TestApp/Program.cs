@@ -6,7 +6,7 @@ return new TestApplication().Run();
 internal sealed class TestApplication : ConsoleApplication
 {
     [Command(Description = "Run the console framework regression suite.")]
-    public string Test()
+    public override string Test()
     {
         var tests = new (string Name, Action Body)[]
         {
