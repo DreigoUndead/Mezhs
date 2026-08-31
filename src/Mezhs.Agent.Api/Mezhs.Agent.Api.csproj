@@ -11,6 +11,6 @@
     <ProjectReference Include="..\Mezhs.Api.Client\Mezhs.Api.Client.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\..\mezhs.yaml" Link="mezhs.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\agent.yaml" Link="agent.yaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
