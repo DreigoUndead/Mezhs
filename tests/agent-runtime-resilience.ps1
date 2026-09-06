@@ -6,9 +6,7 @@ $mezhsConfig = Join-Path $PSScriptRoot "mezhs.test.yaml"
 $agentConfig = Join-Path $PSScriptRoot "mezhs.agent.test.yaml"
 $dataPath = Join-Path $PSScriptRoot "data-agent-test"
 $genericDataPath = Join-Path $PSScriptRoot "data"
-$apiKey = "agent-resilience-$([Guid]::NewGuid().ToString('N'))"
-$env:MEZHS_AGENT_API_KEY = $apiKey
-$auth = @{ Authorization = "Bearer $apiKey"; "X-MEZHS-Requester" = "resilience-test" }
+$requestHeaders = @{ "X-MEZHS-Requester" = "resilience-test" }
 $apiOut = Join-Path $PSScriptRoot "agent-resilience-api.out.log"
 $apiErr = Join-Path $PSScriptRoot "agent-resilience-api.err.log"
 $agentOut = Join-Path $PSScriptRoot "agent-resilience-agent.out.log"
@@ -37,12 +35,12 @@ function Start-AgentProcess() {
 }
 
 function Start-Execution([string]$policyId, [string]$input) {
-    return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions" -Headers $auth `
+    return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions" -Headers $requestHeaders `
         -ContentType "application/json" -Body (ConvertTo-Json @{ policyId = $policyId; input = $input })
 }
 
 function Get-Execution([string]$executionId) {
-    return Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/executions/$executionId" -Headers $auth
+    return Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/executions/$executionId"
 }
 
 function Wait-ExecutionStatus([string]$executionId, [string[]]$statuses, [int]$seconds = 20) {
@@ -60,7 +58,7 @@ function Wait-ExecutionStatus([string]$executionId, [string[]]$statuses, [int]$s
 function Wait-Shell([string]$chatId, [string[]]$statuses, [int]$seconds = 20) {
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($seconds)
     do {
-        $executions = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$chatId/executions" -Headers $auth)
+        $executions = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$chatId/executions")
         $shell = @($executions | Where-Object { $_.kind -eq "Shell" } | Sort-Object createdAt -Descending)[0]
         if ($null -ne $shell -and $shell.status -in $statuses) { return $shell }
         if ([DateTimeOffset]::UtcNow -ge $deadline) {
@@ -108,7 +106,7 @@ ping -n 30 127.0.0.1 >nul
     $cancelRunning = Wait-ExecutionStatus $cancel.executionId @("Running")
     if (-not $cancelRunning.chatId) { throw "Cancellation test root never attached a chat." }
     $null = Wait-Shell $cancelRunning.chatId @("Running")
-    $cancelResponse = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions/$($cancel.executionId)/cancel" -Headers $auth
+    $cancelResponse = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions/$($cancel.executionId)/cancel"
     if ($cancelResponse.status -ne "CancelRequested") {
         throw "Running cancellation skipped acknowledgement state: $($cancelResponse.status)"
     }
@@ -127,7 +125,6 @@ ping -n 30 127.0.0.1 >nul
 
     $client = [Net.Http.HttpClient]::new()
     try {
-        $client.DefaultRequestHeaders.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new("Bearer", $apiKey)
         $client.DefaultRequestHeaders.Add("X-MEZHS-Requester", "resilience-test")
         $body = [Net.Http.StringContent]::new(
             (ConvertTo-Json @{ policyId = "test"; input = "must be admission rejected" }),
@@ -143,7 +140,7 @@ ping -n 30 127.0.0.1 >nul
         } finally { $body.Dispose() }
     } finally { $client.Dispose() }
 
-    $metrics = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/metrics" -Headers $auth
+    $metrics = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/metrics"
     if ($metrics.activeExecutions -ne 1 -or $metrics.queueLength -ne 1) {
         throw "Runtime metrics disagree with configured one-active/one-queued state: active=$($metrics.activeExecutions), queue=$($metrics.queueLength)"
     }
@@ -177,7 +174,6 @@ finally {
         $agent.WaitForExit()
     }
     if (-not $api.HasExited) { Stop-Process -Id $api.Id -Force; $api.WaitForExit() }
-    Remove-Item Env:MEZHS_AGENT_API_KEY -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $dataPath -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $genericDataPath -Recurse -Force -ErrorAction SilentlyContinue
     foreach ($path in @($apiOut, $apiErr, $agentOut, $agentErr)) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
