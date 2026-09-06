@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -7,7 +6,6 @@ namespace Mezhs.Agent.Api.Client;
 
 public sealed class AgentApiClient
 {
-    public const string ApiKeyEnvironmentVariable = "MEZHS_AGENT_API_KEY";
     public const string RequesterHeader = "X-MEZHS-Requester";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
@@ -18,14 +16,11 @@ public sealed class AgentApiClient
 
     public AgentApiClient(
         HttpClient client,
-        string? apiKey = null,
         string requester = "agent-api-client")
     {
         _client = client;
-        var key = apiKey ?? Environment.GetEnvironmentVariable(ApiKeyEnvironmentVariable);
-        if (string.IsNullOrWhiteSpace(key))
-            throw new InvalidOperationException($"{ApiKeyEnvironmentVariable} must be set or supplied to AgentApiClient.");
-        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        if (_client.BaseAddress is { IsLoopback: false })
+            throw new InvalidOperationException("MEŽS Agent API client must target a loopback address.");
         if (!_client.DefaultRequestHeaders.Contains(RequesterHeader))
             _client.DefaultRequestHeaders.Add(RequesterHeader, requester);
     }
