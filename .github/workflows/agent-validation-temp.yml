@@ -1,0 +1,42 @@
+name: Temporary Agent validation
+
+on:
+  push:
+    branches:
+      - agent-api-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build solution
+        shell: pwsh
+        run: |
+          $output = & dotnet build Mezhs.sln -c Release 2>&1 | Out-String
+          $exitCode = $LASTEXITCODE
+          @(
+            "dotnet build Mezhs.sln -c Release"
+            "exitCode=$exitCode"
+            $output
+            $(if ($exitCode -eq 0) { "OVERALL: PASS" } else { "OVERALL: FAIL" })
+          ) | Set-Content -LiteralPath .agent-validation-result.txt -Encoding UTF8
+      - name: Publish validation result
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .agent-validation-result.txt
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "Record temporary Agent validation [skip ci]"
+            git push
+          }
