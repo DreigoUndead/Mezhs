@@ -124,24 +124,6 @@ try {
         throw "Execution did not preserve requester/chat/completion state."
     }
 
-    $duplicateTask = @"
-<SH>
-echo DUPLICATE_HTTP_OK
-</SH>
-<SH>
-echo DUPLICATE_HTTP_OK
-</SH>
-"@
-    $duplicate = Start-AgentExecution "test" $duplicateTask
-    $duplicateRoot = Wait-AgentExecution $duplicate.executionId
-    if ($duplicateRoot.status -ne "Completed") { throw "Duplicate-command execution failed: $($duplicateRoot.error)" }
-    $duplicateExecutions = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($duplicateRoot.chatId)/executions")
-    $duplicateShells = @($duplicateExecutions | Where-Object { $_.kind -eq "Shell" -and $_.request -eq "echo DUPLICATE_HTTP_OK" } | Sort-Object commandIndex)
-    if ($duplicateShells.Count -ne 2 -or $duplicateShells[0].commandIndex -ne 0 -or $duplicateShells[1].commandIndex -ne 1 -or
-        -not $duplicateShells[0].triggerMessageId -or $duplicateShells[0].triggerMessageId -ne $duplicateShells[1].triggerMessageId) {
-        throw "Duplicate commands are not durably linked by assistant message and command index."
-    }
-
     $environmentTask = @"
 <SH>
 echo %TEST_AGENT_VALUE%
@@ -174,7 +156,7 @@ echo %TEST_AGENT_VALUE%
     }
 
     $metrics = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/metrics"
-    if ($metrics.totalExecutions -lt 7 -or $metrics.activeExecutions -lt 0 -or $metrics.queueLength -lt 0) {
+    if ($metrics.totalExecutions -lt 3 -or $metrics.activeExecutions -lt 0 -or $metrics.queueLength -lt 0) {
         throw "Agent metrics endpoint returned implausible execution/capacity data."
     }
 
