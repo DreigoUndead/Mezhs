@@ -48,7 +48,8 @@ Assert ($policyContext -match 'CommandDefinition Command' -and $policyContext -n
 Assert ($policyDecoder -match 'RequiredSuccessfulCommands' -and $policyDecoder -match 'AgentExecutionStatus\.Completed') "Completion cannot require successful command evidence."
 Assert ($program -notmatch '/v1/metrics|AgentMetrics' -and $evaluation -notmatch 'AgentMetrics' -and $agentClient -notmatch 'GetMetricsAsync|AgentMetricsView') "Unused Agent metrics infrastructure still exists."
 Assert ($program -notmatch 'X-MEZHS-Requester|GetRequester|Requester' -and $agentWebHost -notmatch 'X-MEZHS-Requester|Requester' -and $agentClient -notmatch 'X-MEZHS-Requester|Requester') "Unauthenticated requester provenance still exists at API boundaries."
-Assert ($models -notmatch '\bRequester\b' -and $store -notmatch '\bRequester\b' -and $shell -notmatch 'MEZHS_REQUESTER|\.Requester' -and $agentWebApp -notmatch '\brequester\b') "Requester residue remains in persistence, shell context, or dashboard."
+Assert ($models -notmatch '\bRequester\b' -and $store -notmatch 'Requester TEXT|\$requester|record\.Requester|GetOrdinal\("Requester"\)' -and $shell -notmatch 'MEZHS_REQUESTER|\.Requester' -and $agentWebApp -notmatch '\brequester\b') "Requester residue remains in persistence, shell context, or dashboard."
+Assert ($store -match 'DropColumnIfExists\(connection, "Executions", "Requester"\)') "Legacy requester column is not cleaned up during schema migration."
 Assert ($sharedChat -match 'MarkdownContent' -and $markdown -match 'safeLink') "Shared chat rendering does not own safe Markdown presentation."
 Assert ($resize -match 'useLayoutEffect' -and $resize -notmatch 'useEffect') "Composer resize still occurs after paint."
 
