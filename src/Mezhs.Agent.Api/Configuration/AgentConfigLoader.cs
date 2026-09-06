@@ -17,7 +17,6 @@ public static class AgentConfigLoader
         if (yaml.Documents.Count != 1 || yaml.Documents[0].RootNode is not YamlMappingNode root)
             throw new InvalidOperationException("MEŽS Agent configuration must contain one YAML mapping document.");
 
-        EnsureOnlyKeys(root, "agent", "version", "listen", "mezhsApi", "storage", "workspace", "runtime", "messages", "policies");
         var versionText = RequiredValue(root, "version", "version");
         if (!int.TryParse(versionText, NumberStyles.None, CultureInfo.InvariantCulture, out var version))
             throw new InvalidOperationException($"Invalid Agent config version {versionText}.");
@@ -32,6 +31,8 @@ public static class AgentConfigLoader
 
     private static AgentOptions LoadVersion1(YamlMappingNode root, string configDirectory)
     {
+        EnsureOnlyKeys(root, "agent v1", "version", "listen", "mezhsApi", "storage", "workspace", "runtime", "messages", "policies");
+
         var workspace = Resolve(configDirectory, RequiredValue(root, "workspace", "workspace"));
         if (!Directory.Exists(workspace))
             throw new InvalidOperationException($"workspace directory '{workspace}' does not exist.");
@@ -62,7 +63,7 @@ public static class AgentConfigLoader
             if (key?.Value is null)
                 throw new InvalidOperationException($"{path} property names must be scalar values.");
             if (!allowedSet.Contains(key.Value))
-                throw new InvalidOperationException($"Unknown configuration property '{key.Value}'.");
+                throw new InvalidOperationException($"Unknown {path} configuration property '{key.Value}'.");
         }
     }
 
