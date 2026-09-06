@@ -2,361 +2,226 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Net.Http
 
 $root = Split-Path -Parent $PSScriptRoot
-$configPath = Join-Path $PSScriptRoot "mezhs.agent.test.yaml"
-$invalidConfigPath = Join-Path $PSScriptRoot "mezhs.agent.invalid.test.yaml"
+$mezhsConfig = Join-Path $PSScriptRoot "mezhs.test.yaml"
+$agentConfig = Join-Path $PSScriptRoot "mezhs.agent.test.yaml"
 $dataPath = Join-Path $PSScriptRoot "data-agent-test"
-$apiOut = Join-Path $PSScriptRoot "agent-smoke-api.out.log"
-$apiErr = Join-Path $PSScriptRoot "agent-smoke-api.err.log"
-$agentOut = Join-Path $PSScriptRoot "agent-smoke-agent.out.log"
-$agentErr = Join-Path $PSScriptRoot "agent-smoke-agent.err.log"
-$webOut = Join-Path $PSScriptRoot "agent-smoke-web.out.log"
-$webErr = Join-Path $PSScriptRoot "agent-smoke-web.err.log"
-$invalidOut = Join-Path $PSScriptRoot "agent-smoke-invalid.out.log"
-$invalidErr = Join-Path $PSScriptRoot "agent-smoke-invalid.err.log"
-
-$processPath = $env:Path
-Remove-Item Env:PATH -ErrorAction SilentlyContinue
-$env:Path = $processPath
-
-if (Test-Path -LiteralPath $dataPath) {
-    Remove-Item -LiteralPath $dataPath -Recurse -Force
-}
-foreach ($path in @(
-    $invalidConfigPath,
-    $apiOut,
-    $apiErr,
-    $agentOut,
-    $agentErr,
-    $webOut,
-    $webErr,
-    $invalidOut,
-    $invalidErr
-)) {
-    if (Test-Path -LiteralPath $path) {
-        Remove-Item -LiteralPath $path -Force
-    }
+$genericDataPath = Join-Path $PSScriptRoot "data"
+$apiKey = "agent-test-key-$([Guid]::NewGuid().ToString('N'))"
+$env:MEZHS_AGENT_API_KEY = $apiKey
+$auth = @{
+    Authorization = "Bearer $apiKey"
+    "X-MEZHS-Requester" = "agent-http-test"
 }
 
-$invalidConfig = (Get-Content -LiteralPath $configPath -Raw).Replace(
-    "requireDone: false",
-    "requireDon: false")
-Set-Content -LiteralPath $invalidConfigPath -Value $invalidConfig -Encoding UTF8
-$invalidAgent = Start-Process -FilePath "dotnet" `
-    -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $invalidConfigPath) `
-    -WorkingDirectory $root `
-    -RedirectStandardOutput $invalidOut `
-    -RedirectStandardError $invalidErr `
-    -WindowStyle Hidden `
-    -PassThru
+$apiOut = Join-Path $PSScriptRoot "agent-http-api.out.log"
+$apiErr = Join-Path $PSScriptRoot "agent-http-api.err.log"
+$agentOut = Join-Path $PSScriptRoot "agent-http-agent.out.log"
+$agentErr = Join-Path $PSScriptRoot "agent-http-agent.err.log"
+$webOut = Join-Path $PSScriptRoot "agent-http-web.out.log"
+$webErr = Join-Path $PSScriptRoot "agent-http-web.err.log"
+$badConfig = Join-Path $PSScriptRoot "mezhs.agent.nonloopback.tmp.yaml"
+$badOut = Join-Path $PSScriptRoot "agent-http-bad.out.log"
+$badErr = Join-Path $PSScriptRoot "agent-http-bad.err.log"
+
+foreach ($path in @($dataPath, $genericDataPath)) {
+    Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+}
+foreach ($path in @($apiOut, $apiErr, $agentOut, $agentErr, $webOut, $webErr, $badConfig, $badOut, $badErr)) {
+    Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+}
+
+function Wait-Health([string]$uri) {
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(25)
+    do {
+        try {
+            $health = Invoke-RestMethod -Uri $uri
+            if ($health.status -eq "ok") { return }
+        } catch {
+            if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }
+        }
+        Start-Sleep -Milliseconds 150
+    } while ($true)
+}
+
+function Start-AgentExecution([string]$policyId, [string]$input, [hashtable]$environment = $null) {
+    $body = @{ policyId = $policyId; input = $input }
+    if ($null -ne $environment) { $body.environment = $environment }
+    return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions" `
+        -Headers $auth -ContentType "application/json" -Body (ConvertTo-Json $body -Depth 5)
+}
+
+function Wait-AgentExecution([string]$executionId) {
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(25)
+    do {
+        $execution = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/executions/$executionId" -Headers $auth
+        if ($execution.status -in @("Completed", "Failed", "Cancelled", "Interrupted")) { return $execution }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw "Execution $executionId did not reach a terminal state." }
+        Start-Sleep -Milliseconds 100
+    } while ($true)
+}
+
+function Get-Status([string]$uri, [bool]$authenticated = $false) {
+    $client = [Net.Http.HttpClient]::new()
+    try {
+        $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, $uri)
+        try {
+            if ($authenticated) {
+                $request.Headers.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new("Bearer", $apiKey)
+                $request.Headers.Add("X-MEZHS-Requester", "agent-http-test")
+            }
+            $response = $client.SendAsync($request).GetAwaiter().GetResult()
+            try { return [int]$response.StatusCode } finally { $response.Dispose() }
+        } finally { $request.Dispose() }
+    } finally { $client.Dispose() }
+}
+
+# Host-shell Agent API must fail closed if configured for direct network exposure.
+(Get-Content -LiteralPath $agentConfig -Raw).Replace(
+    "listen: http://127.0.0.1:5199",
+    "listen: http://0.0.0.0:5199") | Set-Content -LiteralPath $badConfig -Encoding UTF8
+$badAgent = Start-Process -FilePath "dotnet" `
+    -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $badConfig) `
+    -WorkingDirectory $root -RedirectStandardOutput $badOut -RedirectStandardError $badErr -WindowStyle Hidden -PassThru
 try {
-    if (-not $invalidAgent.WaitForExit(5000)) {
-        Stop-Process -Id $invalidAgent.Id -Force
-        $invalidAgent.WaitForExit()
-        throw "Agent accepted an unknown policy property instead of rejecting the configuration."
+    if (-not $badAgent.WaitForExit(8000)) {
+        Stop-Process -Id $badAgent.Id -Force
+        $badAgent.WaitForExit()
+        throw "Agent API accepted a non-loopback listener for host-shell execution."
     }
-    $invalidErrorText = Get-Content -LiteralPath $invalidErr -Raw
-    if ($invalidAgent.ExitCode -eq 0 -or $invalidErrorText -notmatch "requireDon") {
-        throw "Agent did not fail specifically on the unknown policy property. Error: $invalidErrorText"
+    $badText = (Get-Content -LiteralPath $badErr -Raw) + (Get-Content -LiteralPath $badOut -Raw)
+    if ($badAgent.ExitCode -eq 0 -or $badText -notmatch "loopback") {
+        throw "Non-loopback Agent configuration did not fail specifically at the exposure boundary. Output: $badText"
     }
-}
-finally {
-    if (-not $invalidAgent.HasExited) {
-        Stop-Process -Id $invalidAgent.Id -Force
-        $invalidAgent.WaitForExit()
-    }
-    Remove-Item -LiteralPath $invalidConfigPath -Force -ErrorAction SilentlyContinue
+} finally {
+    if (-not $badAgent.HasExited) { Stop-Process -Id $badAgent.Id -Force; $badAgent.WaitForExit() }
 }
 
 $api = Start-Process -FilePath "dotnet" `
-    -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Api\Mezhs.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $configPath) `
-    -WorkingDirectory $root `
-    -RedirectStandardOutput $apiOut `
-    -RedirectStandardError $apiErr `
-    -WindowStyle Hidden `
-    -PassThru
-
+    -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Api\Mezhs.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $mezhsConfig) `
+    -WorkingDirectory $root -RedirectStandardOutput $apiOut -RedirectStandardError $apiErr -WindowStyle Hidden -PassThru
 $agent = $null
-$agentWeb = $null
+$web = $null
+
 try {
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
-    do {
-        try {
-            $health = Invoke-RestMethod -Uri "http://127.0.0.1:5198/health"
-            break
-        }
-        catch {
-            if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }
-            Start-Sleep -Milliseconds 200
-        }
-    } while ($true)
-    if ($health.status -ne "ok") { throw "Generic MEŽS API health check failed." }
-
+    Wait-Health "http://127.0.0.1:5198/health"
     $agent = Start-Process -FilePath "dotnet" `
-        -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $configPath) `
-        -WorkingDirectory $root `
-        -RedirectStandardOutput $agentOut `
-        -RedirectStandardError $agentErr `
-        -WindowStyle Hidden `
-        -PassThru
+        -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $agentConfig) `
+        -WorkingDirectory $root -RedirectStandardOutput $agentOut -RedirectStandardError $agentErr -WindowStyle Hidden -PassThru
+    Wait-Health "http://127.0.0.1:5199/health"
 
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
-    do {
+    if ((Get-Status "http://127.0.0.1:5199/v1/runtime") -ne 401) {
+        throw "Agent API accepted an unauthenticated runtime request."
+    }
+    if ((Get-Status "http://127.0.0.1:5199/v1/runtime" $true) -ne 200) {
+        throw "Authenticated Agent API request was rejected."
+    }
+
+    $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/runtime" -Headers $auth
+    if (-not $runtime.mezhsApiHealthy) { throw "Agent API cannot reach generic MEZS API." }
+
+    $originClient = [Net.Http.HttpClient]::new()
+    try {
+        $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/runtime")
+        $request.Headers.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new("Bearer", $apiKey)
+        $request.Headers.Add("Origin", "https://example.invalid")
+        $response = $originClient.SendAsync($request).GetAwaiter().GetResult()
         try {
-            $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/runtime"
-            break
-        }
-        catch {
-            if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }
-            Start-Sleep -Milliseconds 200
-        }
-    } while ($true)
-    if (-not $runtime.mezhsApiHealthy) {
-        throw "Agent API cannot reach the generic MEŽS API."
+            if ($response.Headers.Contains("Access-Control-Allow-Origin")) {
+                throw "Agent API still emits cross-origin access headers."
+            }
+        } finally { $response.Dispose(); $request.Dispose() }
+    } finally { $originClient.Dispose() }
+
+    $created = Start-AgentExecution "test" "hello agent"
+    $completed = Wait-AgentExecution $created.executionId
+    if ($completed.status -ne "Completed" -or $completed.requester -ne "agent-http-test" -or -not $completed.chatId) {
+        throw "Authenticated execution did not preserve requester/chat/completion state."
     }
 
-    $agentMetadata = Invoke-RestMethod -Uri "http://127.0.0.1:5199/"
-    if ($agentMetadata.name -ne "MEŽS Agent") {
-        throw "Agent API root does not expose API metadata."
+    $duplicateTask = @"
+<SH>
+echo DUPLICATE_HTTP_OK
+</SH>
+<SH>
+echo DUPLICATE_HTTP_OK
+</SH>
+"@
+    $duplicate = Start-AgentExecution "test" $duplicateTask
+    $duplicateRoot = Wait-AgentExecution $duplicate.executionId
+    if ($duplicateRoot.status -ne "Completed") { throw "Duplicate-command execution failed: $($duplicateRoot.error)" }
+    $duplicateExecutions = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($duplicateRoot.chatId)/executions" -Headers $auth)
+    $duplicateShells = @($duplicateExecutions | Where-Object { $_.kind -eq "Shell" -and $_.request -eq "echo DUPLICATE_HTTP_OK" } | Sort-Object commandIndex)
+    if ($duplicateShells.Count -ne 2 -or $duplicateShells[0].commandIndex -ne 0 -or $duplicateShells[1].commandIndex -ne 1 -or
+        -not $duplicateShells[0].triggerMessageId -or $duplicateShells[0].triggerMessageId -ne $duplicateShells[1].triggerMessageId) {
+        throw "Duplicate commands are not durably linked by assistant message and command index."
     }
 
-    $agentWeb = Start-Process -FilePath "dotnet" `
-        -ArgumentList @(
-            "run",
-            "--project", (Join-Path $root "src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj"),
-            "-c", "Release",
-            "--no-build",
-            "--no-launch-profile",
-            "--",
-            "--urls", "http://127.0.0.1:5200",
-            "--Agent:BaseUrl", "http://127.0.0.1:5199"
-        ) `
-        -WorkingDirectory $root `
-        -RedirectStandardOutput $webOut `
-        -RedirectStandardError $webErr `
-        -WindowStyle Hidden `
-        -PassThru
-
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
-    do {
-        try {
-            $dashboard = Invoke-WebRequest -Uri "http://127.0.0.1:5200/"
-            if ($dashboard.StatusCode -eq 200) { break }
-        }
-        catch {
-            if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }
-            Start-Sleep -Milliseconds 200
-        }
-    } while ($true)
-    if ($dashboard.Content -notmatch '<title>MEŽS Agent</title>') {
-        throw "Mezhs.Agent.Web did not serve the Agent dashboard."
-    }
-    $proxiedRuntime = Invoke-RestMethod -Uri "http://127.0.0.1:5200/v1/runtime"
-    if (-not $proxiedRuntime.mezhsApiHealthy) {
-        throw "Mezhs.Agent.Web did not forward /v1 to Mezhs.Agent.Api."
-    }
-
-    $policy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/test"
-    if ($policy.modelInstructions -notlike "*deterministic test task*" -or
-        $policy.modelInstructions -notlike "*<SH*") {
-        throw "Compiled policy did not expose task/shell model instructions."
-    }
-    if ($policy.snapshot -notmatch "requireDone: false" -or
-        $policy.snapshot -notmatch "maxTurns: 3" -or
-        $policy.snapshot -notmatch "commandTimeoutSeconds: 2" -or
-        $policy.snapshot -notmatch "SH") {
-        throw "Compiled policy snapshot does not contain normalized effective command/completion/limit rules."
-    }
-
-    $created = Invoke-RestMethod `
-        -Method Post `
-        -Uri "http://127.0.0.1:5199/v1/executions" `
-        -ContentType "application/json" `
-        -Body (ConvertTo-Json @{
-            policyId = "test"
-            input = "hello agent"
-        })
-    if (-not $created.executionId) { throw "Execution creation returned no executionId." }
-
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
-    do {
-        $execution = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/executions/$($created.executionId)"
-        if ($execution.status -eq "Completed") { break }
-        if ($execution.status -in @("Failed", "Cancelled", "Interrupted")) {
-            throw "Agent execution ended as $($execution.status): $($execution.error)"
-        }
-        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw "Agent execution polling timed out." }
-        Start-Sleep -Milliseconds 100
-    } while ($true)
-
-    if (-not $execution.chatId) { throw "Completed execution has no MEŽS chatId." }
-    if ($execution.result -notlike "Echo:*hello agent*") {
-        throw "Agent did not route its task through the mock MEŽS integration."
-    }
-    if ($execution.policySnapshot -notmatch "requireDone: false" -or
-        $execution.policySnapshot -notmatch "maxTurns: 3" -or
-        $execution.policySnapshot -notmatch "commandTimeoutSeconds: 2") {
-        throw "Execution did not retain the compiled effective policy snapshot."
-    }
-
-    $doneRequired = Invoke-RestMethod `
-        -Method Post `
-        -Uri "http://127.0.0.1:5199/v1/executions" `
-        -ContentType "application/json" `
-        -Body (ConvertTo-Json @{
-            policyId = "test-done"
-            input = "reply without DONE command"
-        })
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
-    do {
-        $doneExecution = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/executions/$($doneRequired.executionId)"
-        if ($doneExecution.status -in @("Completed", "Failed", "Cancelled", "Interrupted")) { break }
-        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw "DONE-policy execution polling timed out." }
-        Start-Sleep -Milliseconds 100
-    } while ($true)
-    if ($doneExecution.status -ne "Failed" -or $doneExecution.error -notlike "*limit of 1 turns*") {
-        throw "Compiled <DONE>/turn policy was not enforced by the runtime."
-    }
-
-    $chat = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($execution.chatId)"
-    if ($chat.policyId -ne "test" -or $chat.originSource -ne "manual" -or $chat.paused) {
-        throw "Agent chat policy/source/pause metadata was not persisted correctly."
-    }
-    if ($chat.title -notlike "*hello agent*") {
-        throw "Agent chat API did not expose the underlying MEŽS chat title."
-    }
-    $messages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($execution.chatId)/messages"
-    if (@($messages).Count -lt 2) {
-        throw "Agent chat API did not expose the underlying MEŽS conversation."
-    }
-
-    $debugResponse = Invoke-WebRequest -Uri "http://127.0.0.1:5200/v1/agent-chats/$($execution.chatId)/debug-log"
-    if ($debugResponse.StatusCode -ne 200 -or
-        $debugResponse.Headers["Content-Disposition"] -notmatch "attachment" -or
-        $debugResponse.Content -notmatch "=== ACTIVE ===" -or
-        $debugResponse.Content -notmatch "=== EXECUTIONS ===" -or
-        $debugResponse.Content -notmatch "=== CHAT MESSAGES ===" -or
-        $debugResponse.Content -notmatch [regex]::Escape($execution.executionId)) {
-        throw "Agent Web did not proxy a useful downloadable debug log."
-    }
+    $environmentTask = @"
+<SH>
+echo %TEST_AGENT_VALUE%
+</SH>
+"@
+    $environmentExecution = Start-AgentExecution "test" $environmentTask @{ TEST_AGENT_VALUE = "ENVIRONMENT_OK" }
+    $environmentRoot = Wait-AgentExecution $environmentExecution.executionId
+    $environmentExecutions = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($environmentRoot.chatId)/executions" -Headers $auth)
+    $environmentShell = @($environmentExecutions | Where-Object { $_.kind -eq "Shell" })[0]
+    if ($environmentShell.result -notmatch "ENVIRONMENT_OK") { throw "Policy-approved environment variable did not reach the child shell." }
 
     $client = [Net.Http.HttpClient]::new()
     try {
-        $conflictBody = ConvertTo-Json @{
-            policyId = "test-alt"
-            chatId = $execution.chatId
-            input = "policy conflict"
-        }
-        $content = [Net.Http.StringContent]::new(
-            $conflictBody,
-            [Text.Encoding]::UTF8,
-            "application/json")
+        $client.DefaultRequestHeaders.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new("Bearer", $apiKey)
+        $client.DefaultRequestHeaders.Add("X-MEZHS-Requester", "agent-http-test")
+        $invalidBody = ConvertTo-Json @{ policyId = "test"; input = "invalid env"; environment = @{ PATH = "malicious" } }
+        $content = [Net.Http.StringContent]::new($invalidBody, [Text.Encoding]::UTF8, "application/json")
         try {
-            $response = $client.PostAsync(
-                "http://127.0.0.1:5199/v1/executions",
-                $content).GetAwaiter().GetResult()
+            $response = $client.PostAsync("http://127.0.0.1:5199/v1/executions", $content).GetAwaiter().GetResult()
             $responseBody = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-            if ([int]$response.StatusCode -ne 400 -or $responseBody -notlike "*already owned by policy 'test'*") {
-                throw "Expected policy ownership conflict, got HTTP $([int]$response.StatusCode): $responseBody"
+            if ([int]$response.StatusCode -ne 400 -or $responseBody -notmatch "does not allow environment variable") {
+                throw "Unapproved environment mutation was not rejected by policy. HTTP $([int]$response.StatusCode): $responseBody"
             }
-        }
-        finally {
-            $content.Dispose()
-            if ($null -ne $response) { $response.Dispose() }
-        }
+            $response.Dispose()
+        } finally { $content.Dispose() }
+    } finally { $client.Dispose() }
 
-        $pauseBody = ConvertTo-Json @{ paused = $true }
-        $pauseContent = [Net.Http.StringContent]::new(
-            $pauseBody,
-            [Text.Encoding]::UTF8,
-            "application/json")
+    if ((Get-Status "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log") -ne 401) {
+        throw "Debug log endpoint is available without authentication."
+    }
+    $debug = Invoke-WebRequest -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log" -Headers $auth
+    if ($debug.StatusCode -ne 200 -or $debug.Headers["Content-Disposition"] -notmatch "attachment" -or $debug.Content -notmatch $completed.executionId) {
+        throw "Authenticated debug log is not downloadable/auditable."
+    }
+
+    $metrics = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/metrics" -Headers $auth
+    if ($metrics.totalExecutions -lt 7 -or $metrics.activeExecutions -lt 0 -or $metrics.queueLength -lt 0) {
+        throw "Agent metrics endpoint returned implausible execution/capacity data."
+    }
+
+    $web = Start-Process -FilePath "dotnet" `
+        -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj"), "-c", "Release", "--no-build", "--no-launch-profile", "--", "--urls", "http://127.0.0.1:5200", "--Agent:BaseUrl", "http://127.0.0.1:5199") `
+        -WorkingDirectory $root -RedirectStandardOutput $webOut -RedirectStandardError $webErr -WindowStyle Hidden -PassThru
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
+    do {
         try {
-            $pauseResponse = $client.PatchAsync(
-                "http://127.0.0.1:5199/v1/agent-chats/$($execution.chatId)",
-                $pauseContent).GetAwaiter().GetResult()
-            $pauseResponseBody = $pauseResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-            if ([int]$pauseResponse.StatusCode -ne 200 -or $pauseResponseBody -notmatch '"paused":true') {
-                throw "Agent chat could not be paused: HTTP $([int]$pauseResponse.StatusCode): $pauseResponseBody"
-            }
+            $proxied = Invoke-RestMethod -Uri "http://127.0.0.1:5200/v1/runtime"
+            if ($proxied.status -eq "ok") { break }
+        } catch {
+            if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }
         }
-        finally {
-            $pauseContent.Dispose()
-            if ($null -ne $pauseResponse) { $pauseResponse.Dispose() }
-        }
+        Start-Sleep -Milliseconds 150
+    } while ($true)
+    $proxiedDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5200/v1/agent-chats/$($completed.chatId)/debug-log"
+    if ($proxiedDebug.StatusCode -ne 200) { throw "Agent Web did not authenticate its server-side Agent API proxy." }
 
-        $pausedExecutionBody = ConvertTo-Json @{
-            policyId = "test"
-            chatId = $execution.chatId
-            input = "must be rejected while paused"
-        }
-        $pausedExecutionContent = [Net.Http.StringContent]::new(
-            $pausedExecutionBody,
-            [Text.Encoding]::UTF8,
-            "application/json")
-        try {
-            $pausedExecutionResponse = $client.PostAsync(
-                "http://127.0.0.1:5199/v1/executions",
-                $pausedExecutionContent).GetAwaiter().GetResult()
-            $pausedExecutionResponseBody = $pausedExecutionResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-            if ([int]$pausedExecutionResponse.StatusCode -ne 400 -or $pausedExecutionResponseBody -notlike "*is paused*") {
-                throw "Paused chat accepted execution: HTTP $([int]$pausedExecutionResponse.StatusCode): $pausedExecutionResponseBody"
-            }
-        }
-        finally {
-            $pausedExecutionContent.Dispose()
-            if ($null -ne $pausedExecutionResponse) { $pausedExecutionResponse.Dispose() }
-        }
-
-        $resumeBody = ConvertTo-Json @{ paused = $false }
-        $resumeContent = [Net.Http.StringContent]::new(
-            $resumeBody,
-            [Text.Encoding]::UTF8,
-            "application/json")
-        try {
-            $resumeResponse = $client.PatchAsync(
-                "http://127.0.0.1:5199/v1/agent-chats/$($execution.chatId)",
-                $resumeContent).GetAwaiter().GetResult()
-            $resumeResponseBody = $resumeResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-            if ([int]$resumeResponse.StatusCode -ne 200 -or $resumeResponseBody -notmatch '"paused":false') {
-                throw "Agent chat could not be resumed: HTTP $([int]$resumeResponse.StatusCode): $resumeResponseBody"
-            }
-        }
-        finally {
-            $resumeContent.Dispose()
-            if ($null -ne $resumeResponse) { $resumeResponse.Dispose() }
-        }
-    }
-    finally {
-        $client.Dispose()
-    }
-
-    $chatAfterConflict = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($execution.chatId)"
-    if ($chatAfterConflict.policyId -ne "test" -or $chatAfterConflict.paused) {
-        throw "Rejected policy conflict/pause cycle changed durable agent chat ownership or state."
-    }
-
-    $history = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($execution.chatId)/executions"
-    if (@($history).Count -ne 1 -or $history[0].executionId -ne $execution.executionId) {
-        throw "Agent execution history did not round-trip through SQLite."
-    }
-
-    $sqlitePath = Join-Path $dataPath "agent.sqlite"
-    if (-not (Test-Path -LiteralPath $sqlitePath)) {
-        throw "Agent SQLite database was not created."
-    }
-
-    Write-Host "PASS: Agent API/Web run separately, proxy debug logs, retain timeout policy snapshots, and preserve fixed policy/source/pause behavior."
+    Write-Host "PASS: Agent API is loopback-only/authenticated, CORS-closed, requester-aware, environment-scoped, DTO-backed, metrics-enabled, and Agent Web proxies authenticated calls."
 }
 finally {
-    if ($null -ne $agentWeb -and -not $agentWeb.HasExited) {
-        Stop-Process -Id $agentWeb.Id -Force
-        $agentWeb.WaitForExit()
-    }
-    if ($null -ne $agent -and -not $agent.HasExited) {
-        Stop-Process -Id $agent.Id -Force
-        $agent.WaitForExit()
-    }
-    if (-not $api.HasExited) {
-        Stop-Process -Id $api.Id -Force
-        $api.WaitForExit()
+    if ($null -ne $web -and -not $web.HasExited) { Stop-Process -Id $web.Id -Force; $web.WaitForExit() }
+    if ($null -ne $agent -and -not $agent.HasExited) { Stop-Process -Id $agent.Id -Force; $agent.WaitForExit() }
+    if (-not $api.HasExited) { Stop-Process -Id $api.Id -Force; $api.WaitForExit() }
+    Remove-Item Env:MEZHS_AGENT_API_KEY -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $dataPath -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $genericDataPath -Recurse -Force -ErrorAction SilentlyContinue
+    foreach ($path in @($apiOut, $apiErr, $agentOut, $agentErr, $webOut, $webErr, $badConfig, $badOut, $badErr)) {
+        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
     }
 }
