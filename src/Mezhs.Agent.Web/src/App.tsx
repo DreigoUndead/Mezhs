@@ -49,7 +49,7 @@ type AgentChatMessage = {
   completedAt?: string;
 };
 
-type ExecutionStatus = "Queued" | "Running" | "Completed" | "Failed" | "Cancelled" | "Interrupted";
+type ExecutionStatus = "Queued" | "Running" | "CancelRequested" | "Completed" | "Failed" | "Cancelled" | "Interrupted";
 type ExecutionKind = "Agent" | "Shell";
 
 type Execution = {
@@ -57,11 +57,15 @@ type Execution = {
   parentExecutionId?: string;
   correlationId: string;
   kind: ExecutionKind;
+  commandName?: string;
+  triggerMessageId?: string;
+  commandIndex?: number;
   chatId?: string;
   policyId: string;
   connectionId: string;
   source: string;
   sourceReference?: string;
+  requester: string;
   status: ExecutionStatus;
   request: string;
   result?: string;
@@ -101,7 +105,7 @@ type CommandEvidence = CommandResultPayload & {
   execution?: Execution;
 };
 
-const activeStatuses = new Set<ExecutionStatus>(["Queued", "Running"]);
+const activeStatuses = new Set<ExecutionStatus>(["Queued", "Running", "CancelRequested"]);
 const terminalStatuses = new Set<ExecutionStatus>(["Completed", "Failed", "Cancelled", "Interrupted"]);
 const commandName = /^[A-Z][A-Z0-9_-]*$/;
 const executionEnvelope = /^\[MEŽS AGENT EXECUTION ([^\]]+)]/;
@@ -310,32 +314,18 @@ function protocolExecutionMap(
   messages: AgentChatMessage[],
   executions: Execution[],
 ): Map<string, ProtocolCommandState[]> {
-  const available = executions
-    .filter((execution) => execution.kind === "Shell")
-    .slice()
-    .sort((left, right) =>
-      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
-  const used = new Set<string>();
   const result = new Map<string, ProtocolCommandState[]>();
-
-  const assistantMessages = messages
-    .filter((message) => message.role === "assistant")
-    .slice()
-    .sort((left, right) =>
-      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
-
-  for (const message of assistantMessages) {
+  for (const message of messages.filter((candidate) => candidate.role === "assistant")) {
     const protocol = inspectProtocol(message.content);
-    const states = protocol.commands.map((command) => {
-      const body = (command.body ?? "").trim();
-      const execution = available.find((candidate) =>
-        !used.has(candidate.executionId) && candidate.request.trim() === body);
-      if (execution) used.add(execution.executionId);
-      return { ...command, execution };
-    });
+    const states = protocol.commands.map((command, index) => ({
+      ...command,
+      execution: executions.find((candidate) =>
+        candidate.triggerMessageId === message.messageId &&
+        candidate.commandIndex === index &&
+        candidate.commandName?.toLocaleUpperCase() === command.name.toLocaleUpperCase()),
+    }));
     result.set(message.messageId, states);
   }
-
   return result;
 }
 
@@ -416,7 +406,7 @@ export default function App() {
   const activeExecution = executions.find((execution) =>
     execution.kind === "Agent" && activeStatuses.has(execution.status));
   const activeShellExecution = executions.find((execution) =>
-    execution.kind === "Shell" && execution.status === "Running");
+    execution.kind === "Shell" && activeStatuses.has(execution.status));
   const latestAgentExecution = executions.find((execution) => execution.kind === "Agent");
   const sharedMessages = useMemo(
     () => messages.map((message) => toSharedMessage(message, executions)),
@@ -719,7 +709,7 @@ export default function App() {
                   )}
                   {activeShellExecution && (
                     <span className="agent-active-command">
-                      SH running {elapsedLabel(activeShellExecution) ?? ""}
+                      SH {activeShellExecution.status === "CancelRequested" ? "stopping" : "running"} {elapsedLabel(activeShellExecution) ?? ""}
                     </span>
                   )}
                 </div>
@@ -730,7 +720,7 @@ export default function App() {
                   href={`/v1/agent-chats/${encodeURIComponent(selectedChat.chatId)}/debug-log`}
                   download
                 >Download log</a>
-                {activeExecution && (
+                {activeExecution && activeExecution.status !== "CancelRequested" && (
                   <button
                     type="button"
                     className="agent-danger"
@@ -797,7 +787,7 @@ export default function App() {
                           const status = evidenceStatus(result);
                           const exitCode = evidenceExitCode(result);
                           return (
-                            <details className="agent-command-result" key={`${result.executionId ?? result.command}-${index}`}>
+                            <details className="agent-command-evidence agent-command-result" key={`${result.executionId ?? result.command}-${index}`}>
                               <summary>
                                 <div className="agent-command-result-heading">
                                   <strong>{result.command}</strong>
@@ -845,7 +835,7 @@ export default function App() {
                           const status = execution?.status ?? (activeExecution ? "Pending" : "Not executed");
                           const targetExecutionId = execution?.parentExecutionId ?? activeExecution?.executionId;
                           return (
-                            <details className="agent-protocol-card agent-command-request" key={`${command.name}-${index}`}>
+                            <details className="agent-protocol-card agent-command-evidence agent-command-request" key={`${command.name}-${index}`}>
                               <summary>
                                 <div className="agent-command-request-heading">
                                   <strong>{command.name}</strong>
@@ -921,13 +911,14 @@ export default function App() {
                 {executions.map((execution) => (
                   <article className="agent-execution-row" key={execution.executionId}>
                     <div className="agent-execution-topline">
-                      <strong>{execution.kind}</strong>
+                      <strong>{execution.commandName ?? execution.kind}</strong>
                       <span className={`agent-execution-status ${statusTone(execution.status)}`}>{execution.status}</span>
                       {execution.exitCode !== undefined && <span>exit {execution.exitCode}</span>}
                       {activeStatuses.has(execution.status) && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
+                      <span>{execution.requester}</span>
                       <time>{formatTime(execution.createdAt)}</time>
                     </div>
-                    <code>{execution.request}</code>
+                    {execution.kind === "Shell" ? <pre className="agent-command-code">{execution.request}</pre> : <code>{execution.request}</code>}
                     {execution.result && <pre>{execution.result}</pre>}
                     {execution.error && <pre className="agent-error-output">{execution.error}</pre>}
                   </article>
