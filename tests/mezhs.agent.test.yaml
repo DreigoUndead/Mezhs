@@ -1,57 +1,123 @@
 version: 1
+listen: http://127.0.0.1:5199
+mezhsApi: http://127.0.0.1:5198
+storage: data-agent-test/agent.sqlite
+workspace: ..
 
-server:
-  listen: http://127.0.0.1:5198
+runtime:
+  queueCapacity: 1
+  maxConcurrentExecutions: 1
 
-transport:
-  type: electron
-  idleMinutes: 1
-  electronDirectory: ../electron
+messages:
+  continue: |
+    Continue the assigned deterministic test task.
+    When the task is complete, return <DONE> on a line by itself.
+  policyCorrection: |
+    Policy rejected your completion claim:
+    {error}
 
-storage:
-  root: data-agent-test/mezhs
+    Continue the assigned task and correct the policy violation.
+  commandCorrection: |
+    MEŽS rejected an agent command:
+    {error}
 
-connections:
-  - id: test
-    name: Deterministic test integration
-    integration: mock
+    Correct the command or continue without it.
+  commandResults: |
+    MEŽS runtime command results follow.
 
-extensions:
-  agent:
-    listen: http://127.0.0.1:5199
-    mezhsApi: http://127.0.0.1:5198
-    storage: data-agent-test/agent.sqlite
+    Command results JSON:
+    {json}
 
-    policies:
-      test:
-        connectionId: test
-        instructions: |
-          Complete the assigned deterministic test task.
-        commands:
-          allow:
-            - SH
-        completion:
-          requireDone: false
-        limits:
-          maxTurns: 3
-          commandTimeoutSeconds: 2
+    Continue the assigned deterministic test task.
+  protocolIntro: |
+    Agent command protocol:
+    - Only use commands allowed by policy.
+    - Execution history is evidence.
+  shellContext: |
+    Host shell: {shell}
+    Each executable agent command has a timeout of {timeout} seconds.
 
-      test-alt:
-        connectionId: test
-        instructions: |
-          Alternative deterministic policy for ownership validation.
-        completion:
-          requireDone: false
-        limits:
-          maxTurns: 3
-          commandTimeoutSeconds: 2
+policies:
+  test:
+    connectionId: test
+    instructions: Complete the assigned deterministic test task.
+    commands:
+      allow: [SH]
+    environment:
+      allow: [TEST_AGENT_VALUE]
+    completion:
+      requireDone: false
+      requiredSuccessfulCommands: []
+    limits:
+      maxTurns: 3
+      commandTimeoutSeconds: 2
 
-      test-done:
-        connectionId: test
-        instructions: |
-          This policy requires an explicit completion claim.
-        completion:
-          requireDone: true
-        limits:
-          maxTurns: 1
-          commandTimeoutSeconds: 2
+  test-alt:
+    connectionId: test
+    instructions: Alternative deterministic policy for ownership validation.
+    commands:
+      allow: []
+    environment:
+      allow: []
+    completion:
+      requireDone: false
+      requiredSuccessfulCommands: []
+    limits:
+      maxTurns: 3
+      commandTimeoutSeconds: 2
+
+  test-done:
+    connectionId: test
+    instructions: This policy requires an explicit completion claim.
+    commands:
+      allow: []
+    environment:
+      allow: []
+    completion:
+      requireDone: true
+      requiredSuccessfulCommands: []
+    limits:
+      maxTurns: 1
+      commandTimeoutSeconds: 2
+
+  test-evidence:
+    connectionId: test
+    instructions: Completion requires successful shell evidence.
+    commands:
+      allow: [SH]
+    environment:
+      allow: []
+    completion:
+      requireDone: true
+      requiredSuccessfulCommands: [SH]
+    limits:
+      maxTurns: 3
+      commandTimeoutSeconds: 2
+
+  test-timeout:
+    connectionId: test
+    instructions: Exercise shell timeout behavior.
+    commands:
+      allow: [SH]
+    environment:
+      allow: []
+    completion:
+      requireDone: false
+      requiredSuccessfulCommands: []
+    limits:
+      maxTurns: 3
+      commandTimeoutSeconds: 1
+
+  test-cancel:
+    connectionId: test
+    instructions: Exercise cancellation and queue behavior.
+    commands:
+      allow: [SH]
+    environment:
+      allow: []
+    completion:
+      requireDone: false
+      requiredSuccessfulCommands: []
+    limits:
+      maxTurns: 3
+      commandTimeoutSeconds: 30

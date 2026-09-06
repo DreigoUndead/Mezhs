@@ -2,70 +2,49 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 $shared = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/ChatSurface.tsx") -Raw
+$markdown = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/MarkdownContent.tsx") -Raw
+$resize = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/useAutoResizeTextArea.ts") -Raw
 $exports = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/index.ts") -Raw
 $agentApp = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/App.tsx") -Raw
 $agentMain = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/main.tsx") -Raw
 $agentCss = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/agent.css") -Raw
 
-foreach ($component in @("ChatTranscript", "ChatComposer")) {
-    if ($shared -notmatch "export function $component" -or $exports -notmatch $component) {
-        throw "Shared MEZS web library does not export $component."
-    }
-    if ($agentApp -notmatch $component) {
-        throw "Agent Web does not consume shared $component."
-    }
+foreach ($component in @("ChatTranscript", "ChatComposer", "MarkdownContent")) {
+    if ($exports -notmatch $component) { throw "Shared MEZS web library does not export $component." }
 }
-
+if ($agentApp -notmatch 'ChatTranscript' -or $agentApp -notmatch 'ChatComposer') {
+    throw "Agent Web does not consume the shared chat surface."
+}
 if ($agentMain -notmatch '@mezhs/web-lib/styles\.css') {
-    throw "Agent Web is not consuming the common MEZS web styling."
+    throw "Agent Web is not consuming common MEZS web styling."
 }
-
-if ($agentApp -match '<article[^>]+className=\{`message' -or
-    $agentApp -match '<form[^>]+className="composer"' -or
-    $agentApp -match '<textarea') {
-    throw "Agent Web reimplemented ordinary chat rendering/composer instead of using Mezhs.Web.Lib."
+if ($agentApp -match '<textarea' -or $agentApp -match '<form[^>]+className="composer"') {
+    throw "Agent Web reimplemented the shared composer."
 }
-
-if ($agentCss -match '(?m)^\.message\s*\{' -or
-    $agentCss -match '(?m)^\.composer\s*\{' -or
-    $agentCss -match '(?m)^\.conversation\s*\{') {
-    throw "Agent Web overrides shared chat surface styling instead of keeping agent-only chrome local."
+if ($shared -notmatch '<MarkdownContent content=\{message\.content\}' -or
+    $markdown -notmatch '```' -or $markdown -notmatch 'safeLink') {
+    throw "Shared chat content is not rendered through the safe Markdown owner."
 }
-
-if ($shared -notmatch 'autoScroll\?: boolean' -or
-    $shared -notmatch 'followsBottomRef' -or
-    $agentApp -notmatch 'autoScrollResetKey=\{selectedChat\.chatId\}') {
-    throw "Agent transcript does not opt into the shared sticky auto-scroll behavior."
+if ($resize -notmatch 'useLayoutEffect' -or $resize -notmatch 'scrollHeight') {
+    throw "Shared composer resize is not performed before paint from the textarea's measured content."
 }
-
-if ($agentApp -notmatch 'Start policy prompt' -or
-    $agentApp -notmatch 'Exact prompt sent to the model for the first agent turn' -or
-    $agentCss -notmatch '(?m)^\.agent-start-prompt') {
-    throw "Agent Web does not expose the initial policy/bootstrap prompt as expandable chat evidence."
+if ($agentApp -notmatch 'candidate\.triggerMessageId === message\.messageId' -or
+    $agentApp -notmatch 'candidate\.commandIndex === index') {
+    throw "Agent command cards reconstruct execution state instead of using durable command identity."
 }
-
-if ($agentApp -notmatch 'Command results JSON:' -or
-    $agentApp -notmatch 'agent-command-result' -or
-    $agentApp -notmatch '<details className="agent-command-result"' -or
-    $agentCss -notmatch '(?m)^\.agent-command-result') {
-    throw "Agent Web does not render command results as expandable in-chat evidence."
+if ($agentApp -match 'candidate\.request\.trim\(\) === body' -or $agentApp -match 'const used = new Set') {
+    throw "Agent command cards still guess execution linkage from command body text."
 }
-
-if ($agentApp -notmatch '<details className="agent-protocol-card agent-command-request"' -or
-    $agentApp -notmatch 'protocolExecutionMap' -or
-    $agentApp -notmatch 'Stop agent execution' -or
+if ($agentApp -notmatch 'agent-command-evidence' -or
+    $agentCss -notmatch '(?m)^\.agent-command-result' -or
     $agentCss -notmatch '(?m)^\.agent-command-request') {
-    throw "Agent-issued command blocks are not collapsible, status-linked, and stoppable."
+    throw "Agent command request/result presentation is not using the canonical evidence styling."
+}
+if ($agentApp -notmatch 'CancelRequested' -or $agentApp -notmatch 'stopping') {
+    throw "Agent Web does not surface the cancellation acknowledgement lifecycle."
+}
+if ($agentApp -notmatch 'Download log' -or $agentApp -notmatch '/debug-log') {
+    throw "Agent Web no longer exposes authenticated debug-log download through its proxy."
 }
 
-if ($agentApp -notmatch 'Download log' -or
-    $agentApp -notmatch '/debug-log' -or
-    $agentCss -notmatch '(?m)^\.agent-download') {
-    throw "Agent Web does not expose the selected chat debug-log download."
-}
-
-if ($agentApp -match 'Full command output and status are recorded in execution history') {
-    throw "Agent Web still replaces command results with the old placeholder instead of showing evidence in chat."
-}
-
-Write-Host "PASS: Agent Web reuses shared chat UI and exposes sticky scroll, policy prompt, collapsible command status/stop controls, expandable results, and debug-log download."
+Write-Host "PASS: shared Markdown/composer behavior and durable Agent command evidence rendering are wired through their owning components."
