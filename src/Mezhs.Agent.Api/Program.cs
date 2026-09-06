@@ -6,21 +6,22 @@ using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
+using Mezhs.Agent.Security;
 using Mezhs.Agent.Services;
 using Mezhs.Api.Client;
 
 var configPath = FindConfigPath(GetOption(args, "--config"));
 var options = AgentConfigLoader.Load(configPath);
+var apiKey = AgentApiAuthentication.RequireApiKey();
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(options.Listen.ToString());
 builder.Services.ConfigureHttpJsonOptions(json =>
     json.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
-builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
-    policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<AgentStore>();
+builder.Services.AddSingleton<AgentMetrics>();
 builder.Services.AddSingleton<PolicyRegistry>();
 builder.Services.AddSingleton<PolicyEvaluationService>();
 builder.Services.AddSingleton<AgentPromptBuilder>();
@@ -37,7 +38,23 @@ builder.Services.AddSingleton<AgentService>();
 
 var app = builder.Build();
 app.UseExceptionHandler();
-app.UseCors();
+app.Use(async (context, next) =>
+{
+    if (string.Equals(context.Request.Path.Value, "/health", StringComparison.Ordinal))
+    {
+        await next();
+        return;
+    }
+
+    if (!AgentApiAuthentication.IsAuthorized(context.Request, apiKey))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await context.Response.WriteAsJsonAsync(new { error = "Authentication required." });
+        return;
+    }
+
+    await next();
+});
 
 var store = app.Services.GetRequiredService<AgentStore>();
 store.Initialize();
@@ -49,6 +66,7 @@ app.MapGet("/", () => Results.Ok(new
     endpoints = new[]
     {
         "/v1/runtime",
+        "/v1/metrics",
         "/v1/policies",
         "/v1/agent-chats",
         "/v1/executions"
@@ -67,6 +85,22 @@ app.MapGet("/v1/runtime", async (
         mezhsApi = options.MezhsApi.ToString(),
         mezhsApiHealthy
     });
+});
+
+app.MapGet("/v1/metrics", (
+    AgentStore agentStore,
+    AgentWorker worker,
+    AgentMetrics metrics) =>
+{
+    var persisted = agentStore.GetMetrics();
+    return Results.Ok(new AgentMetricsView(
+        worker.QueueLength,
+        worker.ActiveExecutions,
+        persisted.TotalExecutions,
+        persisted.Failures,
+        persisted.ShellFailures,
+        metrics.PolicyDenials,
+        persisted.AverageDurationMilliseconds));
 });
 
 app.MapGet("/v1/policies", (PolicyRegistry policies) =>
@@ -128,7 +162,7 @@ app.MapGet("/v1/agent-chats/{chatId}/executions", (
 {
     if (agentStore.GetAgentChat(chatId) is null)
         return Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." });
-    return Results.Ok(agentStore.GetExecutions(chatId));
+    return Results.Ok(agentStore.GetExecutions(chatId).Select(AgentApiMapper.ToView));
 });
 
 app.MapGet("/v1/agent-chats/{chatId}/debug-log", async (
@@ -146,16 +180,19 @@ app.MapGet("/v1/agent-chats/{chatId}/debug-log", async (
 
 app.MapPost("/v1/executions", (
     CreateExecutionRequest request,
+    HttpContext context,
     AgentService agents) =>
 {
-    var execution = agents.Start(request);
-    return Results.Accepted($"/v1/executions/{execution.ExecutionId}", execution);
+    var execution = agents.Start(request, AgentApiAuthentication.GetRequester(context));
+    return Results.Accepted(
+        $"/v1/executions/{execution.ExecutionId}",
+        AgentApiMapper.ToView(execution));
 });
 
 app.MapGet("/v1/executions", (
     string? chatId,
     AgentStore agentStore) =>
-    Results.Ok(agentStore.GetExecutions(chatId)));
+    Results.Ok(agentStore.GetExecutions(chatId).Select(AgentApiMapper.ToView)));
 
 app.MapGet("/v1/executions/{executionId}", (
     string executionId,
@@ -164,17 +201,18 @@ app.MapGet("/v1/executions/{executionId}", (
     var execution = agentStore.GetExecution(executionId);
     return execution is null
         ? Results.NotFound(new { error = $"Execution '{executionId}' was not found." })
-        : Results.Ok(execution);
+        : Results.Ok(AgentApiMapper.ToView(execution));
 });
 
 app.MapPost("/v1/executions/{executionId}/cancel", (
     string executionId,
     AgentWorker worker) =>
-    Results.Ok(worker.Cancel(executionId)));
+    Results.Ok(AgentApiMapper.ToView(worker.Cancel(executionId))));
 
 Console.WriteLine($"MEŽS Agent config: {configPath}");
 Console.WriteLine($"MEŽS Agent listening: {options.Listen}");
 Console.WriteLine($"MEŽS API: {options.MezhsApi}");
+Console.WriteLine($"MEŽS Agent workspace: {options.Workspace}");
 await app.RunAsync();
 
 static async Task<AgentChatView> ToViewAsync(
