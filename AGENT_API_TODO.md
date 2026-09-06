@@ -33,8 +33,9 @@ This file collects issues found during review of the `agent-api-foundation` bran
 7. Execution queue is unbounded.
    - Use a bounded queue and backpressure/admission control.
 
-8. Agent API has no authentication boundary.
-   - Anyone who can reach the listener can potentially start, inspect, pause, or cancel executions.
+8. Agent exposure must have one explicit trust boundary.
+   - Current architecture deliberately uses the local machine as that boundary: Agent API and Agent Web must remain loopback-only and CORS-closed.
+   - Do not add a bearer layer between cooperating local processes. If a remote Agent entry point is introduced later, authenticate and authorize at that external boundary.
 
 9. CORS currently allows any origin, header, and method.
    - Restrict in non-development configurations.
@@ -49,7 +50,8 @@ This file collects issues found during review of the `agent-api-foundation` bran
    - Cover execution lifecycle, restart recovery, cancellation, policy denial, concurrency, shell timeout, and persistence.
 
 13. Debug-log endpoint can expose sensitive operational data.
-   - Protect it with authentication/authorization and consider disabling it outside development.
+   - Keep it inside the same loopback-only Agent boundary.
+   - If Agent access ever becomes remote or multi-user, this endpoint must be covered by that external authentication/authorization model.
 
 ### Medium priority
 
