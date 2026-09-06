@@ -5,6 +5,10 @@ on:
     branches:
       - agent-api-foundation
 
+concurrency:
+  group: temporary-agent-validation
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
