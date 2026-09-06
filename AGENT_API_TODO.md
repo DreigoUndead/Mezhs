@@ -287,8 +287,9 @@ Status meanings:
 
 ## Current remaining work from this review
 
-Only one item in this review remains an active implementation task:
+Two active follow-up tasks remain after this review:
 
 - **#14 — Process/service isolation:** design and implement the dedicated MEŽS supervisor/launcher.
+- **Common SQLite/LogSql storage foundation:** extract/reuse the generic SQLite ownership from `Mezhs.Log.Sql` for main MEŽS API and Agent persistence. Keep generic database path/connection/transaction/migration mechanics separate from `Mezhs.Log.Shared` log-root and notes-file semantics; application databases must not pretend to be log files. Migrate the existing main/API/Agent SQLite writers only after that common ownership boundary is clean.
 
-Items **#10** and **#18** are explicit capability/security design decisions rather than unfinished code. **#28** is intentionally deferred until a concrete metrics consumer exists. All other findings are resolved, rejected as invalid/redundant, or closed for the current foundation scope.
+Items **#10** and **#18** are explicit capability/security design decisions rather than unfinished code. **#28** is intentionally deferred until a concrete metrics consumer exists. All other numbered findings are resolved, rejected as invalid/redundant, or closed for the current foundation scope.
