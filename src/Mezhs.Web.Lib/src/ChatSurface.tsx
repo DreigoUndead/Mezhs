@@ -1,5 +1,6 @@
 import { FormEvent, KeyboardEvent, ReactNode, UIEvent, useEffect, useRef } from "react";
 import type { ApiFile, ChatMessage } from "./providers/contracts";
+import { MarkdownContent } from "./MarkdownContent";
 import { useAutoResizeTextArea } from "./useAutoResizeTextArea";
 
 export type ChatSurfaceMessage = Pick<
@@ -102,7 +103,7 @@ export function ChatTranscript({
                 <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>
               )}
             </div>
-            {message.content && <div className="message-content">{message.content}</div>}
+            {message.content && <div className="message-content"><MarkdownContent content={message.content} /></div>}
             {(message.files?.length ?? 0) > 0 && (
               <div className="message-files">
                 {message.files!.map((file) => file.contentType.startsWith("image/") ? (

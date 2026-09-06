@@ -1,11 +1,13 @@
-import { RefObject, useEffect } from "react";
+import { RefObject, useLayoutEffect } from "react";
 
 export function useAutoResizeTextArea(ref: RefObject<HTMLTextAreaElement>, value: string) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     const textarea = ref.current;
     if (!textarea) return;
 
-    textarea.style.height = "auto";
-    textarea.style.height = `${textarea.scrollHeight}px`;
+    textarea.style.height = "0px";
+    const nextHeight = Math.min(textarea.scrollHeight, 160);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > nextHeight ? "auto" : "hidden";
   }, [ref, value]);
 }

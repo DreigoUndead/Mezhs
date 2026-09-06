@@ -6,6 +6,7 @@ export type {
   ChatSurfaceMessage,
   ChatTranscriptProps,
 } from "./ChatSurface";
+export { MarkdownContent } from "./MarkdownContent";
 export { ApiChatProvider, expectJson } from "./providers/apiChatProvider";
 export { ChatProviderRegistry } from "./providers/registry";
 export * from "./providers/contracts";
