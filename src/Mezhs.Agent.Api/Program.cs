@@ -6,13 +6,13 @@ using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
-using Mezhs.Agent.Security;
 using Mezhs.Agent.Services;
 using Mezhs.Api.Client;
 
+const string requesterHeader = "X-MEZHS-Requester";
+
 var configPath = FindConfigPath(GetOption(args, "--config"));
 var options = AgentConfigLoader.Load(configPath);
-var apiKey = AgentApiAuthentication.RequireApiKey();
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(options.Listen.ToString());
 builder.Services.ConfigureHttpJsonOptions(json =>
@@ -38,23 +38,6 @@ builder.Services.AddSingleton<AgentService>();
 
 var app = builder.Build();
 app.UseExceptionHandler();
-app.Use(async (context, next) =>
-{
-    if (string.Equals(context.Request.Path.Value, "/health", StringComparison.Ordinal))
-    {
-        await next();
-        return;
-    }
-
-    if (!AgentApiAuthentication.IsAuthorized(context.Request, apiKey))
-    {
-        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        await context.Response.WriteAsJsonAsync(new { error = "Authentication required." });
-        return;
-    }
-
-    await next();
-});
 
 var store = app.Services.GetRequiredService<AgentStore>();
 store.Initialize();
@@ -183,7 +166,7 @@ app.MapPost("/v1/executions", (
     HttpContext context,
     AgentService agents) =>
 {
-    var execution = agents.Start(request, AgentApiAuthentication.GetRequester(context));
+    var execution = agents.Start(request, GetRequester(context));
     return Results.Accepted(
         $"/v1/executions/{execution.ExecutionId}",
         AgentApiMapper.ToView(execution));
@@ -214,6 +197,16 @@ Console.WriteLine($"MEŽS Agent listening: {options.Listen}");
 Console.WriteLine($"MEŽS API: {options.MezhsApi}");
 Console.WriteLine($"MEŽS Agent workspace: {options.Workspace}");
 await app.RunAsync();
+
+static string GetRequester(HttpContext context)
+{
+    var requester = context.Request.Headers[requesterHeader].ToString().Trim();
+    if (requester.Length == 0)
+        return "local-api";
+    if (requester.Length > 128 || requester.Any(char.IsControl))
+        throw new RequestValidationException($"{requesterHeader} must be at most 128 printable characters.");
+    return requester;
+}
 
 static async Task<AgentChatView> ToViewAsync(
     AgentChatRecord record,
