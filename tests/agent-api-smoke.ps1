@@ -40,8 +40,8 @@ function Wait-Health([string]$uri) {
     } while ($true)
 }
 
-function Start-AgentExecution([string]$policyId, [string]$input, [hashtable]$environment = $null) {
-    $body = @{ policyId = $policyId; input = $input }
+function Start-AgentExecution([string]$policyId, [string]$taskInput, [hashtable]$environment = $null) {
+    $body = @{ policyId = $policyId; input = $taskInput }
     if ($null -ne $environment) { $body.environment = $environment }
     return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions" `
         -Headers $requestHeaders -ContentType "application/json" -Body (ConvertTo-Json $body -Depth 5)
