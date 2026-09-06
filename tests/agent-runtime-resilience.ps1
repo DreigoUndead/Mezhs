@@ -73,7 +73,8 @@ function Wait-AttachedRunningExecution([string]$executionId, [int]$seconds = 10)
 function Wait-Shell([string]$chatId, [string[]]$statuses, [int]$seconds = 20) {
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($seconds)
     do {
-        $executions = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$chatId/executions")
+        $response = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$chatId/executions"
+        $executions = @($response | ForEach-Object { $_ })
         $shell = @($executions | Where-Object { $_.kind -eq "Shell" -and $_.status -in $statuses } | Sort-Object createdAt -Descending)[0]
         if ($null -ne $shell) { return $shell }
         if ([DateTimeOffset]::UtcNow -ge $deadline) {
