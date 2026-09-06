@@ -8,13 +8,13 @@ Current built-in integrations are ChatGPT Web, ChatGPT Account, Gemini Web, Grok
 
 `Mezhs.Agent.Api` can execute policy-approved commands on the host operating system. That is an intentional capability boundary, not a sandbox.
 
-Before starting Agent API or Agent Web, set `MEZHS_AGENT_API_KEY` to the same non-empty secret in both processes. Agent API accepts authenticated requests only and its configured listener must be loopback. Browser access goes through the same-origin `Mezhs.Agent.Web` proxy, which authenticates to Agent API server-side.
+The current Agent trust boundary is the local machine. Both `Mezhs.Agent.Api` and `Mezhs.Agent.Web` must bind only to loopback addresses, and Agent Web may proxy only to a loopback Agent API. There is deliberately no bearer-token layer between these cooperating local processes; if MEŽS later gains a remotely reachable Agent entry point, authentication belongs at that external boundary.
 
 Agent shell commands always run from the configured `workspace`. Caller-provided environment variables are denied unless the selected policy explicitly allows their names; `MEZHS_*` variables are reserved for runtime execution context.
 
 ## Architecture
 
-Agent responsibilities are intentionally split by owner: API boundary authentication/admission, durable execution/evidence persistence, policy compilation/evaluation, bounded worker scheduling, shell process lifecycle, and shared chat rendering. The dashboard consumes persisted command identity rather than reconstructing execution state from command text.
+Agent responsibilities are intentionally split by owner: local-only API exposure and admission, durable execution/evidence persistence, policy compilation/evaluation, bounded worker scheduling, shell process lifecycle, and shared chat rendering. The dashboard consumes persisted command identity rather than reconstructing execution state from command text.
 
 ## Known Issues / TODO
 
