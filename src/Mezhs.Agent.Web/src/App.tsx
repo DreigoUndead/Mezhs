@@ -65,7 +65,6 @@ type Execution = {
   connectionId: string;
   source: string;
   sourceReference?: string;
-  requester: string;
   status: ExecutionStatus;
   request: string;
   result?: string;
@@ -915,7 +914,6 @@ export default function App() {
                       <span className={`agent-execution-status ${statusTone(execution.status)}`}>{execution.status}</span>
                       {execution.exitCode !== undefined && <span>exit {execution.exitCode}</span>}
                       {activeStatuses.has(execution.status) && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
-                      <span>{execution.requester}</span>
                       <time>{formatTime(execution.createdAt)}</time>
                     </div>
                     {execution.kind === "Shell" ? <pre className="agent-command-code">{execution.request}</pre> : <code>{execution.request}</code>}

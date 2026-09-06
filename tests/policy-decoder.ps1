@@ -27,7 +27,6 @@ using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
-using Mezhs.Agent.Services;
 using Microsoft.Data.Sqlite;
 
 var options = AgentConfigLoader.Load(args[0]);
@@ -118,14 +117,45 @@ try
 {
     var store = new AgentStore(shellOptions);
     store.Initialize();
-    var metrics = new AgentMetrics();
-    var evaluations = new PolicyEvaluationService(store, metrics);
+    var evaluations = new PolicyEvaluationService(store);
     var interpreter = new Interpreter(parser, evaluations, new Shell(store, shellOptions));
     var emptyEnvironment = new Dictionary<string, string>();
 
-    var root = store.CreateRootExecution(
-        normal.Id, normal.ConnectionId, "chat_shell", "manual", null, "policy-test",
-        "shell test", emptyEnvironment, normal.Snapshot);
+    // SQLite is the root execution queue. A running execution must block only later work for the same chat.
+    var serialA1 = store.TryCreateRootExecution(
+        normal.Id, normal.ConnectionId, "chat_serial_a", "manual", null,
+        "serial a1", emptyEnvironment, normal.Snapshot, 100)
+        ?? throw new InvalidOperationException("Could not admit serial execution A1.");
+    Thread.Sleep(5);
+    var serialA2 = store.TryCreateRootExecution(
+        normal.Id, normal.ConnectionId, "chat_serial_a", "manual", null,
+        "serial a2", emptyEnvironment, normal.Snapshot, 100)
+        ?? throw new InvalidOperationException("Could not admit serial execution A2.");
+    Thread.Sleep(5);
+    var parallelB = store.TryCreateRootExecution(
+        normal.Id, normal.ConnectionId, "chat_parallel_b", "manual", null,
+        "parallel b", emptyEnvironment, normal.Snapshot, 100)
+        ?? throw new InvalidOperationException("Could not admit parallel execution B.");
+
+    var firstClaim = store.TryClaimNextQueuedExecution();
+    Assert(firstClaim?.ExecutionId == serialA1.ExecutionId,
+        "Durable queue did not claim the oldest eligible execution first.");
+    var secondClaim = store.TryClaimNextQueuedExecution();
+    Assert(secondClaim?.ExecutionId == parallelB.ExecutionId,
+        "Same-chat work became Running instead of leaving capacity for another chat.");
+    Assert(store.GetExecution(serialA2.ExecutionId)?.Status == AgentExecutionStatus.Queued,
+        "Second execution for one chat did not remain durably queued while the first was active.");
+    Assert(store.Complete(firstClaim!.ExecutionId, "done") && store.Complete(secondClaim!.ExecutionId, "done"),
+        "Claimed queue test executions did not complete.");
+    var thirdClaim = store.TryClaimNextQueuedExecution();
+    Assert(thirdClaim?.ExecutionId == serialA2.ExecutionId,
+        "Queued same-chat work was not claimable after its predecessor completed.");
+    Assert(store.Complete(thirdClaim!.ExecutionId, "done"), "Final queue test execution did not complete.");
+
+    var root = store.TryCreateRootExecution(
+        normal.Id, normal.ConnectionId, "chat_shell", "manual", null,
+        "shell test", emptyEnvironment, normal.Snapshot, 100)
+        ?? throw new InvalidOperationException("Shell test root execution was not admitted.");
     Assert(store.TryMarkRunning(root.ExecutionId), "Shell test root execution did not start.");
 
     var simple = await interpreter.InterpretAsync(
@@ -172,9 +202,10 @@ try
            unicode.Results.Single().Output?.Contains(unicodeText, StringComparison.Ordinal) == true,
         $"Unicode shell output was corrupted: {unicode.Results.FirstOrDefault()?.Output}");
 
-    var timeoutRoot = store.CreateRootExecution(
-        timeoutPolicy.Id, timeoutPolicy.ConnectionId, "chat_timeout", "manual", null, "policy-test",
-        "timeout test", emptyEnvironment, timeoutPolicy.Snapshot);
+    var timeoutRoot = store.TryCreateRootExecution(
+        timeoutPolicy.Id, timeoutPolicy.ConnectionId, "chat_timeout", "manual", null,
+        "timeout test", emptyEnvironment, timeoutPolicy.Snapshot, 100)
+        ?? throw new InvalidOperationException("Timeout root execution was not admitted.");
     Assert(store.TryMarkRunning(timeoutRoot.ExecutionId), "Timeout root execution did not start.");
     var timeoutText = OperatingSystem.IsWindows() ? "ping -n 6 127.0.0.1 >nul" : "sleep 5";
     var started = DateTimeOffset.UtcNow;
@@ -188,10 +219,6 @@ try
     Assert(elapsed < TimeSpan.FromSeconds(4), $"Configured timeout was not enforced promptly: {elapsed}.");
     var timeoutChild = store.GetExecutions("chat_timeout").Single(record => record.Kind == AgentExecutionKind.Shell);
     Assert(timeoutChild.Status == AgentExecutionStatus.Failed, "Timed-out shell was not persisted as failed evidence.");
-
-    var storeMetrics = store.GetMetrics();
-    Assert(storeMetrics.TotalExecutions >= 7 && storeMetrics.ShellFailures >= 2,
-        "Execution metrics did not reflect persisted shell outcomes.");
 }
 finally
 {
@@ -201,7 +228,7 @@ finally
     File.Delete(shellOptions.Storage + "-wal");
 }
 
-Console.WriteLine("PASS: typed policy rules, structured actions, immutable completion evidence, durable duplicate-command identity, shell fidelity, Unicode, timeout, and metrics behavior are correct.");
+Console.WriteLine("PASS: typed policy rules, structured actions, immutable completion evidence, durable queue serialization, command identity, shell fidelity, Unicode, and timeout behavior are correct.");
 
 static void Assert(bool condition, string message)
 {

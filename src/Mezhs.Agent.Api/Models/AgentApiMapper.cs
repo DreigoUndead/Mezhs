@@ -15,7 +15,6 @@ public static class AgentApiMapper
         record.ConnectionId,
         record.Source,
         record.SourceReference,
-        record.Requester,
         record.Status,
         record.Request,
         record.Result,

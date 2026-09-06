@@ -18,14 +18,10 @@ public sealed class AgentWorker : BackgroundService
     private readonly AgentPromptBuilder _prompts;
     private readonly PolicyEvaluationService _evaluations;
     private readonly Interpreter _commands;
-    private readonly Channel<string> _queue;
+    private readonly Channel<bool> _wake;
     private readonly int _maxConcurrentExecutions;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _cancellations =
         new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _chatGates =
-        new(StringComparer.OrdinalIgnoreCase);
-    private int _queuedCount;
-    private int _activeCount;
 
     public AgentWorker(
         AgentStore store,
@@ -43,24 +39,15 @@ public sealed class AgentWorker : BackgroundService
         _evaluations = evaluations;
         _commands = commands;
         _maxConcurrentExecutions = options.Runtime.MaxConcurrentExecutions;
-        _queue = Channel.CreateBounded<string>(new BoundedChannelOptions(options.Runtime.QueueCapacity)
+        _wake = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
         {
             SingleReader = false,
             SingleWriter = false,
-            FullMode = BoundedChannelFullMode.Wait
+            FullMode = BoundedChannelFullMode.DropWrite
         });
     }
 
-    public int QueueLength => Volatile.Read(ref _queuedCount);
-    public int ActiveExecutions => Volatile.Read(ref _activeCount);
-
-    public bool TryEnqueue(string executionId)
-    {
-        if (!_queue.Writer.TryWrite(executionId))
-            return false;
-        Interlocked.Increment(ref _queuedCount);
-        return true;
-    }
+    public void SignalWork() => _wake.Writer.TryWrite(true);
 
     public ExecutionRecord Cancel(string executionId)
     {
@@ -78,6 +65,8 @@ public sealed class AgentWorker : BackgroundService
         var consumers = Enumerable.Range(0, _maxConcurrentExecutions)
             .Select(_ => ConsumeAsync(stoppingToken))
             .ToArray();
+        SignalWork();
+
         try
         {
             await Task.WhenAll(consumers);
@@ -85,53 +74,42 @@ public sealed class AgentWorker : BackgroundService
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
         }
-        finally
-        {
-            while (_queue.Reader.TryRead(out var executionId))
-            {
-                Interlocked.Decrement(ref _queuedCount);
-                _store.Interrupt(executionId);
-            }
-        }
     }
 
     public override Task StopAsync(CancellationToken cancellationToken)
     {
-        _queue.Writer.TryComplete();
+        _wake.Writer.TryComplete();
         return base.StopAsync(cancellationToken);
     }
 
     private async Task ConsumeAsync(CancellationToken stoppingToken)
     {
-        await foreach (var executionId in _queue.Reader.ReadAllAsync(stoppingToken))
+        await foreach (var _ in _wake.Reader.ReadAllAsync(stoppingToken))
         {
-            Interlocked.Decrement(ref _queuedCount);
-            Interlocked.Increment(ref _activeCount);
+            var execution = _store.TryClaimNextQueuedExecution();
+            if (execution is null)
+                continue;
+
+            SignalWork();
             try
             {
-                await ProcessAsync(executionId, stoppingToken);
+                await ProcessAsync(execution, stoppingToken);
             }
             finally
             {
-                Interlocked.Decrement(ref _activeCount);
+                SignalWork();
             }
         }
     }
 
-    private async Task ProcessAsync(string executionId, CancellationToken stoppingToken)
+    private async Task ProcessAsync(ExecutionRecord execution, CancellationToken stoppingToken)
     {
+        var executionId = execution.ExecutionId;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         _cancellations[executionId] = cancellation;
-        SemaphoreSlim? chatGate = null;
-        var chatGateAcquired = false;
 
         try
         {
-            if (!_store.TryMarkRunning(executionId))
-                return;
-
-            var execution = _store.GetExecution(executionId)
-                ?? throw new ResourceNotFoundException($"Execution '{executionId}' was not found.");
             var policy = _policies.Get(execution.PolicyId);
 
             var chatId = execution.ChatId;
@@ -157,10 +135,6 @@ public sealed class AgentWorker : BackgroundService
                 execution.SourceReference,
                 execution.Environment);
             _store.ValidateAgentChatRunnable(chatId);
-
-            chatGate = _chatGates.GetOrAdd(chatId, _ => new SemaphoreSlim(1, 1));
-            await chatGate.WaitAsync(cancellation.Token);
-            chatGateAcquired = true;
 
             var existingMessages = await _mezhs.GetMessagesAsync(chatId, cancellation.Token);
             var hasCompletedAgentHistory = existingMessages.Any(message =>
@@ -243,8 +217,6 @@ public sealed class AgentWorker : BackgroundService
         }
         finally
         {
-            if (chatGate is not null && chatGateAcquired)
-                chatGate.Release();
             _cancellations.TryRemove(executionId, out _);
         }
     }

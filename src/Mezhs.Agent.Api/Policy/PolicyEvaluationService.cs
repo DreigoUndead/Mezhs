@@ -1,46 +1,28 @@
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
-using Mezhs.Agent.Services;
 
 namespace Mezhs.Agent.Policy;
 
-public sealed class PolicyEvaluationService(
-    AgentStore store,
-    AgentMetrics metrics)
+public sealed class PolicyEvaluationService(AgentStore store)
 {
     public PolicyDecision ValidateTurn(
         PolicyContext policy,
         ExecutionRecord execution,
-        int turnIndex)
-    {
-        var decision = policy.ValidateTurn(new PolicyTurnContext(Create(execution), turnIndex));
-        if (!decision.Allowed)
-            metrics.RecordPolicyDenial();
-        return decision;
-    }
+        int turnIndex) =>
+        policy.ValidateTurn(new PolicyTurnContext(Create(execution), turnIndex));
 
     public PolicyCompletionDecision EvaluateCompletion(
         PolicyContext policy,
         ExecutionRecord execution,
-        bool completionClaimed)
-    {
-        var decision = policy.EvaluateCompletion(
+        bool completionClaimed) =>
+        policy.EvaluateCompletion(
             new PolicyCompletionContext(Create(execution), completionClaimed));
-        if (decision.State == PolicyCompletionState.Rejected)
-            metrics.RecordPolicyDenial();
-        return decision;
-    }
 
     public PolicyDecision ValidateAction(
         PolicyContext policy,
         ExecutionRecord execution,
-        PolicyAction action)
-    {
-        var decision = policy.ValidateAction(new PolicyActionContext(Create(execution), action));
-        if (!decision.Allowed)
-            metrics.RecordPolicyDenial();
-        return decision;
-    }
+        PolicyAction action) =>
+        policy.ValidateAction(new PolicyActionContext(Create(execution), action));
 
     private PolicyEvaluationContext Create(ExecutionRecord execution)
     {

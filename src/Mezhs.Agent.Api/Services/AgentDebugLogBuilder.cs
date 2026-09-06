@@ -91,7 +91,6 @@ public sealed class AgentDebugLogBuilder(
             $"[{Format(execution.CreatedAt)}] execution={execution.ExecutionId} kind={execution.Kind} status={execution.Status}");
         log.AppendLine($"parentExecutionId: {execution.ParentExecutionId ?? "-"}");
         log.AppendLine($"correlationId: {execution.CorrelationId}");
-        log.AppendLine($"requester: {execution.Requester}");
         log.AppendLine($"source: {execution.Source}");
         if (!string.IsNullOrWhiteSpace(execution.SourceReference))
             log.AppendLine($"sourceReference: {execution.SourceReference}");

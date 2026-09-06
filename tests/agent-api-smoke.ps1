@@ -6,7 +6,6 @@ $mezhsConfig = Join-Path $PSScriptRoot "mezhs.test.yaml"
 $agentConfig = Join-Path $PSScriptRoot "mezhs.agent.test.yaml"
 $dataPath = Join-Path $PSScriptRoot "data-agent-test"
 $genericDataPath = Join-Path $PSScriptRoot "data"
-$requestHeaders = @{ "X-MEZHS-Requester" = "agent-http-test" }
 
 $apiOut = Join-Path $PSScriptRoot "agent-http-api.out.log"
 $apiErr = Join-Path $PSScriptRoot "agent-http-api.err.log"
@@ -44,7 +43,7 @@ function Start-AgentExecution([string]$policyId, [string]$taskInput, [hashtable]
     $body = @{ policyId = $policyId; input = $taskInput }
     if ($null -ne $environment) { $body.environment = $environment }
     return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions" `
-        -Headers $requestHeaders -ContentType "application/json" -Body (ConvertTo-Json $body -Depth 5)
+        -ContentType "application/json" -Body (ConvertTo-Json $body -Depth 5)
 }
 
 function Wait-AgentExecution([string]$executionId) {
@@ -102,6 +101,9 @@ try {
     if ((Get-Status "http://127.0.0.1:5199/v1/runtime") -ne 200) {
         throw "Loopback Agent API unexpectedly requires authentication."
     }
+    if ((Get-Status "http://127.0.0.1:5199/v1/metrics") -ne 404) {
+        throw "Unused generic metrics endpoint still exists."
+    }
 
     $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/runtime"
     if (-not $runtime.mezhsApiHealthy) { throw "Agent API cannot reach generic MEZS API." }
@@ -120,8 +122,11 @@ try {
 
     $created = Start-AgentExecution "test" "hello agent"
     $completed = Wait-AgentExecution $created.executionId
-    if ($completed.status -ne "Completed" -or $completed.requester -ne "agent-http-test" -or -not $completed.chatId) {
-        throw "Execution did not preserve requester/chat/completion state."
+    if ($completed.status -ne "Completed" -or -not $completed.chatId) {
+        throw "Execution did not preserve chat/completion state."
+    }
+    if ($completed.PSObject.Properties.Name -contains "requester") {
+        throw "Execution API still exposes unauthenticated requester provenance."
     }
 
     $environmentTask = @"
@@ -137,7 +142,6 @@ echo %TEST_AGENT_VALUE%
 
     $client = [Net.Http.HttpClient]::new()
     try {
-        $client.DefaultRequestHeaders.Add("X-MEZHS-Requester", "agent-http-test")
         $invalidBody = ConvertTo-Json @{ policyId = "test"; input = "invalid env"; environment = @{ PATH = "malicious" } }
         $content = [Net.Http.StringContent]::new($invalidBody, [Text.Encoding]::UTF8, "application/json")
         try {
@@ -154,10 +158,8 @@ echo %TEST_AGENT_VALUE%
     if ($debug.StatusCode -ne 200 -or $debug.Headers["Content-Disposition"] -notmatch "attachment" -or $debug.Content -notmatch $completed.executionId) {
         throw "Local debug log is not downloadable/auditable."
     }
-
-    $metrics = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/metrics"
-    if ($metrics.totalExecutions -lt 3 -or $metrics.activeExecutions -lt 0 -or $metrics.queueLength -lt 0) {
-        throw "Agent metrics endpoint returned implausible execution/capacity data."
+    if ($debug.Content -match '(?m)^requester:') {
+        throw "Debug log still exposes obsolete requester metadata."
     }
 
     # Agent Web is the browser-facing half of the same local trust boundary and must also reject network exposure.
@@ -196,13 +198,13 @@ echo %TEST_AGENT_VALUE%
     if ($proxiedDebug.StatusCode -ne 200) { throw "Agent Web did not proxy the local debug log." }
 
     $webExecution = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5200/v1/executions" `
-        -ContentType "application/json" -Body (ConvertTo-Json @{ policyId = "test"; input = "web proxy provenance" })
+        -ContentType "application/json" -Body (ConvertTo-Json @{ policyId = "test"; input = "web proxy execution" })
     $webCompleted = Wait-AgentExecution $webExecution.executionId
-    if ($webCompleted.requester -ne "agent-web") {
-        throw "Agent Web proxy did not preserve its audit requester provenance."
+    if ($webCompleted.status -ne "Completed" -or -not $webCompleted.chatId) {
+        throw "Agent Web proxy did not create a normal durable execution."
     }
 
-    Write-Host "PASS: Agent API/Web are loopback-only, CORS-closed, requester-aware, environment-scoped, DTO-backed, metrics-enabled, and proxy locally without bearer ceremony."
+    Write-Host "PASS: Agent API/Web are loopback-only, CORS-closed, environment-scoped, DTO-backed, free of requester/metrics ceremony, and proxy locally."
 }
 finally {
     if ($null -ne $web -and -not $web.HasExited) { Stop-Process -Id $web.Id -Force; $web.WaitForExit() }

@@ -5,49 +5,48 @@ This file collects issues found during review of the `agent-api-foundation` bran
 ## User-reported UI and runtime issues
 
 1. Prompt textbox jumps while typing on line 2 or later.
-   - When the caret is on the second or later line, the UI above the textbox visibly jumps on each typed character.
+   - Resolved in the shared composer by resizing before paint.
 
 2. Chat UI does not render Markdown/code formatting correctly.
-   - Raw markers such as triple backticks, `##`, and other Markdown syntax appear directly in chat.
-   - Code blocks and headings should be rendered instead of shown as raw markup.
+   - Resolved in the shared chat renderer.
 
 3. Automatic continuation prompt is ambiguous and should come from policy configuration.
-   - Current automatic text: `Continue the assigned agent task according to the applicable policy.`
-   - It should explicitly tell the model how to stop, for example that it must return `<DONE>` when the task is complete.
-   - The full continuation message should be configurable in policy/runtime configuration, not hardcoded.
+   - Resolved: runtime messages are configurable and explicitly explain `<DONE>`.
 
 4. Some shell commands are not formatted correctly in the UI.
-   - Command blocks/results should use one consistent shell/code presentation.
+   - Resolved through persisted command evidence and consistent command/result cards.
 
 5. After restarting a chat, previously executed shell commands show `NOT EXECUTED`.
-   - Execution state must be persisted/restored correctly so historical commands keep their actual executed status.
+   - Resolved by persisting command name, originating assistant message id, and command index.
 
 6. Shell execution can remain stuck for several minutes in the native chat UI.
-   - Observed while a simple generated shell block was still shown as executing after about four minutes.
-   - Investigate command lifecycle, timeout propagation, process completion detection, and UI refresh/state synchronization.
+   - Shell timeout/cancellation owns process-tree termination and bounded shutdown waits; lifecycle tests cover this path.
 
 ## Review findings
 
 ### High priority
 
 7. Execution queue is unbounded.
-   - Use a bounded queue and backpressure/admission control.
+   - Resolved after sanity review: SQLite is the authoritative bounded root-execution queue.
+   - Admission is atomic against durable outstanding work; the worker keeps only a wake signal and atomically claims eligible queued rows.
+   - Same-chat serialization is checked before a queued execution becomes `Running`, and queued work survives Agent restart.
 
 8. Agent exposure must have one explicit trust boundary.
-   - Current architecture deliberately uses the local machine as that boundary: Agent API and Agent Web must remain loopback-only and CORS-closed.
+   - Current architecture deliberately uses the local machine as the API boundary: Agent API and Agent Web remain loopback-only and CORS-closed.
    - Do not add a bearer layer between cooperating local processes. If a remote Agent entry point is introduced later, authenticate and authorize at that external boundary.
 
 9. CORS currently allows any origin, header, and method.
-   - Restrict in non-development configurations.
+   - Resolved: Agent API does not enable cross-origin browser access.
 
 10. Shell capability boundary is too broad.
-   - Policy currently gates access, but allowed shell execution still reaches the host shell directly.
-   - Introduce stronger execution/sandbox boundaries before remote exposure.
+   - Sanity conclusion: direct host-shell execution is intentional when a policy explicitly allows `SH`; MEŽS must not pretend command filtering is a sandbox.
+   - Loopback does not make future external event content trusted. Before WhatsApp/Jira/reminder policies expose powerful capabilities to untrusted input, prefer narrow structured tools or real OS privilege/isolation boundaries.
 
 11. No rate limiting or execution admission control.
+   - Resolved: durable admission caps outstanding root executions and returns HTTP 429 without creating a rejected execution row.
 
 12. Agent-specific integration tests are missing.
-   - Cover execution lifecycle, restart recovery, cancellation, policy denial, concurrency, shell timeout, and persistence.
+   - Resolved for the foundation: lifecycle, restart recovery, cancellation, policy denial, durable admission/serialization, shell timeout, and persistence are covered.
 
 13. Debug-log endpoint can expose sensitive operational data.
    - Keep it inside the same loopback-only Agent boundary.
@@ -56,50 +55,56 @@ This file collects issues found during review of the `agent-api-foundation` bran
 ### Medium priority
 
 14. MEZS services and the controlling shell need process isolation.
-   - Services must run in a detached process/session so stopping/restarting them does not kill the command interface controlling them.
+   - Still open. Services need one dedicated supervisor/launcher that owns detached process/session startup.
 
 15. Worker task tracking is more complex than necessary.
-   - Active task exceptions can be observed late and lifecycle handling can be simplified.
+   - Resolved: fixed worker consumers own execution concurrency; no dynamic task set remains.
 
 16. AgentStore serializes all writes through one global application lock.
-   - Acceptable for now, but it will become a concurrency bottleneck.
+   - Resolved: the application lock is gone. SQLite WAL + busy timeout + independent connections own concurrency; shared-cache mode is not used.
 
 17. Shell execution has no explicit working-directory/workspace isolation.
+   - Resolved: shell execution uses one configured workspace.
 
 18. Policy cannot enforce runtime restrictions after a process starts.
-   - Future limits may need resource, filesystem, network, and process controls.
+   - Sanity conclusion matches #10: `SH` is not a security sandbox. Add actual OS-level controls only where a concrete untrusted capability boundary requires them.
 
 19. Policy evidence is rebuilt from mutable live execution history.
-   - Consider immutable evidence snapshots for deterministic/auditable policy decisions.
+   - Resolved: policy evaluation receives immutable execution-evidence snapshots.
 
 20. Policy actions are opaque `Kind + Request string` values.
-   - Structured action metadata would make policy enforcement safer and easier.
+   - Resolved: actions carry the command definition plus body.
 
 21. Completion is model-claimed before system verification.
-   - Treat model completion as a request/claim and verify required evidence before accepting it.
+   - Resolved and intentionally retained: `<DONE>` is a claim; policy may require persisted successful command evidence before accepting it.
 
 22. Execution records lack requester identity.
-   - Record who/what requested an execution in addition to generic source/sourceReference.
+   - Rejected after sanity review. `Source`, `SourceReference`, parent execution, and correlation id already own durable causal provenance.
+   - An unauthenticated `Requester` header duplicated those semantics without creating trusted identity, so the header/column/DTO/environment field were removed.
 
 23. Caller-provided environment variables can influence shell execution.
-   - Define ownership and restrict/namespace user-supplied environment variables.
+   - Resolved: policies explicitly allow environment names and `MEZHS_*` is runtime-reserved.
 
 24. Cancellation is cooperative and does not model acknowledgement/stopping states.
-   - Consider states such as CancelRequested/Stopping/Stopped where needed.
+   - Resolved with durable `CancelRequested` before terminal `Cancelled` acknowledgement for running work.
 
 25. Configuration supports only version 1 with no migration path.
+   - Version dispatch now exists before version-specific decoding so later versions have an explicit seam.
 
 26. Storage path resolution can escape an intended storage root.
+   - Review found no intended Agent storage root invariant to enforce; workspace/storage are explicit configuration paths.
 
 27. API persistence records are exposed directly instead of dedicated API DTOs.
+   - Resolved with dedicated execution views/mapping.
 
 28. Operational metrics are missing.
-   - Queue length, active executions, failures, duration, shell failures, and policy denials should be observable.
+   - Deferred after sanity review. The generic metrics layer had no consumer and mixed durable derived values with an ephemeral policy-denial counter.
+   - Add concrete, durable aggregates when the dashboard or another real operational consumer needs them instead of maintaining speculative telemetry now.
 
 29. Repository/file modification workflow needs safer verification.
-   - Before committing automated file edits, verify the resulting diff contains only intended changes.
+   - Covered by the repository `.agents` change workflow and final-diff validation.
 
 ### Low priority
 
 30. Temporary Windows command files may remain if cleanup fails.
-   - Cleanup currently ignores IO/permission failures.
+   - Resolved by streaming shell text over stdin; temporary `.cmd` files are no longer created.

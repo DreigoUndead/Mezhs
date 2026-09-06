@@ -1,3 +1,4 @@
+using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 
@@ -6,9 +7,10 @@ namespace Mezhs.Agent.Services;
 public sealed class AgentService(
     AgentStore store,
     PolicyRegistry policies,
-    AgentWorker worker)
+    AgentWorker worker,
+    AgentOptions options)
 {
-    public ExecutionRecord Start(CreateExecutionRequest request, string requester)
+    public ExecutionRecord Start(CreateExecutionRequest request)
     {
         var policyId = request.PolicyId?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(policyId))
@@ -36,21 +38,22 @@ public sealed class AgentService(
             }
         }
 
-        var execution = store.CreateRootExecution(
+        var maxOutstandingExecutions =
+            (long)options.Runtime.QueueCapacity + options.Runtime.MaxConcurrentExecutions;
+        var execution = store.TryCreateRootExecution(
             policyId,
             policy.ConnectionId,
             chatId,
             source: "manual",
             sourceReference: null,
-            requester,
             request.Input.Trim(),
             environment,
-            policies.Snapshot(policyId));
-        if (!worker.TryEnqueue(execution.ExecutionId))
-        {
-            store.Fail(execution.ExecutionId, "MEŽS Agent execution queue is full.");
+            policies.Snapshot(policyId),
+            maxOutstandingExecutions);
+        if (execution is null)
             throw new AgentCapacityExceededException("MEŽS Agent execution queue is full. Try again after queued work starts.");
-        }
+
+        worker.SignalWork();
         return execution;
     }
 
@@ -58,7 +61,10 @@ public sealed class AgentService(
     {
         var chat = store.SetAgentChatPaused(chatId, paused);
         if (!paused)
+        {
+            worker.SignalWork();
             return chat;
+        }
 
         foreach (var execution in store.GetExecutions(chatId)
                      .Where(record =>

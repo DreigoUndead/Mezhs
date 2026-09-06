@@ -9,8 +9,6 @@ using Mezhs.Agent.Policy;
 using Mezhs.Agent.Services;
 using Mezhs.Api.Client;
 
-const string requesterHeader = "X-MEZHS-Requester";
-
 var configPath = FindConfigPath(GetOption(args, "--config"));
 var options = AgentConfigLoader.Load(configPath);
 var builder = WebApplication.CreateBuilder(args);
@@ -21,7 +19,6 @@ builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<AgentStore>();
-builder.Services.AddSingleton<AgentMetrics>();
 builder.Services.AddSingleton<PolicyRegistry>();
 builder.Services.AddSingleton<PolicyEvaluationService>();
 builder.Services.AddSingleton<AgentPromptBuilder>();
@@ -49,7 +46,6 @@ app.MapGet("/", () => Results.Ok(new
     endpoints = new[]
     {
         "/v1/runtime",
-        "/v1/metrics",
         "/v1/policies",
         "/v1/agent-chats",
         "/v1/executions"
@@ -68,22 +64,6 @@ app.MapGet("/v1/runtime", async (
         mezhsApi = options.MezhsApi.ToString(),
         mezhsApiHealthy
     });
-});
-
-app.MapGet("/v1/metrics", (
-    AgentStore agentStore,
-    AgentWorker worker,
-    AgentMetrics metrics) =>
-{
-    var persisted = agentStore.GetMetrics();
-    return Results.Ok(new AgentMetricsView(
-        worker.QueueLength,
-        worker.ActiveExecutions,
-        persisted.TotalExecutions,
-        persisted.Failures,
-        persisted.ShellFailures,
-        metrics.PolicyDenials,
-        persisted.AverageDurationMilliseconds));
 });
 
 app.MapGet("/v1/policies", (PolicyRegistry policies) =>
@@ -163,10 +143,9 @@ app.MapGet("/v1/agent-chats/{chatId}/debug-log", async (
 
 app.MapPost("/v1/executions", (
     CreateExecutionRequest request,
-    HttpContext context,
     AgentService agents) =>
 {
-    var execution = agents.Start(request, GetRequester(context));
+    var execution = agents.Start(request);
     return Results.Accepted(
         $"/v1/executions/{execution.ExecutionId}",
         AgentApiMapper.ToView(execution));
@@ -197,16 +176,6 @@ Console.WriteLine($"MEŽS Agent listening: {options.Listen}");
 Console.WriteLine($"MEŽS API: {options.MezhsApi}");
 Console.WriteLine($"MEŽS Agent workspace: {options.Workspace}");
 await app.RunAsync();
-
-static string GetRequester(HttpContext context)
-{
-    var requester = context.Request.Headers[requesterHeader].ToString().Trim();
-    if (requester.Length == 0)
-        return "local-api";
-    if (requester.Length > 128 || requester.Any(char.IsControl))
-        throw new RequestValidationException($"{requesterHeader} must be at most 128 printable characters.");
-    return requester;
-}
 
 static async Task<AgentChatView> ToViewAsync(
     AgentChatRecord record,

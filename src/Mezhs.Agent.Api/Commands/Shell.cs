@@ -136,7 +136,6 @@ public sealed class Shell(
         startInfo.Environment["MEZHS_PARENT_EXECUTION_ID"] = parent.ExecutionId;
         startInfo.Environment["MEZHS_CORRELATION_ID"] = parent.CorrelationId;
         startInfo.Environment["MEZHS_SOURCE"] = parent.Source;
-        startInfo.Environment["MEZHS_REQUESTER"] = parent.Requester;
         startInfo.Environment["MEZHS_WORKSPACE"] = options.Workspace;
         if (!string.IsNullOrWhiteSpace(parent.ChatId))
             startInfo.Environment["MEZHS_CHAT_ID"] = parent.ChatId;

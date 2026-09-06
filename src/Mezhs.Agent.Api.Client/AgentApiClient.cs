@@ -6,35 +6,23 @@ namespace Mezhs.Agent.Api.Client;
 
 public sealed class AgentApiClient
 {
-    public const string RequesterHeader = "X-MEZHS-Requester";
-
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }
     };
     private readonly HttpClient _client;
 
-    public AgentApiClient(
-        HttpClient client,
-        string requester = "agent-api-client")
+    public AgentApiClient(HttpClient client)
     {
         _client = client;
         if (_client.BaseAddress is { IsLoopback: false })
             throw new InvalidOperationException("MEŽS Agent API client must target a loopback address.");
-        if (!_client.DefaultRequestHeaders.Contains(RequesterHeader))
-            _client.DefaultRequestHeaders.Add(RequesterHeader, requester);
     }
 
     public async Task<AgentRuntimeView> GetRuntimeAsync(CancellationToken cancellationToken = default)
     {
         using var response = await _client.GetAsync("/v1/runtime", cancellationToken);
         return await ReadAsync<AgentRuntimeView>(response, cancellationToken);
-    }
-
-    public async Task<AgentMetricsView> GetMetricsAsync(CancellationToken cancellationToken = default)
-    {
-        using var response = await _client.GetAsync("/v1/metrics", cancellationToken);
-        return await ReadAsync<AgentMetricsView>(response, cancellationToken);
     }
 
     public async Task<IReadOnlyList<AgentPolicyView>> GetPoliciesAsync(CancellationToken cancellationToken = default)
@@ -133,15 +121,6 @@ public sealed class AgentApiClient
 
 public sealed record AgentRuntimeView(string Status, string MezhsApi, bool MezhsApiHealthy);
 
-public sealed record AgentMetricsView(
-    int QueueLength,
-    int ActiveExecutions,
-    int TotalExecutions,
-    int Failures,
-    int ShellFailures,
-    long PolicyDenials,
-    double AverageDurationMilliseconds);
-
 public sealed record AgentPolicyView(
     string Id,
     string ConnectionId,
@@ -178,7 +157,6 @@ public sealed record AgentExecutionView(
     string ConnectionId,
     string Source,
     string? SourceReference,
-    string Requester,
     string Status,
     string Request,
     string? Result,

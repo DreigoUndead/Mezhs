@@ -1,7 +1,5 @@
 using System.Net.Http.Headers;
 
-const string requesterHeader = "X-MEZHS-Requester";
-
 var frontendPath = FindFrontendPath();
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
@@ -20,7 +18,6 @@ builder.WebHost.UseUrls(listenUrls);
 builder.Services.AddHttpClient("agent-api", client =>
 {
     client.BaseAddress = agentApiBaseUrl;
-    client.DefaultRequestHeaders.Add(requesterHeader, "agent-web");
 });
 
 var app = builder.Build();

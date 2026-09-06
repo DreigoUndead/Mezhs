@@ -6,7 +6,6 @@ $mezhsConfig = Join-Path $PSScriptRoot "mezhs.test.yaml"
 $agentConfig = Join-Path $PSScriptRoot "mezhs.agent.test.yaml"
 $dataPath = Join-Path $PSScriptRoot "data-agent-test"
 $genericDataPath = Join-Path $PSScriptRoot "data"
-$requestHeaders = @{ "X-MEZHS-Requester" = "resilience-test" }
 $apiOut = Join-Path $PSScriptRoot "agent-resilience-api.out.log"
 $apiErr = Join-Path $PSScriptRoot "agent-resilience-api.err.log"
 $agentOut = Join-Path $PSScriptRoot "agent-resilience-agent.out.log"
@@ -35,7 +34,7 @@ function Start-AgentProcess() {
 }
 
 function Start-Execution([string]$policyId, [string]$taskInput) {
-    return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions" -Headers $requestHeaders `
+    return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions" `
         -ContentType "application/json" -Body (ConvertTo-Json @{ policyId = $policyId; input = $taskInput })
 }
 
@@ -114,16 +113,24 @@ ping -n 30 127.0.0.1 >nul
         throw "Cancellation became terminal without durable completion timestamps."
     }
 
-    # One active + one queued fills configured capacity. A third request must be rejected, not accumulated.
+    # With one worker and queueCapacity=1, one running + one queued fills durable admission capacity.
     $blocking = Start-Execution "test-cancel" $longTask
     $blockingRunning = Wait-AttachedRunningExecution $blocking.executionId
     $null = Wait-Shell $blockingRunning.chatId @("Running")
     $queued = Start-Execution "test" "queued after blocking execution"
     $queuedRecord = Wait-ExecutionStatus $queued.executionId @("Queued") 5
+    if ($queuedRecord.startedAt) { throw "Durably queued execution already has a started timestamp." }
+
+    $stateResponse = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/executions"
+    $state = @($stateResponse | ForEach-Object { $_ })
+    $runningRoots = @($state | Where-Object { $_.kind -eq "Agent" -and $_.status -eq "Running" })
+    $queuedRoots = @($state | Where-Object { $_.kind -eq "Agent" -and $_.status -eq "Queued" })
+    if ($runningRoots.Count -ne 1 -or $queuedRoots.Count -ne 1) {
+        throw "Persisted queue state is not one-running/one-queued: running=$($runningRoots.Count), queued=$($queuedRoots.Count)"
+    }
 
     $client = [Net.Http.HttpClient]::new()
     try {
-        $client.DefaultRequestHeaders.Add("X-MEZHS-Requester", "resilience-test")
         $body = [Net.Http.StringContent]::new(
             (ConvertTo-Json @{ policyId = "test"; input = "must be admission rejected" }),
             [Text.Encoding]::UTF8,
@@ -132,18 +139,19 @@ ping -n 30 127.0.0.1 >nul
             $response = $client.PostAsync("http://127.0.0.1:5199/v1/executions", $body).GetAwaiter().GetResult()
             $responseText = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
             if ([int]$response.StatusCode -ne 429 -or $responseText -notmatch "queue is full") {
-                throw "Bounded admission did not reject excess work. HTTP $([int]$response.StatusCode): $responseText"
+                throw "Durable admission did not reject excess work. HTTP $([int]$response.StatusCode): $responseText"
             }
             $response.Dispose()
         } finally { $body.Dispose() }
     } finally { $client.Dispose() }
 
-    $metrics = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/metrics"
-    if ($metrics.activeExecutions -ne 1 -or $metrics.queueLength -ne 1) {
-        throw "Runtime metrics disagree with configured one-active/one-queued state: active=$($metrics.activeExecutions), queue=$($metrics.queueLength)"
+    $afterRejectedResponse = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/executions"
+    $afterRejected = @($afterRejectedResponse | ForEach-Object { $_ })
+    if (@($afterRejected | Where-Object { $_.request -eq "must be admission rejected" }).Count -ne 0) {
+        throw "Rejected admission still created a failed execution record."
     }
 
-    # Force-kill Agent and its shell tree. Startup recovery must resolve both active and queued persisted rows.
+    # Force-kill Agent and its shell tree. Active work is interrupted; queued work must survive and resume after restart.
     & taskkill /PID $agent.Id /T /F | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Could not terminate Agent process tree for restart recovery test." }
     $agent.WaitForExit()
@@ -154,17 +162,21 @@ ping -n 30 127.0.0.1 >nul
     Wait-Health "http://127.0.0.1:5199/health"
 
     $recoveredBlocking = Wait-ExecutionStatus $blocking.executionId @("Interrupted") 8
-    $recoveredQueued = Wait-ExecutionStatus $queued.executionId @("Interrupted") 8
     $recoveredShell = Wait-Shell $recoveredBlocking.chatId @("Interrupted") 8
-    if ($recoveredBlocking.error -notmatch "restarted" -or $recoveredQueued.error -notmatch "restarted" -or $recoveredShell.error -notmatch "restarted") {
-        throw "Restart recovery did not persist explicit interruption evidence."
+    if ($recoveredBlocking.error -notmatch "restarted" -or $recoveredShell.error -notmatch "restarted") {
+        throw "Restart recovery did not persist interruption evidence for active work."
+    }
+
+    $recoveredQueued = Wait-ExecutionStatus $queued.executionId @("Completed") 15
+    if (-not $recoveredQueued.startedAt -or -not $recoveredQueued.completedAt) {
+        throw "Queued execution did not survive restart and run from durable storage."
     }
 
     $afterRestart = Start-Execution "test" "execution after restart"
     $afterRestartDone = Wait-ExecutionStatus $afterRestart.executionId @("Completed") 15
     if ($afterRestartDone.status -ne "Completed") { throw "Agent did not accept work after restart recovery." }
 
-    Write-Host "PASS: CancelRequested acknowledgement, bounded admission/metrics, forced restart recovery, and post-restart execution are correct."
+    Write-Host "PASS: CancelRequested acknowledgement, durable bounded admission, queued-work restart survival, active interruption recovery, and post-restart execution are correct."
 }
 finally {
     if ($null -ne $agent -and -not $agent.HasExited) {

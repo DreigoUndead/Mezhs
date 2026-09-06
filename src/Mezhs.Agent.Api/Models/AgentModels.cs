@@ -57,7 +57,6 @@ public sealed class ExecutionRecord
     public required string ConnectionId { get; init; }
     public required string Source { get; init; }
     public string? SourceReference { get; init; }
-    public required string Requester { get; init; }
     public required AgentExecutionStatus Status { get; set; }
     public required string Request { get; init; }
     [JsonIgnore]
@@ -98,7 +97,6 @@ public sealed record AgentExecutionView(
     string ConnectionId,
     string Source,
     string? SourceReference,
-    string Requester,
     AgentExecutionStatus Status,
     string Request,
     string? Result,
@@ -108,15 +106,6 @@ public sealed record AgentExecutionView(
     DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt);
-
-public sealed record AgentMetricsView(
-    int QueueLength,
-    int ActiveExecutions,
-    int TotalExecutions,
-    int Failures,
-    int ShellFailures,
-    long PolicyDenials,
-    double AverageDurationMilliseconds);
 
 public static class AgentIds
 {
