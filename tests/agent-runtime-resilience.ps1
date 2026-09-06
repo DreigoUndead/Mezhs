@@ -55,6 +55,21 @@ function Wait-ExecutionStatus([string]$executionId, [string[]]$statuses, [int]$s
     } while ($true)
 }
 
+function Wait-AttachedRunningExecution([string]$executionId, [int]$seconds = 10) {
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($seconds)
+    do {
+        $execution = Get-Execution $executionId
+        if ($execution.status -eq "Running" -and $execution.chatId) { return $execution }
+        if ($execution.status -in @("Completed", "Failed", "Cancelled", "Interrupted")) {
+            throw "Execution $executionId became $($execution.status) before a chat was attached."
+        }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) {
+            throw "Execution $executionId did not attach a chat while running. Last state: $($execution.status), chatId=$($execution.chatId)"
+        }
+        Start-Sleep -Milliseconds 100
+    } while ($true)
+}
+
 function Wait-Shell([string]$chatId, [string[]]$statuses, [int]$seconds = 20) {
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($seconds)
     do {
@@ -86,8 +101,7 @@ ping -n 30 127.0.0.1 >nul
 </SH>
 "@
     $cancel = Start-Execution "test-cancel" $longTask
-    $cancelRunning = Wait-ExecutionStatus $cancel.executionId @("Running")
-    if (-not $cancelRunning.chatId) { throw "Cancellation test root never attached a chat." }
+    $cancelRunning = Wait-AttachedRunningExecution $cancel.executionId
     $null = Wait-Shell $cancelRunning.chatId @("Running")
     $cancelResponse = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions/$($cancel.executionId)/cancel"
     if ($cancelResponse.status -ne "CancelRequested") {
@@ -101,7 +115,7 @@ ping -n 30 127.0.0.1 >nul
 
     # One active + one queued fills configured capacity. A third request must be rejected, not accumulated.
     $blocking = Start-Execution "test-cancel" $longTask
-    $blockingRunning = Wait-ExecutionStatus $blocking.executionId @("Running")
+    $blockingRunning = Wait-AttachedRunningExecution $blocking.executionId
     $null = Wait-Shell $blockingRunning.chatId @("Running")
     $queued = Start-Execution "test" "queued after blocking execution"
     $queuedRecord = Wait-ExecutionStatus $queued.executionId @("Queued") 5
