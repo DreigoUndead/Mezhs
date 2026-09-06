@@ -17,17 +17,34 @@ public static class AgentConfigLoader
         if (yaml.Documents.Count != 1 || yaml.Documents[0].RootNode is not YamlMappingNode root)
             throw new InvalidOperationException("MEŽS Agent configuration must contain one YAML mapping document.");
 
-        EnsureOnlyKeys(root, "agent", "version", "listen", "mezhsApi", "storage", "messages", "policies");
+        EnsureOnlyKeys(root, "agent", "version", "listen", "mezhsApi", "storage", "workspace", "runtime", "messages", "policies");
         var versionText = RequiredValue(root, "version", "version");
-        if (!int.TryParse(versionText, NumberStyles.None, CultureInfo.InvariantCulture, out var version) || version != 1)
-            throw new InvalidOperationException($"Unsupported Agent config version {versionText}.");
+        if (!int.TryParse(versionText, NumberStyles.None, CultureInfo.InvariantCulture, out var version))
+            throw new InvalidOperationException($"Invalid Agent config version {versionText}.");
 
         var configDirectory = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        return version switch
+        {
+            1 => LoadVersion1(root, configDirectory),
+            _ => throw new InvalidOperationException($"Unsupported Agent config version {version}.")
+        };
+    }
+
+    private static AgentOptions LoadVersion1(YamlMappingNode root, string configDirectory)
+    {
+        var workspace = Resolve(configDirectory, RequiredValue(root, "workspace", "workspace"));
+        if (!Directory.Exists(workspace))
+            throw new InvalidOperationException($"workspace directory '{workspace}' does not exist.");
+
         return new AgentOptions
         {
-            Listen = RequiredHttpUri(root, "listen", "listen"),
+            Listen = RequiredLoopbackHttpUri(root, "listen", "listen"),
             MezhsApi = RequiredHttpUri(root, "mezhsApi", "mezhsApi"),
             Storage = Resolve(configDirectory, RequiredValue(root, "storage", "storage")),
+            Workspace = workspace,
+            Runtime = YamlModelMapper.Map<AgentRuntimeOptions>(
+                RequiredMapping(root, "runtime", "runtime"),
+                "runtime"),
             Messages = YamlModelMapper.Map<AgentRuntimeMessages>(
                 RequiredMapping(root, "messages", "messages"),
                 "messages"),
@@ -63,6 +80,14 @@ public static class AgentConfigLoader
         if (string.IsNullOrWhiteSpace(value))
             throw new InvalidOperationException($"{path} is required and must be a scalar value.");
         return value;
+    }
+
+    private static Uri RequiredLoopbackHttpUri(YamlMappingNode parent, string key, string path)
+    {
+        var uri = RequiredHttpUri(parent, key, path);
+        if (!uri.IsLoopback)
+            throw new InvalidOperationException($"{path} must use a loopback address. Host-shell Agent API cannot be exposed directly to the network.");
+        return uri;
     }
 
     private static Uri RequiredHttpUri(YamlMappingNode parent, string key, string path)

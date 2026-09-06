@@ -6,6 +6,7 @@ public enum AgentExecutionStatus
 {
     Queued,
     Running,
+    CancelRequested,
     Completed,
     Failed,
     Cancelled,
@@ -48,11 +49,15 @@ public sealed class ExecutionRecord
     public string? ParentExecutionId { get; init; }
     public required string CorrelationId { get; init; }
     public required AgentExecutionKind Kind { get; init; }
+    public string? CommandName { get; init; }
+    public string? TriggerMessageId { get; init; }
+    public int? CommandIndex { get; init; }
     public string? ChatId { get; set; }
     public required string PolicyId { get; init; }
     public required string ConnectionId { get; init; }
     public required string Source { get; init; }
     public string? SourceReference { get; init; }
+    public required string Requester { get; init; }
     public required AgentExecutionStatus Status { get; set; }
     public required string Request { get; init; }
     [JsonIgnore]
@@ -79,6 +84,39 @@ public sealed record AgentPolicyView(
     string ConnectionId,
     string ModelInstructions,
     string Snapshot);
+
+public sealed record AgentExecutionView(
+    string ExecutionId,
+    string? ParentExecutionId,
+    string CorrelationId,
+    AgentExecutionKind Kind,
+    string? CommandName,
+    string? TriggerMessageId,
+    int? CommandIndex,
+    string? ChatId,
+    string PolicyId,
+    string ConnectionId,
+    string Source,
+    string? SourceReference,
+    string Requester,
+    AgentExecutionStatus Status,
+    string Request,
+    string? Result,
+    string? Error,
+    int? ExitCode,
+    string PolicySnapshot,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? StartedAt,
+    DateTimeOffset? CompletedAt);
+
+public sealed record AgentMetricsView(
+    int QueueLength,
+    int ActiveExecutions,
+    int TotalExecutions,
+    int Failures,
+    int ShellFailures,
+    long PolicyDenials,
+    double AverageDurationMilliseconds);
 
 public static class AgentIds
 {

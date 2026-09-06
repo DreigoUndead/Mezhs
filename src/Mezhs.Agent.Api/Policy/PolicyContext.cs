@@ -1,3 +1,4 @@
+using Mezhs.Agent.Commands;
 using Mezhs.Agent.Models;
 
 namespace Mezhs.Agent.Policy;
@@ -66,7 +67,7 @@ public sealed class PolicyContext
             var result = evaluate(context);
             if (result.Decision == PolicyActionRuleDecision.Deny)
                 return PolicyDecision.Deny(
-                    result.Error ?? $"Policy denied {context.Action.Kind} action.");
+                    result.Error ?? $"Policy denied {context.Action.Command.Name} action.");
             if (result.Decision == PolicyActionRuleDecision.Allow)
                 allowed = true;
         }
@@ -74,13 +75,28 @@ public sealed class PolicyContext
         return allowed
             ? PolicyDecision.Allow()
             : PolicyDecision.Deny(
-                $"Policy does not explicitly allow {context.Action.Kind} actions.");
+                $"Policy does not explicitly allow {context.Action.Command.Name} actions.");
     }
 }
 
+public sealed record ExecutionEvidence(
+    string ExecutionId,
+    string? ParentExecutionId,
+    string CorrelationId,
+    AgentExecutionKind Kind,
+    string? CommandName,
+    AgentExecutionStatus Status,
+    string Request,
+    string? Result,
+    string? Error,
+    int? ExitCode,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? StartedAt,
+    DateTimeOffset? CompletedAt);
+
 public sealed record PolicyEvaluationContext(
-    ExecutionRecord Execution,
-    IReadOnlyList<ExecutionRecord> Evidence);
+    ExecutionEvidence Execution,
+    IReadOnlyList<ExecutionEvidence> Evidence);
 
 public sealed record PolicyTurnContext(
     PolicyEvaluationContext Execution,
@@ -91,8 +107,8 @@ public sealed record PolicyCompletionContext(
     bool CompletionClaimed);
 
 public sealed record PolicyAction(
-    string Kind,
-    string Request);
+    CommandDefinition Command,
+    string Body);
 
 public sealed record PolicyActionContext(
     PolicyEvaluationContext Execution,

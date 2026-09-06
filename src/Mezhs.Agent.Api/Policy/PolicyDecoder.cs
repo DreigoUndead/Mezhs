@@ -1,5 +1,6 @@
 using Mezhs.Agent.Commands;
 using Mezhs.Agent.Configuration;
+using Mezhs.Agent.Models;
 using YamlDotNet.RepresentationModel;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -47,7 +48,13 @@ public sealed class PolicyDecoder
             new PolicyCommandSettings(
                 NormalizeCommandNames(commands.Allow, $"policies.{id}.commands.allow"),
                 NormalizeCommandNames(commands.Deny, $"policies.{id}.commands.deny")),
-            new PolicyCompletionSettings(completion.RequireDone),
+            new PolicyEnvironmentSettings(
+                NormalizeEnvironmentNames(definition.Environment.Allow, $"policies.{id}.environment.allow")),
+            new PolicyCompletionSettings(
+                completion.RequireDone,
+                NormalizeCommandNames(
+                    completion.RequiredSuccessfulCommands,
+                    $"policies.{id}.completion.requiredSuccessfulCommands")),
             new PolicyLimitsSettings(limits.MaxTurns, limits.CommandTimeoutSeconds));
 
         return new PolicyContext(
@@ -57,7 +64,7 @@ public sealed class PolicyDecoder
             _serializer.Serialize(settings),
             CompileTurnValidators(settings),
             CompileCompletionClaim(settings),
-            [],
+            CompileCompletionValidators(settings),
             CompileActionRules(settings));
     }
 
@@ -79,6 +86,28 @@ public sealed class PolicyDecoder
             ? context => context.CompletionClaimed
             : _ => true;
 
+    private static IReadOnlyList<Func<PolicyCompletionContext, string?>> CompileCompletionValidators(
+        PolicySettings settings)
+    {
+        var required = settings.Completion.RequiredSuccessfulCommands;
+        if (required.Count == 0)
+            return [];
+
+        return
+        [
+            context =>
+            {
+                var missing = required.Where(command => !context.Execution.Evidence.Any(evidence =>
+                        string.Equals(evidence.CommandName, command, StringComparison.OrdinalIgnoreCase) &&
+                        evidence.Status == AgentExecutionStatus.Completed))
+                    .ToArray();
+                return missing.Length == 0
+                    ? null
+                    : $"Completion requires successful command evidence for {string.Join(", ", missing.Select(command => $"<{command}>"))}.";
+            }
+        ];
+    }
+
     private static IReadOnlyList<Func<PolicyActionContext, PolicyActionRuleResult>> CompileActionRules(
         PolicySettings settings)
     {
@@ -86,11 +115,11 @@ public sealed class PolicyDecoder
         var denied = settings.Commands.Deny.ToHashSet(StringComparer.OrdinalIgnoreCase);
         return
         [
-            context => denied.Contains(context.Action.Kind)
+            context => denied.Contains(context.Action.Command.Name)
                 ? new PolicyActionRuleResult(
                     PolicyActionRuleDecision.Deny,
-                    $"Policy explicitly denies {context.Action.Kind} actions.")
-                : allowed.Contains(context.Action.Kind)
+                    $"Policy explicitly denies {context.Action.Command.Name} actions.")
+                : allowed.Contains(context.Action.Command.Name)
                     ? new PolicyActionRuleResult(PolicyActionRuleDecision.Allow)
                     : new PolicyActionRuleResult(PolicyActionRuleDecision.None)
         ];
@@ -116,6 +145,12 @@ public sealed class PolicyDecoder
             var done = Registry.Get(CommandBehavior.Complete);
             rules.Add($"Signal completion by returning <{done.Name}> on a line by itself.");
         }
+
+        if (settings.Completion.RequiredSuccessfulCommands.Count > 0)
+        {
+            rules.Add(
+                $"Completion requires successful execution evidence for: {string.Join(", ", settings.Completion.RequiredSuccessfulCommands.Select(command => $"<{command}>"))}.");
+        }
         return string.Join("\n", rules);
     }
 
@@ -130,6 +165,25 @@ public sealed class PolicyDecoder
             var value = raw?.Trim().ToUpperInvariant() ?? string.Empty;
             if (!Registry.TryGet(value, out var definition) || definition.Behavior == CommandBehavior.Complete)
                 throw new InvalidOperationException($"{path} contains unknown executable command '{raw}'.");
+            if (seen.Add(value))
+                result.Add(value);
+        }
+        return result;
+    }
+
+    private static IReadOnlyList<string> NormalizeEnvironmentNames(
+        IEnumerable<string>? values,
+        string path)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in values ?? [])
+        {
+            var value = raw?.Trim() ?? string.Empty;
+            if (value.Length == 0 || value.Contains('=') || value.Contains('\0'))
+                throw new InvalidOperationException($"{path} contains invalid environment variable name '{raw}'.");
+            if (value.StartsWith("MEZHS_", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"{path} cannot allow reserved MEZHS_ environment variable '{value}'.");
             if (seen.Add(value))
                 result.Add(value);
         }

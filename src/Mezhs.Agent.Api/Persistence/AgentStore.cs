@@ -6,11 +6,16 @@ using Microsoft.Data.Sqlite;
 
 namespace Mezhs.Agent.Persistence;
 
+public sealed record ExecutionStoreMetrics(
+    int TotalExecutions,
+    int Failures,
+    int ShellFailures,
+    double AverageDurationMilliseconds);
+
 public sealed class AgentStore(AgentOptions options)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly string _path = options.Storage;
-    private readonly object _writeLock = new();
 
     public void Initialize()
     {
@@ -40,11 +45,15 @@ public sealed class AgentStore(AgentOptions options)
                 ParentExecutionId TEXT NULL,
                 CorrelationId TEXT NOT NULL,
                 Kind TEXT NOT NULL,
+                CommandName TEXT NULL,
+                TriggerMessageId TEXT NULL,
+                CommandIndex INTEGER NULL,
                 ChatId TEXT NULL,
                 PolicyId TEXT NOT NULL,
                 ConnectionId TEXT NOT NULL,
                 Source TEXT NOT NULL,
                 SourceReference TEXT NULL,
+                Requester TEXT NOT NULL,
                 Status TEXT NOT NULL,
                 Request TEXT NOT NULL,
                 EnvironmentJson TEXT NOT NULL DEFAULT '{}',
@@ -63,32 +72,36 @@ public sealed class AgentStore(AgentOptions options)
                 ON Executions(CorrelationId, CreatedAt);
             CREATE INDEX IF NOT EXISTS IX_Executions_Status
                 ON Executions(Status);
+            CREATE INDEX IF NOT EXISTS IX_Executions_TriggerMessageId_CommandIndex
+                ON Executions(TriggerMessageId, CommandIndex);
             """;
         command.ExecuteNonQuery();
         EnsureColumn(connection, "AgentChats", "Paused", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumn(connection, "AgentChats", "EnvironmentJson", "TEXT NOT NULL DEFAULT '{}'");
         EnsureColumn(connection, "Executions", "EnvironmentJson", "TEXT NOT NULL DEFAULT '{}'");
+        EnsureColumn(connection, "Executions", "Requester", "TEXT NOT NULL DEFAULT 'legacy'");
+        EnsureColumn(connection, "Executions", "CommandName", "TEXT NULL");
+        EnsureColumn(connection, "Executions", "TriggerMessageId", "TEXT NULL");
+        EnsureColumn(connection, "Executions", "CommandIndex", "INTEGER NULL");
 
-        lock (_writeLock)
-        {
-            using var recovery = connection.CreateCommand();
-            recovery.CommandText = """
-                UPDATE Executions
-                SET Status = $interrupted,
-                    Error = CASE
-                        WHEN Error IS NULL OR Error = '' THEN $error
-                        ELSE Error
-                    END,
-                    CompletedAt = $completedAt
-                WHERE Status = $queued OR Status = $running;
-                """;
-            recovery.Parameters.AddWithValue("$interrupted", AgentExecutionStatus.Interrupted.ToString());
-            recovery.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());
-            recovery.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
-            recovery.Parameters.AddWithValue("$error", "MEŽS Agent restarted before this execution completed.");
-            recovery.Parameters.AddWithValue("$completedAt", Format(DateTimeOffset.UtcNow));
-            recovery.ExecuteNonQuery();
-        }
+        using var recovery = connection.CreateCommand();
+        recovery.CommandText = """
+            UPDATE Executions
+            SET Status = $interrupted,
+                Error = CASE
+                    WHEN Error IS NULL OR Error = '' THEN $error
+                    ELSE Error
+                END,
+                CompletedAt = $completedAt
+            WHERE Status IN ($queued, $running, $cancelRequested);
+            """;
+        recovery.Parameters.AddWithValue("$interrupted", AgentExecutionStatus.Interrupted.ToString());
+        recovery.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());
+        recovery.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
+        recovery.Parameters.AddWithValue("$cancelRequested", AgentExecutionStatus.CancelRequested.ToString());
+        recovery.Parameters.AddWithValue("$error", "MEŽS Agent restarted before this execution completed.");
+        recovery.Parameters.AddWithValue("$completedAt", Format(DateTimeOffset.UtcNow));
+        recovery.ExecuteNonQuery();
     }
 
     public ExecutionRecord CreateRootExecution(
@@ -97,6 +110,7 @@ public sealed class AgentStore(AgentOptions options)
         string? chatId,
         string source,
         string? sourceReference,
+        string requester,
         string request,
         IReadOnlyDictionary<string, string> environment,
         string policySnapshot)
@@ -112,6 +126,7 @@ public sealed class AgentStore(AgentOptions options)
             ConnectionId = connectionId,
             Source = source,
             SourceReference = sourceReference,
+            Requester = requester,
             Status = AgentExecutionStatus.Queued,
             Request = request,
             Environment = environment,
@@ -124,7 +139,10 @@ public sealed class AgentStore(AgentOptions options)
     public ExecutionRecord CreateChildExecution(
         ExecutionRecord parent,
         AgentExecutionKind kind,
-        string request)
+        string commandName,
+        string request,
+        string triggerMessageId,
+        int commandIndex)
     {
         var record = new ExecutionRecord
         {
@@ -132,11 +150,15 @@ public sealed class AgentStore(AgentOptions options)
             ParentExecutionId = parent.ExecutionId,
             CorrelationId = parent.CorrelationId,
             Kind = kind,
+            CommandName = commandName,
+            TriggerMessageId = triggerMessageId,
+            CommandIndex = commandIndex,
             ChatId = parent.ChatId,
             PolicyId = parent.PolicyId,
             ConnectionId = parent.ConnectionId,
             Source = parent.Source,
             SourceReference = parent.SourceReference,
+            Requester = parent.Requester,
             Status = AgentExecutionStatus.Queued,
             Request = request,
             Environment = parent.Environment,
@@ -170,6 +192,20 @@ public sealed class AgentStore(AgentOptions options)
         while (reader.Read())
             records.Add(ReadExecution(reader));
         return records;
+    }
+
+    public ExecutionStoreMetrics GetMetrics()
+    {
+        var executions = GetExecutions();
+        var durations = executions
+            .Where(record => record.StartedAt.HasValue && record.CompletedAt.HasValue)
+            .Select(record => (record.CompletedAt!.Value - record.StartedAt!.Value).TotalMilliseconds)
+            .ToArray();
+        return new ExecutionStoreMetrics(
+            executions.Count,
+            executions.Count(record => record.Status == AgentExecutionStatus.Failed),
+            executions.Count(record => record.Kind == AgentExecutionKind.Shell && record.Status == AgentExecutionStatus.Failed),
+            durations.Length == 0 ? 0 : durations.Average());
     }
 
     public AgentChatRecord? GetAgentChat(string chatId)
@@ -209,22 +245,19 @@ public sealed class AgentStore(AgentOptions options)
 
     public AgentChatRecord SetAgentChatPaused(string chatId, bool paused)
     {
-        lock (_writeLock)
-        {
-            using var connection = Open();
-            using var command = connection.CreateCommand();
-            command.CommandText = """
-                UPDATE AgentChats
-                SET Paused = $paused,
-                    UpdatedAt = $updatedAt
-                WHERE ChatId = $chatId;
-                """;
-            command.Parameters.AddWithValue("$paused", paused ? 1 : 0);
-            command.Parameters.AddWithValue("$updatedAt", Format(DateTimeOffset.UtcNow));
-            command.Parameters.AddWithValue("$chatId", chatId);
-            if (command.ExecuteNonQuery() != 1)
-                throw new ResourceNotFoundException($"Agent chat '{chatId}' was not found.");
-        }
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE AgentChats
+            SET Paused = $paused,
+                UpdatedAt = $updatedAt
+            WHERE ChatId = $chatId;
+            """;
+        command.Parameters.AddWithValue("$paused", paused ? 1 : 0);
+        command.Parameters.AddWithValue("$updatedAt", Format(DateTimeOffset.UtcNow));
+        command.Parameters.AddWithValue("$chatId", chatId);
+        if (command.ExecuteNonQuery() != 1)
+            throw new ResourceNotFoundException($"Agent chat '{chatId}' was not found.");
         return GetAgentChat(chatId)!;
     }
 
@@ -250,244 +283,237 @@ public sealed class AgentStore(AgentOptions options)
     {
         var now = DateTimeOffset.UtcNow;
         var environmentJson = SerializeEnvironment(environment);
-        lock (_writeLock)
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+
+        using (var insert = connection.CreateCommand())
         {
-            using var connection = Open();
-            using var transaction = connection.BeginTransaction();
-
-            using (var insert = connection.CreateCommand())
-            {
-                insert.Transaction = transaction;
-                insert.CommandText = """
-                    INSERT INTO AgentChats (
-                        ChatId, PolicyId, OriginSource, OriginReference, Paused, EnvironmentJson, CreatedAt, UpdatedAt)
-                    VALUES (
-                        $chatId, $policyId, $originSource, $originReference, 0, $environmentJson, $createdAt, $updatedAt)
-                    ON CONFLICT(ChatId) DO NOTHING;
-                    """;
-                insert.Parameters.AddWithValue("$chatId", chatId);
-                insert.Parameters.AddWithValue("$policyId", policyId);
-                insert.Parameters.AddWithValue("$originSource", originSource);
-                insert.Parameters.AddWithValue("$originReference", Db(originReference));
-                insert.Parameters.AddWithValue("$environmentJson", environmentJson);
-                insert.Parameters.AddWithValue("$createdAt", Format(now));
-                insert.Parameters.AddWithValue("$updatedAt", Format(now));
-                insert.ExecuteNonQuery();
-            }
-
-            string existingPolicyId;
-            string existingEnvironmentJson;
-            using (var select = connection.CreateCommand())
-            {
-                select.Transaction = transaction;
-                select.CommandText = "SELECT PolicyId, EnvironmentJson FROM AgentChats WHERE ChatId = $chatId;";
-                select.Parameters.AddWithValue("$chatId", chatId);
-                using var reader = select.ExecuteReader();
-                if (!reader.Read())
-                    throw new InvalidOperationException($"Agent chat '{chatId}' could not be claimed.");
-                existingPolicyId = reader.GetString(0);
-                existingEnvironmentJson = reader.GetString(1);
-            }
-            EnsurePolicyMatches(chatId, existingPolicyId, policyId);
-            if (!EnvironmentEquals(DeserializeEnvironment(existingEnvironmentJson), environment))
-                throw new RequestValidationException(
-                    $"Agent chat '{chatId}' already has a different environment. Environment is fixed when the chat is first claimed.");
-
-            using (var update = connection.CreateCommand())
-            {
-                update.Transaction = transaction;
-                update.CommandText = """
-                    UPDATE AgentChats
-                    SET UpdatedAt = $updatedAt
-                    WHERE ChatId = $chatId;
-                    """;
-                update.Parameters.AddWithValue("$updatedAt", Format(now));
-                update.Parameters.AddWithValue("$chatId", chatId);
-                update.ExecuteNonQuery();
-            }
-
-            transaction.Commit();
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO AgentChats (
+                    ChatId, PolicyId, OriginSource, OriginReference, Paused, EnvironmentJson, CreatedAt, UpdatedAt)
+                VALUES (
+                    $chatId, $policyId, $originSource, $originReference, 0, $environmentJson, $createdAt, $updatedAt)
+                ON CONFLICT(ChatId) DO NOTHING;
+                """;
+            insert.Parameters.AddWithValue("$chatId", chatId);
+            insert.Parameters.AddWithValue("$policyId", policyId);
+            insert.Parameters.AddWithValue("$originSource", originSource);
+            insert.Parameters.AddWithValue("$originReference", Db(originReference));
+            insert.Parameters.AddWithValue("$environmentJson", environmentJson);
+            insert.Parameters.AddWithValue("$createdAt", Format(now));
+            insert.Parameters.AddWithValue("$updatedAt", Format(now));
+            insert.ExecuteNonQuery();
         }
+
+        string existingPolicyId;
+        string existingEnvironmentJson;
+        using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = "SELECT PolicyId, EnvironmentJson FROM AgentChats WHERE ChatId = $chatId;";
+            select.Parameters.AddWithValue("$chatId", chatId);
+            using var reader = select.ExecuteReader();
+            if (!reader.Read())
+                throw new InvalidOperationException($"Agent chat '{chatId}' could not be claimed.");
+            existingPolicyId = reader.GetString(0);
+            existingEnvironmentJson = reader.GetString(1);
+        }
+        EnsurePolicyMatches(chatId, existingPolicyId, policyId);
+        if (!EnvironmentEquals(DeserializeEnvironment(existingEnvironmentJson), environment))
+            throw new RequestValidationException(
+                $"Agent chat '{chatId}' already has a different environment. Environment is fixed when the chat is first claimed.");
+
+        using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE AgentChats
+                SET UpdatedAt = $updatedAt
+                WHERE ChatId = $chatId;
+                """;
+            update.Parameters.AddWithValue("$updatedAt", Format(now));
+            update.Parameters.AddWithValue("$chatId", chatId);
+            update.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
     }
 
     public bool TryMarkRunning(string executionId)
     {
-        lock (_writeLock)
-        {
-            using var connection = Open();
-            using var command = connection.CreateCommand();
-            command.CommandText = """
-                UPDATE Executions
-                SET Status = $running,
-                    StartedAt = $startedAt
-                WHERE ExecutionId = $executionId
-                  AND Status = $queued;
-                """;
-            command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
-            command.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());
-            command.Parameters.AddWithValue("$startedAt", Format(DateTimeOffset.UtcNow));
-            command.Parameters.AddWithValue("$executionId", executionId);
-            return command.ExecuteNonQuery() == 1;
-        }
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE Executions
+            SET Status = $running,
+                StartedAt = $startedAt
+            WHERE ExecutionId = $executionId
+              AND Status = $queued;
+            """;
+        command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
+        command.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());
+        command.Parameters.AddWithValue("$startedAt", Format(DateTimeOffset.UtcNow));
+        command.Parameters.AddWithValue("$executionId", executionId);
+        return command.ExecuteNonQuery() == 1;
     }
 
-    public void Complete(string executionId, string? result)
-    {
-        Finish(executionId, AgentExecutionStatus.Completed, result, error: null);
-    }
+    public bool Complete(string executionId, string? result) =>
+        Finish(executionId, AgentExecutionStatus.Completed, result, error: null, AgentExecutionStatus.Running);
 
-    public void CompleteShell(string executionId, int exitCode, string? result)
+    public bool CompleteShell(string executionId, int exitCode, string? result)
     {
         var status = exitCode == 0 ? AgentExecutionStatus.Completed : AgentExecutionStatus.Failed;
         var error = exitCode == 0 ? null : $"Shell exited with code {exitCode}.";
 
-        lock (_writeLock)
-        {
-            using var connection = Open();
-            using var command = connection.CreateCommand();
-            command.CommandText = """
-                UPDATE Executions
-                SET Status = $status,
-                    Result = $result,
-                    Error = $error,
-                    ExitCode = $exitCode,
-                    CompletedAt = $completedAt
-                WHERE ExecutionId = $executionId
-                  AND Status = $running;
-                """;
-            command.Parameters.AddWithValue("$status", status.ToString());
-            command.Parameters.AddWithValue("$result", Db(result));
-            command.Parameters.AddWithValue("$error", Db(error));
-            command.Parameters.AddWithValue("$exitCode", exitCode);
-            command.Parameters.AddWithValue("$completedAt", Format(DateTimeOffset.UtcNow));
-            command.Parameters.AddWithValue("$executionId", executionId);
-            command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
-            command.ExecuteNonQuery();
-        }
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE Executions
+            SET Status = $status,
+                Result = $result,
+                Error = $error,
+                ExitCode = $exitCode,
+                CompletedAt = $completedAt
+            WHERE ExecutionId = $executionId
+              AND Status = $running;
+            """;
+        command.Parameters.AddWithValue("$status", status.ToString());
+        command.Parameters.AddWithValue("$result", Db(result));
+        command.Parameters.AddWithValue("$error", Db(error));
+        command.Parameters.AddWithValue("$exitCode", exitCode);
+        command.Parameters.AddWithValue("$completedAt", Format(DateTimeOffset.UtcNow));
+        command.Parameters.AddWithValue("$executionId", executionId);
+        command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
+        return command.ExecuteNonQuery() == 1;
     }
 
-    public void Fail(string executionId, string error)
-    {
-        Finish(executionId, AgentExecutionStatus.Failed, result: null, error, includeQueued: true);
-    }
+    public bool Fail(string executionId, string error) =>
+        Finish(
+            executionId,
+            AgentExecutionStatus.Failed,
+            result: null,
+            error,
+            AgentExecutionStatus.Queued,
+            AgentExecutionStatus.Running);
 
-    public void Interrupt(string executionId)
-    {
+    public bool Interrupt(string executionId) =>
         Finish(
             executionId,
             AgentExecutionStatus.Interrupted,
             result: null,
             "MEŽS Agent stopped before this execution completed.",
-            includeQueued: true);
-    }
+            AgentExecutionStatus.Queued,
+            AgentExecutionStatus.Running,
+            AgentExecutionStatus.CancelRequested);
 
-    public (ExecutionRecord Record, bool Changed) Cancel(string executionId)
+    public (ExecutionRecord Record, bool Changed) RequestCancel(string executionId)
     {
-        lock (_writeLock)
-        {
-            var existing = GetExecution(executionId)
-                ?? throw new ResourceNotFoundException($"Execution '{executionId}' was not found.");
-            if (existing.Status is not (AgentExecutionStatus.Queued or AgentExecutionStatus.Running))
-                return (existing, false);
-
-            using var connection = Open();
-            using var command = connection.CreateCommand();
-            command.CommandText = """
-                UPDATE Executions
-                SET Status = $cancelled,
-                    Error = $error,
-                    CompletedAt = $completedAt
-                WHERE ExecutionId = $executionId
-                  AND Status IN ($queued, $running);
-                """;
-            command.Parameters.AddWithValue("$cancelled", AgentExecutionStatus.Cancelled.ToString());
-            command.Parameters.AddWithValue("$error", "Cancelled by user.");
-            command.Parameters.AddWithValue("$completedAt", Format(DateTimeOffset.UtcNow));
-            command.Parameters.AddWithValue("$executionId", executionId);
-            command.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());
-            command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
-            var changed = command.ExecuteNonQuery() == 1;
-            return (GetExecution(executionId)!, changed);
-        }
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE Executions
+            SET Status = CASE Status
+                    WHEN $queued THEN $cancelled
+                    ELSE $cancelRequested
+                END,
+                Error = CASE Status
+                    WHEN $queued THEN $cancelledError
+                    ELSE $requestedError
+                END,
+                CompletedAt = CASE Status
+                    WHEN $queued THEN $completedAt
+                    ELSE NULL
+                END
+            WHERE ExecutionId = $executionId
+              AND Status IN ($queued, $running);
+            """;
+        command.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());
+        command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
+        command.Parameters.AddWithValue("$cancelled", AgentExecutionStatus.Cancelled.ToString());
+        command.Parameters.AddWithValue("$cancelRequested", AgentExecutionStatus.CancelRequested.ToString());
+        command.Parameters.AddWithValue("$cancelledError", "Cancelled before execution started.");
+        command.Parameters.AddWithValue("$requestedError", "Cancellation requested by user.");
+        command.Parameters.AddWithValue("$completedAt", Format(DateTimeOffset.UtcNow));
+        command.Parameters.AddWithValue("$executionId", executionId);
+        var changed = command.ExecuteNonQuery() == 1;
+        var record = GetExecution(executionId)
+            ?? throw new ResourceNotFoundException($"Execution '{executionId}' was not found.");
+        return (record, changed);
     }
+
+    public bool CompleteCancellation(string executionId) =>
+        Finish(
+            executionId,
+            AgentExecutionStatus.Cancelled,
+            result: null,
+            "Cancelled by user.",
+            AgentExecutionStatus.Running,
+            AgentExecutionStatus.CancelRequested);
 
     private void InsertExecution(ExecutionRecord record)
     {
-        lock (_writeLock)
-        {
-            using var connection = Open();
-            using var command = connection.CreateCommand();
-            command.CommandText = """
-                INSERT INTO Executions (
-                    ExecutionId, ParentExecutionId, CorrelationId, Kind, ChatId,
-                    PolicyId, ConnectionId, Source, SourceReference, Status,
-                    Request, EnvironmentJson, Result, Error, ExitCode, PolicySnapshot,
-                    CreatedAt, StartedAt, CompletedAt)
-                VALUES (
-                    $executionId, $parentExecutionId, $correlationId, $kind, $chatId,
-                    $policyId, $connectionId, $source, $sourceReference, $status,
-                    $request, $environmentJson, NULL, NULL, NULL, $policySnapshot,
-                    $createdAt, NULL, NULL);
-                """;
-            BindExecution(command, record);
-            command.ExecuteNonQuery();
-        }
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO Executions (
+                ExecutionId, ParentExecutionId, CorrelationId, Kind,
+                CommandName, TriggerMessageId, CommandIndex, ChatId,
+                PolicyId, ConnectionId, Source, SourceReference, Requester, Status,
+                Request, EnvironmentJson, Result, Error, ExitCode, PolicySnapshot,
+                CreatedAt, StartedAt, CompletedAt)
+            VALUES (
+                $executionId, $parentExecutionId, $correlationId, $kind,
+                $commandName, $triggerMessageId, $commandIndex, $chatId,
+                $policyId, $connectionId, $source, $sourceReference, $requester, $status,
+                $request, $environmentJson, NULL, NULL, NULL, $policySnapshot,
+                $createdAt, NULL, NULL);
+            """;
+        BindExecution(command, record);
+        command.ExecuteNonQuery();
     }
 
-    private void Finish(
+    private bool Finish(
         string executionId,
         AgentExecutionStatus status,
         string? result,
         string? error,
-        bool includeQueued = false)
+        params AgentExecutionStatus[] allowedStatuses)
     {
-        lock (_writeLock)
-        {
-            using var connection = Open();
-            using var command = connection.CreateCommand();
-            command.CommandText = includeQueued
-                ? """
-                  UPDATE Executions
-                  SET Status = $status,
-                      Result = $result,
-                      Error = $error,
-                      CompletedAt = $completedAt
-                  WHERE ExecutionId = $executionId
-                    AND Status IN ($queued, $running);
-                  """
-                : """
-                  UPDATE Executions
-                  SET Status = $status,
-                      Result = $result,
-                      Error = $error,
-                      CompletedAt = $completedAt
-                  WHERE ExecutionId = $executionId
-                    AND Status = $running;
-                  """;
-            command.Parameters.AddWithValue("$status", status.ToString());
-            command.Parameters.AddWithValue("$result", Db(result));
-            command.Parameters.AddWithValue("$error", Db(error));
-            command.Parameters.AddWithValue("$completedAt", Format(DateTimeOffset.UtcNow));
-            command.Parameters.AddWithValue("$executionId", executionId);
-            command.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());
-            command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
-            command.ExecuteNonQuery();
-        }
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        var allowedParameters = allowedStatuses
+            .Select((_, index) => $"$allowed{index}")
+            .ToArray();
+        command.CommandText = $"""
+            UPDATE Executions
+            SET Status = $status,
+                Result = $result,
+                Error = $error,
+                CompletedAt = $completedAt
+            WHERE ExecutionId = $executionId
+              AND Status IN ({string.Join(", ", allowedParameters)});
+            """;
+        command.Parameters.AddWithValue("$status", status.ToString());
+        command.Parameters.AddWithValue("$result", Db(result));
+        command.Parameters.AddWithValue("$error", Db(error));
+        command.Parameters.AddWithValue("$completedAt", Format(DateTimeOffset.UtcNow));
+        command.Parameters.AddWithValue("$executionId", executionId);
+        for (var index = 0; index < allowedStatuses.Length; index++)
+            command.Parameters.AddWithValue(allowedParameters[index], allowedStatuses[index].ToString());
+        return command.ExecuteNonQuery() == 1;
     }
 
     private void UpdateActive(string executionId, string sql, Action<SqliteCommand> bind)
     {
-        lock (_writeLock)
-        {
-            using var connection = Open();
-            using var command = connection.CreateCommand();
-            command.CommandText = sql;
-            command.Parameters.AddWithValue("$executionId", executionId);
-            command.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());
-            command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
-            bind(command);
-            command.ExecuteNonQuery();
-        }
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.Parameters.AddWithValue("$executionId", executionId);
+        command.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());
+        command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
+        bind(command);
+        command.ExecuteNonQuery();
     }
 
     private SqliteConnection Open()
@@ -535,11 +561,15 @@ public sealed class AgentStore(AgentOptions options)
         command.Parameters.AddWithValue("$parentExecutionId", Db(record.ParentExecutionId));
         command.Parameters.AddWithValue("$correlationId", record.CorrelationId);
         command.Parameters.AddWithValue("$kind", record.Kind.ToString());
+        command.Parameters.AddWithValue("$commandName", Db(record.CommandName));
+        command.Parameters.AddWithValue("$triggerMessageId", Db(record.TriggerMessageId));
+        command.Parameters.AddWithValue("$commandIndex", Db(record.CommandIndex));
         command.Parameters.AddWithValue("$chatId", Db(record.ChatId));
         command.Parameters.AddWithValue("$policyId", record.PolicyId);
         command.Parameters.AddWithValue("$connectionId", record.ConnectionId);
         command.Parameters.AddWithValue("$source", record.Source);
         command.Parameters.AddWithValue("$sourceReference", Db(record.SourceReference));
+        command.Parameters.AddWithValue("$requester", record.Requester);
         command.Parameters.AddWithValue("$status", record.Status.ToString());
         command.Parameters.AddWithValue("$request", record.Request);
         command.Parameters.AddWithValue("$environmentJson", SerializeEnvironment(record.Environment));
@@ -553,11 +583,15 @@ public sealed class AgentStore(AgentOptions options)
         ParentExecutionId = GetNullableString(reader, "ParentExecutionId"),
         CorrelationId = reader.GetString(reader.GetOrdinal("CorrelationId")),
         Kind = Enum.Parse<AgentExecutionKind>(reader.GetString(reader.GetOrdinal("Kind"))),
+        CommandName = GetNullableString(reader, "CommandName"),
+        TriggerMessageId = GetNullableString(reader, "TriggerMessageId"),
+        CommandIndex = GetNullableInt(reader, "CommandIndex"),
         ChatId = GetNullableString(reader, "ChatId"),
         PolicyId = reader.GetString(reader.GetOrdinal("PolicyId")),
         ConnectionId = reader.GetString(reader.GetOrdinal("ConnectionId")),
         Source = reader.GetString(reader.GetOrdinal("Source")),
         SourceReference = GetNullableString(reader, "SourceReference"),
+        Requester = reader.GetString(reader.GetOrdinal("Requester")),
         Status = Enum.Parse<AgentExecutionStatus>(reader.GetString(reader.GetOrdinal("Status"))),
         Request = reader.GetString(reader.GetOrdinal("Request")),
         Environment = DeserializeEnvironment(reader.GetString(reader.GetOrdinal("EnvironmentJson"))),
@@ -620,4 +654,5 @@ public sealed class AgentStore(AgentOptions options)
         DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
 
     private static object Db(string? value) => value is null ? DBNull.Value : value;
+    private static object Db(int? value) => value.HasValue ? value.Value : DBNull.Value;
 }

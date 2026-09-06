@@ -8,8 +8,19 @@ public sealed class AgentOptions
     public required Uri Listen { get; init; }
     public required Uri MezhsApi { get; init; }
     public required string Storage { get; init; }
+    public required string Workspace { get; init; }
+    public required AgentRuntimeOptions Runtime { get; init; }
     public required AgentRuntimeMessages Messages { get; init; }
     public required IReadOnlyDictionary<string, PolicyContext> Policies { get; init; }
+}
+
+public sealed class AgentRuntimeOptions
+{
+    [Range(1, int.MaxValue)]
+    public int QueueCapacity { get; set; } = 32;
+
+    [Range(1, int.MaxValue)]
+    public int MaxConcurrentExecutions { get; set; } = 4;
 }
 
 public sealed class AgentRuntimeMessages
