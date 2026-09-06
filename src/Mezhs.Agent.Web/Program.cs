@@ -1,6 +1,5 @@
 using System.Net.Http.Headers;
 
-const string apiKeyEnvironmentVariable = "MEZHS_AGENT_API_KEY";
 const string requesterHeader = "X-MEZHS-Requester";
 
 var frontendPath = FindFrontendPath();
@@ -10,15 +9,17 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     WebRootPath = frontendPath
 });
 
-var agentApiBaseUrl = builder.Configuration["Agent:BaseUrl"] ?? "http://127.0.0.1:5060";
-var apiKey = Environment.GetEnvironmentVariable(apiKeyEnvironmentVariable);
-if (string.IsNullOrWhiteSpace(apiKey))
-    throw new InvalidOperationException($"{apiKeyEnvironmentVariable} must be set before starting MEŽS Agent Web.");
+var listenUrls = RequireLoopbackUrls(
+    builder.Configuration["urls"] ?? builder.Configuration["Agent:Listen"] ?? "http://127.0.0.1:5174",
+    "Agent Web listen URL");
+var agentApiBaseUrl = RequireLoopbackUri(
+    builder.Configuration["Agent:BaseUrl"] ?? "http://127.0.0.1:5060",
+    "Agent:BaseUrl");
+builder.WebHost.UseUrls(listenUrls);
 
 builder.Services.AddHttpClient("agent-api", client =>
 {
-    client.BaseAddress = new Uri(agentApiBaseUrl);
-    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+    client.BaseAddress = agentApiBaseUrl;
     client.DefaultRequestHeaders.Add(requesterHeader, "agent-web");
 });
 
@@ -59,6 +60,26 @@ app.UseStaticFiles();
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+static string[] RequireLoopbackUrls(string value, string setting)
+{
+    var urls = value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    if (urls.Length == 0)
+        throw new InvalidOperationException($"{setting} must contain at least one URL.");
+    foreach (var url in urls)
+        _ = RequireLoopbackUri(url, setting);
+    return urls;
+}
+
+static Uri RequireLoopbackUri(string value, string setting)
+{
+    if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
+        (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        throw new InvalidOperationException($"{setting} must be an absolute HTTP or HTTPS URL.");
+    if (!uri.IsLoopback)
+        throw new InvalidOperationException($"{setting} must use a loopback address.");
+    return uri;
+}
 
 static string FindFrontendPath()
 {
