@@ -34,9 +34,9 @@ function Start-AgentProcess() {
         -WorkingDirectory $root -RedirectStandardOutput $agentOut -RedirectStandardError $agentErr -WindowStyle Hidden -PassThru
 }
 
-function Start-Execution([string]$policyId, [string]$input) {
+function Start-Execution([string]$policyId, [string]$taskInput) {
     return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions" -Headers $requestHeaders `
-        -ContentType "application/json" -Body (ConvertTo-Json @{ policyId = $policyId; input = $input })
+        -ContentType "application/json" -Body (ConvertTo-Json @{ policyId = $policyId; input = $taskInput })
 }
 
 function Get-Execution([string]$executionId) {
