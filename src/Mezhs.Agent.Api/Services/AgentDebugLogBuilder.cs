@@ -36,7 +36,7 @@ public sealed class AgentDebugLogBuilder(
         log.AppendLine();
 
         var active = executions
-            .Where(execution => execution.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running)
+            .Where(execution => execution.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running or AgentExecutionStatus.CancelRequested)
             .ToArray();
         log.AppendLine("=== ACTIVE ===");
         if (active.Length == 0)
@@ -91,7 +91,16 @@ public sealed class AgentDebugLogBuilder(
             $"[{Format(execution.CreatedAt)}] execution={execution.ExecutionId} kind={execution.Kind} status={execution.Status}");
         log.AppendLine($"parentExecutionId: {execution.ParentExecutionId ?? "-"}");
         log.AppendLine($"correlationId: {execution.CorrelationId}");
+        log.AppendLine($"requester: {execution.Requester}");
         log.AppendLine($"source: {execution.Source}");
+        if (!string.IsNullOrWhiteSpace(execution.SourceReference))
+            log.AppendLine($"sourceReference: {execution.SourceReference}");
+        if (!string.IsNullOrWhiteSpace(execution.CommandName))
+            log.AppendLine($"commandName: {execution.CommandName}");
+        if (!string.IsNullOrWhiteSpace(execution.TriggerMessageId))
+            log.AppendLine($"triggerMessageId: {execution.TriggerMessageId}");
+        if (execution.CommandIndex is { } commandIndex)
+            log.AppendLine($"commandIndex: {commandIndex}");
         log.AppendLine($"startedAt: {(execution.StartedAt is { } started ? Format(started) : "-")}");
         log.AppendLine($"completedAt: {(execution.CompletedAt is { } completed ? Format(completed) : "-")}");
         if (execution.StartedAt is { } startedAt && execution.CompletedAt is null)
