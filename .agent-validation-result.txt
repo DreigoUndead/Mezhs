@@ -1,25 +1,26 @@
 === dotnet build Mezhs.sln -c Release ===
 exitCode=0
   Determining projects to restore...
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 186 ms).
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 177 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 177 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\Mezhs.Agent.Api.Client.csproj (in 1 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 3 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj (in 1 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj (in 1 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Client\Mezhs.Api.Client.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj (in 1 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 4 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 3 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 3 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 1.59 sec).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 1.85 sec).
-  Mezhs.Api.Contracts -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\bin\Release\net10.0\Mezhs.Api.Contracts.dll
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 735 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj (in 627 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 619 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 619 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj (in 3 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\Mezhs.Agent.Api.Client.csproj (in 3 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Client\Mezhs.Api.Client.csproj (in 13 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 7 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 6 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 16 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 4 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 1.37 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 1.81 sec).
   Mezhs.Agent.Api.Client -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\bin\Release\net10.0\Mezhs.Agent.Api.Client.dll
-  Mezhs.Agent.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\bin\Release\net10.0\Mezhs.Agent.Web.dll
+  Mezhs.Api.Contracts -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\bin\Release\net10.0\Mezhs.Api.Contracts.dll
   Mezhs.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Web\bin\Release\net10.0\Mezhs.Web.dll
+  Mezhs.Api.Client -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Client\bin\Release\net10.0\Mezhs.Api.Client.dll
+  Mezhs.Agent.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\bin\Release\net10.0\Mezhs.Agent.Web.dll
   npm warn old lockfile
   npm warn old lockfile The package-lock.json file was created with an old version of npm,
   npm warn old lockfile so supplemental metadata must be fetched from the registry.
@@ -27,7 +28,7 @@ exitCode=0
   npm warn old lockfile This is a one-time fix-up, please be patient...
   npm warn old lockfile
   
-  added 75 packages, and audited 77 packages in 24s
+  added 75 packages, and audited 77 packages in 9s
   
   11 packages are looking for funding
     run `npm fund` for details
@@ -42,7 +43,7 @@ exitCode=0
   
   Run `npm audit` for details.
   
-  added 75 packages, and audited 77 packages in 26s
+  added 75 packages, and audited 77 packages in 11s
   
   11 packages are looking for funding
     run `npm fund` for details
@@ -63,35 +64,34 @@ exitCode=0
   
   [36mvite v2.9.16 [32mbuilding for production...[36m[39m
   transforming...
-  [36mvite v2.9.16 [32mbuilding for production...[36m[39m
   [32mΓ£ô[39m 41 modules transformed.
-  transforming...
   rendering chunks...
   [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.51 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[35massets/index.cf178633.css  [39m [2m21.44 KiB / gzip: 5.53 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[36massets/index.75975b24.js   [39m [2m161.79 KiB / gzip: 51.59 KiB[22m
-  Mezhs.Integration.Abstractions -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\bin\Release\net10.0\Mezhs.Integration.Abstractions.dll
-  Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Release\net10.0\Mezhs.Integrations.Mock.dll
+  Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Release\net10.0\Mezhs.Browser.Abstractions.dll
+  [36mvite v2.9.16 [32mbuilding for production...[36m[39m
+  transforming...
+  Mezhs.Agent.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll
   [32mΓ£ô[39m 42 modules transformed.
   rendering chunks...
   [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.44 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[35massets/index.ee81aff7.css  [39m [2m31.01 KiB / gzip: 7.03 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[36massets/index.b7d91f4f.js   [39m [2m163.65 KiB / gzip: 52.47 KiB[22m
-  Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Release\net10.0\Mezhs.Browser.Abstractions.dll
-  Mezhs.Api.Client -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Client\bin\Release\net10.0\Mezhs.Api.Client.dll
-  Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Release\net10.0\Mezhs.Integration.Browser.dll
+  Mezhs.Integration.Abstractions -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\bin\Release\net10.0\Mezhs.Integration.Abstractions.dll
   Mezhs.Browser.Electron -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\bin\Release\net10.0\Mezhs.Browser.Electron.dll
+  Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Release\net10.0\Mezhs.Integrations.Mock.dll
+  Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Release\net10.0\Mezhs.Integration.Browser.dll
   Mezhs.Integrations.Gemini -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\bin\Release\net10.0\Mezhs.Integrations.Gemini.dll
   Mezhs.Integrations.ChatGpt -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\bin\Release\net10.0\Mezhs.Integrations.ChatGpt.dll
   Mezhs.Integrations.Grok -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\bin\Release\net10.0\Mezhs.Integrations.Grok.dll
-  Mezhs.Agent.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll
   Mezhs.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Api\bin\Release\net10.0\Mezhs.Api.dll
 
 Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:58.76
+Time Elapsed 00:00:38.91
 
 === tests/agent-architecture.ps1 ===
 exitCode=0
@@ -111,11 +111,11 @@ PASS: Agent API/Web are loopback-only, CORS-closed, requester-aware, environment
 
 === tests/agent-runtime-resilience.ps1 ===
 exitCode=1
-Exception: D:\a\Mezhs\Mezhs\tests\agent-runtime-resilience.ps1:65
+Exception: D:\a\Mezhs\Mezhs\tests\agent-runtime-resilience.ps1:90
 Line |
-  65 |              throw "No shell in chat $chatId reached [$($statuses -joi …
-     |              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-     | No shell in chat chat_96d3b868f48f44faaa9e2dfec77b85e9 reached [Failed].
+  90 |  … ing.chatId) { throw "Cancellation test root never attached a chat." }
+     |                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Cancellation test root never attached a chat.
 
 OVERALL: FAIL
 
