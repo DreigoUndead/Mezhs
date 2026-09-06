@@ -1,14 +1,16 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
+using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 
 namespace Mezhs.Agent.Commands;
 
-public sealed class Shell(AgentStore store)
+public sealed class Shell(
+    AgentStore store,
+    AgentOptions options)
 {
-    private static readonly Encoding Utf8WithoutBom = new UTF8Encoding(false);
-
     public async Task<Result> ExecuteAsync(
         ExecutionContext context,
         string commandText,
@@ -21,11 +23,14 @@ public sealed class Shell(AgentStore store)
         var child = store.CreateChildExecution(
             context.ParentExecution,
             AgentExecutionKind.Shell,
-            commandText);
+            definition.Name,
+            commandText,
+            context.TriggerMessageId,
+            context.CommandIndex);
         if (!store.TryMarkRunning(child.ExecutionId))
             return new Result(definition.Name, child.ExecutionId, false, null, null, "Shell execution could not enter the running state.");
 
-        using var invocation = CreateInvocation(context.ParentExecution, child, commandText);
+        var invocation = CreateInvocation(context.ParentExecution, child, commandText);
         using var process = new Process { StartInfo = invocation.StartInfo };
         using var commandCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         commandCancellation.CancelAfter(context.Timeout);
@@ -37,16 +42,25 @@ public sealed class Shell(AgentStore store)
             if (!process.Start())
                 throw new InvalidOperationException("Host shell process could not be started.");
 
-            using var cancellation = commandCancellation.Token.Register(() => TryKill(process));
             stdoutTask = process.StandardOutput.ReadToEndAsync();
             stderrTask = process.StandardError.ReadToEndAsync();
+            await WriteInputAsync(process, invocation.Payload, commandCancellation.Token);
             await process.WaitForExitAsync(commandCancellation.Token);
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-            var result = FormatResult(stdout, stderr);
+            var streams = await Task.WhenAll(stdoutTask, stderrTask);
+            var result = FormatResult(streams[0], streams[1]);
             var exitCode = process.ExitCode;
 
-            store.CompleteShell(child.ExecutionId, exitCode, result);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!store.CompleteShell(child.ExecutionId, exitCode, result))
+            {
+                if (store.GetExecution(child.ExecutionId)?.Status == AgentExecutionStatus.CancelRequested)
+                {
+                    store.CompleteCancellation(child.ExecutionId);
+                    throw new OperationCanceledException(cancellationToken);
+                }
+                throw new InvalidOperationException("Shell execution changed state before its result could be recorded.");
+            }
+
             return new Result(
                 definition.Name,
                 child.ExecutionId,
@@ -57,7 +71,7 @@ public sealed class Shell(AgentStore store)
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            TryKill(process);
+            await TerminateAsync(process);
             var result = await CaptureAvailableOutputAsync(stdoutTask, stderrTask);
             var seconds = context.Timeout.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
             var error = $"Shell command timed out after {seconds} seconds.";
@@ -66,74 +80,54 @@ public sealed class Shell(AgentStore store)
         }
         catch (OperationCanceledException)
         {
-            TryKill(process);
-            store.Cancel(child.ExecutionId);
+            await TerminateAsync(process);
+            store.RequestCancel(child.ExecutionId);
+            store.CompleteCancellation(child.ExecutionId);
             throw;
         }
         catch (Exception ex)
         {
-            TryKill(process);
+            await TerminateAsync(process);
             store.Fail(child.ExecutionId, ex.Message);
             return new Result(definition.Name, child.ExecutionId, false, null, null, ex.Message);
         }
-    }
-
-    private static ShellInvocation CreateInvocation(
-        ExecutionRecord parent,
-        ExecutionRecord child,
-        string commandText)
-    {
-        if (OperatingSystem.IsWindows())
-            return CreateWindowsInvocation(parent, child, commandText);
-
-        var startInfo = CreateBaseStartInfo(parent, child);
-        startInfo.FileName = "/bin/sh";
-        startInfo.ArgumentList.Add("-c");
-        startInfo.ArgumentList.Add(commandText);
-        return new ShellInvocation(startInfo, null);
-    }
-
-    private static ShellInvocation CreateWindowsInvocation(
-        ExecutionRecord parent,
-        ExecutionRecord child,
-        string commandText)
-    {
-        var commandFile = Path.Combine(
-            Path.GetTempPath(),
-            $"mezhs-shell-{child.ExecutionId}-{Guid.NewGuid():N}.cmd");
-        var payload = "@chcp 65001>nul\r\n" + commandText;
-        File.WriteAllText(commandFile, payload, Utf8WithoutBom);
-
-        try
+        finally
         {
-            var startInfo = CreateBaseStartInfo(parent, child);
+            try { process.StandardInput.Close(); } catch (InvalidOperationException) { }
+        }
+    }
+
+    private ShellInvocation CreateInvocation(
+        ExecutionRecord parent,
+        ExecutionRecord child,
+        string commandText)
+    {
+        var startInfo = CreateBaseStartInfo(parent, child);
+        if (OperatingSystem.IsWindows())
+        {
             startInfo.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
-            startInfo.StandardOutputEncoding = Encoding.UTF8;
-            startInfo.StandardErrorEncoding = Encoding.UTF8;
             startInfo.ArgumentList.Add("/D");
             startInfo.ArgumentList.Add("/Q");
-            startInfo.ArgumentList.Add("/C");
-            startInfo.ArgumentList.Add("call");
-            startInfo.ArgumentList.Add(commandFile);
-            return new ShellInvocation(startInfo, commandFile);
+            return new ShellInvocation(startInfo, "@chcp 65001>nul\r\n" + commandText + "\r\n");
         }
-        catch
-        {
-            TryDelete(commandFile);
-            throw;
-        }
+
+        startInfo.FileName = "/bin/sh";
+        return new ShellInvocation(startInfo, commandText + "\n");
     }
 
-    private static ProcessStartInfo CreateBaseStartInfo(
+    private ProcessStartInfo CreateBaseStartInfo(
         ExecutionRecord parent,
         ExecutionRecord child)
     {
         var startInfo = new ProcessStartInfo
         {
             UseShellExecute = false,
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            CreateNoWindow = true
+            StandardInputEncoding = Encoding.UTF8,
+            CreateNoWindow = true,
+            WorkingDirectory = options.Workspace
         };
 
         foreach (var (name, value) in parent.Environment)
@@ -142,10 +136,48 @@ public sealed class Shell(AgentStore store)
         startInfo.Environment["MEZHS_PARENT_EXECUTION_ID"] = parent.ExecutionId;
         startInfo.Environment["MEZHS_CORRELATION_ID"] = parent.CorrelationId;
         startInfo.Environment["MEZHS_SOURCE"] = parent.Source;
+        startInfo.Environment["MEZHS_REQUESTER"] = parent.Requester;
+        startInfo.Environment["MEZHS_WORKSPACE"] = options.Workspace;
         if (!string.IsNullOrWhiteSpace(parent.ChatId))
             startInfo.Environment["MEZHS_CHAT_ID"] = parent.ChatId;
 
+        if (OperatingSystem.IsWindows())
+        {
+            startInfo.StandardOutputEncoding = Encoding.UTF8;
+            startInfo.StandardErrorEncoding = Encoding.UTF8;
+        }
         return startInfo;
+    }
+
+    private static async Task WriteInputAsync(
+        Process process,
+        string payload,
+        CancellationToken cancellationToken)
+    {
+        await process.StandardInput.WriteAsync(payload.AsMemory(), cancellationToken);
+        await process.StandardInput.FlushAsync(cancellationToken);
+        process.StandardInput.Close();
+    }
+
+    private static async Task TerminateAsync(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+        {
+        }
+
+        try
+        {
+            if (!process.HasExited)
+                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or TimeoutException)
+        {
+        }
     }
 
     private static async Task<string> CaptureAvailableOutputAsync(
@@ -157,9 +189,8 @@ public sealed class Shell(AgentStore store)
 
         try
         {
-            var stdout = await stdoutTask.WaitAsync(TimeSpan.FromSeconds(2));
-            var stderr = await stderrTask.WaitAsync(TimeSpan.FromSeconds(2));
-            return FormatResult(stdout, stderr);
+            var streams = await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(TimeSpan.FromSeconds(2));
+            return FormatResult(streams[0], streams[1]);
         }
         catch (TimeoutException)
         {
@@ -198,40 +229,5 @@ public sealed class Shell(AgentStore store)
             result.AppendLine().Append(normalized[remainderStart..]);
     }
 
-    private static void TryKill(Process process)
-    {
-        try
-        {
-            if (!process.HasExited)
-                process.Kill(entireProcessTree: true);
-        }
-        catch (InvalidOperationException)
-        {
-        }
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
-    }
-
-    private sealed class ShellInvocation(ProcessStartInfo startInfo, string? temporaryCommandFile) : IDisposable
-    {
-        public ProcessStartInfo StartInfo { get; } = startInfo;
-
-        public void Dispose()
-        {
-            if (!string.IsNullOrWhiteSpace(temporaryCommandFile))
-                TryDelete(temporaryCommandFile);
-        }
-    }
+    private sealed record ShellInvocation(ProcessStartInfo StartInfo, string Payload);
 }

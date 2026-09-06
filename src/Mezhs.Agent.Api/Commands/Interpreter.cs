@@ -5,7 +5,9 @@ namespace Mezhs.Agent.Commands;
 
 public sealed record ExecutionContext(
     ExecutionRecord ParentExecution,
-    TimeSpan Timeout);
+    TimeSpan Timeout,
+    string TriggerMessageId,
+    int CommandIndex);
 
 public sealed record Result(
     string Name,
@@ -28,6 +30,7 @@ public sealed class Interpreter(
     public async Task<Interpretation> InterpretAsync(
         ExecutionRecord execution,
         PolicyContext policy,
+        string assistantMessageId,
         string assistantReply,
         CancellationToken cancellationToken)
     {
@@ -44,6 +47,7 @@ public sealed class Interpreter(
         var results = new List<Result>();
         var completionClaimed = false;
         var timeout = TimeSpan.FromSeconds(policy.Settings.Limits.CommandTimeoutSeconds);
+        var executableIndex = 0;
 
         for (var i = 0; i < batch.Commands.Count; i++)
         {
@@ -68,9 +72,11 @@ public sealed class Interpreter(
                 continue;
             }
 
-            var decision = policy.ValidateAction(new PolicyActionContext(
-                evaluations.Create(execution),
-                new PolicyAction(definition.Name, command.Body ?? string.Empty)));
+            var body = command.Body ?? string.Empty;
+            var decision = evaluations.ValidateAction(
+                policy,
+                execution,
+                new PolicyAction(definition, body));
             if (!decision.Allowed)
                 return new Interpretation(completionClaimed, results, decision.Error ?? $"Policy denied {definition.Name} action.");
 
@@ -78,9 +84,10 @@ public sealed class Interpreter(
             {
                 case CommandBehavior.Shell:
                     results.Add(await shell.ExecuteAsync(
-                        new ExecutionContext(execution, timeout),
-                        command.Body ?? string.Empty,
+                        new ExecutionContext(execution, timeout, assistantMessageId, executableIndex),
+                        body,
                         cancellationToken));
+                    executableIndex++;
                     break;
                 default:
                     return new Interpretation(completionClaimed, results, $"Agent command <{definition.Name}> has no executable behavior.");

@@ -13,6 +13,7 @@ public sealed class ApiExceptionHandler : IExceptionHandler
         {
             RequestValidationException => StatusCodes.Status400BadRequest,
             ResourceNotFoundException => StatusCodes.Status404NotFound,
+            AgentCapacityExceededException => StatusCodes.Status429TooManyRequests,
             _ => (int?)null
         };
 

@@ -2,9 +2,16 @@ version: 1
 listen: http://127.0.0.1:5060
 mezhsApi: http://127.0.0.1:5050
 storage: data/agent.sqlite
+workspace: .
+
+runtime:
+  queueCapacity: 32
+  maxConcurrentExecutions: 4
 
 messages:
-  continue: Continue the assigned agent task according to the applicable policy.
+  continue: |
+    Continue the assigned agent task according to the applicable policy.
+    When the task is complete, return <DONE> on a line by itself.
   policyCorrection: |
     Policy rejected your completion claim:
     {error}
@@ -21,7 +28,7 @@ messages:
     Command results JSON:
     {json}
 
-    Continue the assigned task according to the applicable policy.
+    Continue the assigned task according to the applicable policy. When the task is complete, return <DONE> on a line by itself.
   protocolIntro: |
     Agent command protocol:
     - Only use command types explicitly allowed by the applicable policy.
@@ -40,8 +47,11 @@ policies:
     commands:
       allow:
         - SH
+    environment:
+      allow: []
     completion:
       requireDone: true
+      requiredSuccessfulCommands: []
     limits:
       maxTurns: 30
       commandTimeoutSeconds: 120

@@ -8,7 +8,7 @@ public sealed class AgentService(
     PolicyRegistry policies,
     AgentWorker worker)
 {
-    public ExecutionRecord Start(CreateExecutionRequest request)
+    public ExecutionRecord Start(CreateExecutionRequest request, string requester)
     {
         var policyId = request.PolicyId?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(policyId))
@@ -18,7 +18,9 @@ public sealed class AgentService(
 
         var policy = policies.Get(policyId);
         var chatId = string.IsNullOrWhiteSpace(request.ChatId) ? null : request.ChatId.Trim();
-        var requestedEnvironment = request.Environment is null ? null : NormalizeEnvironment(request.Environment);
+        var requestedEnvironment = request.Environment is null
+            ? null
+            : NormalizeEnvironment(request.Environment, policy.Settings.Environment.Allow);
         IReadOnlyDictionary<string, string> environment = requestedEnvironment ?? EmptyEnvironment();
 
         if (chatId is not null)
@@ -40,10 +42,15 @@ public sealed class AgentService(
             chatId,
             source: "manual",
             sourceReference: null,
+            requester,
             request.Input.Trim(),
             environment,
             policies.Snapshot(policyId));
-        worker.Enqueue(execution.ExecutionId);
+        if (!worker.TryEnqueue(execution.ExecutionId))
+        {
+            store.Fail(execution.ExecutionId, "MEŽS Agent execution queue is full.");
+            throw new AgentCapacityExceededException("MEŽS Agent execution queue is full. Try again after queued work starts.");
+        }
         return execution;
     }
 
@@ -64,14 +71,20 @@ public sealed class AgentService(
     }
 
     private static IReadOnlyDictionary<string, string> NormalizeEnvironment(
-        IReadOnlyDictionary<string, string> values)
+        IReadOnlyDictionary<string, string> values,
+        IReadOnlyList<string> allowedNames)
     {
+        var allowed = allowedNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (rawName, value) in values)
         {
             var name = rawName?.Trim() ?? string.Empty;
             if (name.Length == 0 || name.Contains('=') || name.Contains('\0'))
                 throw new RequestValidationException($"Invalid environment variable name '{rawName}'.");
+            if (name.StartsWith("MEZHS_", StringComparison.OrdinalIgnoreCase))
+                throw new RequestValidationException($"Environment variable '{name}' is reserved by MEŽS.");
+            if (!allowed.Contains(name))
+                throw new RequestValidationException($"Policy does not allow environment variable '{name}'.");
             if (value?.Contains('\0') == true)
                 throw new RequestValidationException($"Environment variable '{name}' contains an invalid null character.");
             if (!result.TryAdd(name, value ?? string.Empty))

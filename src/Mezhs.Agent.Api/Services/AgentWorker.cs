@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Mezhs.Agent.Commands;
+using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
@@ -9,60 +10,88 @@ using Mezhs.Api.Client;
 
 namespace Mezhs.Agent.Services;
 
-public sealed class AgentWorker(
-    AgentStore store,
-    PolicyRegistry policies,
-    MezhsApiClient mezhs,
-    AgentPromptBuilder prompts,
-    PolicyEvaluationService evaluations,
-    Interpreter commands) : BackgroundService
+public sealed class AgentWorker : BackgroundService
 {
-    private readonly Channel<string> _queue = Channel.CreateUnbounded<string>(
-        new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    private readonly AgentStore _store;
+    private readonly PolicyRegistry _policies;
+    private readonly MezhsApiClient _mezhs;
+    private readonly AgentPromptBuilder _prompts;
+    private readonly PolicyEvaluationService _evaluations;
+    private readonly Interpreter _commands;
+    private readonly Channel<string> _queue;
+    private readonly int _maxConcurrentExecutions;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _cancellations =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _chatGates =
         new(StringComparer.OrdinalIgnoreCase);
+    private int _queuedCount;
+    private int _activeCount;
 
-    public void Enqueue(string executionId)
+    public AgentWorker(
+        AgentStore store,
+        PolicyRegistry policies,
+        MezhsApiClient mezhs,
+        AgentPromptBuilder prompts,
+        PolicyEvaluationService evaluations,
+        Interpreter commands,
+        AgentOptions options)
     {
-        if (_queue.Writer.TryWrite(executionId))
-            return;
+        _store = store;
+        _policies = policies;
+        _mezhs = mezhs;
+        _prompts = prompts;
+        _evaluations = evaluations;
+        _commands = commands;
+        _maxConcurrentExecutions = options.Runtime.MaxConcurrentExecutions;
+        _queue = Channel.CreateBounded<string>(new BoundedChannelOptions(options.Runtime.QueueCapacity)
+        {
+            SingleReader = false,
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.Wait
+        });
+    }
 
-        store.Fail(executionId, "MEŽS Agent is shutting down and cannot accept more work.");
-        throw new InvalidOperationException("MEŽS Agent is shutting down and cannot accept more work.");
+    public int QueueLength => Volatile.Read(ref _queuedCount);
+    public int ActiveExecutions => Volatile.Read(ref _activeCount);
+
+    public bool TryEnqueue(string executionId)
+    {
+        if (!_queue.Writer.TryWrite(executionId))
+            return false;
+        Interlocked.Increment(ref _queuedCount);
+        return true;
     }
 
     public ExecutionRecord Cancel(string executionId)
     {
-        var (record, changed) = store.Cancel(executionId);
-        if (changed && _cancellations.TryGetValue(executionId, out var cancellation))
+        var (record, changed) = _store.RequestCancel(executionId);
+        if (changed && record.Status == AgentExecutionStatus.CancelRequested &&
+            _cancellations.TryGetValue(executionId, out var cancellation))
+        {
             cancellation.Cancel();
+        }
         return record;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var running = new HashSet<Task>();
+        var consumers = Enumerable.Range(0, _maxConcurrentExecutions)
+            .Select(_ => ConsumeAsync(stoppingToken))
+            .ToArray();
         try
         {
-            await foreach (var executionId in _queue.Reader.ReadAllAsync(stoppingToken))
-            {
-                foreach (var completed in running.Where(task => task.IsCompleted).ToArray())
-                {
-                    await completed;
-                    running.Remove(completed);
-                }
-                running.Add(ProcessAsync(executionId, stoppingToken));
-            }
+            await Task.WhenAll(consumers);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
         }
         finally
         {
-            if (running.Count > 0)
-                await Task.WhenAll(running);
+            while (_queue.Reader.TryRead(out var executionId))
+            {
+                Interlocked.Decrement(ref _queuedCount);
+                _store.Interrupt(executionId);
+            }
         }
     }
 
@@ -70,6 +99,23 @@ public sealed class AgentWorker(
     {
         _queue.Writer.TryComplete();
         return base.StopAsync(cancellationToken);
+    }
+
+    private async Task ConsumeAsync(CancellationToken stoppingToken)
+    {
+        await foreach (var executionId in _queue.Reader.ReadAllAsync(stoppingToken))
+        {
+            Interlocked.Decrement(ref _queuedCount);
+            Interlocked.Increment(ref _activeCount);
+            try
+            {
+                await ProcessAsync(executionId, stoppingToken);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _activeCount);
+            }
+        }
     }
 
     private async Task ProcessAsync(string executionId, CancellationToken stoppingToken)
@@ -81,109 +127,119 @@ public sealed class AgentWorker(
 
         try
         {
-            if (!store.TryMarkRunning(executionId))
+            if (!_store.TryMarkRunning(executionId))
                 return;
 
-            var execution = store.GetExecution(executionId)
+            var execution = _store.GetExecution(executionId)
                 ?? throw new ResourceNotFoundException($"Execution '{executionId}' was not found.");
-            var policy = policies.Get(execution.PolicyId);
+            var policy = _policies.Get(execution.PolicyId);
 
             var chatId = execution.ChatId;
-            var previouslyOwnedAgentChat = chatId is null ? null : store.GetAgentChat(chatId);
+            var previouslyOwnedAgentChat = chatId is null ? null : _store.GetAgentChat(chatId);
             if (string.IsNullOrWhiteSpace(chatId))
             {
-                chatId = await mezhs.CreateChatAsync(
+                chatId = await _mezhs.CreateChatAsync(
                     execution.ConnectionId,
                     cancellation.Token);
-                store.AttachChat(executionId, chatId);
+                _store.AttachChat(executionId, chatId);
                 execution.ChatId = chatId;
                 cancellation.Token.ThrowIfCancellationRequested();
             }
-            else if (!await mezhs.ChatExistsAsync(chatId, cancellation.Token))
+            else if (!await _mezhs.ChatExistsAsync(chatId, cancellation.Token))
             {
                 throw new ResourceNotFoundException($"Chat '{chatId}' was not found in MEŽS.");
             }
 
-            store.ClaimAgentChat(
+            _store.ClaimAgentChat(
                 chatId,
                 execution.PolicyId,
                 execution.Source,
                 execution.SourceReference,
                 execution.Environment);
-            store.ValidateAgentChatRunnable(chatId);
+            _store.ValidateAgentChatRunnable(chatId);
 
             chatGate = _chatGates.GetOrAdd(chatId, _ => new SemaphoreSlim(1, 1));
             await chatGate.WaitAsync(cancellation.Token);
             chatGateAcquired = true;
 
-            var existingMessages = await mezhs.GetMessagesAsync(chatId, cancellation.Token);
+            var existingMessages = await _mezhs.GetMessagesAsync(chatId, cancellation.Token);
             var hasCompletedAgentHistory = existingMessages.Any(message =>
                 message.Role == "user" && message.Status == MessageStatus.Completed);
             var includePolicyInstructions = previouslyOwnedAgentChat is null || !hasCompletedAgentHistory;
-            var nextPrompt = prompts.BuildInitial(execution, policy, includePolicyInstructions);
+            var nextPrompt = _prompts.BuildInitial(execution, policy, includePolicyInstructions);
 
             for (var turn = 0; ; turn++)
             {
                 cancellation.Token.ThrowIfCancellationRequested();
-                store.ValidateAgentChatRunnable(chatId);
+                _store.ValidateAgentChatRunnable(chatId);
 
-                var turnDecision = policy.ValidateTurn(
-                    new PolicyTurnContext(evaluations.Create(execution), turn));
+                var turnDecision = _evaluations.ValidateTurn(policy, execution, turn);
                 if (!turnDecision.Allowed)
                 {
-                    store.Fail(executionId, turnDecision.Error ?? "Policy rejected the next agent turn.");
+                    _store.Fail(executionId, turnDecision.Error ?? "Policy rejected the next agent turn.");
                     return;
                 }
 
-                var reply = await mezhs.SendMessageAsync(
+                var reply = await _mezhs.SendMessageWithReplyAsync(
                     chatId,
                     execution.ConnectionId,
                     nextPrompt.Content,
                     nextPrompt.Origin,
                     cancellation.Token);
 
-                var interpretation = await commands.InterpretAsync(
+                var interpretation = await _commands.InterpretAsync(
                     execution,
                     policy,
-                    reply,
+                    reply.MessageId,
+                    reply.Content,
                     cancellation.Token);
                 if (interpretation.Error is { } commandError)
                 {
-                    nextPrompt = prompts.BuildCommandCorrection(commandError);
+                    nextPrompt = _prompts.BuildCommandCorrection(commandError);
                     continue;
                 }
 
                 if (interpretation.Results.Count > 0)
                 {
-                    nextPrompt = prompts.BuildCommandResults(interpretation.Results);
+                    nextPrompt = _prompts.BuildCommandResults(interpretation.Results);
                     continue;
                 }
 
-                var completion = policy.EvaluateCompletion(
-                    new PolicyCompletionContext(
-                        evaluations.Create(execution),
-                        interpretation.CompletionClaimed));
+                var completion = _evaluations.EvaluateCompletion(
+                    policy,
+                    execution,
+                    interpretation.CompletionClaimed);
                 if (completion.State == PolicyCompletionState.Accepted)
                 {
-                    store.Complete(executionId, reply);
-                    return;
+                    if (_store.Complete(executionId, reply.Content))
+                        return;
+                    if (_store.GetExecution(executionId)?.Status == AgentExecutionStatus.CancelRequested)
+                    {
+                        _store.CompleteCancellation(executionId);
+                        return;
+                    }
+                    throw new InvalidOperationException("Agent execution changed state before completion could be recorded.");
                 }
 
                 nextPrompt = completion.State == PolicyCompletionState.Rejected
-                    ? prompts.BuildPolicyCorrection(completion.Error)
-                    : prompts.BuildContinue();
+                    ? _prompts.BuildPolicyCorrection(completion.Error)
+                    : _prompts.BuildContinue();
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            store.Interrupt(executionId);
+            _store.Interrupt(executionId);
         }
         catch (OperationCanceledException)
         {
+            _store.CompleteCancellation(executionId);
         }
         catch (Exception ex)
         {
-            store.Fail(executionId, ex.Message);
+            if (_store.GetExecution(executionId)?.Status == AgentExecutionStatus.CancelRequested)
+                _store.CompleteCancellation(executionId);
+            else
+                _store.Fail(executionId, ex.Message);
         }
         finally
         {

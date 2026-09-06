@@ -90,6 +90,14 @@ public sealed class MezhsApiClient(HttpClient client)
         string connectionId,
         string content,
         string origin,
+        CancellationToken cancellationToken = default) =>
+        (await SendMessageWithReplyAsync(chatId, connectionId, content, origin, cancellationToken)).Content;
+
+    public async Task<ApiMessage> SendMessageWithReplyAsync(
+        string chatId,
+        string connectionId,
+        string content,
+        string origin,
         CancellationToken cancellationToken = default)
     {
         using var response = await client.PostAsJsonAsync(
@@ -107,7 +115,7 @@ public sealed class MezhsApiClient(HttpClient client)
         return await WaitForReplyAsync(created.MessageId, cancellationToken);
     }
 
-    private async Task<string> WaitForReplyAsync(
+    private async Task<ApiMessage> WaitForReplyAsync(
         string messageId,
         CancellationToken cancellationToken)
     {
@@ -123,7 +131,7 @@ public sealed class MezhsApiClient(HttpClient client)
             switch (message.Status)
             {
                 case MessageStatus.Completed:
-                    return message.Reply?.Content
+                    return message.Reply
                         ?? throw new InvalidOperationException("MEŽS completed without an assistant reply.");
                 case MessageStatus.Failed:
                 case MessageStatus.Cancelled:

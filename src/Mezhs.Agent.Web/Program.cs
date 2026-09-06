@@ -1,5 +1,8 @@
 using System.Net.Http.Headers;
 
+const string apiKeyEnvironmentVariable = "MEZHS_AGENT_API_KEY";
+const string requesterHeader = "X-MEZHS-Requester";
+
 var frontendPath = FindFrontendPath();
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
@@ -8,8 +11,16 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 });
 
 var agentApiBaseUrl = builder.Configuration["Agent:BaseUrl"] ?? "http://127.0.0.1:5060";
+var apiKey = Environment.GetEnvironmentVariable(apiKeyEnvironmentVariable);
+if (string.IsNullOrWhiteSpace(apiKey))
+    throw new InvalidOperationException($"{apiKeyEnvironmentVariable} must be set before starting MEŽS Agent Web.");
+
 builder.Services.AddHttpClient("agent-api", client =>
-    client.BaseAddress = new Uri(agentApiBaseUrl));
+{
+    client.BaseAddress = new Uri(agentApiBaseUrl);
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+    client.DefaultRequestHeaders.Add(requesterHeader, "agent-web");
+});
 
 var app = builder.Build();
 

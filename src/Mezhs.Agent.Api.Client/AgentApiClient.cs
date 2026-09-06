@@ -1,31 +1,56 @@
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Mezhs.Agent.Api.Client;
 
-public sealed class AgentApiClient(HttpClient client)
+public sealed class AgentApiClient
 {
+    public const string ApiKeyEnvironmentVariable = "MEZHS_AGENT_API_KEY";
+    public const string RequesterHeader = "X-MEZHS-Requester";
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }
     };
+    private readonly HttpClient _client;
+
+    public AgentApiClient(
+        HttpClient client,
+        string? apiKey = null,
+        string requester = "agent-api-client")
+    {
+        _client = client;
+        var key = apiKey ?? Environment.GetEnvironmentVariable(ApiKeyEnvironmentVariable);
+        if (string.IsNullOrWhiteSpace(key))
+            throw new InvalidOperationException($"{ApiKeyEnvironmentVariable} must be set or supplied to AgentApiClient.");
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        if (!_client.DefaultRequestHeaders.Contains(RequesterHeader))
+            _client.DefaultRequestHeaders.Add(RequesterHeader, requester);
+    }
 
     public async Task<AgentRuntimeView> GetRuntimeAsync(CancellationToken cancellationToken = default)
     {
-        using var response = await client.GetAsync("/v1/runtime", cancellationToken);
+        using var response = await _client.GetAsync("/v1/runtime", cancellationToken);
         return await ReadAsync<AgentRuntimeView>(response, cancellationToken);
+    }
+
+    public async Task<AgentMetricsView> GetMetricsAsync(CancellationToken cancellationToken = default)
+    {
+        using var response = await _client.GetAsync("/v1/metrics", cancellationToken);
+        return await ReadAsync<AgentMetricsView>(response, cancellationToken);
     }
 
     public async Task<IReadOnlyList<AgentPolicyView>> GetPoliciesAsync(CancellationToken cancellationToken = default)
     {
-        using var response = await client.GetAsync("/v1/policies", cancellationToken);
+        using var response = await _client.GetAsync("/v1/policies", cancellationToken);
         return await ReadAsync<AgentPolicyView[]>(response, cancellationToken);
     }
 
     public async Task<IReadOnlyList<AgentChatView>> GetChatsAsync(CancellationToken cancellationToken = default)
     {
-        using var response = await client.GetAsync("/v1/agent-chats", cancellationToken);
+        using var response = await _client.GetAsync("/v1/agent-chats", cancellationToken);
         return await ReadAsync<AgentChatView[]>(response, cancellationToken);
     }
 
@@ -33,7 +58,7 @@ public sealed class AgentApiClient(HttpClient client)
         string chatId,
         CancellationToken cancellationToken = default)
     {
-        using var response = await client.GetAsync(
+        using var response = await _client.GetAsync(
             $"/v1/agent-chats/{Uri.EscapeDataString(chatId)}",
             cancellationToken);
         return await ReadAsync<AgentChatView>(response, cancellationToken);
@@ -44,7 +69,7 @@ public sealed class AgentApiClient(HttpClient client)
         bool paused,
         CancellationToken cancellationToken = default)
     {
-        using var response = await client.PatchAsJsonAsync(
+        using var response = await _client.PatchAsJsonAsync(
             $"/v1/agent-chats/{Uri.EscapeDataString(chatId)}",
             new { paused },
             Json,
@@ -56,7 +81,7 @@ public sealed class AgentApiClient(HttpClient client)
         CreateAgentExecutionRequest request,
         CancellationToken cancellationToken = default)
     {
-        using var response = await client.PostAsJsonAsync(
+        using var response = await _client.PostAsJsonAsync(
             "/v1/executions",
             request,
             Json,
@@ -71,7 +96,7 @@ public sealed class AgentApiClient(HttpClient client)
         var path = string.IsNullOrWhiteSpace(chatId)
             ? "/v1/executions"
             : $"/v1/executions?chatId={Uri.EscapeDataString(chatId)}";
-        using var response = await client.GetAsync(path, cancellationToken);
+        using var response = await _client.GetAsync(path, cancellationToken);
         return await ReadAsync<AgentExecutionView[]>(response, cancellationToken);
     }
 
@@ -79,7 +104,7 @@ public sealed class AgentApiClient(HttpClient client)
         string executionId,
         CancellationToken cancellationToken = default)
     {
-        using var response = await client.GetAsync(
+        using var response = await _client.GetAsync(
             $"/v1/executions/{Uri.EscapeDataString(executionId)}",
             cancellationToken);
         return await ReadAsync<AgentExecutionView>(response, cancellationToken);
@@ -89,7 +114,7 @@ public sealed class AgentApiClient(HttpClient client)
         string executionId,
         CancellationToken cancellationToken = default)
     {
-        using var response = await client.PostAsync(
+        using var response = await _client.PostAsync(
             $"/v1/executions/{Uri.EscapeDataString(executionId)}/cancel",
             null,
             cancellationToken);
@@ -112,6 +137,15 @@ public sealed class AgentApiClient(HttpClient client)
 }
 
 public sealed record AgentRuntimeView(string Status, string MezhsApi, bool MezhsApiHealthy);
+
+public sealed record AgentMetricsView(
+    int QueueLength,
+    int ActiveExecutions,
+    int TotalExecutions,
+    int Failures,
+    int ShellFailures,
+    long PolicyDenials,
+    double AverageDurationMilliseconds);
 
 public sealed record AgentPolicyView(
     string Id,
@@ -141,11 +175,15 @@ public sealed record AgentExecutionView(
     string? ParentExecutionId,
     string CorrelationId,
     string Kind,
+    string? CommandName,
+    string? TriggerMessageId,
+    int? CommandIndex,
     string? ChatId,
     string PolicyId,
     string ConnectionId,
     string Source,
     string? SourceReference,
+    string Requester,
     string Status,
     string Request,
     string? Result,
