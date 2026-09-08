@@ -22,7 +22,9 @@ jobs:
 
       - name: Resolve cross-branch edits
         shell: pwsh
-        run: python tests/agent-merge-finalize-temp.py
+        run: |
+          python tests/agent-merge-finalize-temp.py
+          python tests/agent-merge-compat-temp.py
 
       - name: Build
         shell: pwsh
@@ -43,6 +45,7 @@ jobs:
         run: |
           rm .github/workflows/agent-merge-finalize.yml
           rm tests/agent-merge-finalize-temp.py
+          rm tests/agent-merge-compat-temp.py
           git add -A
           git diff --cached --check
           git config user.name "github-actions[bot]"
