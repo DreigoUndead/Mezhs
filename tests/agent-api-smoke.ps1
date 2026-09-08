@@ -68,8 +68,9 @@ function Get-Status([string]$uri) {
 (Get-Content -LiteralPath $agentConfig -Raw).Replace(
     "listen: http://127.0.0.1:5199",
     "listen: http://0.0.0.0:5199") | Set-Content -LiteralPath $badConfig -Encoding UTF8
+$agentDll = (Resolve-Path (Join-Path $root "src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll")).Path
 $badAgent = Start-Process -FilePath "dotnet" `
-    -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $badConfig) `
+    -ArgumentList @($agentDll, "--config", $badConfig) `
     -WorkingDirectory $root -RedirectStandardOutput $badOut -RedirectStandardError $badErr -WindowStyle Hidden -PassThru
 try {
     if (-not $badAgent.WaitForExit(8000)) {
