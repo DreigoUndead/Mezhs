@@ -1,6 +1,14 @@
 export class MessageStore {
   #messages = new Map();
   #chats = new Map();
+  #maxMessages;
+
+  constructor({ maxMessages = 10_000 } = {}) {
+    if (!Number.isInteger(maxMessages) || maxMessages < 1) {
+      throw new TypeError('maxMessages must be a positive integer.');
+    }
+    this.#maxMessages = maxMessages;
+  }
 
   upsertChats(chats) {
     for (const chat of chats ?? []) {
@@ -17,34 +25,91 @@ export class MessageStore {
   }
 
   deleteChats(ids) {
-    for (const id of ids ?? []) this.#chats.delete(id);
+    const deleted = new Set(ids ?? []);
+    for (const id of deleted) this.#chats.delete(id);
+    if (!deleted.size) return;
+
+    for (const [storageKey, message] of this.#messages) {
+      if (deleted.has(message.key?.remoteJid)) this.#messages.delete(storageKey);
+    }
   }
 
   upsertMessages(messages) {
     for (const message of messages ?? []) {
-      const id = message?.key?.id;
-      if (!id) continue;
-      this.#messages.set(id, message);
+      const storageKey = messageStorageKey(message?.key);
+      if (!storageKey) continue;
+      this.#messages.set(storageKey, message);
 
       const chatId = message.key.remoteJid;
-      if (chatId && !this.#chats.has(chatId)) {
+      if (!this.#chats.has(chatId)) {
         this.#chats.set(chatId, { id: chatId });
       }
     }
+
+    this.#trimMessages();
   }
 
-  getRaw(id) {
-    return this.#messages.get(id) ?? null;
+  updateMessages(updates) {
+    for (const item of updates ?? []) {
+      const storageKey = messageStorageKey(item?.key);
+      if (!storageKey) continue;
+
+      const existing = this.#messages.get(storageKey);
+      if (!existing) continue;
+
+      this.#messages.set(storageKey, {
+        ...existing,
+        ...item.update,
+        key: {
+          ...existing.key,
+          ...item.key,
+        },
+      });
+    }
   }
 
-  get(id) {
-    const message = this.getRaw(id);
+  deleteMessages(deletion) {
+    if (!deletion) return;
+
+    if (deletion.all && deletion.jid) {
+      for (const [storageKey, message] of this.#messages) {
+        if (message.key?.remoteJid === deletion.jid) this.#messages.delete(storageKey);
+      }
+      return;
+    }
+
+    for (const key of deletion.keys ?? []) {
+      const storageKey = messageStorageKey(key);
+      if (storageKey) this.#messages.delete(storageKey);
+    }
+  }
+
+  getRaw(keyOrId, chatId = null) {
+    if (keyOrId && typeof keyOrId === 'object') {
+      const storageKey = messageStorageKey(keyOrId);
+      return storageKey ? this.#messages.get(storageKey) ?? null : null;
+    }
+
+    if (typeof keyOrId !== 'string' || !keyOrId) return null;
+    if (chatId) return this.#messages.get(messageStorageKey({ id: keyOrId, remoteJid: chatId })) ?? null;
+
+    let match = null;
+    for (const message of this.#messages.values()) {
+      if (message.key?.id !== keyOrId) continue;
+      if (match) return null;
+      match = message;
+    }
+    return match;
+  }
+
+  get(id, chatId = null) {
+    const message = this.getRaw(id, chatId);
     return message ? toMessageDto(message) : null;
   }
 
   list({ chatId = null, limit = 20, beforeId = null, afterId = null, search = null } = {}) {
-    const before = beforeId ? this.#messages.get(beforeId) : null;
-    const after = afterId ? this.#messages.get(afterId) : null;
+    const before = beforeId ? this.getRaw(beforeId, chatId) : null;
+    const after = afterId ? this.getRaw(afterId, chatId) : null;
     const term = search?.trim().toLocaleLowerCase() || null;
 
     return [...this.#messages.values()]
@@ -67,6 +132,22 @@ export class MessageStore {
       }))
       .sort((a, b) => (b.conversationTimestamp ?? '').localeCompare(a.conversationTimestamp ?? ''));
   }
+
+  #trimMessages() {
+    const excess = this.#messages.size - this.#maxMessages;
+    if (excess <= 0) return;
+
+    const oldest = [...this.#messages.entries()]
+      .sort(([, a], [, b]) => compareMessages(a, b))
+      .slice(0, excess);
+
+    for (const [storageKey] of oldest) this.#messages.delete(storageKey);
+  }
+}
+
+function messageStorageKey(key) {
+  if (!key?.id || !key?.remoteJid) return null;
+  return `${key.remoteJid}\u0000${key.id}`;
 }
 
 function toMessageDto(message) {
@@ -104,6 +185,8 @@ function compareMessages(a, b) {
 function compareMessageDtos(a, b) {
   const time = (a.timestamp ?? '').localeCompare(b.timestamp ?? '');
   if (time !== 0) return time;
+  const chat = (a.chatId ?? '').localeCompare(b.chatId ?? '');
+  if (chat !== 0) return chat;
   return a.id.localeCompare(b.id);
 }
 
