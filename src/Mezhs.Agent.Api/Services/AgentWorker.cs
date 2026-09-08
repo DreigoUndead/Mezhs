@@ -219,10 +219,6 @@ public sealed class AgentWorker : BackgroundService
                 nextPrompt = processed.NextPrompt!;
             }
         }
-        catch (ShellTerminationException ex)
-        {
-            _store.Fail(executionId, ex.Message);
-        }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // Executor work remains detached. AgentRecoveryState requeues this root on the next boot.
