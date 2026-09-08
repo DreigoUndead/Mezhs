@@ -27,5 +27,5 @@ public sealed class ExecutorApplication : ConsoleApplication
     public int Restart(int id) => _executor.Restart(id);
 
     [Command(Description = "Internal execution-owner entry point. Claims and runs an existing execution ID.")]
-    public void Run(int id) => _executor.Run(id);
+    public void Run(int id, string? storage = null) => new ExecutorService(storage).Run(id);
 }

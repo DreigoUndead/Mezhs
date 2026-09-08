@@ -51,15 +51,18 @@ jobs:
 
           $f=Join-Path $work 'atomic.txt'
           $id=[int](Executor Execute "ping -n 3 127.0.0.1 >nul & echo hit>>$f" $work 30)
-          $p1=Start-Process dotnet -ArgumentList @($executor,'Run',$id) -PassThru -WindowStyle Hidden
-          $p2=Start-Process dotnet -ArgumentList @($executor,'Run',$id) -PassThru -WindowStyle Hidden
+          $p1=Start-Process dotnet -ArgumentList @($executor,'Run',$id,$data) -PassThru -WindowStyle Hidden
+          $p2=Start-Process dotnet -ArgumentList @($executor,'Run',$id,$data) -PassThru -WindowStyle Hidden
           $r=Executor Wait $id 20
           $p1.WaitForExit(5000)|Out-Null
           $p2.WaitForExit(5000)|Out-Null
           Assert ((Status $r)-eq 'Completed') "Atomic claim: got $(Status $r)"
           Assert (@(Get-Content $f).Count -eq 1) 'Atomic claim: side effect duplicated'
 
+          $watch=[Diagnostics.Stopwatch]::StartNew()
           $id=[int](Executor Execute $sleep20 $work 30)
+          $watch.Stop()
+          Assert ($watch.Elapsed.TotalSeconds -lt 5) "Execute blocked for $($watch.Elapsed.TotalSeconds)s instead of detaching"
           Start-Sleep -Milliseconds 1200
           $before=Executor Get $id
           Write-Host "Kill before:`n$before"

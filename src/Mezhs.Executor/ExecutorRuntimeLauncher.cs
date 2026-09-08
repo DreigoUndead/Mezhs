@@ -12,15 +12,16 @@ internal static class ExecutorRuntimeLauncher
         if (string.IsNullOrWhiteSpace(assemblyPath))
             throw new InvalidOperationException("Executor assembly path could not be resolved.");
 
+        // The runtime receives all state required to reconnect to its durable row on the
+        // command line. That lets it start through the OS shell without inheriting the
+        // caller's redirected standard handles, which is essential for real detachment.
         var startInfo = new ProcessStartInfo
         {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
+            UseShellExecute = true,
             WorkingDirectory = Path.GetDirectoryName(assemblyPath) ?? Environment.CurrentDirectory
         };
+        if (OperatingSystem.IsWindows())
+            startInfo.WindowStyle = ProcessWindowStyle.Hidden;
 
         var entryAssembly = Assembly.GetEntryAssembly();
         var processPath = Environment.ProcessPath;
@@ -40,15 +41,9 @@ internal static class ExecutorRuntimeLauncher
 
         startInfo.ArgumentList.Add("Run");
         startInfo.ArgumentList.Add(id.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        startInfo.Environment[ExecutorEnvironment.StorageVariable] = storagePath;
-        startInfo.Environment[ExecutorEnvironment.ExecutionIdVariable] = id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        startInfo.ArgumentList.Add(storagePath);
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Executor runtime process could not be started.");
-
-        // The runtime must not inherit the caller's console/pipe handles. In particular,
-        // shell callers that capture stdout otherwise remain blocked until the detached
-        // runtime exits even though the Execute process itself has already returned.
-        process.StandardInput.Close();
     }
 }
