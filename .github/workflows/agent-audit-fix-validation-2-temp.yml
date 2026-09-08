@@ -34,7 +34,6 @@ jobs:
           @'
           import base64
           import gzip
-          import re
           import subprocess
           from pathlib import Path
 
@@ -42,10 +41,11 @@ jobs:
               "git", "show",
               "67ac9bec6847a32fce238af759b896871c76b2e0:.github/workflows/agent-audit-fix-validation-temp.yml"
           ], text=True)
-          match = re.search(r"echo '([^']+)' \\| base64 -d \\| gzip -d > \\.agent-audit-fix\\.py", legacy)
-          if not match:
-              raise RuntimeError("Could not recover audited fix payload from prior validation workflow.")
-          script = gzip.decompress(base64.b64decode(match.group(1))).decode("utf-8")
+          start_marker = "echo '"
+          end_marker = "' | base64 -d | gzip -d > .agent-audit-fix.py"
+          start = legacy.index(start_marker) + len(start_marker)
+          end = legacy.index(end_marker, start)
+          script = gzip.decompress(base64.b64decode(legacy[start:end])).decode("utf-8")
           Path(".agent-audit-fix.py").write_text(script, encoding="utf-8", newline="\n")
           subprocess.run(["python", ".agent-audit-fix.py"], check=True)
           Path(".agent-audit-fix.py").unlink()
