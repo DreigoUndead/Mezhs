@@ -1,6 +1,6 @@
 using System.Globalization;
 using Mezhs.Agent.Models;
-using Microsoft.Data.Sqlite;
+using Mezhs.Sqlite;
 
 namespace Mezhs.Agent.Services;
 
@@ -18,24 +18,10 @@ public sealed class AgentRecoveryState
         if (!File.Exists(path))
             return new AgentRecoveryState([]);
 
-        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = path,
-            Mode = SqliteOpenMode.ReadWrite
-        }.ToString());
-        connection.Open();
-        using (var timeout = connection.CreateCommand())
-        {
-            timeout.CommandText = "PRAGMA busy_timeout=5000;";
-            timeout.ExecuteNonQuery();
-        }
-
-        using (var inspect = connection.CreateCommand())
-        {
-            inspect.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'Executions';";
-            if (Convert.ToInt32(inspect.ExecuteScalar(), CultureInfo.InvariantCulture) == 0)
-                return new AgentRecoveryState([]);
-        }
+        var database = new SqliteDatabase(path);
+        using var connection = database.Open();
+        if (!SqliteDatabase.TableExists(connection, "Executions"))
+            return new AgentRecoveryState([]);
 
         using var transaction = connection.BeginTransaction();
         var recovered = new List<string>();
