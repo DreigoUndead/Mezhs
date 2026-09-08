@@ -16,6 +16,7 @@ var options = AgentConfigLoader.Load(configPath);
 var executorStorage = Path.Combine(
     Path.GetDirectoryName(options.Storage) ?? Environment.CurrentDirectory,
     "executor.sqlite");
+var recovery = AgentRecoveryState.Prepare(options.Storage);
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(options.Listen.ToString());
 builder.Services.ConfigureHttpJsonOptions(json =>
@@ -23,6 +24,7 @@ builder.Services.ConfigureHttpJsonOptions(json =>
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(options);
+builder.Services.AddSingleton(recovery);
 builder.Services.AddSingleton(new ExecutorService(executorStorage));
 builder.Services.AddSingleton<AgentStore>();
 builder.Services.AddSingleton<PolicyRegistry>();

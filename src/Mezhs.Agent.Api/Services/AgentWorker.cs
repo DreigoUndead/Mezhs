@@ -20,6 +20,7 @@ public sealed class AgentWorker : BackgroundService
     private readonly PolicyEvaluationService _evaluations;
     private readonly Interpreter _commands;
     private readonly ExecutorService _executor;
+    private readonly AgentRecoveryState _recovery;
     private readonly Channel<bool> _wake;
     private readonly int _maxConcurrentExecutions;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _cancellations =
@@ -33,6 +34,7 @@ public sealed class AgentWorker : BackgroundService
         PolicyEvaluationService evaluations,
         Interpreter commands,
         ExecutorService executor,
+        AgentRecoveryState recovery,
         AgentOptions options)
     {
         _store = store;
@@ -42,6 +44,7 @@ public sealed class AgentWorker : BackgroundService
         _evaluations = evaluations;
         _commands = commands;
         _executor = executor;
+        _recovery = recovery;
         _maxConcurrentExecutions = options.Runtime.MaxConcurrentExecutions;
         _wake = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
         {
@@ -132,6 +135,7 @@ public sealed class AgentWorker : BackgroundService
         try
         {
             var policy = _policies.Get(execution.PolicyId);
+            var recovering = _recovery.TryTake(executionId);
 
             var chatId = execution.ChatId;
             var previouslyOwnedAgentChat = chatId is null ? null : _store.GetAgentChat(chatId);
@@ -161,9 +165,31 @@ public sealed class AgentWorker : BackgroundService
             var hasCompletedAgentHistory = existingMessages.Any(message =>
                 message.Role == "user" && message.Status == MessageStatus.Completed);
             var includePolicyInstructions = previouslyOwnedAgentChat is null || !hasCompletedAgentHistory;
-            var nextPrompt = _prompts.BuildInitial(execution, policy, includePolicyInstructions);
+            AgentPrompt nextPrompt;
+            var nextTurn = 0;
 
-            for (var turn = 0; ; turn++)
+            if (recovering && await RecoverReplyAsync(existingMessages, cancellation.Token) is { } recoveredReply)
+            {
+                nextTurn = CountExecutionTurns(existingMessages, executionId);
+                if (!existingMessages.Any(message => string.Equals(message.MessageId, recoveredReply.MessageId, StringComparison.Ordinal)))
+                    nextTurn++;
+
+                var recovered = await ProcessReplyAsync(
+                    execution,
+                    policy,
+                    recoveredReply.MessageId,
+                    recoveredReply.Content,
+                    cancellation.Token);
+                if (recovered.Completed)
+                    return;
+                nextPrompt = recovered.NextPrompt!;
+            }
+            else
+            {
+                nextPrompt = _prompts.BuildInitial(execution, policy, includePolicyInstructions);
+            }
+
+            for (var turn = nextTurn; ; turn++)
             {
                 cancellation.Token.ThrowIfCancellationRequested();
                 _store.ValidateAgentChatRunnable(chatId);
@@ -182,43 +208,15 @@ public sealed class AgentWorker : BackgroundService
                     nextPrompt.Origin,
                     cancellation.Token);
 
-                var interpretation = await _commands.InterpretAsync(
+                var processed = await ProcessReplyAsync(
                     execution,
                     policy,
                     reply.MessageId,
                     reply.Content,
                     cancellation.Token);
-                if (interpretation.Error is { } commandError)
-                {
-                    nextPrompt = _prompts.BuildCommandCorrection(commandError);
-                    continue;
-                }
-
-                if (interpretation.Results.Count > 0)
-                {
-                    nextPrompt = _prompts.BuildCommandResults(interpretation.Results, policy);
-                    continue;
-                }
-
-                var completion = _evaluations.EvaluateCompletion(
-                    policy,
-                    execution,
-                    interpretation.CompletionClaimed);
-                if (completion.State == PolicyCompletionState.Accepted)
-                {
-                    if (_store.Complete(executionId, reply.Content))
-                        return;
-                    if (_store.GetExecution(executionId)?.Status == AgentExecutionStatus.CancelRequested)
-                    {
-                        _store.CompleteCancellation(executionId);
-                        return;
-                    }
-                    throw new InvalidOperationException("Agent execution changed state before completion could be recorded.");
-                }
-
-                nextPrompt = completion.State == PolicyCompletionState.Rejected
-                    ? _prompts.BuildPolicyCorrection(completion.Error)
-                    : _prompts.BuildContinue(policy);
+                if (processed.Completed)
+                    return;
+                nextPrompt = processed.NextPrompt!;
             }
         }
         catch (ShellTerminationException ex)
@@ -227,8 +225,7 @@ public sealed class AgentWorker : BackgroundService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // Keep the Agent execution active in durable state. Startup recovery requeues it and
-            // reconnects to any Executor-owned shell work instead of destroying that work here.
+            // Executor work remains detached. AgentRecoveryState requeues this root on the next boot.
         }
         catch (OperationCanceledException)
         {
@@ -246,4 +243,101 @@ public sealed class AgentWorker : BackgroundService
             _cancellations.TryRemove(executionId, out _);
         }
     }
+
+    private async Task<RecoveredReply?> RecoverReplyAsync(
+        IReadOnlyList<ApiChatHistoryMessage> messages,
+        CancellationToken cancellationToken)
+    {
+        var latest = messages
+            .OrderBy(message => message.CreatedAt)
+            .ThenBy(message => message.MessageId, StringComparer.Ordinal)
+            .LastOrDefault();
+        if (latest is null)
+            return null;
+
+        if (string.Equals(latest.Role, "assistant", StringComparison.OrdinalIgnoreCase))
+        {
+            if (latest.Status is MessageStatus.Failed or MessageStatus.Cancelled)
+                throw new InvalidOperationException(latest.Error ?? $"Latest assistant message ended as {latest.Status}.");
+            return new RecoveredReply(latest.MessageId, latest.Content);
+        }
+
+        if (!string.Equals(latest.Role, "user", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var reply = await _mezhs.WaitForReplyAsync(latest.MessageId, cancellationToken);
+        return new RecoveredReply(reply.MessageId, reply.Content);
+    }
+
+    private async Task<ReplyProcessing> ProcessReplyAsync(
+        ExecutionRecord execution,
+        PolicyContext policy,
+        string replyMessageId,
+        string replyContent,
+        CancellationToken cancellationToken)
+    {
+        var interpretation = await _commands.InterpretAsync(
+            execution,
+            policy,
+            replyMessageId,
+            replyContent,
+            cancellationToken);
+        if (interpretation.Error is { } commandError)
+            return new ReplyProcessing(false, _prompts.BuildCommandCorrection(commandError));
+
+        if (interpretation.Results.Count > 0)
+            return new ReplyProcessing(false, _prompts.BuildCommandResults(interpretation.Results, policy));
+
+        var completion = _evaluations.EvaluateCompletion(
+            policy,
+            execution,
+            interpretation.CompletionClaimed);
+        if (completion.State == PolicyCompletionState.Accepted)
+        {
+            if (_store.Complete(execution.ExecutionId, replyContent))
+                return new ReplyProcessing(true, null);
+            if (_store.GetExecution(execution.ExecutionId)?.Status == AgentExecutionStatus.CancelRequested)
+            {
+                _store.CompleteCancellation(execution.ExecutionId);
+                return new ReplyProcessing(true, null);
+            }
+            throw new InvalidOperationException("Agent execution changed state before completion could be recorded.");
+        }
+
+        return new ReplyProcessing(
+            false,
+            completion.State == PolicyCompletionState.Rejected
+                ? _prompts.BuildPolicyCorrection(completion.Error)
+                : _prompts.BuildContinue(policy));
+    }
+
+    private static int CountExecutionTurns(
+        IReadOnlyList<ApiChatHistoryMessage> messages,
+        string executionId)
+    {
+        var envelope = $"[MEŽS AGENT EXECUTION {executionId}]";
+        var inExecution = false;
+        var count = 0;
+        foreach (var message in messages
+                     .OrderBy(message => message.CreatedAt)
+                     .ThenBy(message => message.MessageId, StringComparer.Ordinal))
+        {
+            if (string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase) &&
+                message.Content.StartsWith(envelope, StringComparison.Ordinal))
+            {
+                inExecution = true;
+                continue;
+            }
+            if (inExecution &&
+                string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
+                message.Status == MessageStatus.Completed)
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private sealed record RecoveredReply(string MessageId, string Content);
+    private sealed record ReplyProcessing(bool Completed, AgentPrompt? NextPrompt);
 }
