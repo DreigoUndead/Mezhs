@@ -97,7 +97,7 @@ public abstract class ReturnObjectBase
         if (type.IsEnum)
             return value.ToString()!;
 
-        if (value is IEnumerable enumerable and not string)
+        if (value is IEnumerable enumerable && value is not string)
         {
             var items = new List<string>();
             Type itemType = typeof(object);
@@ -249,8 +249,8 @@ public abstract class ReturnObjectBase
             {
                 if (current.Length > 0)
                     current.Append('\n');
-                current.Append(line);
-                UpdateQuoteState(line, ref inQuote, ref escaped);
+                current.Append(rawLine);
+                UpdateQuoteState(rawLine, ref inQuote, ref escaped);
             }
             position = lineEnd < value.Length ? lineEnd + 1 : value.Length;
         }
