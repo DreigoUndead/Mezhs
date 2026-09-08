@@ -1,0 +1,23 @@
+name: WhatsApp CLI validation
+
+on:
+  push:
+    branches:
+      - whatsapp-cli-foundation
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    env:
+      MEZHS_EXECUTION_ID: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        run: dotnet build src/Mezhs.WhatsApp/Mezhs.WhatsApp.csproj
+      - name: Validate commands
+        run: dotnet run --project src/Mezhs.WhatsApp/Mezhs.WhatsApp.csproj --no-build -- Validate
+      - name: Run self-tests
+        run: dotnet run --project src/Mezhs.WhatsApp/Mezhs.WhatsApp.csproj --no-build -- Test
