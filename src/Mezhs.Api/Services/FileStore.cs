@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Mezhs;
+using Mezhs.Api.Contracts;
 using Mezhs.Configuration;
 using Mezhs.Models;
 

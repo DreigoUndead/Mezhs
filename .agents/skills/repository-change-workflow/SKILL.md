@@ -45,3 +45,7 @@ Merge only when all of the following are true:
 Do not infer merge approval from the original implementation request, prior standing permission, successful tests, lack of objections, or a request to "finish" the feature. Approval must apply to the completed change after it is available for review.
 
 If the user requests revisions, update the same review branch and present the revised diff again. Do not create another branch for those revisions, and do not merge until the user explicitly approves the final reviewed state.
+
+### Post-merge branch cleanup
+
+When the available GitHub tooling cannot delete a merged branch directly, use a temporary Actions workflow on that branch with `contents: write`. The workflow must remove and commit its own workflow file first (`[skip ci]`), then delete `git/refs/heads/<branch>` through the GitHub REST API using `GITHUB_TOKEN`. Treat HTTP 404 as already-cleaned state, verify the branch is absent afterward, and never let the temporary workflow enter `main`.

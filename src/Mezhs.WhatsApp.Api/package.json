@@ -1,0 +1,17 @@
+{
+  "name": "mezhs-whatsapp-api",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node --check src/server.js && node --check src/whatsapp-account.js && node --check src/message-store.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc13",
+    "qrcode": "^1.5.4"
+  }
+}

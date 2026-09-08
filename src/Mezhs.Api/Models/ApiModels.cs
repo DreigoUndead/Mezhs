@@ -1,21 +1,6 @@
-using System.Text.Json.Serialization;
+using Mezhs.Api.Contracts;
 
 namespace Mezhs.Models;
-
-public enum MessageStatus
-{
-    Queued,
-    Running,
-    Completed,
-    Failed,
-    Cancelled
-}
-
-public enum FileSource
-{
-    User,
-    Assistant
-}
 
 public sealed class ChatRecord
 {
@@ -49,6 +34,7 @@ public sealed class StoredMessage
     public required string ChatId { get; init; }
     public required string ConnectionId { get; init; }
     public required string Role { get; init; }
+    public string Origin { get; init; } = "human";
     public required string Content { get; init; }
     public string? Model { get; init; }
     public IReadOnlyList<string> FileIds { get; init; } = [];
@@ -73,59 +59,7 @@ public sealed class StoredFile
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
-public sealed class PostMessageRequest
-{
-    private string? _model;
-
-    public string Content { get; init; } = "";
-    public string? ConnectionId { get; init; }
-    public string? ChatId { get; init; }
-    public string? CategoryId { get; init; }
-    public IReadOnlyList<string>? FileIds { get; init; }
-
-    public string? Model
-    {
-        get => _model;
-        init
-        {
-            _model = value;
-            ModelSpecified = true;
-        }
-    }
-
-    [JsonIgnore]
-    public bool ModelSpecified { get; private set; }
-}
-
 public sealed record CreateCategoryRequest(string Name);
-public sealed record CreateChatRequest(string ConnectionId, string? CategoryId = null);
 public sealed record DeleteChatsRequest(IReadOnlyList<string>? ChatIds);
 public sealed record UpdateCategoryRequest(string Name);
 public sealed record UpdateChatRequest(string? CategoryId);
-
-public sealed record ApiFile(
-    string FileId,
-    string ConnectionId,
-    string Name,
-    string ContentType,
-    long Size,
-    FileSource Source,
-    DateTimeOffset CreatedAt,
-    string ContentUrl,
-    string DownloadUrl);
-
-public sealed record ApiMessage(
-    string MessageId,
-    string ChatId,
-    string ConnectionId,
-    string Role,
-    string Content,
-    string? Model,
-    IReadOnlyList<ApiFile> Files,
-    MessageStatus Status,
-    DateTimeOffset CreatedAt,
-    DateTimeOffset? StartedAt,
-    DateTimeOffset? CompletedAt,
-    string? Error,
-    string? ReplayOfMessageId,
-    ApiMessage? Reply);
