@@ -16,6 +16,9 @@ internal static class ExecutorRuntimeLauncher
         {
             UseShellExecute = false,
             CreateNoWindow = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
             WorkingDirectory = Path.GetDirectoryName(assemblyPath) ?? Environment.CurrentDirectory
         };
 
@@ -42,5 +45,10 @@ internal static class ExecutorRuntimeLauncher
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Executor runtime process could not be started.");
+
+        // The runtime must not inherit the caller's console/pipe handles. In particular,
+        // shell callers that capture stdout otherwise remain blocked until the detached
+        // runtime exits even though the Execute process itself has already returned.
+        process.StandardInput.Close();
     }
 }

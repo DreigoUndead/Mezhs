@@ -137,7 +137,7 @@ internal sealed class ExecutorRunner(ExecutorStore store)
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            StandardInputEncoding = Encoding.UTF8,
+            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             CreateNoWindow = true,
             WorkingDirectory = execution.Directory
         };
