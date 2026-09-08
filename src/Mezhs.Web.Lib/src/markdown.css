@@ -1,0 +1,16 @@
+.markdown-content { white-space: normal; }
+.markdown-content > :first-child { margin-top: 0; }
+.markdown-content > :last-child { margin-bottom: 0; }
+.markdown-content p { margin: 0 0 .8em; }
+.markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4, .markdown-content h5, .markdown-content h6 { margin: 1.05em 0 .45em; color: inherit; line-height: 1.25; }
+.markdown-content h1 { font-size: 1.45em; }
+.markdown-content h2 { font-size: 1.3em; }
+.markdown-content h3 { font-size: 1.16em; }
+.markdown-content h4, .markdown-content h5, .markdown-content h6 { font-size: 1em; }
+.markdown-content ul, .markdown-content ol { margin: 0 0 .85em; padding-left: 1.5em; }
+.markdown-content li + li { margin-top: .2em; }
+.markdown-content blockquote { margin: 0 0 .85em; padding: .1em 0 .1em .9em; border-left: 3px solid #d5d0c6; color: #6e685f; }
+.markdown-content pre { margin: .75em 0; padding: 12px 14px; overflow-x: auto; border: 1px solid #ded9cf; border-radius: 10px; background: #24231f; color: #f0ede5; white-space: pre; }
+.markdown-content code { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+.markdown-content :not(pre) > code { padding: .12em .35em; border-radius: 5px; background: #ece9e2; font-size: .92em; }
+.markdown-content a { color: #55672c; text-decoration: underline; text-underline-offset: 2px; }

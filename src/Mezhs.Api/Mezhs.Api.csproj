@@ -6,6 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
+    <ProjectReference Include="..\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj" />
     <ProjectReference Include="..\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj" />
     <ProjectReference Include="..\..\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj" />
     <ProjectReference Include="..\..\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj" />
