@@ -1,5 +1,6 @@
 using System.Globalization;
 using Mezhs.Agent.Models;
+using Mezhs.Executor;
 using Mezhs.Sqlite;
 
 namespace Mezhs.Agent.Services;
@@ -7,10 +8,16 @@ namespace Mezhs.Agent.Services;
 public sealed class AgentRecoveryState
 {
     private readonly HashSet<string> _executionIds;
+    private readonly IReadOnlyList<PendingCancellation> _pendingCancellations;
     private readonly object _sync = new();
 
-    private AgentRecoveryState(IEnumerable<string> executionIds) =>
+    private AgentRecoveryState(
+        IEnumerable<string> executionIds,
+        IReadOnlyList<PendingCancellation>? pendingCancellations = null)
+    {
         _executionIds = new HashSet<string>(executionIds, StringComparer.OrdinalIgnoreCase);
+        _pendingCancellations = pendingCancellations ?? [];
+    }
 
     public static AgentRecoveryState Prepare(string storagePath)
     {
@@ -43,6 +50,28 @@ public sealed class AgentRecoveryState
             using var reader = select.ExecuteReader();
             while (reader.Read())
                 recovered.Add(reader.GetString(0));
+        }
+
+        var pendingCancellations = new List<PendingCancellation>();
+        using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = """
+                SELECT ExecutionId, ChatId
+                FROM Executions
+                WHERE Kind = $agentKind
+                  AND ParentExecutionId IS NULL
+                  AND Status = $cancelRequested;
+                """;
+            select.Parameters.AddWithValue("$agentKind", AgentExecutionKind.Agent.ToString());
+            select.Parameters.AddWithValue("$cancelRequested", AgentExecutionStatus.CancelRequested.ToString());
+            using var reader = select.ExecuteReader();
+            while (reader.Read())
+            {
+                pendingCancellations.Add(new PendingCancellation(
+                    reader.GetString(0),
+                    reader.IsDBNull(1) ? null : reader.GetString(1)));
+            }
         }
 
         using (var requeue = connection.CreateCommand())
@@ -84,7 +113,26 @@ public sealed class AgentRecoveryState
         }
 
         transaction.Commit();
-        return new AgentRecoveryState(recovered);
+        return new AgentRecoveryState(recovered, pendingCancellations);
+    }
+
+    public void ReconcilePendingCancellations(ExecutorService executor)
+    {
+        ArgumentNullException.ThrowIfNull(executor);
+        foreach (var pending in _pendingCancellations)
+        {
+            if (string.IsNullOrWhiteSpace(pending.ChatId))
+                continue;
+
+            foreach (var shell in executor.List(pending.ChatId, 1000)
+                         .Where(shell => !shell.IsTerminal && string.Equals(
+                             shell.ParentExecutionId,
+                             pending.ExecutionId,
+                             StringComparison.OrdinalIgnoreCase)))
+            {
+                executor.Kill(shell.Id);
+            }
+        }
     }
 
     public bool TryTake(string executionId)
@@ -92,4 +140,6 @@ public sealed class AgentRecoveryState
         lock (_sync)
             return _executionIds.Remove(executionId);
     }
+
+    private sealed record PendingCancellation(string ExecutionId, string? ChatId);
 }
