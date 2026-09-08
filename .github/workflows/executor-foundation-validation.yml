@@ -18,6 +18,12 @@ jobs:
       - name: Console regression suite
         shell: pwsh
         run: dotnet run --project tests/Mezhs.Console.TestApp/Mezhs.Console.TestApp.csproj -c Release -- Test
+      - name: Agent architecture
+        shell: pwsh
+        run: pwsh -File tests/agent-architecture.ps1
+      - name: Policy decoder
+        shell: pwsh
+        run: pwsh -File tests/policy-decoder.ps1
       - name: Executor lifecycle
         shell: pwsh
         run: |
@@ -110,3 +116,12 @@ jobs:
 
           $matches = Get-ChildItem src/Mezhs.Agent.Api -Filter *.cs -Recurse | Select-String -Pattern 'ProcessStartInfo|Process\.Start\('
           Assert ($matches.Count -eq 0) ("Direct Agent shell process API remains: " + ($matches -join '; '))
+      - name: Agent API smoke
+        shell: pwsh
+        run: pwsh -File tests/agent-api-smoke.ps1
+      - name: Executor-backed policy evidence
+        shell: pwsh
+        run: pwsh -File tests/agent-executor-evidence.ps1
+      - name: Agent restart resilience
+        shell: pwsh
+        run: pwsh -File tests/agent-runtime-resilience.ps1
