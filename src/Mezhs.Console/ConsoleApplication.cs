@@ -58,6 +58,8 @@ public abstract class ConsoleApplication
             foreach (var error in command.ValidationErrors)
                 global::System.Console.WriteLine($"  - {error}");
         }
+
+        throw new InvalidOperationException($"{invalid.Length} invalid command signature(s).");
     }
 
     private int Execute(IReadOnlyList<ValueNode> nodes)

@@ -21,6 +21,15 @@ const API = Object.freeze({
   fileDownload: id => `/backend-api/files/${encodeURIComponent(id)}/download`
 });
 
+const PROMPT_EDITOR_SELECTOR = [
+  '#prompt-textarea',
+  'textarea[name="prompt-textarea"]',
+  '[data-testid="prompt-textarea"]',
+  '.ProseMirror[contenteditable="true"]',
+  '[contenteditable="true"][role="textbox"]',
+  '[contenteditable="true"][data-virtualkeyboard="true"]'
+].join(', ');
+
 module.exports = {
   name: "ChatGPT",
   homeUrl: ORIGIN + "/",
@@ -68,6 +77,7 @@ module.exports = {
     async sendPrompt({ window, args }) {
       if (args.newChat) await window.loadURL(module.exports.homeUrl);
       const prompt = JSON.stringify(String(args.prompt || ""));
+      const promptEditorSelector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
       return window.webContents.executeJavaScript(`
         (async () => {
           const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -75,14 +85,22 @@ module.exports = {
           const before = document.querySelectorAll(selector).length;
           let editor = null;
           for (let i = 0; i < 120 && !editor; i++) {
-            editor = document.querySelector('#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]');
+            editor = document.querySelector(${promptEditorSelector});
             if (!editor) await sleep(250);
           }
           if (!editor) return { ok: false, error: 'ChatGPT prompt editor was not found.' };
           editor.focus();
-          document.execCommand('selectAll', false, null);
-          document.execCommand('insertText', false, ${prompt});
-          editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
+          if (editor.tagName === 'TEXTAREA' || editor.tagName === 'INPUT') {
+            const prototype = editor.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+            if (setter) setter.call(editor, ${prompt});
+            else editor.value = ${prompt};
+            editor.dispatchEvent(new Event('input', { bubbles: true }));
+          } else {
+            document.execCommand('selectAll', false, null);
+            document.execCommand('insertText', false, ${prompt});
+            editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
+          }
           let send = null;
           for (let i = 0; i < 360 && (!send || send.disabled); i++) {
             send = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
@@ -205,18 +223,23 @@ function parseModelSelection(value) {
   };
 }
 
-async function submitPrompt({ args, sleep }) {
-  const prompt = String(args.prompt || "");
-  let editor = null;
-  for (let i = 0; i < 120 && !editor; i++) {
-    editor = document.querySelector(
-      '#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]'
-    );
-    if (!editor) await sleep(250);
-  }
-  if (!editor) throw new Error("ChatGPT prompt editor was not found.");
-
+function setPromptEditorValue(editor, prompt) {
   editor.focus();
+  const tagName = String(editor.tagName || "").toUpperCase();
+  if (tagName === "TEXTAREA" || tagName === "INPUT") {
+    const view = editor.ownerDocument?.defaultView || globalThis;
+    const prototype = tagName === "TEXTAREA"
+      ? view.HTMLTextAreaElement?.prototype
+      : view.HTMLInputElement?.prototype;
+    const setter = prototype
+      ? Object.getOwnPropertyDescriptor(prototype, "value")?.set
+      : null;
+    if (setter) setter.call(editor, prompt);
+    else editor.value = prompt;
+    editor.dispatchEvent(new (view.Event || Event)("input", { bubbles: true }));
+    return;
+  }
+
   document.execCommand("selectAll", false, null);
   document.execCommand("insertText", false, prompt);
   editor.dispatchEvent(new InputEvent("input", {
@@ -224,6 +247,21 @@ async function submitPrompt({ args, sleep }) {
     inputType: "insertText",
     data: prompt
   }));
+}
+
+async function submitPrompt({ args, sleep }) {
+  const prompt = String(args.prompt || "");
+  let editor = null;
+  for (let i = 0; i < 120 && !editor; i++) {
+    editor = document.querySelector(PROMPT_EDITOR_SELECTOR);
+    if (!editor) await sleep(250);
+  }
+  if (!editor) {
+    const page = typeof location === "undefined" ? "unknown page" : location.href;
+    throw new Error(`ChatGPT prompt editor was not found on ${page}.`);
+  }
+
+  setPromptEditorValue(editor, prompt);
 
   let send = null;
   for (let i = 0; i < 360 && (!send || send.disabled); i++) {
