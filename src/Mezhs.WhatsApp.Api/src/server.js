@@ -1,26 +1,32 @@
 import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import QRCode from 'qrcode';
 import { MessageStore } from './message-store.js';
-import { WhatsAppAccount } from './whatsapp-account.js';
+import {
+  WhatsAppAccount,
+  WhatsAppAccountNotConnectedError,
+} from './whatsapp-account.js';
 
-const host = process.env.MEZHS_WHATSAPP_HOST ?? '127.0.0.1';
-const port = Number(process.env.MEZHS_WHATSAPP_PORT ?? 3217);
-const authDir = process.env.MEZHS_WHATSAPP_AUTH_DIR ?? new URL('../data/auth', import.meta.url).pathname;
+export const API_HOST = '127.0.0.1';
+export const DEFAULT_AUTH_DIR = fileURLToPath(new URL('../data/auth/', import.meta.url));
 
-const store = new MessageStore();
-const account = new WhatsAppAccount({ authDir, store });
+export function createWhatsAppApiServer({ account, store }) {
+  return http.createServer(async (request, response) => {
+    try {
+      await route(request, response, { account, store });
+    } catch (error) {
+      const status = errorStatus(error);
+      if (status >= 500) console.error(error);
+      json(response, status, {
+        error: status >= 500 ? 'Internal server error.' : error.message,
+      });
+    }
+  });
+}
 
-const server = http.createServer(async (request, response) => {
-  try {
-    await route(request, response);
-  } catch (error) {
-    console.error(error);
-    json(response, 500, { error: error instanceof Error ? error.message : String(error) });
-  }
-});
-
-async function route(request, response) {
-  const url = new URL(request.url, `http://${request.headers.host ?? `${host}:${port}`}`);
+async function route(request, response, { account, store }) {
+  const url = new URL(request.url, 'http://localhost');
 
   if (request.method === 'GET' && url.pathname === '/account/status') {
     return json(response, 200, account.status());
@@ -64,7 +70,8 @@ async function route(request, response) {
 
   const messageMatch = request.method === 'GET' && url.pathname.match(/^\/messages\/([^/]+)$/);
   if (messageMatch) {
-    const message = store.get(decodeURIComponent(messageMatch[1]));
+    const messageId = decodePathSegment(messageMatch[1]);
+    const message = store.get(messageId, url.searchParams.get('chatId'));
     return message
       ? json(response, 200, message)
       : json(response, 404, { error: 'Message not found.' });
@@ -73,10 +80,10 @@ async function route(request, response) {
   if (request.method === 'POST' && url.pathname === '/messages') {
     const body = await readJson(request);
     if (typeof body.chatId !== 'string' || !body.chatId.trim()) {
-      return json(response, 400, { error: 'chatId is required.' });
+      throw new HttpError(400, 'chatId is required.');
     }
     if (typeof body.text !== 'string' || !body.text.length) {
-      return json(response, 400, { error: 'text is required.' });
+      throw new HttpError(400, 'text is required.');
     }
 
     return json(response, 201, await account.sendText(body.chatId, body.text));
@@ -95,12 +102,24 @@ async function readJson(request) {
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 1024 * 1024) throw new Error('Request body is too large.');
+    if (size > 1024 * 1024) throw new HttpError(413, 'Request body is too large.');
     chunks.push(chunk);
   }
 
   if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+
+  let value;
+  try {
+    value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new HttpError(400, 'Request body must be valid JSON.');
+    throw error;
+  }
+
+  if (!value || Array.isArray(value) || typeof value !== 'object') {
+    throw new HttpError(400, 'Request body must be a JSON object.');
+  }
+  return value;
 }
 
 function integerQuery(url, name, fallback, min, max) {
@@ -108,12 +127,57 @@ function integerQuery(url, name, fallback, min, max) {
   if (value == null) return fallback;
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
-    throw new Error(`${name} must be an integer from ${min} to ${max}.`);
+    throw new HttpError(400, `${name} must be an integer from ${min} to ${max}.`);
   }
   return parsed;
 }
 
-server.listen(port, host, () => {
-  console.log(`MEŽS WhatsApp API listening on http://${host}:${port}`);
-  account.connect().catch(error => console.error('Initial WhatsApp connection failed:', error));
-});
+function decodePathSegment(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch (error) {
+    if (error instanceof URIError) throw new HttpError(400, 'Message id is not valid URL encoding.');
+    throw error;
+  }
+}
+
+function errorStatus(error) {
+  if (error instanceof HttpError) return error.status;
+  if (error instanceof WhatsAppAccountNotConnectedError) return 409;
+  return 500;
+}
+
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function configuredPort() {
+  const value = Number(process.env.MEZHS_WHATSAPP_PORT ?? 3217);
+  if (!Number.isInteger(value) || value < 1 || value > 65535) {
+    throw new Error('MEZHS_WHATSAPP_PORT must be an integer from 1 to 65535.');
+  }
+  return value;
+}
+
+export function startWhatsAppApi() {
+  const store = new MessageStore();
+  const account = new WhatsAppAccount({
+    authDir: process.env.MEZHS_WHATSAPP_AUTH_DIR ?? DEFAULT_AUTH_DIR,
+    store,
+  });
+  const server = createWhatsAppApiServer({ account, store });
+  const port = configuredPort();
+
+  server.listen(port, API_HOST, () => {
+    console.log(`MEŽS WhatsApp API listening on http://${API_HOST}:${port}`);
+    account.connect().catch(error => console.error('Initial WhatsApp connection failed:', error));
+  });
+
+  return server;
+}
+
+const entryPoint = process.argv[1] ? path.resolve(process.argv[1]) : null;
+if (entryPoint === fileURLToPath(import.meta.url)) startWhatsAppApi();
