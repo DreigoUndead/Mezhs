@@ -95,6 +95,14 @@ jobs:
           python .post-audit-fix.py
           Remove-Item .post-audit-fix.py
 
+      - name: Show canonical smoke block
+        shell: pwsh
+        run: |
+          $lines = Get-Content -LiteralPath ./tests/agent-api-smoke.ps1
+          for ($i = 125; $i -lt [Math]::Min(165, $lines.Count); $i++) {
+              Write-Host (("{0,4}: {1}" -f ($i + 1), $lines[$i]))
+          }
+
       - name: Build solution
         run: dotnet build Mezhs.sln -c Release
       - name: Agent architecture
