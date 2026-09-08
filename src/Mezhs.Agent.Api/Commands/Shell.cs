@@ -4,8 +4,6 @@ using Mezhs.Executor;
 
 namespace Mezhs.Agent.Commands;
 
-public sealed class ShellTerminationException(string message) : Exception(message);
-
 public sealed class Shell(
     ExecutorService executor,
     AgentOptions options)
@@ -44,18 +42,7 @@ public sealed class Shell(
             return new Result(definition.Name, null, false, null, null, ex.Message);
         }
 
-        Execution execution;
-        try
-        {
-            execution = await executor.WaitAsync(id, cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            // The detached execution deliberately outlives Agent API shutdown. A user-requested
-            // Agent cancellation explicitly kills active Executor work in AgentWorker.Cancel.
-            throw;
-        }
-
+        var execution = await executor.WaitAsync(id, cancellationToken);
         return new Result(
             definition.Name,
             execution.Id.ToString(CultureInfo.InvariantCulture),
