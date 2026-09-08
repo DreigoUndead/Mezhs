@@ -32,5 +32,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/fix-audit-validation.yml
           git add .github/workflows/apply-audit-fixes.yml
-          git commit -m "Fix temporary audit validation command [skip ci]"
+          git commit -m "Fix temporary audit validation command"
           git push
