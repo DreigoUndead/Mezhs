@@ -1,0 +1,61 @@
+name: Temporary Agent gap fix runner
+
+on:
+  push:
+    branches:
+      - agent-api-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-validate:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent-api-foundation
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply audited fixes
+        shell: pwsh
+        run: |
+          $legacy = git show 70d2003d8da9a32aa23475e75be4e0436bddc7bc:.github/workflows/agent-fix-temp.yml
+          $start = [Array]::IndexOf($legacy, "          python - <<'PY'") + 1
+          $end = [Array]::IndexOf($legacy, "          PY")
+          if ($start -le 0 -or $end -le $start) { throw "Could not extract temporary patch script." }
+          $legacy[$start..($end - 1)] | ForEach-Object { $_.Substring(10) } | Set-Content .agent-fix-temp.py -Encoding UTF8
+          python .agent-fix-temp.py
+          Remove-Item .agent-fix-temp.py
+      - name: Build solution
+        run: dotnet build Mezhs.sln -c Release
+      - name: Agent architecture
+        shell: pwsh
+        run: ./tests/agent-architecture.ps1
+      - name: Shared Agent UI
+        shell: pwsh
+        run: ./tests/agent-web-shared-ui.ps1
+      - name: Policy, queue, shell, and protocol behavior
+        shell: pwsh
+        run: ./tests/policy-decoder.ps1
+      - name: Agent API smoke
+        shell: pwsh
+        run: ./tests/agent-api-smoke.ps1
+      - name: Agent runtime resilience
+        shell: pwsh
+        run: ./tests/agent-runtime-resilience.ps1
+      - name: Commit validated fixes
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add AGENT_API_TODO.md TODO.md agent.yaml tests src
+          if (git diff --cached --quiet) { throw "Fix workflow produced no changes." }
+          git commit -m "Fix audited Agent protocol and lifecycle gaps [skip ci]"
+          git push origin HEAD:agent-api-foundation
