@@ -7,6 +7,7 @@ using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
 using Mezhs.Api.Contracts;
 using Mezhs.Api.Client;
+using Mezhs.Executor;
 
 namespace Mezhs.Agent.Services;
 
@@ -18,6 +19,7 @@ public sealed class AgentWorker : BackgroundService
     private readonly AgentPromptBuilder _prompts;
     private readonly PolicyEvaluationService _evaluations;
     private readonly Interpreter _commands;
+    private readonly ExecutorService _executor;
     private readonly Channel<bool> _wake;
     private readonly int _maxConcurrentExecutions;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _cancellations =
@@ -30,6 +32,7 @@ public sealed class AgentWorker : BackgroundService
         AgentPromptBuilder prompts,
         PolicyEvaluationService evaluations,
         Interpreter commands,
+        ExecutorService executor,
         AgentOptions options)
     {
         _store = store;
@@ -38,6 +41,7 @@ public sealed class AgentWorker : BackgroundService
         _prompts = prompts;
         _evaluations = evaluations;
         _commands = commands;
+        _executor = executor;
         _maxConcurrentExecutions = options.Runtime.MaxConcurrentExecutions;
         _wake = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
         {
@@ -57,11 +61,21 @@ public sealed class AgentWorker : BackgroundService
             throw new RequestValidationException("Only root Agent executions can be cancelled directly.");
 
         var (record, changed) = _store.RequestCancel(executionId);
-        if (changed && record.Status == AgentExecutionStatus.CancelRequested &&
-            _cancellations.TryGetValue(executionId, out var cancellation))
+        if (!changed || record.Status != AgentExecutionStatus.CancelRequested)
+            return record;
+
+        if (!string.IsNullOrWhiteSpace(record.ChatId))
         {
-            cancellation.Cancel();
+            foreach (var shell in _executor.List(record.ChatId)
+                         .Where(shell => !shell.IsTerminal &&
+                                         string.Equals(shell.ParentExecutionId, executionId, StringComparison.OrdinalIgnoreCase)))
+            {
+                _executor.Kill(shell.Id);
+            }
         }
+
+        if (_cancellations.TryGetValue(executionId, out var cancellation))
+            cancellation.Cancel();
         return record;
     }
 
@@ -213,7 +227,8 @@ public sealed class AgentWorker : BackgroundService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            _store.Interrupt(executionId);
+            // Keep the Agent execution active in durable state. Startup recovery requeues it and
+            // reconnects to any Executor-owned shell work instead of destroying that work here.
         }
         catch (OperationCanceledException)
         {
