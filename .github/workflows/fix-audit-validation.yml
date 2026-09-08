@@ -1,0 +1,36 @@
+name: Fix audit validation command
+
+on:
+  push:
+    branches:
+      - whatsapp-cli-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fix validation command and remove this workflow
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/apply-audit-fixes.yml')
+          text = path.read_text(encoding='utf-8')
+          old = 'dotnet run --project tests/Mezhs.Console.TestApp/Mezhs.Console.TestApp.csproj --no-build -- Test'
+          new = 'dotnet run --project tests/Mezhs.Console.TestApp/Mezhs.Console.TestApp.csproj -- Test'
+          if old not in text:
+              raise SystemExit('expected validation command was not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/fix-audit-validation.yml
+          git add .github/workflows/apply-audit-fixes.yml
+          git commit -m "Fix temporary audit validation command [skip ci]"
+          git push
