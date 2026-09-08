@@ -51,6 +51,11 @@ public sealed class AgentWorker : BackgroundService
 
     public ExecutionRecord Cancel(string executionId)
     {
+        var current = _store.GetExecution(executionId)
+            ?? throw new ResourceNotFoundException($"Execution '{executionId}' was not found.");
+        if (current.Kind != AgentExecutionKind.Agent || current.ParentExecutionId is not null)
+            throw new RequestValidationException("Only root Agent executions can be cancelled directly.");
+
         var (record, changed) = _store.RequestCancel(executionId);
         if (changed && record.Status == AgentExecutionStatus.CancelRequested &&
             _cancellations.TryGetValue(executionId, out var cancellation))
@@ -107,6 +112,8 @@ public sealed class AgentWorker : BackgroundService
         var executionId = execution.ExecutionId;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         _cancellations[executionId] = cancellation;
+        if (_store.GetExecution(executionId)?.Status == AgentExecutionStatus.CancelRequested)
+            cancellation.Cancel();
 
         try
         {
@@ -175,7 +182,7 @@ public sealed class AgentWorker : BackgroundService
 
                 if (interpretation.Results.Count > 0)
                 {
-                    nextPrompt = _prompts.BuildCommandResults(interpretation.Results);
+                    nextPrompt = _prompts.BuildCommandResults(interpretation.Results, policy);
                     continue;
                 }
 
@@ -197,8 +204,12 @@ public sealed class AgentWorker : BackgroundService
 
                 nextPrompt = completion.State == PolicyCompletionState.Rejected
                     ? _prompts.BuildPolicyCorrection(completion.Error)
-                    : _prompts.BuildContinue();
+                    : _prompts.BuildContinue(policy);
             }
+        }
+        catch (ShellTerminationException ex)
+        {
+            _store.Fail(executionId, ex.Message);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
