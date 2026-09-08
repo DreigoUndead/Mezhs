@@ -122,6 +122,9 @@ jobs:
       - name: Executor-backed policy evidence
         shell: pwsh
         run: pwsh -File tests/agent-executor-evidence.ps1
+      - name: Pending cancellation recovery
+        shell: pwsh
+        run: pwsh -File tests/agent-cancel-recovery.ps1
       - name: Agent restart resilience
         shell: pwsh
         run: pwsh -File tests/agent-runtime-resilience.ps1
