@@ -106,6 +106,11 @@ jobs:
           $id=[int](Executor Execute $sleep30 $work 60)
           Start-Sleep -Milliseconds 1200
           $running=Executor Get $id
+          $heartbeat1=Field $running 'HeartbeatAt'
+          Start-Sleep -Milliseconds 1500
+          $running=Executor Get $id
+          $heartbeat2=Field $running 'HeartbeatAt'
+          Assert ($heartbeat1-ne$heartbeat2) 'Heartbeat did not advance while execution owner was alive'
           $owner=[int](Field $running 'OwnerProcessId')
           $child=[int](Field $running 'ProcessId')
           Stop-Process -Id $owner -Force
@@ -116,6 +121,9 @@ jobs:
 
           $matches = Get-ChildItem src/Mezhs.Agent.Api -Filter *.cs -Recurse | Select-String -Pattern 'ProcessStartInfo|Process\.Start\('
           Assert ($matches.Count -eq 0) ("Direct Agent shell process API remains: " + ($matches -join '; '))
+      - name: Executor self-restart
+        shell: pwsh
+        run: pwsh -File tests/executor-self-restart.ps1
       - name: Agent API smoke
         shell: pwsh
         run: pwsh -File tests/agent-api-smoke.ps1
