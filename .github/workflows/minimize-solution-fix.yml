@@ -1,0 +1,70 @@
+name: Minimize solution fix
+
+on:
+  push:
+    branches:
+      - whatsapp-cli-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  minimize-and-validate:
+    runs-on: windows-latest
+    env:
+      MEZHS_EXECUTION_ID: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: whatsapp-cli-foundation
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Rebuild minimal solution diff
+        shell: pwsh
+        run: |
+          git fetch origin main
+          $content = git show origin/main:Mezhs.sln | Out-String
+          $agentWeb = @'
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Agent.Web", "src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A09}"
+EndProject
+'@
+          $projects = @'
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Agent.Web", "src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A09}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Console", "src\Mezhs.Console\Mezhs.Console.csproj", "{65113C71-1221-49A5-82CC-B9DD6DA8ADA0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.WhatsApp", "src\Mezhs.WhatsApp\Mezhs.WhatsApp.csproj", "{4B959CCB-D991-4B2F-8B87-AE635ED91C68}"
+EndProject
+'@
+          $content = $content.Replace($agentWeb, $projects)
+          $marker = "`t`t{D12F41F7-98C2-4A72-B71C-9271100B1A09}.Release|Any CPU.Build.0 = Release|Any CPU"
+          $configs = @'
+		{D12F41F7-98C2-4A72-B71C-9271100B1A09}.Release|Any CPU.Build.0 = Release|Any CPU
+		{65113C71-1221-49A5-82CC-B9DD6DA8ADA0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{65113C71-1221-49A5-82CC-B9DD6DA8ADA0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{65113C71-1221-49A5-82CC-B9DD6DA8ADA0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{65113C71-1221-49A5-82CC-B9DD6DA8ADA0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4B959CCB-D991-4B2F-8B87-AE635ED91C68}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4B959CCB-D991-4B2F-8B87-AE635ED91C68}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4B959CCB-D991-4B2F-8B87-AE635ED91C68}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4B959CCB-D991-4B2F-8B87-AE635ED91C68}.Release|Any CPU.Build.0 = Release|Any CPU
+'@
+          $content = $content.Replace($marker, $configs.TrimEnd("`r", "`n"))
+          [System.IO.File]::WriteAllText((Resolve-Path Mezhs.sln), $content.TrimStart("`r", "`n"), [System.Text.UTF8Encoding]::new($false))
+      - name: Build full solution
+        run: dotnet build Mezhs.sln
+      - name: Validate WhatsApp
+        run: |
+          dotnet run --project src/Mezhs.WhatsApp/Mezhs.WhatsApp.csproj --no-build -- Validate
+          dotnet run --project src/Mezhs.WhatsApp/Mezhs.WhatsApp.csproj --no-build -- Test
+      - name: Commit minimal solution fix and remove temporary workflow
+        shell: pwsh
+        run: |
+          Remove-Item .github/workflows/minimize-solution-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Mezhs.sln .github/workflows/minimize-solution-fix.yml
+          git commit -m "Minimize solution project additions"
+          git push origin HEAD:whatsapp-cli-foundation
