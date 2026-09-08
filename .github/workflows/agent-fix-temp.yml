@@ -39,8 +39,18 @@ jobs:
             if ($_.StartsWith("          ")) { $_.Substring(10) } else { $_ }
           }
           $script | Set-Content -LiteralPath .agent-fix-temp.py -Encoding UTF8
-          python .agent-fix-temp.py
+          python .agent-fix-temp.py *>&1 | Tee-Object -FilePath .agent-fix-log.txt
+          $patchExit = $LASTEXITCODE
           Remove-Item .agent-fix-temp.py
+          if ($patchExit -ne 0) { throw "Patch script failed with exit code $patchExit." }
+
+      - name: Upload patch diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-fix-diagnostics
+          path: .agent-fix-log.txt
+          if-no-files-found: ignore
 
       - name: Build solution
         run: dotnet build Mezhs.sln -c Release
