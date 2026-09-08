@@ -4,41 +4,24 @@ on:
   push:
     branches: [executor-foundation]
 
-permissions:
-  contents: write
-
 jobs:
   validate:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Validate
-        id: validation
-        continue-on-error: true
+      - name: Build solution
+        shell: pwsh
+        run: dotnet build Mezhs.sln -c Release --nologo
+      - name: Console regression suite
+        shell: pwsh
+        run: dotnet run --project tests/Mezhs.Console.TestApp/Mezhs.Console.TestApp.csproj -c Release -- Test
+      - name: Executor lifecycle
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $log = Join-Path $PWD 'EXECUTOR_VALIDATION_RESULT.txt'
-          "Executor foundation validation - $(Get-Date -Format o)" | Set-Content $log
-          function Run-Step([string]$name,[scriptblock]$body) {
-            "`n=== $name ===" | Tee-Object -FilePath $log -Append
-            try {
-              & $body 2>&1 | Tee-Object -FilePath $log -Append
-              if ($LASTEXITCODE -ne 0) { throw "$name exited with code $LASTEXITCODE" }
-              "PASS: $name" | Tee-Object -FilePath $log -Append
-            } catch {
-              "FAIL: $name - $($_.Exception.Message)" | Tee-Object -FilePath $log -Append
-              throw
-            }
-          }
-          Run-Step 'Build solution' { dotnet build Mezhs.sln -c Release --nologo }
-          Run-Step 'Console regression suite' { dotnet run --project tests/Mezhs.Console.TestApp/Mezhs.Console.TestApp.csproj -c Release -- Test }
-
           $executor = (Resolve-Path 'src/Mezhs.Executor/bin/Release/net10.0/Mezhs.Executor.dll').Path
           $data = Join-Path $PWD 'data/executor-validation.sqlite'
           Remove-Item $data,"$data-shm","$data-wal" -Force -ErrorAction SilentlyContinue
@@ -48,6 +31,7 @@ jobs:
           $work = Join-Path $PWD 'executor-validation-work'
           Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
           New-Item $work -ItemType Directory | Out-Null
+
           function Executor([Parameter(ValueFromRemainingArguments=$true)][string[]]$a) {
             $o = & dotnet $executor @a 2>&1
             if ($LASTEXITCODE -ne 0) { throw "Executor $($a -join ' ') failed: $($o -join [Environment]::NewLine)" }
@@ -57,63 +41,66 @@ jobs:
           function Field([string]$r,[string]$n) { ([regex]::Match($r,"(?m)^$([regex]::Escape($n)):\s+([^\r\n]+)\s*$")).Groups[1].Value.Trim() }
           function Assert([bool]$c,[string]$m) { if (-not $c) { throw $m } }
 
-          Run-Step 'Detached caller exit' {
-            $f=Join-Path $work 'survived.txt'; $id=[int](Executor Execute "ping -n 3 127.0.0.1 >nul & echo survived>$f" $work 30)
-            $r=Executor Wait $id 20; Assert ((Status $r)-eq 'Completed') "got $(Status $r)"; Assert (Test-Path $f) 'side effect missing'
-          }
-          Run-Step 'Atomic claim' {
-            $f=Join-Path $work 'atomic.txt'; $id=[int](Executor Execute "ping -n 3 127.0.0.1 >nul & echo hit>>$f" $work 30)
-            $p1=Start-Process dotnet -ArgumentList @($executor,'Run',$id) -PassThru -WindowStyle Hidden
-            $p2=Start-Process dotnet -ArgumentList @($executor,'Run',$id) -PassThru -WindowStyle Hidden
-            $r=Executor Wait $id 20; $p1.WaitForExit(5000)|Out-Null; $p2.WaitForExit(5000)|Out-Null
-            Assert ((Status $r)-eq 'Completed') "got $(Status $r)"; Assert (@(Get-Content $f).Count -eq 1) 'side effect duplicated'
-          }
-          Run-Step 'Kill' {
-            $id=[int](Executor Execute 'ping -n 20 127.0.0.1 >nul' $work 30); Start-Sleep -Milliseconds 1200
-            $null=Executor Kill $id; $r=Executor Wait $id 15; Assert ((Status $r)-eq 'Killed') "got $(Status $r)"
-          }
-          Run-Step 'Timeout' {
-            $id=[int](Executor Execute 'ping -n 20 127.0.0.1 >nul' $work 1); $r=Executor Wait $id 15
-            Assert ((Status $r)-eq 'TimedOut') "got $(Status $r)"
-          }
-          Run-Step 'Restart' {
-            $f=Join-Path $work 'restart.txt'; $id=[int](Executor Execute "ping -n 8 127.0.0.1 >nul & echo done>>$f" $work 30)
-            Start-Sleep -Milliseconds 1200; $new=[int](Executor Restart $id); Assert ($new-ne$id) 'ID reused'
-            $replacement=Executor Wait $new 25; $old=Executor Get $id
-            Assert ((Status $replacement)-eq 'Completed') "replacement $(Status $replacement)"
-            Assert ((Field $replacement 'RestartedFromId')-eq "$id") 'new lineage missing'
-            Assert ((Field $old 'RestartedAsId')-eq "$new") 'old lineage missing'
-            Assert (@(Get-Content $f).Count -eq 1) 'old child reached side effect'
-          }
-          Run-Step 'Idempotent Agent correlation' {
-            $env:MEZHS_CHAT_ID='validation-chat'; $env:MEZHS_TRIGGER_MESSAGE_ID='validation-message'; $env:MEZHS_COMMAND_INDEX='0'
-            $f=Join-Path $work 'once.txt'; $id1=[int](Executor Execute "ping -n 3 127.0.0.1 >nul & echo once>>$f" $work 30)
-            $id2=[int](Executor Execute "ping -n 3 127.0.0.1 >nul & echo once>>$f" $work 30)
-            Assert ($id1-eq$id2) 'correlation ID changed'; $r=Executor Wait $id1 20
-            Assert ((Status $r)-eq 'Completed') "got $(Status $r)"; Assert (@(Get-Content $f).Count -eq 1) 'side effect duplicated'
-            Remove-Item Env:MEZHS_CHAT_ID,Env:MEZHS_TRIGGER_MESSAGE_ID,Env:MEZHS_COMMAND_INDEX -ErrorAction SilentlyContinue
-          }
-          Run-Step 'Lazy dead reconciliation' {
-            $id=[int](Executor Execute 'ping -n 30 127.0.0.1 >nul' $work 60); Start-Sleep -Milliseconds 1200
-            $running=Executor Get $id; $owner=[int](Field $running 'OwnerProcessId'); $child=[int](Field $running 'ProcessId')
-            Stop-Process -Id $owner -Force; Start-Sleep -Seconds 10; $dead=Executor Get $id
-            Assert ((Status $dead)-eq 'Dead') "got $(Status $dead)"; Stop-Process -Id $child -Force -ErrorAction SilentlyContinue
-          }
-          Run-Step 'No direct Agent shell process start' {
-            $matches = Get-ChildItem src/Mezhs.Agent.Api -Filter *.cs -Recurse | Select-String -Pattern 'ProcessStartInfo|Process\.Start\('
-            Assert ($matches.Count -eq 0) ("direct process API remains: " + ($matches -join '; '))
-          }
-          "`nALL VALIDATIONS PASSED" | Tee-Object -FilePath $log -Append
-      - name: Commit evidence
-        if: always()
-        shell: pwsh
-        run: |
-          if (-not (Test-Path EXECUTOR_VALIDATION_RESULT.txt)) { 'validation did not produce evidence' | Set-Content EXECUTOR_VALIDATION_RESULT.txt }
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add EXECUTOR_VALIDATION_RESULT.txt
-          if (-not (git diff --cached --quiet)) { git commit -m 'Record Executor validation result [skip ci]'; git push origin HEAD:executor-foundation }
-      - name: Fail on validation failure
-        if: steps.validation.outcome == 'failure'
-        shell: pwsh
-        run: exit 1
+          $f=Join-Path $work 'survived.txt'
+          $id=[int](Executor Execute "ping -n 3 127.0.0.1 >nul & echo survived>$f" $work 30)
+          $r=Executor Wait $id 20
+          Assert ((Status $r)-eq 'Completed') "Detached caller exit: got $(Status $r)"
+          Assert (Test-Path $f) 'Detached caller exit: side effect missing'
+
+          $f=Join-Path $work 'atomic.txt'
+          $id=[int](Executor Execute "ping -n 3 127.0.0.1 >nul & echo hit>>$f" $work 30)
+          $p1=Start-Process dotnet -ArgumentList @($executor,'Run',$id) -PassThru -WindowStyle Hidden
+          $p2=Start-Process dotnet -ArgumentList @($executor,'Run',$id) -PassThru -WindowStyle Hidden
+          $r=Executor Wait $id 20
+          $p1.WaitForExit(5000)|Out-Null
+          $p2.WaitForExit(5000)|Out-Null
+          Assert ((Status $r)-eq 'Completed') "Atomic claim: got $(Status $r)"
+          Assert (@(Get-Content $f).Count -eq 1) 'Atomic claim: side effect duplicated'
+
+          $id=[int](Executor Execute 'ping -n 20 127.0.0.1 >nul' $work 30)
+          Start-Sleep -Milliseconds 1200
+          $null=Executor Kill $id
+          $r=Executor Wait $id 15
+          Assert ((Status $r)-eq 'Killed') "Kill: got $(Status $r)"
+
+          $id=[int](Executor Execute 'ping -n 20 127.0.0.1 >nul' $work 1)
+          $r=Executor Wait $id 15
+          Assert ((Status $r)-eq 'TimedOut') "Timeout: got $(Status $r)"
+
+          $f=Join-Path $work 'restart.txt'
+          $id=[int](Executor Execute "ping -n 8 127.0.0.1 >nul & echo done>>$f" $work 30)
+          Start-Sleep -Milliseconds 1200
+          $new=[int](Executor Restart $id)
+          Assert ($new-ne$id) 'Restart: ID reused'
+          $replacement=Executor Wait $new 25
+          $old=Executor Get $id
+          Assert ((Status $replacement)-eq 'Completed') "Restart replacement: got $(Status $replacement)"
+          Assert ((Field $replacement 'RestartedFromId')-eq "$id") 'Restart: new lineage missing'
+          Assert ((Field $old 'RestartedAsId')-eq "$new") 'Restart: old lineage missing'
+          Assert (@(Get-Content $f).Count -eq 1) 'Restart: old child reached side effect'
+
+          $env:MEZHS_CHAT_ID='validation-chat'
+          $env:MEZHS_TRIGGER_MESSAGE_ID='validation-message'
+          $env:MEZHS_COMMAND_INDEX='0'
+          $f=Join-Path $work 'once.txt'
+          $id1=[int](Executor Execute "ping -n 3 127.0.0.1 >nul & echo once>>$f" $work 30)
+          $id2=[int](Executor Execute "ping -n 3 127.0.0.1 >nul & echo once>>$f" $work 30)
+          Assert ($id1-eq$id2) 'Agent correlation: ID changed'
+          $r=Executor Wait $id1 20
+          Assert ((Status $r)-eq 'Completed') "Agent correlation: got $(Status $r)"
+          Assert (@(Get-Content $f).Count -eq 1) 'Agent correlation: side effect duplicated'
+          Remove-Item Env:MEZHS_CHAT_ID,Env:MEZHS_TRIGGER_MESSAGE_ID,Env:MEZHS_COMMAND_INDEX -ErrorAction SilentlyContinue
+
+          $id=[int](Executor Execute 'ping -n 30 127.0.0.1 >nul' $work 60)
+          Start-Sleep -Milliseconds 1200
+          $running=Executor Get $id
+          $owner=[int](Field $running 'OwnerProcessId')
+          $child=[int](Field $running 'ProcessId')
+          Stop-Process -Id $owner -Force
+          Start-Sleep -Seconds 10
+          $dead=Executor Get $id
+          Assert ((Status $dead)-eq 'Dead') "Dead reconciliation: got $(Status $dead)"
+          Stop-Process -Id $child -Force -ErrorAction SilentlyContinue
+
+          $matches = Get-ChildItem src/Mezhs.Agent.Api -Filter *.cs -Recurse | Select-String -Pattern 'ProcessStartInfo|Process\.Start\('
+          Assert ($matches.Count -eq 0) ("Direct Agent shell process API remains: " + ($matches -join '; '))

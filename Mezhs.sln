@@ -32,6 +32,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Integrations.Grok", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Integrations.Mock", "integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A05}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Console", "src\Mezhs.Console\Mezhs.Console.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A12}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Sqlite", "src\Mezhs.Sqlite\Mezhs.Sqlite.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A13}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Executor", "src\Mezhs.Executor\Mezhs.Executor.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A14}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -98,6 +104,18 @@ Global
 		{D12F41F7-98C2-4A72-B71C-9271100B1A05}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D12F41F7-98C2-4A72-B71C-9271100B1A05}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D12F41F7-98C2-4A72-B71C-9271100B1A05}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A12}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A12}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A12}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A12}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A13}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A13}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A13}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A13}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A14}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A14}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A14}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A14}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
