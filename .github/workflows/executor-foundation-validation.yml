@@ -40,6 +40,8 @@ jobs:
           function Status([string]$r) { ([regex]::Match($r,'(?m)^Status:\s+(\w+)\s*$')).Groups[1].Value }
           function Field([string]$r,[string]$n) { ([regex]::Match($r,"(?m)^$([regex]::Escape($n)):\s+([^\r\n]+)\s*$")).Groups[1].Value.Trim() }
           function Assert([bool]$c,[string]$m) { if (-not $c) { throw $m } }
+          $sleep20 = 'powershell -NoProfile -Command "Start-Sleep -Seconds 20"'
+          $sleep30 = 'powershell -NoProfile -Command "Start-Sleep -Seconds 30"'
 
           $f=Join-Path $work 'survived.txt'
           $id=[int](Executor Execute "ping -n 3 127.0.0.1 >nul & echo survived>$f" $work 30)
@@ -57,18 +59,25 @@ jobs:
           Assert ((Status $r)-eq 'Completed') "Atomic claim: got $(Status $r)"
           Assert (@(Get-Content $f).Count -eq 1) 'Atomic claim: side effect duplicated'
 
-          $id=[int](Executor Execute 'ping -n 20 127.0.0.1 >nul' $work 30)
+          $id=[int](Executor Execute $sleep20 $work 30)
           Start-Sleep -Milliseconds 1200
-          $null=Executor Kill $id
+          $before=Executor Get $id
+          Write-Host "Kill before:`n$before"
+          $kill=Executor Kill $id
+          Write-Host "Kill response:`n$kill"
+          Assert ((Status $kill)-in @('KillRequested','Killed')) "Kill request transition: got $(Status $kill)"
+          Start-Sleep -Seconds 2
+          $after=Executor Get $id
+          Write-Host "Kill after 2s:`n$after"
           $r=Executor Wait $id 15
           Assert ((Status $r)-eq 'Killed') "Kill: got $(Status $r)"
 
-          $id=[int](Executor Execute 'ping -n 20 127.0.0.1 >nul' $work 1)
+          $id=[int](Executor Execute $sleep20 $work 1)
           $r=Executor Wait $id 15
           Assert ((Status $r)-eq 'TimedOut') "Timeout: got $(Status $r)"
 
           $f=Join-Path $work 'restart.txt'
-          $id=[int](Executor Execute "ping -n 8 127.0.0.1 >nul & echo done>>$f" $work 30)
+          $id=[int](Executor Execute "powershell -NoProfile -Command \"Start-Sleep -Seconds 8\" & echo done>>$f" $work 30)
           Start-Sleep -Milliseconds 1200
           $new=[int](Executor Restart $id)
           Assert ($new-ne$id) 'Restart: ID reused'
@@ -91,7 +100,7 @@ jobs:
           Assert (@(Get-Content $f).Count -eq 1) 'Agent correlation: side effect duplicated'
           Remove-Item Env:MEZHS_CHAT_ID,Env:MEZHS_TRIGGER_MESSAGE_ID,Env:MEZHS_COMMAND_INDEX -ErrorAction SilentlyContinue
 
-          $id=[int](Executor Execute 'ping -n 30 127.0.0.1 >nul' $work 60)
+          $id=[int](Executor Execute $sleep30 $work 60)
           Start-Sleep -Milliseconds 1200
           $running=Executor Get $id
           $owner=[int](Field $running 'OwnerProcessId')
