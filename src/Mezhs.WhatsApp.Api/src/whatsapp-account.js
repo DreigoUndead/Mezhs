@@ -6,19 +6,39 @@ import makeWASocket, {
   useMultiFileAuthState,
 } from '@whiskeysockets/baileys';
 
+const defaultBaileys = {
+  makeWASocket,
+  DisconnectReason,
+  fetchLatestWaWebVersion,
+  useMultiFileAuthState,
+};
+
+export class WhatsAppAccountNotConnectedError extends Error {
+  constructor() {
+    super('WhatsApp account is not connected.');
+    this.name = 'WhatsAppAccountNotConnectedError';
+  }
+}
+
 export class WhatsAppAccount {
   #authDir;
   #store;
+  #baileys;
+  #reconnectDelayMs;
   #socket = null;
   #state = 'disconnected';
   #qr = null;
   #accountId = null;
-  #stopRequested = false;
+  #desiredConnected = false;
+  #generation = 0;
   #connectPromise = null;
+  #reconnectTimer = null;
 
-  constructor({ authDir, store }) {
+  constructor({ authDir, store, baileys = defaultBaileys, reconnectDelayMs = 1000 }) {
     this.#authDir = path.resolve(authDir);
     this.#store = store;
+    this.#baileys = baileys;
+    this.#reconnectDelayMs = reconnectDelayMs;
   }
 
   status() {
@@ -35,7 +55,10 @@ export class WhatsAppAccount {
   }
 
   async connect() {
-    if (this.#state === 'connected' || this.#state === 'connecting' || this.#state === 'waitingForQr') {
+    this.#desiredConnected = true;
+    this.#clearReconnect();
+
+    if (this.#state === 'connected' || this.#state === 'waitingForQr') {
       return this.status();
     }
 
@@ -44,31 +67,46 @@ export class WhatsAppAccount {
       return this.status();
     }
 
-    this.#connectPromise = this.#open();
+    const generation = ++this.#generation;
+    const promise = this.#open(generation);
+    this.#connectPromise = promise;
+
     try {
-      await this.#connectPromise;
+      await promise;
       return this.status();
+    } catch (error) {
+      if (generation === this.#generation) this.#setDisconnected();
+      throw error;
     } finally {
-      this.#connectPromise = null;
+      if (this.#connectPromise === promise) this.#connectPromise = null;
     }
   }
 
-  async #open() {
-    this.#stopRequested = false;
+  async #open(generation) {
     this.#state = 'connecting';
     this.#qr = null;
 
     await fs.mkdir(this.#authDir, { recursive: true });
-    const { state, saveCreds } = await useMultiFileAuthState(this.#authDir);
-    const { version } = await fetchLatestWaWebVersion();
+    if (!this.#isCurrent(generation)) return;
 
-    const socket = makeWASocket({
+    const { state, saveCreds } = await this.#baileys.useMultiFileAuthState(this.#authDir);
+    if (!this.#isCurrent(generation)) return;
+
+    const { version } = await this.#baileys.fetchLatestWaWebVersion();
+    if (!this.#isCurrent(generation)) return;
+
+    const socket = this.#baileys.makeWASocket({
       auth: state,
       version,
       markOnlineOnConnect: false,
       syncFullHistory: true,
-      getMessage: async key => this.#store.getRaw(key.id)?.message,
+      getMessage: async key => this.#store.getRaw(key)?.message,
     });
+
+    if (!this.#isCurrent(generation)) {
+      socket.end?.(new Error('Superseded WhatsApp connection'));
+      return;
+    }
 
     this.#socket = socket;
     socket.ev.on('creds.update', saveCreds);
@@ -83,11 +121,13 @@ export class WhatsAppAccount {
       if (requestId) return;
       this.#store.upsertMessages(messages);
     });
-    socket.ev.on('connection.update', update => this.#onConnectionUpdate(socket, update));
+    socket.ev.on('messages.update', updates => this.#store.updateMessages(updates));
+    socket.ev.on('messages.delete', deletion => this.#store.deleteMessages(deletion));
+    socket.ev.on('connection.update', update => this.#onConnectionUpdate(socket, generation, update));
   }
 
-  #onConnectionUpdate(socket, { connection, lastDisconnect, qr }) {
-    if (socket !== this.#socket) return;
+  #onConnectionUpdate(socket, generation, { connection, lastDisconnect, qr }) {
+    if (!this.#isActiveSocket(socket, generation)) return;
 
     if (qr) {
       this.#qr = qr;
@@ -103,32 +143,37 @@ export class WhatsAppAccount {
 
     if (connection !== 'close') return;
 
+    this.#setDisconnected();
     const statusCode = lastDisconnect?.error?.output?.statusCode;
-    this.#socket = null;
-    this.#qr = null;
-    this.#accountId = null;
-    this.#state = 'disconnected';
-
-    if (!this.#stopRequested && statusCode !== DisconnectReason.loggedOut) {
-      setTimeout(() => this.connect().catch(error => console.error('WhatsApp reconnect failed:', error)), 1000);
+    if (statusCode === this.#baileys.DisconnectReason.loggedOut) {
+      this.#desiredConnected = false;
+      return;
     }
+
+    if (this.#desiredConnected) this.#scheduleReconnect(generation);
   }
 
   async disconnect() {
-    this.#stopRequested = true;
+    this.#desiredConnected = false;
+    ++this.#generation;
+    this.#clearReconnect();
+    this.#connectPromise = null;
+
     const socket = this.#socket;
-    this.#socket = null;
-    this.#qr = null;
-    this.#accountId = null;
-    this.#state = 'disconnected';
+    this.#setDisconnected();
     socket?.end(new Error('Disconnected by API'));
     return this.status();
   }
 
   async deleteSession() {
-    this.#stopRequested = true;
+    this.#desiredConnected = false;
+    ++this.#generation;
+    this.#clearReconnect();
+
+    const pendingConnect = this.#connectPromise;
+    this.#connectPromise = null;
     const socket = this.#socket;
-    this.#socket = null;
+    this.#setDisconnected();
 
     if (socket) {
       try {
@@ -138,20 +183,54 @@ export class WhatsAppAccount {
       }
     }
 
+    if (pendingConnect) {
+      try {
+        await pendingConnect;
+      } catch {
+        // A failed superseded connect must not prevent session deletion.
+      }
+    }
+
     await fs.rm(this.#authDir, { recursive: true, force: true });
-    this.#qr = null;
-    this.#accountId = null;
-    this.#state = 'disconnected';
     return this.status();
   }
 
   async sendText(chatId, text) {
     if (this.#state !== 'connected' || !this.#socket) {
-      throw new Error('WhatsApp account is not connected.');
+      throw new WhatsAppAccountNotConnectedError();
     }
 
     const message = await this.#socket.sendMessage(chatId, { text });
     this.#store.upsertMessages([message]);
-    return this.#store.get(message.key.id);
+    return this.#store.get(message.key.id, message.key.remoteJid);
+  }
+
+  #isCurrent(generation) {
+    return this.#desiredConnected && generation === this.#generation;
+  }
+
+  #isActiveSocket(socket, generation) {
+    return this.#isCurrent(generation) && socket === this.#socket;
+  }
+
+  #setDisconnected() {
+    this.#socket = null;
+    this.#qr = null;
+    this.#accountId = null;
+    this.#state = 'disconnected';
+  }
+
+  #scheduleReconnect(generation) {
+    this.#clearReconnect();
+    this.#reconnectTimer = setTimeout(() => {
+      this.#reconnectTimer = null;
+      if (!this.#isCurrent(generation)) return;
+      this.connect().catch(error => console.error('WhatsApp reconnect failed:', error));
+    }, this.#reconnectDelayMs);
+  }
+
+  #clearReconnect() {
+    if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer);
+    this.#reconnectTimer = null;
   }
 }
