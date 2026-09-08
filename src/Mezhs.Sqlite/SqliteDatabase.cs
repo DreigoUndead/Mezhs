@@ -49,6 +49,17 @@ public sealed class SqliteDatabase
         return connection;
     }
 
+    public static bool TableExists(SqliteConnection connection, string table)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ValidateIdentifier(table, nameof(table));
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $table;";
+        command.Parameters.AddWithValue("$table", table);
+        return Convert.ToInt32(command.ExecuteScalar()) != 0;
+    }
+
     public static void EnsureColumn(
         SqliteConnection connection,
         string table,
@@ -60,20 +71,41 @@ public sealed class SqliteDatabase
         ValidateIdentifier(column, nameof(column));
         if (string.IsNullOrWhiteSpace(definition))
             throw new ArgumentException("Column definition is required.", nameof(definition));
+        if (ColumnExists(connection, table, column))
+            return;
 
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
+        alter.ExecuteNonQuery();
+    }
+
+    public static void DropColumnIfExists(
+        SqliteConnection connection,
+        string table,
+        string column)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ValidateIdentifier(table, nameof(table));
+        ValidateIdentifier(column, nameof(column));
+        if (!ColumnExists(connection, table, column))
+            return;
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} DROP COLUMN {column};";
+        alter.ExecuteNonQuery();
+    }
+
+    private static bool ColumnExists(SqliteConnection connection, string table, string column)
+    {
         using var inspect = connection.CreateCommand();
         inspect.CommandText = $"PRAGMA table_info({table});";
         using var reader = inspect.ExecuteReader();
         while (reader.Read())
         {
             if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
-                return;
+                return true;
         }
-        reader.Close();
-
-        using var alter = connection.CreateCommand();
-        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
-        alter.ExecuteNonQuery();
+        return false;
     }
 
     private void EnsureDirectory()
