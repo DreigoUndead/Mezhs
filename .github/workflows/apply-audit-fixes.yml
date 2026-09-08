@@ -1,0 +1,456 @@
+name: Apply audit fixes
+
+on:
+  push:
+    branches:
+      - whatsapp-cli-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: windows-2025
+    env:
+      MEZHS_EXECUTION_ID: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Apply audited fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if old not in text:
+                  raise RuntimeError(f"Expected text not found in {path}: {old[:120]!r}")
+              text = text.replace(old, new, count)
+              file.write_text(text, encoding="utf-8", newline="\n")
+
+          # WhatsApp API: an explicit unknown before/after anchor must fail instead of
+          # silently degrading into an unanchored newest-message query.
+          replace(
+              "src/Mezhs.WhatsApp.Api/src/message-store.js",
+              "export class MessageStore {",
+              "export class MessageAnchorNotFoundError extends Error {\n"
+              "  constructor(parameter, id) {\n"
+              "    super(`${parameter} message '${id}' was not found.`);\n"
+              "    this.name = 'MessageAnchorNotFoundError';\n"
+              "  }\n"
+              "}\n\n"
+              "export class MessageStore {"
+          )
+          replace(
+              "src/Mezhs.WhatsApp.Api/src/message-store.js",
+              "    const before = beforeId ? this.getRaw(beforeId, chatId) : null;\n"
+              "    const after = afterId ? this.getRaw(afterId, chatId) : null;\n"
+              "    const term = search?.trim().toLocaleLowerCase() || null;",
+              "    const before = beforeId ? this.getRaw(beforeId, chatId) : null;\n"
+              "    if (beforeId && !before) throw new MessageAnchorNotFoundError('beforeId', beforeId);\n"
+              "    const after = afterId ? this.getRaw(afterId, chatId) : null;\n"
+              "    if (afterId && !after) throw new MessageAnchorNotFoundError('afterId', afterId);\n"
+              "    const term = search?.trim().toLocaleLowerCase() || null;"
+          )
+
+          replace(
+              "src/Mezhs.WhatsApp.Api/src/server.js",
+              "import { MessageStore } from './message-store.js';",
+              "import { MessageAnchorNotFoundError, MessageStore } from './message-store.js';"
+          )
+          replace(
+              "src/Mezhs.WhatsApp.Api/src/server.js",
+              "    if (typeof body.text !== 'string' || !body.text.length) {",
+              "    if (typeof body.text !== 'string' || !body.text.trim()) {"
+          )
+          replace(
+              "src/Mezhs.WhatsApp.Api/src/server.js",
+              "  if (error instanceof HttpError) return error.status;\n"
+              "  if (error instanceof WhatsAppAccountNotConnectedError) return 409;",
+              "  if (error instanceof HttpError) return error.status;\n"
+              "  if (error instanceof MessageAnchorNotFoundError) return 404;\n"
+              "  if (error instanceof WhatsAppAccountNotConnectedError) return 409;"
+          )
+
+          replace(
+              "src/Mezhs.WhatsApp.Api/test/message-store.test.js",
+              "import { MessageStore } from '../src/message-store.js';",
+              "import { MessageAnchorNotFoundError, MessageStore } from '../src/message-store.js';"
+          )
+          anchor_test = r'''
+          test('unknown paging anchors fail instead of falling back to unanchored history', () => {
+            const store = new MessageStore();
+            store.upsertMessages([
+              message('a', 10, 'first'),
+              message('b', 20, 'second'),
+            ]);
+
+            assert.throws(
+              () => store.list({ beforeId: 'missing', limit: 10 }),
+              error => error instanceof MessageAnchorNotFoundError && /beforeId/.test(error.message),
+            );
+            assert.throws(
+              () => store.list({ afterId: 'missing', limit: 10 }),
+              error => error instanceof MessageAnchorNotFoundError && /afterId/.test(error.message),
+            );
+          });
+          '''.strip() + "\n\n"
+          replace(
+              "src/Mezhs.WhatsApp.Api/test/message-store.test.js",
+              "test('messages can be filtered by chat and text', () => {",
+              anchor_test + "test('messages can be filtered by chat and text', () => {"
+          )
+
+          server_tests = r'''
+          test('unknown message anchors are 404 instead of silently returning newest messages', async () => {
+            const store = new MessageStore();
+            store.upsertMessages([{
+              key: { id: 'known', remoteJid: 'chat@s.whatsapp.net', fromMe: false },
+              messageTimestamp: 10,
+              message: { conversation: 'known' },
+            }]);
+
+            await withServer(async ({ baseUrl }) => {
+              const before = await fetch(`${baseUrl}/messages?chatId=${encodeURIComponent('chat@s.whatsapp.net')}&beforeId=missing`);
+              assert.equal(before.status, 404);
+              assert.deepEqual(await before.json(), { error: "beforeId message 'missing' was not found." });
+
+              const after = await fetch(`${baseUrl}/messages?chatId=${encodeURIComponent('chat@s.whatsapp.net')}&afterId=missing`);
+              assert.equal(after.status, 404);
+              assert.deepEqual(await after.json(), { error: "afterId message 'missing' was not found." });
+            }, fakeAccount(), store);
+          });
+
+          test('whitespace-only message text is rejected before sending', async () => {
+            await withServer(async ({ baseUrl }) => {
+              const response = await fetch(`${baseUrl}/messages`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ chatId: 'chat@s.whatsapp.net', text: '   ' }),
+              });
+              assert.equal(response.status, 400);
+              assert.deepEqual(await response.json(), { error: 'text is required.' });
+            });
+          });
+          '''.strip() + "\n\n"
+          replace(
+              "src/Mezhs.WhatsApp.Api/test/server.test.js",
+              "test('sending while disconnected is a 409', async () => {",
+              server_tests + "test('sending while disconnected is a 409', async () => {"
+          )
+
+          # WhatsApp CLI: mirror the API's non-whitespace text invariant.
+          replace(
+              "src/Mezhs.WhatsApp/WhatsAppApplication.cs",
+              "        if (text.Length == 0)\n            throw new ArgumentException(\"text must not be empty.\", nameof(text));",
+              "        if (string.IsNullOrWhiteSpace(text))\n            throw new ArgumentException(\"text must not be empty or whitespace.\", nameof(text));"
+          )
+          replace(
+              "src/Mezhs.WhatsApp/WhatsAppApplication.Tests.cs",
+              "            (\"Identity prefix\", TestIdentityPrefix),\n            (\"API error\", TestApiError),",
+              "            (\"Identity prefix\", TestIdentityPrefix),\n            (\"Send validation\", TestSendValidation),\n            (\"API error\", TestApiError),"
+          )
+          send_validation = r'''
+              private static void TestSendValidation()
+              {
+                  var handler = new RecordingHandler(_ => throw new InvalidOperationException("Invalid text reached HTTP."));
+                  try
+                  {
+                      App(handler).Send("group@g.us", "   ");
+                      throw new InvalidOperationException("Whitespace-only text was accepted.");
+                  }
+                  catch (ArgumentException)
+                  {
+                  }
+
+                  if (handler.LastRequest is not null)
+                      throw new InvalidOperationException("Invalid text reached the HTTP API.");
+              }
+          '''.strip() + "\n\n"
+          replace(
+              "src/Mezhs.WhatsApp/WhatsAppApplication.Tests.cs",
+              "    private static void TestApiError()",
+              send_validation + "    private static void TestApiError()"
+          )
+
+          # Console framework: Validate must return a failing process exit code when
+          # invalid command signatures exist. Throwing keeps the ordinary command
+          # return-value semantics unchanged and uses the framework's existing error path.
+          replace(
+              "src/Mezhs.Console/ConsoleApplication.cs",
+              "        foreach (var command in invalid)\n"
+              "        {\n"
+              "            global::System.Console.WriteLine($\"{command.Name}: INVALID\");\n"
+              "            foreach (var error in command.ValidationErrors)\n"
+              "                global::System.Console.WriteLine($\"  - {error}\");\n"
+              "        }\n"
+              "    }",
+              "        foreach (var command in invalid)\n"
+              "        {\n"
+              "            global::System.Console.WriteLine($\"{command.Name}: INVALID\");\n"
+              "            foreach (var error in command.ValidationErrors)\n"
+              "                global::System.Console.WriteLine($\"  - {error}\");\n"
+              "        }\n\n"
+              "        throw new InvalidOperationException($\"{invalid.Length} invalid command signature(s).\");\n"
+              "    }"
+          )
+          replace(
+              "tests/Mezhs.Console.TestApp/Program.cs",
+              "            (\"Invalid Validate\", () => Expect(\"Validate\", \"Broken: INVALID\", new InvalidApplication())),",
+              "            (\"Invalid Validate\", () =>\n"
+              "            {\n"
+              "                var result = RunCase(\"Validate\", new InvalidApplication());\n"
+              "                if (result.ExitCode != 4) throw new InvalidOperationException($\"Invalid Validate returned {result.ExitCode}.\");\n"
+              "                if (!result.Out.Contains(\"Broken: INVALID\", StringComparison.Ordinal))\n"
+              "                    throw new InvalidOperationException(\"Invalid Validate did not report invalid commands.\");\n"
+              "            }),"
+          )
+
+          # ChatGPT native browser send: the May/July 2026 UI can expose either the
+          # ProseMirror editor or a fallback textarea. Keep selector and input mechanics
+          # in one page-operation helper; anonymous mode mirrors the same selectors.
+          replace(
+              "integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts",
+              "});\n\nmodule.exports = {",
+              "});\n\n"
+              "const PROMPT_EDITOR_SELECTOR = [\n"
+              "  '#prompt-textarea',\n"
+              "  'textarea[name=\"prompt-textarea\"]',\n"
+              "  '[data-testid=\"prompt-textarea\"]',\n"
+              "  '.ProseMirror[contenteditable=\"true\"]',\n"
+              "  '[contenteditable=\"true\"][role=\"textbox\"]',\n"
+              "  '[contenteditable=\"true\"][data-virtualkeyboard=\"true\"]'\n"
+              "].join(', ');\n\n"
+              "module.exports = {"
+          )
+          replace(
+              "integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts",
+              "      const prompt = JSON.stringify(String(args.prompt || \"\"));\n      return window.webContents.executeJavaScript(`",
+              "      const prompt = JSON.stringify(String(args.prompt || \"\"));\n"
+              "      const promptEditorSelector = JSON.stringify(PROMPT_EDITOR_SELECTOR);\n"
+              "      return window.webContents.executeJavaScript(`"
+          )
+          replace(
+              "integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts",
+              "            editor = document.querySelector('#prompt-textarea, [contenteditable=\"true\"][data-virtualkeyboard=\"true\"]');",
+              "            editor = document.querySelector(${promptEditorSelector});"
+          )
+          replace(
+              "integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts",
+              "          editor.focus();\n"
+              "          document.execCommand('selectAll', false, null);\n"
+              "          document.execCommand('insertText', false, ${prompt});\n"
+              "          editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));",
+              "          editor.focus();\n"
+              "          if (editor.tagName === 'TEXTAREA' || editor.tagName === 'INPUT') {\n"
+              "            const prototype = editor.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;\n"
+              "            const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;\n"
+              "            if (setter) setter.call(editor, ${prompt});\n"
+              "            else editor.value = ${prompt};\n"
+              "            editor.dispatchEvent(new Event('input', { bubbles: true }));\n"
+              "          } else {\n"
+              "            document.execCommand('selectAll', false, null);\n"
+              "            document.execCommand('insertText', false, ${prompt});\n"
+              "            editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));\n"
+              "          }"
+          )
+
+          old_submit = r'''async function submitPrompt({ args, sleep }) {
+            const prompt = String(args.prompt || "");
+            let editor = null;
+            for (let i = 0; i < 120 && !editor; i++) {
+              editor = document.querySelector(
+                '#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]'
+              );
+              if (!editor) await sleep(250);
+            }
+            if (!editor) throw new Error("ChatGPT prompt editor was not found.");
+
+            editor.focus();
+            document.execCommand("selectAll", false, null);
+            document.execCommand("insertText", false, prompt);
+            editor.dispatchEvent(new InputEvent("input", {
+              bubbles: true,
+              inputType: "insertText",
+              data: prompt
+            }));
+
+            let send = null;
+          '''
+          new_submit = r'''function setPromptEditorValue(editor, prompt) {
+            editor.focus();
+            const tagName = String(editor.tagName || "").toUpperCase();
+            if (tagName === "TEXTAREA" || tagName === "INPUT") {
+              const view = editor.ownerDocument?.defaultView || globalThis;
+              const prototype = tagName === "TEXTAREA"
+                ? view.HTMLTextAreaElement?.prototype
+                : view.HTMLInputElement?.prototype;
+              const setter = prototype
+                ? Object.getOwnPropertyDescriptor(prototype, "value")?.set
+                : null;
+              if (setter) setter.call(editor, prompt);
+              else editor.value = prompt;
+              editor.dispatchEvent(new (view.Event || Event)("input", { bubbles: true }));
+              return;
+            }
+
+            document.execCommand("selectAll", false, null);
+            document.execCommand("insertText", false, prompt);
+            editor.dispatchEvent(new InputEvent("input", {
+              bubbles: true,
+              inputType: "insertText",
+              data: prompt
+            }));
+          }
+
+          async function submitPrompt({ args, sleep }) {
+            const prompt = String(args.prompt || "");
+            let editor = null;
+            for (let i = 0; i < 120 && !editor; i++) {
+              editor = document.querySelector(PROMPT_EDITOR_SELECTOR);
+              if (!editor) await sleep(250);
+            }
+            if (!editor) {
+              const page = typeof location === "undefined" ? "unknown page" : location.href;
+              throw new Error(`ChatGPT prompt editor was not found on ${page}.`);
+            }
+
+            setPromptEditorValue(editor, prompt);
+
+            let send = null;
+          '''
+          replace(
+              "integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts",
+              old_submit,
+              new_submit
+          )
+
+          # Deterministic regression test for the fallback textarea path that failed in
+          # the reported Electron run. The module is plain JS-in-.ts, as existing tests use.
+          Path("tests/chatgpt-prompt-editor.test.js").write_text(r'''const test = require("node:test");
+          const assert = require("node:assert/strict");
+          const fs = require("node:fs");
+          const os = require("node:os");
+          const path = require("node:path");
+
+          const root = path.resolve(__dirname, "..");
+
+          function loadChatGptModule() {
+            const source = fs.readFileSync(
+              path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "chatgpt.ts"),
+              "utf8"
+            );
+            const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mezhs-chatgpt-editor-"));
+            const file = path.join(directory, "chatgpt.cjs");
+            fs.writeFileSync(file, source);
+            return require(file);
+          }
+
+          test("ChatGPT page submit supports the fallback textarea composer", async () => {
+            const chatgpt = loadChatGptModule();
+            let inputEvent = null;
+            let clicked = false;
+
+            class FakeEvent {
+              constructor(type, options) {
+                this.type = type;
+                this.bubbles = options?.bubbles ?? false;
+              }
+            }
+
+            class FakeTextarea {
+              constructor() {
+                this.tagName = "TEXTAREA";
+                this.ownerDocument = { defaultView: view };
+              }
+              focus() {}
+              dispatchEvent(event) { inputEvent = event; }
+            }
+            Object.defineProperty(FakeTextarea.prototype, "value", {
+              get() { return this._value || ""; },
+              set(value) { this._value = value; }
+            });
+
+            const view = {
+              HTMLTextAreaElement: FakeTextarea,
+              HTMLInputElement: class {},
+              Event: FakeEvent
+            };
+            const editor = new FakeTextarea();
+            const send = { disabled: false, click: () => { clicked = true; } };
+            const previousDocument = global.document;
+            const previousLocation = global.location;
+            try {
+              global.document = {
+                querySelector: selector => {
+                  if (selector.includes('textarea[name="prompt-textarea"]')) return editor;
+                  if (selector.includes('send-button')) return send;
+                  return null;
+                }
+              };
+              global.location = { href: "https://chatgpt.com/" };
+
+              await chatgpt.pageOperations.submitPrompt({
+                args: { prompt: "hello fallback" },
+                sleep: async () => {}
+              });
+            } finally {
+              global.document = previousDocument;
+              global.location = previousLocation;
+            }
+
+            assert.equal(editor.value, "hello fallback");
+            assert.equal(inputEvent?.type, "input");
+            assert.equal(inputEvent?.bubbles, true);
+            assert.equal(clicked, true);
+          });
+          ''', encoding="utf-8", newline="\n")
+
+      - name: Install WhatsApp API dependencies
+        working-directory: src/Mezhs.WhatsApp.Api
+        run: npm ci
+
+      - name: Check WhatsApp API syntax
+        working-directory: src/Mezhs.WhatsApp.Api
+        run: npm run check
+
+      - name: Test WhatsApp API
+        working-directory: src/Mezhs.WhatsApp.Api
+        run: npm test
+
+      - name: Test ChatGPT prompt editor regression
+        run: node --test tests/chatgpt-prompt-editor.test.js tests/chatgpt-native-request.test.js
+
+      - name: Build full solution
+        run: dotnet build Mezhs.sln
+
+      - name: Test console framework
+        run: dotnet run --project tests/Mezhs.Console.TestApp/Mezhs.Console.TestApp.csproj --no-build -- Test
+
+      - name: Validate WhatsApp commands
+        run: dotnet run --project src/Mezhs.WhatsApp/Mezhs.WhatsApp.csproj --no-build -- Validate
+
+      - name: Test WhatsApp CLI
+        run: dotnet run --project src/Mezhs.WhatsApp/Mezhs.WhatsApp.csproj --no-build -- Test
+
+      - name: Commit validated fixes and remove temporary workflow
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-audit-fixes.yml
+          git add integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts tests/chatgpt-prompt-editor.test.js src/Mezhs.WhatsApp.Api src/Mezhs.WhatsApp src/Mezhs.Console tests/Mezhs.Console.TestApp/Program.cs
+          git diff --cached --check
+          git commit -m "Fix WhatsApp audit findings and ChatGPT composer"
+          git push
