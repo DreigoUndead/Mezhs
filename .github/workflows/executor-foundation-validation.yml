@@ -43,7 +43,7 @@ jobs:
           }
 
           Run-Step 'Build Executor' { dotnet build src/Mezhs.Executor/Mezhs.Executor.csproj -c Release --nologo }
-          Run-Step 'Console regression suite' { dotnet run --project tests/Mezhs.Console.TestApp/Mezhs.Console.TestApp.csproj -c Release --no-restore -- Test }
+          Run-Step 'Console regression suite' { dotnet run --project tests/Mezhs.Console.TestApp/Mezhs.Console.TestApp.csproj -c Release -- Test }
 
           $executor = (Resolve-Path 'src/Mezhs.Executor/bin/Release/net10.0/Mezhs.Executor.dll').Path
           $data = Join-Path $PWD 'data/executor-validation.sqlite'
