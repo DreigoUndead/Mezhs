@@ -69,11 +69,15 @@ function Wait-AttachedRunningExecution([string]$executionId, [int]$seconds = 10)
     } while ($true)
 }
 
+function Get-ChatExecutions([string]$chatId) {
+    $response = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$chatId/executions"
+    return @($response | ForEach-Object { $_ })
+}
+
 function Wait-Shell([string]$chatId, [string[]]$statuses, [int]$seconds = 20) {
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($seconds)
     do {
-        $response = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$chatId/executions"
-        $executions = @($response | ForEach-Object { $_ })
+        $executions = Get-ChatExecutions $chatId
         $shell = @($executions | Where-Object { $_.kind -eq "Shell" -and $_.status -in $statuses } | Sort-Object createdAt -Descending)[0]
         if ($null -ne $shell) { return $shell }
         if ([DateTimeOffset]::UtcNow -ge $deadline) {
@@ -94,7 +98,7 @@ try {
     $agent = Start-AgentProcess
     Wait-Health "http://127.0.0.1:5199/health"
 
-    # Running cancellation is a request first, terminal acknowledgement only after the process stops.
+    # Root Agent cancellation owns reasoning cancellation; shell execution has a separate Kill endpoint.
     $longTask = @"
 <SH>
 ping -n 30 127.0.0.1 >nul
@@ -111,8 +115,8 @@ ping -n 30 127.0.0.1 >nul
             $null).GetAwaiter().GetResult()
         $childCancelText = $childCancelResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
         try {
-            if ([int]$childCancelResponse.StatusCode -ne 400 -or $childCancelText -notmatch "Only root Agent executions") {
-                throw "Shell child accepted direct cancellation instead of preserving root cancellation ownership. HTTP $([int]$childCancelResponse.StatusCode): $childCancelText"
+            if ([int]$childCancelResponse.StatusCode -ne 400 -or $childCancelText -notmatch "use /kill") {
+                throw "Shell execution accepted Agent cancellation instead of preserving separate Kill ownership. HTTP $([int]$childCancelResponse.StatusCode): $childCancelText"
             }
         } finally { $childCancelResponse.Dispose() }
     } finally { $childCancelClient.Dispose() }
@@ -122,15 +126,15 @@ ping -n 30 127.0.0.1 >nul
         throw "Running cancellation skipped acknowledgement state: $($cancelResponse.status)"
     }
     $cancelledRoot = Wait-ExecutionStatus $cancel.executionId @("Cancelled") 10
-    $cancelledShell = Wait-Shell $cancelledRoot.chatId @("Cancelled") 10
-    if (-not $cancelledRoot.completedAt -or -not $cancelledShell.completedAt) {
-        throw "Cancellation became terminal without durable completion timestamps."
+    $killedShell = Wait-Shell $cancelledRoot.chatId @("Killed") 10
+    if (-not $cancelledRoot.completedAt -or -not $killedShell.completedAt) {
+        throw "Cancellation/kill became terminal without durable completion timestamps."
     }
 
     # With one worker and queueCapacity=1, one running + one queued fills durable admission capacity.
     $blocking = Start-Execution "test-cancel" $longTask
     $blockingRunning = Wait-AttachedRunningExecution $blocking.executionId
-    $null = Wait-Shell $blockingRunning.chatId @("Running")
+    $blockingShell = Wait-Shell $blockingRunning.chatId @("Running")
     $queued = Start-Execution "test" "queued after blocking execution"
     $queuedRecord = Wait-ExecutionStatus $queued.executionId @("Queued") 5
     if ($queuedRecord.startedAt) { throw "Durably queued execution already has a started timestamp." }
@@ -165,9 +169,8 @@ ping -n 30 127.0.0.1 >nul
         throw "Rejected admission still created a failed execution record."
     }
 
-    # Force-kill Agent and its shell tree. Active work is interrupted; queued work must survive and resume after restart.
-    & taskkill /PID $agent.Id /T /F | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Could not terminate Agent process tree for restart recovery test." }
+    # Kill only Agent API. Detached Executor shell must survive, then Agent must reattach to the same durable shell row.
+    Stop-Process -Id $agent.Id -Force
     $agent.WaitForExit()
     $agent = $null
 
@@ -175,13 +178,17 @@ ping -n 30 127.0.0.1 >nul
     $agent = Start-AgentProcess
     Wait-Health "http://127.0.0.1:5199/health"
 
-    $recoveredBlocking = Wait-ExecutionStatus $blocking.executionId @("Interrupted") 8
-    $recoveredShell = Wait-Shell $recoveredBlocking.chatId @("Interrupted") 8
-    if ($recoveredBlocking.error -notmatch "restarted" -or $recoveredShell.error -notmatch "restarted") {
-        throw "Restart recovery did not persist interruption evidence for active work."
+    $recoveredBlocking = Wait-ExecutionStatus $blocking.executionId @("Completed") 45
+    $recoveredShell = Wait-Shell $recoveredBlocking.chatId @("Completed") 45
+    if ($recoveredShell.executionId -ne $blockingShell.executionId) {
+        throw "Agent restart launched a duplicate shell row. Before=$($blockingShell.executionId), after=$($recoveredShell.executionId)"
+    }
+    $shellRows = @(Get-ChatExecutions $recoveredBlocking.chatId | Where-Object { $_.kind -eq "Shell" })
+    if ($shellRows.Count -ne 1) {
+        throw "Recovered Agent chat contains $($shellRows.Count) shell rows instead of reconnecting to one durable execution."
     }
 
-    $recoveredQueued = Wait-ExecutionStatus $queued.executionId @("Completed") 15
+    $recoveredQueued = Wait-ExecutionStatus $queued.executionId @("Completed") 20
     if (-not $recoveredQueued.startedAt -or -not $recoveredQueued.completedAt) {
         throw "Queued execution did not survive restart and run from durable storage."
     }
@@ -190,11 +197,11 @@ ping -n 30 127.0.0.1 >nul
     $afterRestartDone = Wait-ExecutionStatus $afterRestart.executionId @("Completed") 15
     if ($afterRestartDone.status -ne "Completed") { throw "Agent did not accept work after restart recovery." }
 
-    Write-Host "PASS: CancelRequested acknowledgement, durable bounded admission, queued-work restart survival, active interruption recovery, and post-restart execution are correct."
+    Write-Host "PASS: Root cancellation kills Executor work, durable admission remains bounded, detached shell survives Agent death, recovery reconnects without duplicate shell execution, queued work survives restart, and post-restart work completes."
 }
 finally {
     if ($null -ne $agent -and -not $agent.HasExited) {
-        & taskkill /PID $agent.Id /T /F | Out-Null
+        Stop-Process -Id $agent.Id -Force
         $agent.WaitForExit()
     }
     if (-not $api.HasExited) { Stop-Process -Id $api.Id -Force; $api.WaitForExit() }
