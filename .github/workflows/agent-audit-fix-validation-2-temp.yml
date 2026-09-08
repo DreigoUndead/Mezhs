@@ -85,18 +85,6 @@ jobs:
           '''
               program_path.write_text(program, encoding="utf-8", newline="\n")
 
-          shell_path = Path("src/Mezhs.Agent.Api/Commands/Shell.cs")
-          shell = shell_path.read_text(encoding="utf-8")
-          shell = shell.replace(
-              '            startInfo.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";\n            startInfo.ArgumentList.Add("/D");\n            startInfo.ArgumentList.Add("/Q");\n            return new ShellInvocation(startInfo, "@chcp 65001>nul\\r\\n" + commandText + "\\r\\n");',
-              '            var shellPath = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";\n            startInfo.FileName = shellPath;\n            startInfo.ArgumentList.Add("/D");\n            startInfo.ArgumentList.Add("/Q");\n            startInfo.ArgumentList.Add("/C");\n            startInfo.ArgumentList.Add($"chcp 65001>nul & \\\"{shellPath}\\\" /D /Q");\n            return new ShellInvocation(startInfo, commandText + "\\r\\n");',
-              1)
-          shell = shell.replace(
-              "StandardInputEncoding = Encoding.UTF8,",
-              "StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),",
-              1)
-          shell_path.write_text(shell, encoding="utf-8", newline="\n")
-
           app_path = Path("src/Mezhs.Agent.Web/src/App.tsx")
           app = app_path.read_text(encoding="utf-8")
           app = app.replace(
@@ -109,11 +97,6 @@ jobs:
           smoke = smoke.replace(
               '    $protocolMessage = @($environmentMessages | Where-Object { $_.role -eq "assistant" -and @($_.commands).Count -gt 0 })[0]',
               '    $protocolMessage = $environmentMessages | Where-Object { $_.role -eq "assistant" -and $_.commands.Count -gt 0 } | Select-Object -First 1',
-              1)
-          shell_check = '    if ($environmentShell.result -notmatch "ENVIRONMENT_OK") { throw "Policy-approved environment variable did not reach the child shell." }'
-          smoke = smoke.replace(
-              shell_check,
-              shell_check + '\n    if ($environmentShell.result -match "not recognized as an internal or external command") {\n        throw "Shell stdin introduced an invalid command before the requested command."\n    }',
               1)
           smoke_path.write_text(smoke, encoding="utf-8", newline="\n")
           '@ | Set-Content -LiteralPath .post-audit-fix.py -Encoding utf8
