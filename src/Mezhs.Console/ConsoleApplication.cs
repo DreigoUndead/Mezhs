@@ -60,6 +60,12 @@ public abstract class ConsoleApplication
         }
     }
 
+    [Command(Description = "Run application self-tests.")]
+    public virtual string Test() => "No tests are defined for this application.";
+
+    protected virtual object? ExecuteCommand(MethodInfo method, object?[] arguments) =>
+        method.Invoke(this, arguments);
+
     private int Execute(IReadOnlyList<ValueNode> nodes)
     {
         if (!MezhsExecutionContext.IsAvailable)
@@ -100,7 +106,7 @@ public abstract class ConsoleApplication
 
         try
         {
-            var result = command.Method.Invoke(this, arguments);
+            var result = ExecuteCommand(command.Method, arguments);
             WriteResult(result, command.Method.ReturnType);
             return 0;
         }
@@ -127,7 +133,7 @@ public abstract class ConsoleApplication
             var parameter = parameters[i];
             if (i < values.Count)
             {
-                if (values[i] is ScalarNode { Value: var value } &&
+                if (values[i] is ScalarNode { Value: var value, IsQuoted: false } &&
                     value.Equals("null", StringComparison.OrdinalIgnoreCase) &&
                     !IsNullable(parameter, nullability))
                 {
