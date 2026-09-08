@@ -38,7 +38,7 @@ public sealed class PolicyEvaluationService(
                 StringComparison.OrdinalIgnoreCase))
             .Select(ToEvidence);
         var shellEvidence = string.IsNullOrWhiteSpace(execution.ChatId)
-            ? []
+            ? Enumerable.Empty<ExecutionEvidence>()
             : executor.List(execution.ChatId, 1000)
                 .Where(record => string.Equals(
                     record.CorrelationId,
