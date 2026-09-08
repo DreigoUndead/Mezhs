@@ -17,6 +17,7 @@ var executorStorage = Path.Combine(
     Path.GetDirectoryName(options.Storage) ?? Environment.CurrentDirectory,
     "executor.sqlite");
 var recovery = AgentRecoveryState.Prepare(options.Storage);
+var executor = new ExecutorService(executorStorage);
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(options.Listen.ToString());
 builder.Services.ConfigureHttpJsonOptions(json =>
@@ -25,7 +26,7 @@ builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(recovery);
-builder.Services.AddSingleton(new ExecutorService(executorStorage));
+builder.Services.AddSingleton(executor);
 builder.Services.AddSingleton<AgentStore>();
 builder.Services.AddSingleton<PolicyRegistry>();
 builder.Services.AddSingleton<PolicyEvaluationService>();
@@ -46,6 +47,7 @@ app.UseExceptionHandler();
 
 var store = app.Services.GetRequiredService<AgentStore>();
 store.Initialize();
+recovery.ReconcilePendingCancellations(executor);
 
 app.MapGet("/", () => Results.Ok(new
 {
@@ -132,11 +134,11 @@ app.MapGet("/v1/agent-chats/{chatId}/messages", async (
 app.MapGet("/v1/agent-chats/{chatId}/executions", (
     string chatId,
     AgentStore agentStore,
-    ExecutorService executor) =>
+    ExecutorService executorService) =>
 {
     if (agentStore.GetAgentChat(chatId) is null)
         return Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." });
-    return Results.Ok(GetExecutionViews(agentStore, executor, chatId));
+    return Results.Ok(GetExecutionViews(agentStore, executorService, chatId));
 });
 
 app.MapGet("/v1/agent-chats/{chatId}/debug-log", async (
@@ -165,19 +167,19 @@ app.MapPost("/v1/executions", (
 app.MapGet("/v1/executions", (
     string? chatId,
     AgentStore agentStore,
-    ExecutorService executor) =>
-    Results.Ok(GetExecutionViews(agentStore, executor, chatId)));
+    ExecutorService executorService) =>
+    Results.Ok(GetExecutionViews(agentStore, executorService, chatId)));
 
 app.MapGet("/v1/executions/{executionId}", (
     string executionId,
     AgentStore agentStore,
-    ExecutorService executor) =>
+    ExecutorService executorService) =>
 {
     if (int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out var executorId))
     {
         try
         {
-            return Results.Ok(AgentApiMapper.ToView(executor.Get(executorId)));
+            return Results.Ok(AgentApiMapper.ToView(executorService.Get(executorId)));
         }
         catch (KeyNotFoundException)
         {
@@ -202,13 +204,13 @@ app.MapPost("/v1/executions/{executionId}/cancel", (
 
 app.MapPost("/v1/executions/{executionId}/kill", (
     string executionId,
-    ExecutorService executor) =>
+    ExecutorService executorService) =>
 {
     if (!int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
         return Results.BadRequest(new { error = "Only shell Executor executions can be killed through this endpoint." });
     try
     {
-        return Results.Ok(AgentApiMapper.ToView(executor.Kill(id)));
+        return Results.Ok(AgentApiMapper.ToView(executorService.Kill(id)));
     }
     catch (KeyNotFoundException)
     {
@@ -218,16 +220,16 @@ app.MapPost("/v1/executions/{executionId}/kill", (
 
 app.MapPost("/v1/executions/{executionId}/restart", (
     string executionId,
-    ExecutorService executor) =>
+    ExecutorService executorService) =>
 {
     if (!int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
         return Results.BadRequest(new { error = "Only shell Executor executions can be restarted through this endpoint." });
     try
     {
-        var replacementId = executor.Restart(id);
+        var replacementId = executorService.Restart(id);
         return Results.Accepted(
             $"/v1/executions/{replacementId}",
-            AgentApiMapper.ToView(executor.Get(replacementId)));
+            AgentApiMapper.ToView(executorService.Get(replacementId)));
     }
     catch (KeyNotFoundException)
     {
