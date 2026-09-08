@@ -3,11 +3,13 @@ using System.Text;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Api.Client;
+using Mezhs.Executor;
 
 namespace Mezhs.Agent.Services;
 
 public sealed class AgentDebugLogBuilder(
     AgentStore store,
+    ExecutorService executor,
     MezhsApiClient mezhs)
 {
     public async Task<string> BuildAsync(
@@ -16,9 +18,14 @@ public sealed class AgentDebugLogBuilder(
     {
         var chat = store.GetAgentChat(chatId)
             ?? throw new ResourceNotFoundException($"Agent chat '{chatId}' was not found.");
-        var executions = store.GetExecutions(chatId)
+        var agentExecutions = store.GetExecutions(chatId)
+            .Where(execution => execution.Kind == AgentExecutionKind.Agent)
             .OrderBy(execution => execution.CreatedAt)
             .ThenBy(execution => execution.ExecutionId, StringComparer.Ordinal)
+            .ToArray();
+        var shellExecutions = executor.List(chatId, 1000)
+            .OrderBy(execution => execution.CreatedAt)
+            .ThenBy(execution => execution.Id)
             .ToArray();
         var messages = await mezhs.GetMessagesAsync(chatId, cancellationToken);
         var now = DateTimeOffset.UtcNow;
@@ -35,33 +42,40 @@ public sealed class AgentDebugLogBuilder(
             log.AppendLine($"environment: {string.Join(", ", chat.Environment.Keys.Order(StringComparer.OrdinalIgnoreCase))}");
         log.AppendLine();
 
-        var active = executions
+        var activeAgents = agentExecutions
             .Where(execution => execution.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running or AgentExecutionStatus.CancelRequested)
             .ToArray();
+        var activeShells = shellExecutions.Where(execution => !execution.IsTerminal).ToArray();
         log.AppendLine("=== ACTIVE ===");
-        if (active.Length == 0)
+        if (activeAgents.Length == 0 && activeShells.Length == 0)
         {
             log.AppendLine("none");
         }
         else
         {
-            foreach (var execution in active)
+            foreach (var execution in activeAgents)
             {
-                AppendExecutionHeader(log, execution, now);
-                AppendBlock(log, "request", execution.Request);
+                AppendAgentExecution(log, execution, now);
+                log.AppendLine();
+            }
+            foreach (var execution in activeShells)
+            {
+                AppendShellExecution(log, execution, now);
                 log.AppendLine();
             }
         }
 
-        log.AppendLine("=== EXECUTIONS ===");
-        foreach (var execution in executions)
+        log.AppendLine("=== AGENT EXECUTIONS ===");
+        foreach (var execution in agentExecutions)
         {
-            AppendExecutionHeader(log, execution, now);
-            AppendBlock(log, "request", execution.Request);
-            AppendBlock(log, "result", execution.Result);
-            AppendBlock(log, "error", execution.Error);
-            if (!string.IsNullOrWhiteSpace(execution.PolicySnapshot))
-                AppendBlock(log, "policySnapshot", execution.PolicySnapshot);
+            AppendAgentExecution(log, execution, now);
+            log.AppendLine();
+        }
+
+        log.AppendLine("=== SHELL EXECUTIONS (EXECUTOR) ===");
+        foreach (var execution in shellExecutions)
+        {
+            AppendShellExecution(log, execution, now);
             log.AppendLine();
         }
 
@@ -82,7 +96,7 @@ public sealed class AgentDebugLogBuilder(
         return log.ToString();
     }
 
-    private static void AppendExecutionHeader(
+    private static void AppendAgentExecution(
         StringBuilder log,
         ExecutionRecord execution,
         DateTimeOffset now)
@@ -94,18 +108,45 @@ public sealed class AgentDebugLogBuilder(
         log.AppendLine($"source: {execution.Source}");
         if (!string.IsNullOrWhiteSpace(execution.SourceReference))
             log.AppendLine($"sourceReference: {execution.SourceReference}");
-        if (!string.IsNullOrWhiteSpace(execution.CommandName))
-            log.AppendLine($"commandName: {execution.CommandName}");
-        if (!string.IsNullOrWhiteSpace(execution.TriggerMessageId))
-            log.AppendLine($"triggerMessageId: {execution.TriggerMessageId}");
-        if (execution.CommandIndex is { } commandIndex)
-            log.AppendLine($"commandIndex: {commandIndex}");
         log.AppendLine($"startedAt: {(execution.StartedAt is { } started ? Format(started) : "-")}");
+        log.AppendLine($"completedAt: {(execution.CompletedAt is { } completed ? Format(completed) : "-")}");
+        if (execution.StartedAt is { } startedAt && execution.CompletedAt is null)
+            log.AppendLine($"elapsedSeconds: {(now - startedAt).TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)}");
+        AppendBlock(log, "request", execution.Request);
+        AppendBlock(log, "result", execution.Result);
+        AppendBlock(log, "error", execution.Error);
+        if (!string.IsNullOrWhiteSpace(execution.PolicySnapshot))
+            AppendBlock(log, "policySnapshot", execution.PolicySnapshot);
+    }
+
+    private static void AppendShellExecution(
+        StringBuilder log,
+        Execution execution,
+        DateTimeOffset now)
+    {
+        log.AppendLine(
+            $"[{Format(execution.CreatedAt)}] execution={execution.Id} kind=Shell status={execution.Status}");
+        log.AppendLine($"parentExecutionId: {execution.ParentExecutionId ?? "-"}");
+        log.AppendLine($"correlationId: {execution.CorrelationId ?? "-"}");
+        log.AppendLine($"source: {execution.Source ?? "-"}");
+        log.AppendLine($"triggerMessageId: {execution.TriggerMessageId ?? "-"}");
+        log.AppendLine($"commandIndex: {(execution.CommandIndex?.ToString(CultureInfo.InvariantCulture) ?? "-")}");
+        log.AppendLine($"processId: {(execution.ProcessId?.ToString(CultureInfo.InvariantCulture) ?? "-")}");
+        log.AppendLine($"ownerProcessId: {(execution.OwnerProcessId?.ToString(CultureInfo.InvariantCulture) ?? "-")}");
+        log.AppendLine($"startedAt: {(execution.StartedAt is { } started ? Format(started) : "-")}");
+        log.AppendLine($"heartbeatAt: {(execution.HeartbeatAt is { } heartbeat ? Format(heartbeat) : "-")}");
         log.AppendLine($"completedAt: {(execution.CompletedAt is { } completed ? Format(completed) : "-")}");
         if (execution.StartedAt is { } startedAt && execution.CompletedAt is null)
             log.AppendLine($"elapsedSeconds: {(now - startedAt).TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)}");
         if (execution.ExitCode is { } exitCode)
             log.AppendLine($"exitCode: {exitCode}");
+        if (execution.RestartedFromId is { } restartedFrom)
+            log.AppendLine($"restartedFromId: {restartedFrom}");
+        if (execution.RestartedAsId is { } restartedAs)
+            log.AppendLine($"restartedAsId: {restartedAs}");
+        AppendBlock(log, "command", execution.Command);
+        AppendBlock(log, "result", execution.Result);
+        AppendBlock(log, "error", execution.Error);
     }
 
     private static void AppendBlock(
