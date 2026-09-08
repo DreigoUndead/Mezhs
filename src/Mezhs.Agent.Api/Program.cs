@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
 using Mezhs.Agent;
@@ -8,9 +9,13 @@ using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
 using Mezhs.Agent.Services;
 using Mezhs.Api.Client;
+using Mezhs.Executor;
 
 var configPath = FindConfigPath(GetOption(args, "--config"));
 var options = AgentConfigLoader.Load(configPath);
+var executorStorage = Path.Combine(
+    Path.GetDirectoryName(options.Storage) ?? Environment.CurrentDirectory,
+    "executor.sqlite");
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(options.Listen.ToString());
 builder.Services.ConfigureHttpJsonOptions(json =>
@@ -18,6 +23,7 @@ builder.Services.ConfigureHttpJsonOptions(json =>
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(options);
+builder.Services.AddSingleton(new ExecutorService(executorStorage));
 builder.Services.AddSingleton<AgentStore>();
 builder.Services.AddSingleton<PolicyRegistry>();
 builder.Services.AddSingleton<PolicyEvaluationService>();
@@ -123,11 +129,12 @@ app.MapGet("/v1/agent-chats/{chatId}/messages", async (
 
 app.MapGet("/v1/agent-chats/{chatId}/executions", (
     string chatId,
-    AgentStore agentStore) =>
+    AgentStore agentStore,
+    ExecutorService executor) =>
 {
     if (agentStore.GetAgentChat(chatId) is null)
         return Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." });
-    return Results.Ok(agentStore.GetExecutions(chatId).Select(AgentApiMapper.ToView));
+    return Results.Ok(GetExecutionViews(agentStore, executor, chatId));
 });
 
 app.MapGet("/v1/agent-chats/{chatId}/debug-log", async (
@@ -155,15 +162,29 @@ app.MapPost("/v1/executions", (
 
 app.MapGet("/v1/executions", (
     string? chatId,
-    AgentStore agentStore) =>
-    Results.Ok(agentStore.GetExecutions(chatId).Select(AgentApiMapper.ToView)));
+    AgentStore agentStore,
+    ExecutorService executor) =>
+    Results.Ok(GetExecutionViews(agentStore, executor, chatId)));
 
 app.MapGet("/v1/executions/{executionId}", (
     string executionId,
-    AgentStore agentStore) =>
+    AgentStore agentStore,
+    ExecutorService executor) =>
 {
+    if (int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out var executorId))
+    {
+        try
+        {
+            return Results.Ok(AgentApiMapper.ToView(executor.Get(executorId)));
+        }
+        catch (KeyNotFoundException)
+        {
+            return Results.NotFound(new { error = $"Execution '{executionId}' was not found." });
+        }
+    }
+
     var execution = agentStore.GetExecution(executionId);
-    return execution is null
+    return execution is null || execution.Kind != AgentExecutionKind.Agent
         ? Results.NotFound(new { error = $"Execution '{executionId}' was not found." })
         : Results.Ok(AgentApiMapper.ToView(execution));
 });
@@ -173,11 +194,63 @@ app.MapPost("/v1/executions/{executionId}/cancel", (
     AgentWorker worker) =>
     Results.Ok(AgentApiMapper.ToView(worker.Cancel(executionId))));
 
+app.MapPost("/v1/executions/{executionId}/kill", (
+    string executionId,
+    ExecutorService executor) =>
+{
+    if (!int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+        return Results.BadRequest(new { error = "Only shell Executor executions can be killed through this endpoint." });
+    try
+    {
+        return Results.Ok(AgentApiMapper.ToView(executor.Kill(id)));
+    }
+    catch (KeyNotFoundException)
+    {
+        return Results.NotFound(new { error = $"Execution '{executionId}' was not found." });
+    }
+});
+
+app.MapPost("/v1/executions/{executionId}/restart", (
+    string executionId,
+    ExecutorService executor) =>
+{
+    if (!int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+        return Results.BadRequest(new { error = "Only shell Executor executions can be restarted through this endpoint." });
+    try
+    {
+        var replacementId = executor.Restart(id);
+        return Results.Accepted(
+            $"/v1/executions/{replacementId}",
+            AgentApiMapper.ToView(executor.Get(replacementId)));
+    }
+    catch (KeyNotFoundException)
+    {
+        return Results.NotFound(new { error = $"Execution '{executionId}' was not found." });
+    }
+});
+
 Console.WriteLine($"MEŽS Agent config: {configPath}");
 Console.WriteLine($"MEŽS Agent listening: {options.Listen}");
 Console.WriteLine($"MEŽS API: {options.MezhsApi}");
 Console.WriteLine($"MEŽS Agent workspace: {options.Workspace}");
+Console.WriteLine($"MEŽS Executor storage: {executorStorage}");
 await app.RunAsync();
+
+static IReadOnlyList<AgentExecutionView> GetExecutionViews(
+    AgentStore store,
+    ExecutorService executor,
+    string? chatId)
+{
+    var agents = store.GetExecutions(chatId)
+        .Where(execution => execution.Kind == AgentExecutionKind.Agent)
+        .Select(AgentApiMapper.ToView);
+    var shells = executor.List(chatId)
+        .Select(AgentApiMapper.ToView);
+    return agents.Concat(shells)
+        .OrderByDescending(execution => execution.CreatedAt)
+        .ThenByDescending(execution => execution.ExecutionId, StringComparer.Ordinal)
+        .ToArray();
+}
 
 static async Task<AgentChatView> ToViewAsync(
     AgentChatRecord record,
@@ -219,7 +292,6 @@ static string? GetOption(string[] args, string name)
     }
     return null;
 }
-
 
 static string FindConfigPath(string? configuredPath)
 {

@@ -6,11 +6,16 @@ namespace Mezhs.Agent.Models;
 public enum AgentExecutionStatus
 {
     Queued,
+    Created,
     Running,
     CancelRequested,
+    KillRequested,
     Completed,
     Failed,
     Cancelled,
+    Killed,
+    TimedOut,
+    Dead,
     Interrupted
 }
 
@@ -131,7 +136,9 @@ public sealed record AgentExecutionView(
     string PolicySnapshot,
     DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt,
-    DateTimeOffset? CompletedAt);
+    DateTimeOffset? CompletedAt,
+    string? RestartedFromId = null,
+    string? RestartedAsId = null);
 
 public static class AgentIds
 {

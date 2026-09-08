@@ -1,5 +1,7 @@
+using System.Globalization;
 using Mezhs.Agent.Commands;
 using Mezhs.Api.Contracts;
+using ExecutorExecution = Mezhs.Executor.Execution;
 
 namespace Mezhs.Agent.Models;
 
@@ -27,6 +29,31 @@ public static class AgentApiMapper
         record.CreatedAt,
         record.StartedAt,
         record.CompletedAt);
+
+    public static AgentExecutionView ToView(ExecutorExecution execution) => new(
+        execution.Id.ToString(CultureInfo.InvariantCulture),
+        execution.ParentExecutionId,
+        execution.CorrelationId ?? string.Empty,
+        AgentExecutionKind.Shell,
+        Registry.Get(CommandBehavior.Shell).Name,
+        execution.TriggerMessageId,
+        execution.CommandIndex,
+        execution.ChatId,
+        string.Empty,
+        string.Empty,
+        execution.Source ?? "executor",
+        null,
+        Enum.Parse<AgentExecutionStatus>(execution.Status.ToString()),
+        execution.Command,
+        execution.Result,
+        execution.Error,
+        execution.ExitCode,
+        string.Empty,
+        execution.CreatedAt,
+        execution.StartedAt,
+        execution.CompletedAt,
+        execution.RestartedFromId?.ToString(CultureInfo.InvariantCulture),
+        execution.RestartedAsId?.ToString(CultureInfo.InvariantCulture));
 
     public static AgentChatMessageView ToView(
         ApiChatHistoryMessage message,
