@@ -13,11 +13,12 @@ npm install
 npm start
 ```
 
-By default the API listens on `127.0.0.1:3217` and stores the linked-device credentials under `data/auth`.
+The API listens only on `127.0.0.1:3217`. This loopback-only binding is the API security boundary; the service intentionally does not expose an unauthenticated LAN listener.
+
+The linked-device credentials are stored under `data/auth` by default.
 
 Configuration:
 
-- `MEZHS_WHATSAPP_HOST`
 - `MEZHS_WHATSAPP_PORT`
 - `MEZHS_WHATSAPP_AUTH_DIR`
 
@@ -45,8 +46,11 @@ GET  /messages?beforeId=<id>&limit=20
 GET  /messages?afterId=<id>&limit=20
 GET  /messages?q=<text>&limit=20
 GET  /messages/<id>
+GET  /messages/<id>?chatId=<jid>
 POST /messages
 ```
+
+Use `chatId` when fetching one message if the WhatsApp message id could be ambiguous across chats.
 
 Send text:
 
@@ -59,4 +63,8 @@ Send text:
 
 Returned messages expose WhatsApp facts such as `fromMe`; they do not try to decide whether an outgoing message was typed by the human or sent by an agent.
 
-Messages and chats are currently held only in memory. They are populated from Baileys history-sync and live events after the process connects. The auth session is persisted separately.
+Messages and chats are held only in memory. The store consumes history-sync and live events, applies message updates/deletions, and retains at most the newest 10,000 messages to keep process memory bounded. The auth session is persisted separately.
+
+## Dependency note
+
+`@whiskeysockets/baileys` is intentionally pinned to `7.0.0-rc13` rather than automatically following release candidates. The current lockfile includes the GPL-3.0 `libsignal` transitive dependency even though Baileys itself and `qrcode` are MIT. Treat redistribution/bundling as a separate licensing decision; this gateway is currently intended for private local use.
