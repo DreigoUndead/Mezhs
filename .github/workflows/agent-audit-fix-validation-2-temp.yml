@@ -1,4 +1,4 @@
-name: Temporary audited Agent fix validation 2
+name: Temporary Agent smoke assertion inspection
 
 on:
   push:
@@ -6,29 +6,17 @@ on:
       - agent-api-foundation
 
 permissions:
-  contents: write
-
-concurrency:
-  group: audited-agent-fix-validation-2
-  cancel-in-progress: true
+  contents: read
 
 jobs:
-  validate:
-    if: github.actor != 'github-actions[bot]'
+  inspect:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent-api-foundation
           fetch-depth: 0
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Apply remaining audited fixes
+      - name: Apply staged patch and print assertion
         shell: pwsh
         run: |
           @'
@@ -50,48 +38,6 @@ jobs:
           subprocess.run(["python", ".agent-audit-fix.py"], check=True)
           Path(".agent-audit-fix.py").unlink()
 
-          program_path = Path("src/Mezhs.Agent.Api/Program.cs")
-          program = program_path.read_text(encoding="utf-8")
-          if "static string FindConfigPath(" not in program:
-              program += r'''
-
-          static string FindConfigPath(string? configuredPath)
-          {
-              if (!string.IsNullOrWhiteSpace(configuredPath))
-                  return Path.GetFullPath(configuredPath);
-
-              var currentCandidate = Path.GetFullPath("agent.yaml");
-              if (File.Exists(currentCandidate))
-                  return currentCandidate;
-
-              var directory = new DirectoryInfo(AppContext.BaseDirectory);
-              while (directory is not null)
-              {
-                  if (File.Exists(Path.Combine(directory.FullName, "Mezhs.sln")))
-                  {
-                      var repositoryCandidate = Path.Combine(directory.FullName, "agent.yaml");
-                      if (File.Exists(repositoryCandidate))
-                          return repositoryCandidate;
-                  }
-                  directory = directory.Parent;
-              }
-
-              var outputCandidate = Path.Combine(AppContext.BaseDirectory, "agent.yaml");
-              if (File.Exists(outputCandidate))
-                  return outputCandidate;
-
-              return currentCandidate;
-          }
-          '''
-              program_path.write_text(program, encoding="utf-8", newline="\n")
-
-          app_path = Path("src/Mezhs.Agent.Web/src/App.tsx")
-          app = app_path.read_text(encoding="utf-8")
-          app = app.replace(
-              'function compactPreview(value?: string, fallback = "No output")',
-              'function compactPreview(value?: string | null, fallback = "No output")')
-          app_path.write_text(app, encoding="utf-8", newline="\n")
-
           smoke_path = Path("tests/agent-api-smoke.ps1")
           smoke = smoke_path.read_text(encoding="utf-8")
           old = '    $protocolMessage = @($environmentMessages | Where-Object { $_.role -eq "assistant" -and @($_.commands).Count -gt 0 })[0]'
@@ -108,34 +54,10 @@ jobs:
               raise RuntimeError("Canonical message smoke selector changed unexpectedly.")
           smoke = smoke.replace(old, new, 1)
           smoke_path.write_text(smoke, encoding="utf-8", newline="\n")
-          '@ | Set-Content -LiteralPath .post-audit-fix.py -Encoding utf8
-          python .post-audit-fix.py
-          Remove-Item .post-audit-fix.py
-
-      - name: Build solution
-        run: dotnet build Mezhs.sln -c Release
-      - name: Agent architecture
-        shell: pwsh
-        run: ./tests/agent-architecture.ps1
-      - name: Shared Agent UI
-        shell: pwsh
-        run: ./tests/agent-web-shared-ui.ps1
-      - name: Policy, queue, shell, and protocol behavior
-        shell: pwsh
-        run: ./tests/policy-decoder.ps1
-      - name: Agent API smoke
-        shell: pwsh
-        run: ./tests/agent-api-smoke.ps1
-      - name: Agent runtime resilience
-        shell: pwsh
-        run: ./tests/agent-runtime-resilience.ps1
-
-      - name: Commit validated fixes
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add AGENT_API_TODO.md TODO.md agent.yaml tests src
-          if (git diff --cached --quiet) { throw "No audited fix changes were produced." }
-          git commit -m "Complete audited Agent fixes [skip ci]"
-          git push origin HEAD:agent-api-foundation
+          '@ | Set-Content -LiteralPath .inspect.py -Encoding utf8
+          python .inspect.py
+          Remove-Item .inspect.py
+          $lines = Get-Content tests/agent-api-smoke.ps1
+          for ($i = 135; $i -le 165; $i++) {
+            if ($i -le $lines.Count) { Write-Host (("{0,4}: " -f $i) + $lines[$i - 1]) }
+          }
