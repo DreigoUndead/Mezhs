@@ -29,7 +29,7 @@ public sealed class ExecutorService
             : environment.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
         var created = _store.Create(command, resolvedDirectory, timeoutSeconds, snapshot);
         if (!created.Created)
-            return created.Execution.Id;
+            return ResolveLatestRestart(created.Execution).Id;
 
         try
         {
@@ -116,6 +116,21 @@ public sealed class ExecutorService
     }
 
     public void Run(int id) => new ExecutorRunner(_store).Run(id);
+
+    private Execution ResolveLatestRestart(Execution execution)
+    {
+        var current = execution;
+        var visited = new HashSet<int>();
+        while (current.RestartedAsId is > 0)
+        {
+            if (!visited.Add(current.Id))
+                throw new InvalidOperationException($"Execution '{execution.Id}' has cyclic restart lineage.");
+            current = _store.Get(current.RestartedAsId.Value)?.Execution
+                ?? throw new InvalidOperationException(
+                    $"Restarted execution '{current.RestartedAsId.Value}' referenced by '{current.Id}' was not found.");
+        }
+        return current;
+    }
 
     private void Reconcile(int id) =>
         _store.ReconcileStale(id, DateTimeOffset.UtcNow - StaleThreshold);
