@@ -1,0 +1,29 @@
+name: Temporary Agent lockfile cleanup
+
+on:
+  push:
+    branches:
+      - agent-api-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent-api-foundation
+          fetch-depth: 0
+      - name: Restore pre-validation Web lockfile
+        shell: pwsh
+        run: |
+          git checkout 474df9f254f1525e280aeedceaafed2caca70b49 -- src/Mezhs.Web/ClientApp/package-lock.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/Mezhs.Web/ClientApp/package-lock.json
+          if (git diff --cached --quiet) { throw "Expected validation-generated Web lockfile changes were not present." }
+          git commit -m "Restore pre-validation Web lockfile [skip ci]"
+          git push origin HEAD:agent-api-foundation
