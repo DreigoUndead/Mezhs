@@ -39,10 +39,10 @@ jobs:
             if ($_.StartsWith("          ")) { $_.Substring(10) } else { $_ }
           }
           $script | Set-Content -LiteralPath .agent-fix-temp.py -Encoding UTF8
-          python .agent-fix-temp.py *>&1 | Tee-Object -FilePath .agent-fix-log.txt
-          $patchExit = $LASTEXITCODE
-          Remove-Item .agent-fix-temp.py
-          if ($patchExit -ne 0) { throw "Patch script failed with exit code $patchExit." }
+          $process = Start-Process python -ArgumentList '.agent-fix-temp.py' -RedirectStandardOutput '.agent-fix-stdout.txt' -RedirectStandardError '.agent-fix-stderr.txt' -Wait -PassThru
+          Get-Content .agent-fix-stdout.txt, .agent-fix-stderr.txt | Set-Content .agent-fix-log.txt
+          Remove-Item .agent-fix-temp.py, .agent-fix-stdout.txt, .agent-fix-stderr.txt
+          if ($process.ExitCode -ne 0) { throw "Patch script failed with exit code $($process.ExitCode)." }
 
       - name: Upload patch diagnostics
         if: always()
@@ -50,7 +50,7 @@ jobs:
         with:
           name: agent-fix-diagnostics
           path: .agent-fix-log.txt
-          if-no-files-found: ignore
+          if-no-files-found: error
 
       - name: Build solution
         run: dotnet build Mezhs.sln -c Release
