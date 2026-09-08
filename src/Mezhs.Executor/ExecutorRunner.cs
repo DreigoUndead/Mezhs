@@ -137,7 +137,7 @@ internal sealed class ExecutorRunner(ExecutorStore store)
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            StandardInputEncoding = Encoding.UTF8,
             CreateNoWindow = true,
             WorkingDirectory = execution.Directory
         };
@@ -155,11 +155,6 @@ internal sealed class ExecutorRunner(ExecutorStore store)
             startInfo.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
             startInfo.ArgumentList.Add("/D");
             startInfo.ArgumentList.Add("/Q");
-            // /K runs the ASCII-only setup before cmd starts reading redirected stdin.
-            // Sending `chcp` and the UTF-8 command in one redirected stream lets cmd
-            // buffer/decode later bytes using the original OEM input code page.
-            startInfo.ArgumentList.Add("/K");
-            startInfo.ArgumentList.Add("chcp 65001>nul");
             startInfo.StandardOutputEncoding = Encoding.UTF8;
             startInfo.StandardErrorEncoding = Encoding.UTF8;
         }
@@ -172,7 +167,7 @@ internal sealed class ExecutorRunner(ExecutorStore store)
 
     private static string CreatePayload(string command) =>
         OperatingSystem.IsWindows()
-            ? command + "\r\n"
+            ? "@chcp 65001>nul\r\n" + command + "\r\n"
             : command + "\n";
 
     private static string? Terminate(Process process)
