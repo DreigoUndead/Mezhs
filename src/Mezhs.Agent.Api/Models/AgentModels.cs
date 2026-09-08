@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Mezhs.Api.Contracts;
 
 namespace Mezhs.Agent.Models;
 
@@ -42,6 +43,31 @@ public sealed record AgentChatView(
     string? ConnectionId,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
+
+public sealed record AgentProtocolCommandView(
+    string Name,
+    string? Body,
+    int? CommandIndex);
+
+public sealed record AgentChatMessageView(
+    string MessageId,
+    string ChatId,
+    string ConnectionId,
+    string Role,
+    string Origin,
+    string Content,
+    string DisplayContent,
+    IReadOnlyList<string> FileIds,
+    string? ParentMessageId,
+    string? ReplayOfMessageId,
+    string? ReplyMessageId,
+    MessageStatus Status,
+    string? Error,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? StartedAt,
+    DateTimeOffset? CompletedAt,
+    IReadOnlyList<AgentProtocolCommandView> Commands,
+    bool CompletionClaimed);
 
 public sealed class ExecutionRecord
 {
