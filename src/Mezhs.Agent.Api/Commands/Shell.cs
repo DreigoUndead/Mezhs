@@ -7,6 +7,8 @@ using Mezhs.Agent.Persistence;
 
 namespace Mezhs.Agent.Commands;
 
+public sealed class ShellTerminationException(string message) : Exception(message);
+
 public sealed class Shell(
     AgentStore store,
     AgentOptions options)
@@ -71,30 +73,52 @@ public sealed class Shell(
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            await TerminateAsync(process);
+            var terminationError = await TerminateAsync(process);
             var result = await CaptureAvailableOutputAsync(stdoutTask, stderrTask);
             var seconds = context.Timeout.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
             var error = $"Shell command timed out after {seconds} seconds.";
-            store.Fail(child.ExecutionId, error);
-            return new Result(definition.Name, child.ExecutionId, false, null, string.IsNullOrEmpty(result) ? null : result, error);
+            if (terminationError is not null)
+                error = $"{error} {terminationError}";
+            PersistFailure(child.ExecutionId, error, result);
+            if (terminationError is not null)
+                throw new ShellTerminationException(error);
+            return new Result(definition.Name, child.ExecutionId, false, null, EmptyToNull(result), error);
         }
         catch (OperationCanceledException)
         {
-            await TerminateAsync(process);
+            var terminationError = await TerminateAsync(process);
+            var result = await CaptureAvailableOutputAsync(stdoutTask, stderrTask);
+            if (terminationError is not null)
+            {
+                var error = $"Shell cancellation was requested, but termination could not be confirmed. {terminationError}";
+                PersistFailure(child.ExecutionId, error, result);
+                throw new ShellTerminationException(error);
+            }
+
             store.RequestCancel(child.ExecutionId);
             store.CompleteCancellation(child.ExecutionId);
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ShellTerminationException)
         {
-            await TerminateAsync(process);
-            store.Fail(child.ExecutionId, ex.Message);
-            return new Result(definition.Name, child.ExecutionId, false, null, null, ex.Message);
+            var terminationError = await TerminateAsync(process);
+            var result = await CaptureAvailableOutputAsync(stdoutTask, stderrTask);
+            var error = terminationError is null ? ex.Message : $"{ex.Message} {terminationError}";
+            PersistFailure(child.ExecutionId, error, result);
+            if (terminationError is not null)
+                throw new ShellTerminationException(error);
+            return new Result(definition.Name, child.ExecutionId, false, null, EmptyToNull(result), error);
         }
         finally
         {
             try { process.StandardInput.Close(); } catch (InvalidOperationException) { }
         }
+    }
+
+    private void PersistFailure(string executionId, string error, string result)
+    {
+        if (!store.FailShell(executionId, error, EmptyToNull(result)))
+            throw new InvalidOperationException("Shell execution changed state before its failure could be recorded.");
     }
 
     private ShellInvocation CreateInvocation(
@@ -158,25 +182,44 @@ public sealed class Shell(
         process.StandardInput.Close();
     }
 
-    private static async Task TerminateAsync(Process process)
+    private static async Task<string?> TerminateAsync(Process process)
     {
+        if (HasExitedOrNotStarted(process))
+            return null;
+
         try
         {
-            if (!process.HasExited)
-                process.Kill(entireProcessTree: true);
+            process.Kill(entireProcessTree: true);
         }
         catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
         {
+            if (HasExitedOrNotStarted(process))
+                return null;
+            return $"Shell process-tree termination failed: {ex.Message}";
         }
 
         try
         {
-            if (!process.HasExited)
-                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
         }
-        catch (Exception ex) when (ex is InvalidOperationException or TimeoutException)
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or TimeoutException)
         {
+            if (HasExitedOrNotStarted(process))
+                return null;
+            return ex is TimeoutException
+                ? "Shell process-tree termination was not confirmed within 5 seconds."
+                : $"Shell process-tree termination could not be confirmed: {ex.Message}";
         }
+
+        return HasExitedOrNotStarted(process)
+            ? null
+            : "Shell process-tree termination could not be confirmed.";
+    }
+
+    private static bool HasExitedOrNotStarted(Process process)
+    {
+        try { return process.HasExited; }
+        catch (InvalidOperationException) { return true; }
     }
 
     private static async Task<string> CaptureAvailableOutputAsync(
@@ -227,6 +270,9 @@ public sealed class Shell(
         if (remainderStart < normalized.Length)
             result.AppendLine().Append(normalized[remainderStart..]);
     }
+
+    private static string? EmptyToNull(string value) =>
+        string.IsNullOrEmpty(value) ? null : value;
 
     private sealed record ShellInvocation(ProcessStartInfo StartInfo, string Payload);
 }
