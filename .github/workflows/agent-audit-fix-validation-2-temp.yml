@@ -95,13 +95,15 @@ jobs:
           smoke_path = Path("tests/agent-api-smoke.ps1")
           smoke = smoke_path.read_text(encoding="utf-8")
           old = '    $protocolMessage = @($environmentMessages | Where-Object { $_.role -eq "assistant" -and @($_.commands).Count -gt 0 })[0]'
-          new = '''    $protocolMessage = $null
-    foreach ($candidate in $environmentMessages) {
-        if ($candidate.role -eq "assistant" -and $null -ne $candidate.commands -and $candidate.commands.Count -gt 0 -and $candidate.commands[0].name -eq "SH") {
-            $protocolMessage = $candidate
-            break
-        }
-    }'''
+          new = (
+              '    $protocolMessage = $null\n'
+              '    foreach ($candidate in $environmentMessages) {\n'
+              '        if ($candidate.role -eq "assistant" -and $null -ne $candidate.commands -and $candidate.commands.Count -gt 0 -and $candidate.commands[0].name -eq "SH") {\n'
+              '            $protocolMessage = $candidate\n'
+              '            break\n'
+              '        }\n'
+              '    }'
+          )
           if old not in smoke:
               raise RuntimeError("Canonical message smoke selector changed unexpectedly.")
           smoke = smoke.replace(old, new, 1)
