@@ -91,17 +91,20 @@ jobs:
               'function compactPreview(value?: string, fallback = "No output")',
               'function compactPreview(value?: string | null, fallback = "No output")')
           app_path.write_text(app, encoding="utf-8", newline="\n")
+
+          smoke_path = Path("tests/agent-api-smoke.ps1")
+          smoke = smoke_path.read_text(encoding="utf-8")
+          failure = '        throw "Agent message API did not expose canonical SH protocol metadata/display content."'
+          smoke = smoke.replace(
+              failure,
+              '        Write-Host ("PROTOCOL_MESSAGE_JSON=" + ($protocolMessage | ConvertTo-Json -Depth 10 -Compress))\n'
+              '        Write-Host ("ENVIRONMENT_MESSAGES_JSON=" + ($environmentMessages | ConvertTo-Json -Depth 10 -Compress))\n'
+              + failure,
+              1)
+          smoke_path.write_text(smoke, encoding="utf-8", newline="\n")
           '@ | Set-Content -LiteralPath .post-audit-fix.py -Encoding utf8
           python .post-audit-fix.py
           Remove-Item .post-audit-fix.py
-
-      - name: Show canonical smoke block
-        shell: pwsh
-        run: |
-          $lines = Get-Content -LiteralPath ./tests/agent-api-smoke.ps1
-          for ($i = 125; $i -lt [Math]::Min(165, $lines.Count); $i++) {
-              Write-Host (("{0,4}: {1}" -f ($i + 1), $lines[$i]))
-          }
 
       - name: Build solution
         run: dotnet build Mezhs.sln -c Release
