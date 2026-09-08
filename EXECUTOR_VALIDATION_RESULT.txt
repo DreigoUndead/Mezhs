@@ -1,0 +1,24 @@
+Executor foundation validation - 2026-09-08T17:48:52.8593543+00:00
+
+=== Build Executor ===
+  Determining projects to restore...
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Console\Mezhs.Console.csproj (in 197 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Sqlite\Mezhs.Sqlite.csproj (in 2.8 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Executor\Mezhs.Executor.csproj (in 2.48 sec).
+  Mezhs.Console -> D:\a\Mezhs\Mezhs\src\Mezhs.Console\bin\Release\net10.0\Mezhs.Console.dll
+  Mezhs.Sqlite -> D:\a\Mezhs\Mezhs\src\Mezhs.Sqlite\bin\Release\net10.0\Mezhs.Sqlite.dll
+  Mezhs.Executor -> D:\a\Mezhs\Mezhs\src\Mezhs.Executor\bin\Release\net10.0\Mezhs.Executor.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:14.29
+PASS: Build Executor
+
+=== Console regression suite ===
+Using launch settings from tests\Mezhs.Console.TestApp\Properties\launchSettings.json...
+C:\Program Files\dotnet\sdk\10.0.400\Sdks\Microsoft.NET.Sdk\targets\Microsoft.PackageDependencyResolution.targets(266,5): error NETSDK1004: Assets file 'D:\a\Mezhs\Mezhs\tests\Mezhs.Console.TestApp\obj\project.assets.json' not found. Run a NuGet package restore to generate this file. [D:\a\Mezhs\Mezhs\tests\Mezhs.Console.TestApp\Mezhs.Console.TestApp.csproj]
+
+The build failed. Fix the build errors and run again.
+FAIL: Console regression suite - Console regression suite exited with code 1
