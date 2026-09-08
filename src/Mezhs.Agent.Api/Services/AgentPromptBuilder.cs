@@ -28,8 +28,8 @@ public sealed class AgentPromptBuilder(AgentOptions options)
             OriginForExecution(execution));
     }
 
-    public AgentPrompt BuildContinue() =>
-        new(options.Messages.Continue!, "agent-runtime");
+    public AgentPrompt BuildContinue(PolicyContext policy) =>
+        new(WithCompletionGuidance(options.Messages.Continue!, policy), "agent-runtime");
 
     public AgentPrompt BuildPolicyCorrection(string? error) =>
         new(Format(options.Messages.PolicyCorrection!, "error", error ?? "The completion claim did not satisfy policy."), "agent-runtime");
@@ -37,7 +37,9 @@ public sealed class AgentPromptBuilder(AgentOptions options)
     public AgentPrompt BuildCommandCorrection(string error) =>
         new(Format(options.Messages.CommandCorrection!, "error", error), "agent-runtime");
 
-    public AgentPrompt BuildCommandResults(IReadOnlyList<Result> results)
+    public AgentPrompt BuildCommandResults(
+        IReadOnlyList<Result> results,
+        PolicyContext policy)
     {
         var payload = results.Select(result => new
         {
@@ -50,7 +52,9 @@ public sealed class AgentPromptBuilder(AgentOptions options)
         });
         var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
         return new AgentPrompt(
-            Format(options.Messages.CommandResults!, "json", json),
+            WithCompletionGuidance(
+                Format(options.Messages.CommandResults!, "json", json),
+                policy),
             "command-result");
     }
 
@@ -89,6 +93,17 @@ public sealed class AgentPromptBuilder(AgentOptions options)
         string.Equals(execution.Source, "manual", StringComparison.OrdinalIgnoreCase)
             ? "human"
             : execution.Source;
+
+    private static string WithCompletionGuidance(
+        string message,
+        PolicyContext policy)
+    {
+        if (!policy.Settings.Completion.RequireDone)
+            return message.TrimEnd();
+
+        var done = Registry.Get(CommandBehavior.Complete);
+        return $"{message.TrimEnd()}\nWhen the task is complete, return <{done.Name}> on a line by itself.";
+    }
 
     private static string Truncate(string value) =>
         value.Length <= MaxCommandResultCharacters
