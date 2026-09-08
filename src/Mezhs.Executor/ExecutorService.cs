@@ -26,7 +26,7 @@ public sealed class ExecutorService
             throw new DirectoryNotFoundException($"Execution directory '{resolvedDirectory}' does not exist.");
         var snapshot = environment is null
             ? ExecutorEnvironment.SnapshotCurrent()
-            : new Dictionary<string, string>(environment, StringComparer.OrdinalIgnoreCase);
+            : environment.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
         var created = _store.Create(command, resolvedDirectory, timeoutSeconds, snapshot);
         if (!created.Created)
             return created.Execution.Id;
