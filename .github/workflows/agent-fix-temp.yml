@@ -36,7 +36,7 @@ jobs:
           $end = [Array]::IndexOf($legacy, "          PY")
           if ($start -le 0 -or $end -le $start) { throw "Could not extract temporary patch script." }
           $script = $legacy[$start..($end - 1)] | ForEach-Object {
-            if ($_.Length -ge 10) { $_.Substring(10) } else { $_ }
+            if ($_.StartsWith("          ")) { $_.Substring(10) } else { $_ }
           }
           $script | Set-Content -LiteralPath .agent-fix-temp.py -Encoding UTF8
           python .agent-fix-temp.py
