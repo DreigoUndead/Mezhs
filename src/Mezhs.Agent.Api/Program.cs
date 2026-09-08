@@ -194,7 +194,11 @@ app.MapGet("/v1/executions/{executionId}", (
 app.MapPost("/v1/executions/{executionId}/cancel", (
     string executionId,
     AgentWorker worker) =>
-    Results.Ok(AgentApiMapper.ToView(worker.Cancel(executionId))));
+{
+    if (int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out _))
+        return Results.BadRequest(new { error = "Shell Executor executions use /kill; only root Agent executions use /cancel." });
+    return Results.Ok(AgentApiMapper.ToView(worker.Cancel(executionId)));
+});
 
 app.MapPost("/v1/executions/{executionId}/kill", (
     string executionId,
