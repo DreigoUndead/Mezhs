@@ -10,9 +10,9 @@ New-Item $work -ItemType Directory | Out-Null
 $env:MEZHS_EXECUTOR_STORAGE = $data
 
 function Executor([Parameter(ValueFromRemainingArguments=$true)][string[]]$arguments) {
-    $output = & dotnet $executor @arguments 2>&1
+    $output = & dotnet $executor @arguments
     if ($LASTEXITCODE -ne 0) {
-        throw "Executor $($arguments -join ' ') failed: $($output -join [Environment]::NewLine)"
+        throw "Executor $($arguments -join ' ') failed with exit code $LASTEXITCODE."
     }
     return ($output -join [Environment]::NewLine).Trim()
 }
