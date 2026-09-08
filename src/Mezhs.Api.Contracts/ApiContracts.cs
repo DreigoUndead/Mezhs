@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Mezhs.Api.Contracts;
 
 public enum MessageStatus
@@ -27,13 +29,48 @@ public sealed record ApiChat(
     DateTimeOffset UpdatedAt,
     string Title);
 
-public sealed record PostMessageRequest(
-    string Content,
-    string? ConnectionId = null,
-    string? ChatId = null,
-    string? CategoryId = null,
-    IReadOnlyList<string>? FileIds = null,
-    string? Origin = null);
+public sealed class PostMessageRequest
+{
+    private string? _model;
+
+    public PostMessageRequest() { }
+
+    public PostMessageRequest(
+        string Content,
+        string? ConnectionId = null,
+        string? ChatId = null,
+        string? CategoryId = null,
+        IReadOnlyList<string>? FileIds = null,
+        string? Origin = null)
+    {
+        this.Content = Content;
+        this.ConnectionId = ConnectionId;
+        this.ChatId = ChatId;
+        this.CategoryId = CategoryId;
+        this.FileIds = FileIds;
+        this.Origin = Origin;
+    }
+
+    public string Content { get; init; } = "";
+    public string? ConnectionId { get; init; }
+    public string? ChatId { get; init; }
+    public string? CategoryId { get; init; }
+    public IReadOnlyList<string>? FileIds { get; init; }
+    public string? Origin { get; init; }
+
+    public string? Model
+    {
+        get => _model;
+        init
+        {
+            _model = value;
+            ModelSpecified = true;
+        }
+    }
+
+    [JsonIgnore]
+    public bool ModelSpecified { get; private set; }
+}
 
 public sealed record ApiFile(
     string FileId,
@@ -60,7 +97,8 @@ public sealed record ApiMessage(
     DateTimeOffset? CompletedAt,
     string? Error,
     string? ReplayOfMessageId,
-    ApiMessage? Reply);
+    ApiMessage? Reply,
+    string? Model = null);
 
 public sealed record ApiChatHistoryMessage(
     string MessageId,
@@ -77,4 +115,5 @@ public sealed record ApiChatHistoryMessage(
     string? Error,
     DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt,
-    DateTimeOffset? CompletedAt);
+    DateTimeOffset? CompletedAt,
+    string? Model = null);
