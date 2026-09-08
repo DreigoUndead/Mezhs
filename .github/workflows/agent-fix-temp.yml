@@ -29,20 +29,20 @@ jobs:
           node-version: 22
 
       - name: Apply audited fixes
-        shell: pwsh
+        shell: bash
         run: |
-          $legacy = git show 70d2003d8da9a32aa23475e75be4e0436bddc7bc:.github/workflows/agent-fix-temp.yml
-          $start = [Array]::IndexOf($legacy, "          python - <<'PY'") + 1
-          $end = [Array]::IndexOf($legacy, "          PY")
-          if ($start -le 0 -or $end -le $start) { throw "Could not extract temporary patch script." }
-          $script = $legacy[$start..($end - 1)] | ForEach-Object {
-            if ($_.StartsWith("          ")) { $_.Substring(10) } else { $_ }
-          }
-          $script | Set-Content -LiteralPath .agent-fix-temp.py -Encoding UTF8
-          $process = Start-Process python -ArgumentList '.agent-fix-temp.py' -RedirectStandardOutput '.agent-fix-stdout.txt' -RedirectStandardError '.agent-fix-stderr.txt' -Wait -PassThru
-          Get-Content .agent-fix-stdout.txt, .agent-fix-stderr.txt | Set-Content .agent-fix-log.txt
-          Remove-Item .agent-fix-temp.py, .agent-fix-stdout.txt, .agent-fix-stderr.txt
-          if ($process.ExitCode -ne 0) { throw "Patch script failed with exit code $($process.ExitCode)." }
+          git show 70d2003d8da9a32aa23475e75be4e0436bddc7bc:.github/workflows/agent-fix-temp.yml | awk '
+            $0 == "          python - <<\x27PY\x27" { in_script=1; next }
+            $0 == "          PY" { in_script=0; exit }
+            in_script { if (substr($0,1,10)=="          ") print substr($0,11); else print $0 }
+          ' > .agent-fix-temp.py
+          set +e
+          python .agent-fix-temp.py > .agent-fix-log.txt 2>&1
+          status=$?
+          set -e
+          cat .agent-fix-log.txt
+          rm .agent-fix-temp.py
+          exit $status
 
       - name: Upload patch diagnostics
         if: always()
