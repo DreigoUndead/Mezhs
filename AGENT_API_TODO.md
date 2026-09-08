@@ -32,17 +32,17 @@ Status meanings:
 
 **Status: RESOLVED**
 
-- **What changed:** The continuation text explicitly tells the model how completion works, including `<DONE>`, instead of using the ambiguous hardcoded continuation sentence.
-- **How:** Runtime message text is typed configuration owned by the Agent configuration/runtime message settings rather than being embedded inside worker logic. Policy model instructions also expose completion requirements.
-- **Validation:** `tests/policy-decoder.ps1` verifies that compiled policy instructions expose `<DONE>` and successful-evidence requirements where configured.
+- **What changed:** Runtime continuation/result text is configurable, while completion-marker guidance is generated from the selected policy instead of duplicated in global prose.
+- **How:** `AgentPromptBuilder` appends `<DONE>` guidance only when that policy has `requireDone: true`; policies with `requireDone: false` receive no contradictory marker instruction. Policy model instructions remain the owner of successful-evidence requirements.
+- **Validation:** `tests/policy-decoder.ps1` verifies continuation differs correctly for `requireDone: true` versus `false`.
 
 ### 4. Some shell commands are not formatted correctly in the UI
 
 **Status: RESOLVED**
 
-- **What changed:** Shell requests/results use consistent command/evidence cards and code formatting.
-- **How:** The dashboard renders protocol commands and command-result evidence using persisted execution records. Shell command text is displayed as code/preformatted content rather than being reconstructed as ordinary chat text.
-- **Validation:** `tests/agent-web-shared-ui.ps1` verifies durable command-evidence rendering through the owning shared/dashboard components.
+- **What changed:** Shell requests/results use consistent command/evidence cards and the Web UI no longer implements its own Agent command grammar.
+- **How:** The canonical Agent `Parser` returns semantic commands plus visible non-protocol content. Agent API maps that into message DTOs (`commands`, `commandIndex`, `completionClaimed`, `displayContent`), and Agent Web only renders those semantics plus persisted execution evidence.
+- **Validation:** `tests/policy-decoder.ps1` parses a real `<SH>...</SH>` + `<DONE>` reply and verifies display stripping/body/index; `tests/agent-web-shared-ui.ps1` rejects a Web-side protocol parser; API smoke verifies the live message shape.
 
 ### 5. After restarting a chat, previously executed shell commands show `NOT EXECUTED`
 
@@ -56,9 +56,9 @@ Status meanings:
 
 **Status: RESOLVED**
 
-- **What changed:** Shell timeout/cancellation owns process termination and durable terminal state instead of leaving a process/execution indefinitely active.
-- **How:** `Shell` uses a linked cancellation token with the policy timeout, kills the entire process tree on timeout/cancellation, waits for bounded shutdown, captures available output, and only then records the resulting terminal state.
-- **Validation:** `tests/policy-decoder.ps1` exercises a real timed-out shell process; runtime cancellation/recovery behavior is covered by `tests/agent-runtime-resilience.ps1`.
+- **What changed:** Shell timeout/cancellation owns bounded process-tree termination without silently claiming success when termination cannot be confirmed. Partial output is persisted with failed timeout evidence.
+- **How:** `Shell` kills the process tree and waits for bounded shutdown. If termination cannot be confirmed, it records explicit failed shell evidence and raises `ShellTerminationException`, which fails the root execution instead of reporting a normal timeout/cancellation completion.
+- **Validation:** `tests/policy-decoder.ps1` exercises a real timed-out shell and verifies pre-timeout output remains durable; architecture checks require explicit termination-uncertainty handling.
 
 ## Review findings
 
@@ -229,9 +229,9 @@ Status meanings:
 
 **Status: RESOLVED**
 
-- **What changed:** Running work has a durable cancellation-request acknowledgement before it becomes terminal.
-- **How:** `RequestCancel` transitions a running execution to `CancelRequested`. The worker/shell cancellation token stops execution/processes, then `CompleteCancellation` records terminal `Cancelled` with a completion timestamp. A still-queued execution can be cancelled immediately because no process has started.
-- **Validation:** `tests/agent-runtime-resilience.ps1` verifies `CancelRequested` is observable before final `Cancelled`, including durable completion timestamps for root and shell execution.
+- **What changed:** Running work has a durable cancellation-request acknowledgement, one root cancellation owner, and reconciliation for the claim-to-token-registration race.
+- **How:** Only root Agent executions may be cancelled through the API. `RequestCancel` transitions a running root to `CancelRequested`; after the worker registers its cancellation token it re-reads durable state and immediately cancels if the request landed in the narrow claim/register window. Child shell cancellation stays internal to root cancellation.
+- **Validation:** `tests/agent-runtime-resilience.ps1` rejects direct shell-child cancellation and verifies the normal `CancelRequested` -> `Cancelled` lifecycle; architecture checks require durable race reconciliation.
 
 ### 25. Configuration supports only version 1 with no migration path
 

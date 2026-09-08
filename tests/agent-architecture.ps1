@@ -42,6 +42,10 @@ Assert ($agentService -match 'QueueCapacity.*MaxConcurrentExecutions' -and $agen
 Assert ($store -notmatch '_writeLock') "AgentStore still serializes all writes through one application lock."
 Assert ($store -match 'TriggerMessageId' -and $store -match 'CommandIndex') "Durable command identity is missing from execution persistence."
 Assert ($models -match 'CancelRequested' -and $store -match 'RequestCancel' -and $store -match 'CompleteCancellation') "Cancellation acknowledgement state is not represented durably."
+Assert ($worker -match 'Only root Agent executions can be cancelled directly' -and
+    $worker -match '_store\.GetExecution\(executionId\)\?\.Status == AgentExecutionStatus\.CancelRequested') "Cancellation ownership/race reconciliation is missing."
+Assert ($shell -match 'ShellTerminationException' -and $shell -match 'termination could not be confirmed' -and
+    $store -match 'FailShell') "Shell termination uncertainty is still silently converted into normal terminal state."
 Assert ($mapper -match 'AgentExecutionView' -and $program -match 'AgentApiMapper\.ToView') "Persistence records are still exposed directly through execution endpoints."
 Assert ($policyContext -match 'ExecutionEvidence' -and $evaluation -match 'Select\(ToEvidence\)') "Policy evaluation does not consume immutable evidence snapshots."
 Assert ($policyContext -match 'CommandDefinition Command' -and $policyContext -notmatch 'string Kind,\s*string Request') "Policy actions remain opaque string kind/request pairs."

@@ -102,7 +102,21 @@ ping -n 30 127.0.0.1 >nul
 "@
     $cancel = Start-Execution "test-cancel" $longTask
     $cancelRunning = Wait-AttachedRunningExecution $cancel.executionId
-    $null = Wait-Shell $cancelRunning.chatId @("Running")
+    $runningShell = Wait-Shell $cancelRunning.chatId @("Running")
+
+    $childCancelClient = [Net.Http.HttpClient]::new()
+    try {
+        $childCancelResponse = $childCancelClient.PostAsync(
+            "http://127.0.0.1:5199/v1/executions/$($runningShell.executionId)/cancel",
+            $null).GetAwaiter().GetResult()
+        $childCancelText = $childCancelResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        try {
+            if ([int]$childCancelResponse.StatusCode -ne 400 -or $childCancelText -notmatch "Only root Agent executions") {
+                throw "Shell child accepted direct cancellation instead of preserving root cancellation ownership. HTTP $([int]$childCancelResponse.StatusCode): $childCancelText"
+            }
+        } finally { $childCancelResponse.Dispose() }
+    } finally { $childCancelClient.Dispose() }
+
     $cancelResponse = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions/$($cancel.executionId)/cancel"
     if ($cancelResponse.status -ne "CancelRequested") {
         throw "Running cancellation skipped acknowledgement state: $($cancelResponse.status)"

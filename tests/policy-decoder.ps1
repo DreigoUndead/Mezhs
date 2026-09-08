@@ -27,6 +27,8 @@ using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
+using Mezhs.Agent.Services;
+using Mezhs.Api.Contracts;
 using Microsoft.Data.Sqlite;
 
 var options = AgentConfigLoader.Load(args[0]);
@@ -101,6 +103,29 @@ Assert(parsed.Commands[0].Name == "SH" && parsed.Commands[0].Body == "echo one\n
     "Shell body was rewritten while parsing.");
 Assert(parsed.Commands[1].Name == "DONE" && parsed.Commands[1].Body is null,
     "DONE marker was not parsed as a marker command.");
+Assert(parsed.VisibleContent == "before\nafter",
+    $"Protocol parser did not remove executable protocol from display content: '{parsed.VisibleContent}'.");
+
+var mappedMessage = AgentApiMapper.ToView(
+    new ApiChatHistoryMessage(
+        "msg-view", "chat-view", normal.ConnectionId, "assistant", "agent",
+        "visible before\n<SH>\necho mapped\n</SH>\n<DONE>\nvisible after",
+        [], null, null, null, MessageStatus.Completed, null, now, now, now),
+    parser);
+Assert(mappedMessage.DisplayContent == "visible before\nvisible after",
+    "Agent API did not own protocol stripping for Web display.");
+Assert(mappedMessage.Commands.Count == 1 &&
+       mappedMessage.Commands[0].Name == "SH" &&
+       mappedMessage.Commands[0].Body == "echo mapped" &&
+       mappedMessage.Commands[0].CommandIndex == 0 &&
+       mappedMessage.CompletionClaimed,
+    "Agent API protocol view lost SH body/index or DONE claim.");
+
+var promptBuilder = new AgentPromptBuilder(options);
+Assert(!promptBuilder.BuildContinue(normal).Content.Contains("<DONE>", StringComparison.Ordinal),
+    "requireDone=false continuation still instructs DONE.");
+Assert(promptBuilder.BuildContinue(done).Content.Contains("<DONE>", StringComparison.Ordinal),
+    "requireDone=true continuation lost DONE guidance.");
 
 var shellOptions = new AgentOptions
 {
@@ -207,7 +232,9 @@ try
         "timeout test", emptyEnvironment, timeoutPolicy.Snapshot, 100)
         ?? throw new InvalidOperationException("Timeout root execution was not admitted.");
     Assert(store.TryMarkRunning(timeoutRoot.ExecutionId), "Timeout root execution did not start.");
-    var timeoutText = OperatingSystem.IsWindows() ? "ping -n 6 127.0.0.1 >nul" : "sleep 5";
+    var timeoutText = OperatingSystem.IsWindows()
+        ? "echo BEFORE_TIMEOUT & ping -n 6 127.0.0.1 >nul"
+        : "echo BEFORE_TIMEOUT; sleep 5";
     var started = DateTimeOffset.UtcNow;
     var timedOut = await interpreter.InterpretAsync(
         timeoutRoot, timeoutPolicy, "msg-timeout", $"<SH>\n{timeoutText}\n</SH>", CancellationToken.None);
@@ -219,6 +246,8 @@ try
     Assert(elapsed < TimeSpan.FromSeconds(4), $"Configured timeout was not enforced promptly: {elapsed}.");
     var timeoutChild = store.GetExecutions("chat_timeout").Single(record => record.Kind == AgentExecutionKind.Shell);
     Assert(timeoutChild.Status == AgentExecutionStatus.Failed, "Timed-out shell was not persisted as failed evidence.");
+    Assert(timeoutChild.Result?.Contains("BEFORE_TIMEOUT", StringComparison.Ordinal) == true,
+        "Partial shell output was returned transiently but not persisted with timeout evidence.");
 }
 finally
 {

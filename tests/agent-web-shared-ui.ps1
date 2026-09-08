@@ -6,6 +6,8 @@ $markdown = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/MarkdownContent.
 $resize = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/useAutoResizeTextArea.ts") -Raw
 $exports = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/index.ts") -Raw
 $agentApp = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/App.tsx") -Raw
+$agentProgram = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Program.cs") -Raw
+$agentMapper = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Models/AgentApiMapper.cs") -Raw
 $agentMain = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/main.tsx") -Raw
 $agentCss = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/agent.css") -Raw
 
@@ -29,8 +31,15 @@ if ($resize -notmatch 'useLayoutEffect' -or $resize -notmatch 'scrollHeight') {
     throw "Shared composer resize is not performed before paint from the textarea's measured content."
 }
 if ($agentApp -notmatch 'candidate\.triggerMessageId === message\.messageId' -or
-    $agentApp -notmatch 'candidate\.commandIndex === index') {
+    $agentApp -notmatch 'candidate\.commandIndex === command\.commandIndex') {
     throw "Agent command cards reconstruct execution state instead of using durable command identity."
+}
+if ($agentApp -match 'inspectProtocol|const commandName' -or
+    $agentApp -notmatch 'message\.displayContent' -or
+    $agentApp -notmatch 'message\.commands' -or
+    $agentMapper -notmatch 'parser\.Parse\(message\.Content\)' -or
+    $agentProgram -notmatch 'AgentApiMapper\.ToView\(message, parser\)') {
+    throw "Agent Web still owns a duplicate command-protocol parser instead of consuming Agent API semantics."
 }
 if ($agentApp -match 'candidate\.request\.trim\(\) === body' -or $agentApp -match 'const used = new Set') {
     throw "Agent command cards still guess execution linkage from command body text."
@@ -47,4 +56,4 @@ if ($agentApp -notmatch 'Download log' -or $agentApp -notmatch '/debug-log') {
     throw "Agent Web no longer exposes authenticated debug-log download through its proxy."
 }
 
-Write-Host "PASS: shared Markdown/composer behavior and durable Agent command evidence rendering are wired through their owning components."
+Write-Host "PASS: shared Markdown/composer behavior and canonical Agent API protocol/evidence rendering are wired through their owning components."

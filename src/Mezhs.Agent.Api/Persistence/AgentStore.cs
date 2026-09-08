@@ -404,6 +404,15 @@ public sealed class AgentStore(AgentOptions options)
         return command.ExecuteNonQuery() == 1;
     }
 
+    public bool FailShell(string executionId, string error, string? result) =>
+        Finish(
+            executionId,
+            AgentExecutionStatus.Failed,
+            result,
+            error,
+            AgentExecutionStatus.Running,
+            AgentExecutionStatus.CancelRequested);
+
     public bool Fail(string executionId, string error) =>
         Finish(
             executionId,
@@ -411,7 +420,8 @@ public sealed class AgentStore(AgentOptions options)
             result: null,
             error,
             AgentExecutionStatus.Queued,
-            AgentExecutionStatus.Running);
+            AgentExecutionStatus.Running,
+            AgentExecutionStatus.CancelRequested);
 
     public bool Interrupt(string executionId) =>
         Finish(

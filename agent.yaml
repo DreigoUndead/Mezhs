@@ -11,7 +11,6 @@ runtime:
 messages:
   continue: |
     Continue the assigned agent task according to the applicable policy.
-    When the task is complete, return <DONE> on a line by itself.
   policyCorrection: |
     Policy rejected your completion claim:
     {error}
@@ -28,7 +27,7 @@ messages:
     Command results JSON:
     {json}
 
-    Continue the assigned task according to the applicable policy. When the task is complete, return <DONE> on a line by itself.
+    Continue the assigned task according to the applicable policy.
   protocolIntro: |
     Agent command protocol:
     - Only use command types explicitly allowed by the applicable policy.

@@ -140,6 +140,20 @@ echo %TEST_AGENT_VALUE%
     $environmentShell = @($environmentExecutions | Where-Object { $_.kind -eq "Shell" })[0]
     if ($environmentShell.result -notmatch "ENVIRONMENT_OK") { throw "Policy-approved environment variable did not reach the child shell." }
 
+    $environmentMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($environmentRoot.chatId)/messages"
+    $protocolMessage = $null
+    foreach ($candidate in $environmentMessages) {
+        if ($candidate.role -eq "assistant" -and $null -ne $candidate.commands -and $candidate.commands.Count -gt 0 -and $candidate.commands[0].name -eq "SH") {
+            $protocolMessage = $candidate
+            break
+        }
+    }
+    if ($null -eq $protocolMessage -or $protocolMessage.commands[0].name -ne "SH" -or
+        $protocolMessage.commands[0].body -notmatch "TEST_AGENT_VALUE" -or
+        $protocolMessage.displayContent -match 'TEST_AGENT_VALUE') {
+        throw "Agent message API did not expose canonical SH protocol metadata/display content."
+    }
+
     $client = [Net.Http.HttpClient]::new()
     try {
         $invalidBody = ConvertTo-Json @{ policyId = "test"; input = "invalid env"; environment = @{ PATH = "malicious" } }

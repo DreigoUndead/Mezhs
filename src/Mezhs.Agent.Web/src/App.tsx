@@ -38,6 +38,9 @@ type AgentChatMessage = {
   role: "user" | "assistant";
   origin: string;
   content: string;
+  displayContent: string;
+  commands: ProtocolCommand[];
+  completionClaimed: boolean;
   fileIds: string[];
   parentMessageId?: string;
   replayOfMessageId?: string;
@@ -78,11 +81,11 @@ type Execution = {
 
 type ProtocolCommand = {
   name: string;
-  body?: string;
+  body?: string | null;
+  commandIndex?: number | null;
 };
 
 type ProtocolView = {
-  content: string;
   commands: ProtocolCommand[];
   completionClaimed: boolean;
 };
@@ -106,7 +109,6 @@ type CommandEvidence = CommandResultPayload & {
 
 const activeStatuses = new Set<ExecutionStatus>(["Queued", "Running", "CancelRequested"]);
 const terminalStatuses = new Set<ExecutionStatus>(["Completed", "Failed", "Cancelled", "Interrupted"]);
-const commandName = /^[A-Z][A-Z0-9_-]*$/;
 const executionEnvelope = /^\[MEŽS AGENT EXECUTION ([^\]]+)]/;
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -167,46 +169,6 @@ function originAvatar(origin: string) {
   return label.slice(0, 3).toLocaleUpperCase();
 }
 
-function inspectProtocol(content: string): ProtocolView {
-  const lines = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-  const visible: string[] = [];
-  const commands: ProtocolCommand[] = [];
-  let completionClaimed = false;
-
-  for (let index = 0; index < lines.length; index++) {
-    const trimmed = lines[index].trim();
-    const marker = trimmed.match(/^<([A-Z][A-Z0-9_-]*)>$/);
-    if (marker && commandName.test(marker[1])) {
-      if (marker[1] === "DONE") completionClaimed = true;
-      else commands.push({ name: marker[1] });
-      continue;
-    }
-
-    const block = trimmed.match(/^<([A-Z][A-Z0-9_-]*)$/);
-    if (block && commandName.test(block[1])) {
-      const name = block[1];
-      const close = lines.findIndex((line, candidate) =>
-        candidate > index && line.trim() === `${name}>`);
-      if (close >= 0) {
-        commands.push({
-          name,
-          body: lines.slice(index + 1, close).join("\n"),
-        });
-        index = close;
-        continue;
-      }
-    }
-
-    visible.push(lines[index]);
-  }
-
-  return {
-    content: visible.join("\n").trim(),
-    commands,
-    completionClaimed,
-  };
-}
-
 function executionFromEnvelope(content: string, executions: Execution[]) {
   const match = content.match(executionEnvelope);
   return match ? executions.find((execution) => execution.executionId === match[1]) : undefined;
@@ -215,7 +177,7 @@ function executionFromEnvelope(content: string, executions: Execution[]) {
 function toSharedMessage(message: AgentChatMessage, executions: Execution[]): ChatSurfaceMessage {
   let content = message.content;
   if (message.role === "assistant") {
-    content = inspectProtocol(message.content).content;
+    content = message.displayContent;
   } else if (message.origin === "command-result") {
     content = "";
   } else if (message.origin !== "agent-runtime") {
@@ -315,12 +277,12 @@ function protocolExecutionMap(
 ): Map<string, ProtocolCommandState[]> {
   const result = new Map<string, ProtocolCommandState[]>();
   for (const message of messages.filter((candidate) => candidate.role === "assistant")) {
-    const protocol = inspectProtocol(message.content);
-    const states = protocol.commands.map((command, index) => ({
+    const states = message.commands.map((command) => ({
       ...command,
       execution: executions.find((candidate) =>
         candidate.triggerMessageId === message.messageId &&
-        candidate.commandIndex === index &&
+        command.commandIndex != null &&
+        candidate.commandIndex === command.commandIndex &&
         candidate.commandName?.toLocaleUpperCase() === command.name.toLocaleUpperCase()),
     }));
     result.set(message.messageId, states);
@@ -328,7 +290,7 @@ function protocolExecutionMap(
   return result;
 }
 
-function compactPreview(value?: string, fallback = "No output") {
+function compactPreview(value?: string | null, fallback = "No output") {
   if (!value) return fallback;
   const line = value
     .replace(/\r\n/g, "\n")
@@ -415,10 +377,13 @@ export default function App() {
     () => new Map(messages.map((message) => [message.messageId, message])),
     [messages],
   );
-  const protocolByMessageId = useMemo(() => new Map(
+  const protocolByMessageId = useMemo(() => new Map<string, ProtocolView>(
     messages
       .filter((message) => message.role === "assistant")
-      .map((message) => [message.messageId, inspectProtocol(message.content)]),
+      .map((message) => [message.messageId, {
+        commands: message.commands,
+        completionClaimed: message.completionClaimed,
+      }]),
   ), [messages]);
   const protocolCommandsByMessageId = useMemo(
     () => protocolExecutionMap(messages, executions),
