@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Mezhs;
-using Mezhs.Api.Contracts;
 using Mezhs.Integrations;
 using Mezhs.Models;
 using Microsoft.Extensions.Hosting;
@@ -44,6 +43,11 @@ public sealed class MessageService(
         }
 
         var integration = integrations.Get(connectionId);
+        var model = request.ModelSpecified
+            ? NormalizeModel(request.Model)
+            : RestoreModel(chat.ChatId, connectionId);
+        if (model is not null && integration.Models is null)
+            throw new ArgumentException($"Connection '{connectionId}' does not support model selection.");
         if (requestedFileIds.Count > 0 && !integration.Capabilities.FileInput)
             throw new RequestValidationException($"Connection '{connectionId}' does not support file input.");
         var attachedFiles = files.GetMany(requestedFileIds);
@@ -56,7 +60,7 @@ public sealed class MessageService(
             connectionId,
             request.Content ?? string.Empty,
             attachedFiles.Select(file => file.FileId).ToArray(),
-            NormalizeOrigin(request.Origin),
+            model,
             replayOf: null));
     }
 
@@ -73,7 +77,7 @@ public sealed class MessageService(
             original.ConnectionId,
             original.Content,
             original.FileIds,
-            NormalizeStoredOrigin(original),
+            original.Model,
             original.MessageId));
     }
 
@@ -117,7 +121,7 @@ public sealed class MessageService(
         string connectionId,
         string content,
         IReadOnlyList<string> fileIds,
-        string origin,
+        string? model,
         string? replayOf)
     {
         var message = new StoredMessage
@@ -126,8 +130,8 @@ public sealed class MessageService(
             ChatId = chat.ChatId,
             ConnectionId = connectionId,
             Role = "user",
-            Origin = origin,
             Content = content,
+            Model = model,
             FileIds = fileIds,
             ReplayOfMessageId = replayOf,
             Status = MessageStatus.Queued
@@ -217,8 +221,8 @@ public sealed class MessageService(
                 ChatId = chat.ChatId,
                 ConnectionId = message.ConnectionId,
                 Role = "assistant",
-                Origin = "assistant",
                 Content = result.Text,
+                Model = NormalizeModel(result.Model),
                 FileIds = replyFileIds,
                 ParentMessageId = message.MessageId,
                 Status = MessageStatus.Completed,
@@ -269,6 +273,13 @@ public sealed class MessageService(
         }
         return history;
     }
+
+    private string? RestoreModel(string chatId, string connectionId) =>
+        store.GetMessages(chatId)
+            .LastOrDefault(message =>
+                message.Role == "user" &&
+                string.Equals(message.ConnectionId, connectionId, StringComparison.OrdinalIgnoreCase))
+            ?.Model;
 
     private static bool ComesBefore(StoredMessage candidate, StoredMessage current)
     {
@@ -324,7 +335,8 @@ public sealed class MessageService(
         message.Role,
         message.Content,
         message.Status == MessageStatus.Completed,
-        message.CreatedAt);
+        message.CreatedAt,
+        message.Model);
 
     private ApiMessage ToApi(StoredMessage message)
     {
@@ -338,8 +350,8 @@ public sealed class MessageService(
             message.ChatId,
             message.ConnectionId,
             message.Role,
-            NormalizeStoredOrigin(message),
             message.Content,
+            message.Model,
             files.GetMany(message.FileIds)
                 .Select(FileStore.ToApi)
                 .ToArray(),
@@ -352,20 +364,6 @@ public sealed class MessageService(
             reply);
     }
 
-    private static string NormalizeStoredOrigin(StoredMessage message)
-    {
-        var origin = message.Origin?.Trim();
-        if (string.IsNullOrWhiteSpace(origin) ||
-            (string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
-             string.Equals(origin, "human", StringComparison.OrdinalIgnoreCase)))
-        {
-            return string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase)
-                ? "assistant"
-                : "human";
-        }
-        return origin;
-    }
-
-    private static string NormalizeOrigin(string? origin) =>
-        string.IsNullOrWhiteSpace(origin) ? "human" : origin.Trim();
+    private static string? NormalizeModel(string? model) =>
+        string.IsNullOrWhiteSpace(model) ? null : model.Trim();
 }

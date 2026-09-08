@@ -1,6 +1,5 @@
 using System.Text.Json.Serialization;
 using Mezhs;
-using Mezhs.Api.Contracts;
 using Mezhs.Configuration;
 using Mezhs.Integrations;
 using Mezhs.Models;
@@ -44,6 +43,32 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
 app.MapGet("/v1/connections", (IntegrationRegistry integrations) =>
     Results.Ok(integrations.GetConnections()));
+
+app.MapGet("/v1/connections/{connectionId}/models", async (
+    string connectionId,
+    IntegrationRegistry integrations,
+    CancellationToken cancellationToken) =>
+{
+    if (!integrations.TryGet(connectionId, out var integration))
+        return Results.NotFound(new { error = $"Connection '{connectionId}' was not found." });
+    if (integration.Models is null)
+        return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support model selection." });
+
+    try
+    {
+        var discovered = await integration.Models.GetModelsAsync(cancellationToken);
+        var models = new[] { new IntegrationModel(null, "Default") }
+            .Concat(discovered
+                .Where(model => !string.IsNullOrWhiteSpace(model.Id) && !string.IsNullOrWhiteSpace(model.Name))
+                .DistinctBy(model => model.Id, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+        return Results.Ok(models);
+    }
+    catch (IntegrationAuthorizationRequiredException ex)
+    {
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+});
 
 app.MapPost("/v1/files", async (
     HttpRequest request,
@@ -103,8 +128,19 @@ app.MapGet("/v1/files/{fileId}/content", (
 });
 
 app.MapGet("/v1/chats", (string? connectionId, ChatStore chats) =>
-    Results.Ok(chats.GetChats(connectionId)
-        .Select(chat => ToApiChat(chat, chats.GetMessages(chat.ChatId)))));
+    Results.Ok(chats.GetChats(connectionId).Select(chat =>
+    {
+        var messages = chats.GetMessages(chat.ChatId);
+        return new
+        {
+            chat.ChatId,
+            ConnectionId = messages.LastOrDefault()?.ConnectionId ?? string.Empty,
+            chat.CategoryId,
+            chat.CreatedAt,
+            chat.UpdatedAt,
+            title = messages.FirstOrDefault(message => message.Role == "user")?.Content ?? "New chat"
+        };
+    })));
 
 app.MapPost("/v1/chats", (
     CreateChatRequest request,
@@ -113,8 +149,15 @@ app.MapPost("/v1/chats", (
 {
     integrations.Get(request.ConnectionId);
     var chat = chats.CreateChat(request.CategoryId);
-    var response = ToApiChat(chat, [], request.ConnectionId);
-    return Results.Created($"/v1/chats/{chat.ChatId}", response);
+    return Results.Created($"/v1/chats/{chat.ChatId}", new
+    {
+        chat.ChatId,
+        request.ConnectionId,
+        chat.CategoryId,
+        chat.CreatedAt,
+        chat.UpdatedAt,
+        title = "New chat"
+    });
 });
 
 app.MapDelete("/v1/chats", ([FromBody] DeleteChatsRequest request, ChatStore chats) =>
@@ -160,6 +203,20 @@ app.MapPost("/v1/connections/{connectionId}/login", async (
     return Results.Ok(new { connectionId, status = "ready" });
 });
 
+app.MapPost("/v1/connections/{connectionId}/browser", async (
+    string connectionId,
+    IntegrationRegistry integrations,
+    CancellationToken cancellationToken) =>
+{
+    if (!integrations.TryGet(connectionId, out var integration))
+        return Results.NotFound(new { error = $"Connection '{connectionId}' was not found." });
+    if (integration.Login is null)
+        return Results.BadRequest(new { error = $"Connection '{connectionId}' does not have an account browser." });
+
+    await integration.Login.OpenBrowserAsync(cancellationToken);
+    return Results.Ok(new { connectionId, status = "open" });
+});
+
 app.MapPost("/v1/messages", (PostMessageRequest request, MessageService messages) =>
 {
     var message = messages.Post(request);
@@ -187,7 +244,15 @@ app.MapGet("/v1/chats/{chatId}", (string chatId, ChatStore chats) =>
     var chat = chats.GetChat(chatId);
     if (chat is null)
         return Results.NotFound(new { error = $"Chat '{chatId}' was not found." });
-    return Results.Ok(ToApiChat(chat, chats.GetMessages(chat.ChatId)));
+    var messages = chats.GetMessages(chat.ChatId);
+    return Results.Ok(new
+    {
+        chat.ChatId,
+        ConnectionId = messages.LastOrDefault()?.ConnectionId ?? string.Empty,
+        chat.CategoryId,
+        chat.CreatedAt,
+        chat.UpdatedAt
+    });
 });
 
 app.MapPatch("/v1/chats/{chatId}", (
@@ -199,61 +264,12 @@ app.MapGet("/v1/chats/{chatId}/messages", (string chatId, ChatStore chats) =>
 {
     if (chats.GetChat(chatId) is null)
         return Results.NotFound(new { error = $"Chat '{chatId}' was not found." });
-    return Results.Ok(chats.GetMessages(chatId).Select(ToApiHistoryMessage));
+    return Results.Ok(chats.GetMessages(chatId));
 });
 
 Console.WriteLine($"MEŽS config: {configPath}");
 Console.WriteLine($"MEŽS listening: {options.Server.Listen}");
 await app.RunAsync();
-
-static ApiChat ToApiChat(
-    ChatRecord chat,
-    IReadOnlyList<StoredMessage> messages,
-    string? connectionId = null)
-{
-    var resolvedConnectionId = connectionId
-        ?? messages.LastOrDefault()?.ConnectionId
-        ?? string.Empty;
-    var title = messages.FirstOrDefault(message => message.Role == "user")?.Content
-        ?? "New chat";
-    return new ApiChat(
-        chat.ChatId,
-        resolvedConnectionId,
-        chat.CategoryId,
-        chat.CreatedAt,
-        chat.UpdatedAt,
-        title);
-}
-
-static ApiChatHistoryMessage ToApiHistoryMessage(StoredMessage message)
-{
-    var origin = message.Origin;
-    if (string.IsNullOrWhiteSpace(origin) ||
-        (string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
-         string.Equals(origin, "human", StringComparison.OrdinalIgnoreCase)))
-    {
-        origin = string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase)
-            ? "assistant"
-            : "human";
-    }
-
-    return new ApiChatHistoryMessage(
-        message.MessageId,
-        message.ChatId,
-        message.ConnectionId,
-        message.Role,
-        origin,
-        message.Content,
-        message.FileIds,
-        message.ParentMessageId,
-        message.ReplayOfMessageId,
-        message.ReplyMessageId,
-        message.Status,
-        message.Error,
-        message.CreatedAt,
-        message.StartedAt,
-        message.CompletedAt);
-}
 
 static string? GetOption(string[] args, string name)
 {

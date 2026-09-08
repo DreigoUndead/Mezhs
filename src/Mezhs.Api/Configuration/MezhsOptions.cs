@@ -7,8 +7,6 @@ public sealed class MezhsOptions
     public TransportOptions Transport { get; set; } = new();
     public StorageOptions Storage { get; set; } = new();
     public List<ConnectionOptions> Connections { get; set; } = [];
-    public Dictionary<string, object?> Extensions { get; set; } =
-        new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class ServerOptions
@@ -34,4 +32,5 @@ public sealed class ConnectionOptions
     public string Name { get; set; } = "";
     public string Integration { get; set; } = "";
     public string? Workspace { get; set; }
+    public string? DefaultModel { get; set; }
 }

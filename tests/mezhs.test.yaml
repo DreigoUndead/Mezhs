@@ -15,6 +15,7 @@ connections:
   - id: test
     name: Deterministic test integration
     integration: mock
+    defaultModel: mock-fast
 
   - id: test-login
     name: Deterministic login integration

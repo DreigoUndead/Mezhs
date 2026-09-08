@@ -58,8 +58,13 @@ public static partial class MezhsConfigLoader
                 throw new InvalidOperationException(
                     $"Integration is required on connection '{connection.Id}'.");
             connection.Integration = connection.Integration.Trim();
+            connection.Workspace = NormalizeOptional(connection.Workspace);
+            connection.DefaultModel = NormalizeOptional(connection.DefaultModel);
         }
     }
+
+    private static string? NormalizeOptional(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static string Resolve(string baseDirectory, string path) =>
         Path.GetFullPath(Path.IsPathRooted(path) ? path : Path.Combine(baseDirectory, path));
