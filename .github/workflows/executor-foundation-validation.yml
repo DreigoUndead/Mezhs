@@ -1,0 +1,187 @@
+name: Executor foundation validation
+
+on:
+  push:
+    branches:
+      - executor-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Validate Console and Executor lifecycle
+        id: validation
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $log = Join-Path $PWD 'EXECUTOR_VALIDATION_RESULT.txt'
+          "Executor foundation validation - $(Get-Date -Format o)" | Set-Content $log
+
+          function Run-Step([string] $name, [scriptblock] $body) {
+            "`n=== $name ===" | Tee-Object -FilePath $log -Append
+            try {
+              & $body 2>&1 | Tee-Object -FilePath $log -Append
+              if ($LASTEXITCODE -ne 0) { throw "$name exited with code $LASTEXITCODE" }
+              "PASS: $name" | Tee-Object -FilePath $log -Append
+            }
+            catch {
+              "FAIL: $name - $($_.Exception.Message)" | Tee-Object -FilePath $log -Append
+              throw
+            }
+          }
+
+          Run-Step 'Build Executor' { dotnet build src/Mezhs.Executor/Mezhs.Executor.csproj -c Release --nologo }
+          Run-Step 'Console regression suite' { dotnet run --project tests/Mezhs.Console.TestApp/Mezhs.Console.TestApp.csproj -c Release --no-restore -- Test }
+
+          $executor = (Resolve-Path 'src/Mezhs.Executor/bin/Release/net10.0/Mezhs.Executor.dll').Path
+          $data = Join-Path $PWD 'data/executor-validation.sqlite'
+          Remove-Item $data, "$data-shm", "$data-wal" -Force -ErrorAction SilentlyContinue
+          $env:MEZHS_EXECUTOR_STORAGE = $data
+          $env:MEZHS_EXECUTION_ID = 'validation-parent'
+          $env:MEZHS_SOURCE = 'github-actions'
+          $work = Join-Path $PWD 'executor-validation-work'
+          Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item $work -ItemType Directory | Out-Null
+
+          function Executor([Parameter(ValueFromRemainingArguments=$true)][string[]] $executorArgs) {
+            $output = & dotnet $executor @executorArgs 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "Executor $($executorArgs -join ' ') failed: $($output -join [Environment]::NewLine)" }
+            return ($output -join [Environment]::NewLine).Trim()
+          }
+          function Status([string] $record) {
+            $match = [regex]::Match($record, '(?m)^Status:\s+(\w+)\s*$')
+            if (-not $match.Success) { throw "Status missing from record: $record" }
+            return $match.Groups[1].Value
+          }
+          function Field([string] $record, [string] $name) {
+            $match = [regex]::Match($record, "(?m)^$([regex]::Escape($name)):\s+([^\r\n]+)\s*$")
+            if (-not $match.Success) { throw "$name missing from record: $record" }
+            return $match.Groups[1].Value.Trim()
+          }
+          function Assert([bool] $condition, [string] $message) {
+            if (-not $condition) { throw $message }
+          }
+
+          Run-Step 'Detached execution survives caller exit' {
+            $file = Join-Path $work 'survived.txt'
+            $id = [int](Executor Execute "ping 127.0.0.1 -n 3 >nul & echo survived>$file" $work 30)
+            $record = Executor Wait $id 20
+            Assert ((Status $record) -eq 'Completed') "Expected Completed, got $(Status $record)"
+            Assert (Test-Path $file) 'Detached child did not survive Execute caller exit.'
+          }
+
+          Run-Step 'Atomic Run claim' {
+            $file = Join-Path $work 'atomic.txt'
+            $id = [int](Executor Execute "ping 127.0.0.1 -n 3 >nul & echo hit>>$file" $work 30)
+            $p1 = Start-Process dotnet -ArgumentList @($executor, 'Run', $id) -PassThru -WindowStyle Hidden
+            $p2 = Start-Process dotnet -ArgumentList @($executor, 'Run', $id) -PassThru -WindowStyle Hidden
+            $record = Executor Wait $id 20
+            $p1.WaitForExit(5000) | Out-Null
+            $p2.WaitForExit(5000) | Out-Null
+            Assert ((Status $record) -eq 'Completed') "Expected Completed, got $(Status $record)"
+            $hits = @(Get-Content $file -ErrorAction Stop).Count
+            Assert ($hits -eq 1) "Atomic claim side effect occurred $hits times."
+          }
+
+          Run-Step 'Kill request and process-tree termination' {
+            $id = [int](Executor Execute 'ping 127.0.0.1 -n 20 >nul' $work 30)
+            Start-Sleep -Milliseconds 1200
+            $null = Executor Kill $id
+            $record = Executor Wait $id 15
+            Assert ((Status $record) -eq 'Killed') "Expected Killed, got $(Status $record)"
+          }
+
+          Run-Step 'Execution timeout' {
+            $id = [int](Executor Execute 'ping 127.0.0.1 -n 20 >nul' $work 1)
+            $record = Executor Wait $id 15
+            Assert ((Status $record) -eq 'TimedOut') "Expected TimedOut, got $(Status $record)"
+          }
+
+          Run-Step 'Restart lineage and replacement' {
+            $file = Join-Path $work 'restart.txt'
+            $id = [int](Executor Execute "ping 127.0.0.1 -n 12 >nul & echo complete>>$file" $work 30)
+            Start-Sleep -Milliseconds 1200
+            $newId = [int](Executor Restart $id)
+            Assert ($newId -ne $id) 'Restart reused the old execution ID.'
+            $replacement = Executor Wait $newId 30
+            $old = Executor Get $id
+            Assert ((Status $replacement) -eq 'Completed') "Replacement did not complete: $(Status $replacement)"
+            Assert ((Field $replacement 'RestartedFromId') -eq "$id") 'Replacement lineage is missing.'
+            Assert ((Field $old 'RestartedAsId') -eq "$newId") 'Old execution lineage is missing.'
+            Assert (@(Get-Content $file -ErrorAction Stop).Count -eq 1) 'Old and replacement both reached the post-delay side effect.'
+          }
+
+          Run-Step 'Agent correlation is idempotent' {
+            $env:MEZHS_CHAT_ID = 'validation-chat'
+            $env:MEZHS_TRIGGER_MESSAGE_ID = 'validation-message'
+            $env:MEZHS_COMMAND_INDEX = '0'
+            $file = Join-Path $work 'idempotent.txt'
+            $id1 = [int](Executor Execute "ping 127.0.0.1 -n 3 >nul & echo once>>$file" $work 30)
+            $id2 = [int](Executor Execute "ping 127.0.0.1 -n 3 >nul & echo once>>$file" $work 30)
+            Assert ($id1 -eq $id2) "Correlation produced different IDs $id1 and $id2."
+            $record = Executor Wait $id1 20
+            Assert ((Status $record) -eq 'Completed') "Expected Completed, got $(Status $record)"
+            Assert (@(Get-Content $file -ErrorAction Stop).Count -eq 1) 'Idempotent command side effect occurred more than once.'
+            $list = Executor List 'validation-chat' 20
+            Assert ($list -match "Id:\s+$id1") 'Chat-filtered List did not include correlated execution.'
+            Remove-Item Env:MEZHS_CHAT_ID, Env:MEZHS_TRIGGER_MESSAGE_ID, Env:MEZHS_COMMAND_INDEX -ErrorAction SilentlyContinue
+          }
+
+          Run-Step 'Lazy stale-owner reconciliation' {
+            $id = [int](Executor Execute 'ping 127.0.0.1 -n 30 >nul' $work 60)
+            Start-Sleep -Milliseconds 1200
+            $running = Executor Get $id
+            $owner = [int](Field $running 'OwnerProcessId')
+            $child = [int](Field $running 'ProcessId')
+            Stop-Process -Id $owner -Force
+            Start-Sleep -Seconds 10
+            $dead = Executor Get $id
+            Assert ((Status $dead) -eq 'Dead') "Expected Dead, got $(Status $dead)"
+            Stop-Process -Id $child -Force -ErrorAction SilentlyContinue
+          }
+
+          Run-Step 'Self restart handoff survives helper termination' {
+            $guard = Join-Path $work 'self-guard.txt'
+            $restarted = Join-Path $work 'self-restarted.txt'
+            $command = "if not exist $guard (echo guard>$guard & dotnet $executor Restart %MEZHS_EXECUTION_ID%) else (echo restarted>$restarted)"
+            $oldId = [int](Executor Execute $command $work 30)
+            $deadline = (Get-Date).AddSeconds(30)
+            while (-not (Test-Path $restarted) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
+            Assert (Test-Path $restarted) 'Replacement execution did not survive self-restart handoff.'
+            $old = Executor Get $oldId
+            Assert ((Field $old 'RestartedAsId') -ne 'null') 'Self-restart did not preserve replacement lineage.'
+          }
+
+          "`nALL EXECUTOR FOUNDATION VALIDATIONS PASSED" | Tee-Object -FilePath $log -Append
+
+      - name: Commit validation evidence
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path EXECUTOR_VALIDATION_RESULT.txt)) {
+            "Validation step did not produce a result file." | Set-Content EXECUTOR_VALIDATION_RESULT.txt
+          }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add EXECUTOR_VALIDATION_RESULT.txt
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "Record Executor validation result [skip ci]"
+            git push origin HEAD:executor-foundation
+          }
+
+      - name: Fail job when validation failed
+        if: steps.validation.outcome == 'failure'
+        shell: pwsh
+        run: exit 1
