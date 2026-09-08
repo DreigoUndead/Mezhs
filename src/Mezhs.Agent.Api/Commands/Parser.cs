@@ -2,7 +2,9 @@ namespace Mezhs.Agent.Commands;
 
 public sealed record Command(string Name, string? Body);
 
-public sealed record CommandBatch(IReadOnlyList<Command> Commands);
+public sealed record CommandBatch(
+    IReadOnlyList<Command> Commands,
+    string VisibleContent);
 
 public sealed class CommandParseException(string message) : Exception(message);
 
@@ -12,12 +14,16 @@ public sealed class Parser
     {
         var lines = ReadLines(content);
         var commands = new List<Command>();
+        var visible = new List<string>();
 
         for (var i = 0; i < lines.Count; i++)
         {
             var text = lines[i].Text.Trim();
             if (!TryTag(text, out var name, out var closing))
+            {
+                visible.Add(lines[i].Text);
                 continue;
+            }
             if (closing)
                 throw new CommandParseException($"Unexpected closing command </{name}>.");
 
@@ -36,7 +42,9 @@ public sealed class Parser
             i = closeIndex;
         }
 
-        return new CommandBatch(commands);
+        return new CommandBatch(
+            commands,
+            string.Join('\n', visible).Trim());
     }
 
     private static int FindClosingTag(IReadOnlyList<LineSlice> lines, int start, string name)
