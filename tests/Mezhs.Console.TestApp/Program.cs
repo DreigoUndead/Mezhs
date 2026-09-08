@@ -29,7 +29,13 @@ internal sealed class TestApplication : ConsoleApplication
             }),
             ("Inherited Help", () => Expect("Help Help", "Show available commands")),
             ("Inherited Validate", () => Expect("Validate", "All commands are valid.")),
-            ("Invalid Validate", () => Expect("Validate", "Broken: INVALID", new InvalidApplication())),
+            ("Invalid Validate", () =>
+            {
+                var result = RunCase("Validate", new InvalidApplication());
+                if (result.ExitCode != 4) throw new InvalidOperationException($"Invalid Validate returned {result.ExitCode}.");
+                if (!result.Out.Contains("Broken: INVALID", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Invalid Validate did not report invalid commands.");
+            }),
             ("Current culture conversion", TestCulture),
             ("Syntax override", () =>
             {

@@ -1,3 +1,10 @@
+export class MessageAnchorNotFoundError extends Error {
+  constructor(parameter, id) {
+    super(`${parameter} message '${id}' was not found.`);
+    this.name = 'MessageAnchorNotFoundError';
+  }
+}
+
 export class MessageStore {
   #messages = new Map();
   #chats = new Map();
@@ -109,7 +116,9 @@ export class MessageStore {
 
   list({ chatId = null, limit = 20, beforeId = null, afterId = null, search = null } = {}) {
     const before = beforeId ? this.getRaw(beforeId, chatId) : null;
+    if (beforeId && !before) throw new MessageAnchorNotFoundError('beforeId', beforeId);
     const after = afterId ? this.getRaw(afterId, chatId) : null;
+    if (afterId && !after) throw new MessageAnchorNotFoundError('afterId', afterId);
     const term = search?.trim().toLocaleLowerCase() || null;
 
     return [...this.#messages.values()]

@@ -21,6 +21,7 @@ internal sealed partial class WhatsAppApplication
             ("Search route", TestSearch),
             ("Send route", TestSend),
             ("Identity prefix", TestIdentityPrefix),
+            ("Send validation", TestSendValidation),
             ("API error", TestApiError),
             ("Invalid JSON", TestInvalidJson),
             ("Count validation", TestCountValidation)
@@ -146,6 +147,22 @@ internal sealed partial class WhatsAppApplication
         using var body = JsonDocument.Parse(handler.LastBody ?? throw new InvalidOperationException("Send request had no body."));
         if (body.RootElement.GetProperty("text").GetString() != "[HOME] hello")
             throw new InvalidOperationException("Identity was not prefixed by the CLI.");
+    }
+
+private static void TestSendValidation()
+    {
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException("Invalid text reached HTTP."));
+        try
+        {
+            App(handler).Send("group@g.us", "   ");
+            throw new InvalidOperationException("Whitespace-only text was accepted.");
+        }
+        catch (ArgumentException)
+        {
+        }
+
+        if (handler.LastRequest is not null)
+            throw new InvalidOperationException("Invalid text reached the HTTP API.");
     }
 
     private static void TestApiError()

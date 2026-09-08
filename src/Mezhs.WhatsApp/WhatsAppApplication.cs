@@ -86,8 +86,8 @@ internal sealed partial class WhatsAppApplication : ConsoleApplication
     public WhatsAppMessage Send(string chatId, string text)
     {
         Require(chatId, nameof(chatId));
-        if (text.Length == 0)
-            throw new ArgumentException("text must not be empty.", nameof(text));
+        if (string.IsNullOrWhiteSpace(text))
+            throw new ArgumentException("text must not be empty or whitespace.", nameof(text));
 
         var identity = _identityProvider()?.Trim();
         var outgoing = string.IsNullOrEmpty(identity) ? text : $"[{identity}] {text}";
