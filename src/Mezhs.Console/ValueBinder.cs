@@ -39,7 +39,7 @@ internal static class ValueBinder
     public static object? Bind(ValueNode node, Type type)
     {
         var nullable = Nullable.GetUnderlyingType(type);
-        if (node is ScalarNode { Value: var nullValue } && nullValue.Equals("null", StringComparison.OrdinalIgnoreCase))
+        if (node is ScalarNode { Value: var nullValue, Quoted: false } && nullValue.Equals("null", StringComparison.OrdinalIgnoreCase))
         {
             if (!type.IsValueType || nullable is not null)
                 return null;

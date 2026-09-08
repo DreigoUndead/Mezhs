@@ -14,7 +14,9 @@ internal sealed class TestApplication : ConsoleApplication
             ("Explicit command name", () => Expect("renamed 5", "5", new RenamedCommandApplication())),
             ("Echo nullable", () => Expect("Echo hello", "hello:null")),
             ("Literal null", () => Expect("Echo hello null", "hello:null")),
+            ("Quoted null string", () => Expect("Echo \"null\"", "null:null")),
             ("Non-nullable literal null", () => ExpectFailure("Required null", 2, new NullabilityApplication())),
+            ("Non-nullable quoted null", () => Expect("Required \"null\"", "null", new NullabilityApplication())),
             ("Enumerable", () => Expect("Insert [1 5 6] tail", "1,5,6|tail", new CollectionApplication())),
             ("Nested enumerable", () => Expect("Nested [[1 2] [3 4]]", "1,2;3,4", new CollectionApplication())),
             ("Quoted string", () => Expect("Echo \"hello world\"", "hello world:null")),
@@ -37,6 +39,9 @@ internal sealed class TestApplication : ConsoleApplication
                 if (!result.Out.Contains("1,2,3|tail", StringComparison.Ordinal))
                     throw new InvalidOperationException($"Unexpected output: {result.Out}");
             }),
+            ("Return object round trip", TestReturnObjectRoundTrip),
+            ("Return object enumerable round trip", TestReturnObjectMany),
+            ("Return object CLI output", () => Expect("Object", "Name: \"hello: world\"", new ReturnObjectApplication())),
             ("Missing MEZHS context warning", TestMissingContext)
         };
 
@@ -93,6 +98,50 @@ internal sealed class TestApplication : ConsoleApplication
         {
             CultureInfo.CurrentCulture = previous;
         }
+    }
+
+    private static void TestReturnObjectRoundTrip()
+    {
+        var expected = new TestReturnObject
+        {
+            Id = 17,
+            Status = TestStatus.Running,
+            Name = "null",
+            Text = $"first: line{Environment.NewLine}{ReturnObjectBase.SeparatorLine}{Environment.NewLine}quote \" and slash \\",
+            Optional = null,
+            Time = new DateTimeOffset(2026, 9, 8, 20, 30, 0, TimeSpan.FromHours(3))
+        };
+        var serialized = expected.ToString();
+        var actual = ReturnObjectBase.Parse<TestReturnObject>(serialized);
+        if (actual.Id != expected.Id || actual.Status != expected.Status || actual.Name != expected.Name ||
+            actual.Text != expected.Text || actual.Optional is not null || actual.Time != expected.Time)
+            throw new InvalidOperationException($"Round trip mismatch. Serialized: {serialized}");
+    }
+
+    private static void TestReturnObjectMany()
+    {
+        var first = new TestReturnObject
+        {
+            Id = 1,
+            Status = TestStatus.Running,
+            Name = "one",
+            Text = $"inside{Environment.NewLine}{ReturnObjectBase.SeparatorLine}{Environment.NewLine}value",
+            Optional = 5,
+            Time = DateTimeOffset.Parse("2026-09-08T17:00:00+00:00", CultureInfo.InvariantCulture)
+        };
+        var second = new TestReturnObject
+        {
+            Id = 2,
+            Status = TestStatus.Completed,
+            Name = "two",
+            Text = "done",
+            Optional = null,
+            Time = DateTimeOffset.Parse("2026-09-08T18:00:00+00:00", CultureInfo.InvariantCulture)
+        };
+        var serialized = ReturnObjectBase.FormatMany([first, second]);
+        var parsed = ReturnObjectBase.ParseMany<TestReturnObject>(serialized);
+        if (parsed.Count != 2 || parsed[0].Text != first.Text || parsed[1].Id != 2)
+            throw new InvalidOperationException($"Enumerable round trip mismatch. Serialized: {serialized}");
     }
 
     private void TestMissingContext()
@@ -174,6 +223,35 @@ internal sealed class NullabilityApplication : ConsoleApplication
 internal sealed class RenamedCommandApplication : ConsoleApplication
 {
     [Command("renamed")] public int OriginalName(int value) => value;
+}
+
+internal sealed class ReturnObjectApplication : ConsoleApplication
+{
+    [Command]
+    public TestReturnObject Object() => new()
+    {
+        Id = 7,
+        Status = TestStatus.Running,
+        Name = "hello: world",
+        Text = "line",
+        Time = DateTimeOffset.Parse("2026-09-08T17:00:00+00:00", CultureInfo.InvariantCulture)
+    };
+}
+
+internal enum TestStatus
+{
+    Running,
+    Completed
+}
+
+internal sealed class TestReturnObject : ReturnObjectBase
+{
+    public int Id { get; set; }
+    public TestStatus Status { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Text { get; set; } = string.Empty;
+    public int? Optional { get; set; }
+    public DateTimeOffset Time { get; set; }
 }
 
 internal sealed record ComplexObject(int Val1, int Val2, int Val3);

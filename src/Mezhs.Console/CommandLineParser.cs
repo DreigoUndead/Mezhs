@@ -1,7 +1,7 @@
 namespace Mezhs.Console;
 
 internal abstract record ValueNode;
-internal sealed record ScalarNode(string Value) : ValueNode;
+internal sealed record ScalarNode(string Value, bool Quoted = false) : ValueNode;
 internal sealed record ListNode(IReadOnlyList<ValueNode> Items) : ValueNode;
 
 internal sealed class CommandLineParser
@@ -53,7 +53,7 @@ internal sealed class CommandLineParser
 
         return token.Type switch
         {
-            CommandSyntaxTokenType.Quote => new ScalarNode(ParseQuoted(token)),
+            CommandSyntaxTokenType.Quote => new ScalarNode(ParseQuoted(token), Quoted: true),
             CommandSyntaxTokenType.Collection => ParseCollection(token),
             _ => throw Error($"Unsupported syntax token type '{token.Type}'.")
         };
