@@ -10,6 +10,7 @@
     <ProjectReference Include="..\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj" />
     <ProjectReference Include="..\Mezhs.Api.Client\Mezhs.Api.Client.csproj" />
     <ProjectReference Include="..\Mezhs.Executor\Mezhs.Executor.csproj" />
+    <ProjectReference Include="..\Mezhs.Sqlite\Mezhs.Sqlite.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\agent.yaml" Link="agent.yaml" CopyToOutputDirectory="PreserveNewest" />
