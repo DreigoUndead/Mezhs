@@ -10,6 +10,7 @@ $apiOut = Join-Path $PSScriptRoot "agent-resilience-api.out.log"
 $apiErr = Join-Path $PSScriptRoot "agent-resilience-api.err.log"
 $agentOut = Join-Path $PSScriptRoot "agent-resilience-agent.out.log"
 $agentErr = Join-Path $PSScriptRoot "agent-resilience-agent.err.log"
+$agentDll = (Resolve-Path (Join-Path $root "src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll")).Path
 
 foreach ($path in @($dataPath, $genericDataPath)) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue }
 foreach ($path in @($apiOut, $apiErr, $agentOut, $agentErr)) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
@@ -29,7 +30,7 @@ function Wait-Health([string]$uri) {
 
 function Start-AgentProcess() {
     return Start-Process -FilePath "dotnet" `
-        -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $agentConfig) `
+        -ArgumentList @($agentDll, "--config", $agentConfig) `
         -WorkingDirectory $root -RedirectStandardOutput $agentOut -RedirectStandardError $agentErr -WindowStyle Hidden -PassThru
 }
 
@@ -169,7 +170,7 @@ ping -n 30 127.0.0.1 >nul
         throw "Rejected admission still created a failed execution record."
     }
 
-    # Kill only Agent API. Detached Executor shell must survive, then Agent must reattach to the same durable shell row.
+    # Kill only the actual Agent API process. Detached Executor shell must survive, then Agent must reattach to the same durable shell row.
     Stop-Process -Id $agent.Id -Force
     $agent.WaitForExit()
     $agent = $null
