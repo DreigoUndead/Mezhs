@@ -85,6 +85,14 @@ jobs:
           '''
               program_path.write_text(program, encoding="utf-8", newline="\n")
 
+          shell_path = Path("src/Mezhs.Agent.Api/Commands/Shell.cs")
+          shell = shell_path.read_text(encoding="utf-8")
+          shell = shell.replace(
+              "StandardInputEncoding = Encoding.UTF8,",
+              "StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),",
+              1)
+          shell_path.write_text(shell, encoding="utf-8", newline="\n")
+
           app_path = Path("src/Mezhs.Agent.Web/src/App.tsx")
           app = app_path.read_text(encoding="utf-8")
           app = app.replace(
@@ -94,12 +102,14 @@ jobs:
 
           smoke_path = Path("tests/agent-api-smoke.ps1")
           smoke = smoke_path.read_text(encoding="utf-8")
-          failure = '        throw "Agent message API did not expose canonical SH protocol metadata/display content."'
           smoke = smoke.replace(
-              failure,
-              '        Write-Host ("PROTOCOL_MESSAGE_JSON=" + ($protocolMessage | ConvertTo-Json -Depth 10 -Compress))\n'
-              '        Write-Host ("ENVIRONMENT_MESSAGES_JSON=" + ($environmentMessages | ConvertTo-Json -Depth 10 -Compress))\n'
-              + failure,
+              '    $protocolMessage = @($environmentMessages | Where-Object { $_.role -eq "assistant" -and @($_.commands).Count -gt 0 })[0]',
+              '    $protocolMessage = $environmentMessages | Where-Object { $_.role -eq "assistant" -and $_.commands.Count -gt 0 } | Select-Object -First 1',
+              1)
+          shell_check = '    if ($environmentShell.result -notmatch "ENVIRONMENT_OK") { throw "Policy-approved environment variable did not reach the child shell." }'
+          smoke = smoke.replace(
+              shell_check,
+              shell_check + '\n    if ($environmentShell.result -match "not recognized as an internal or external command") {\n        throw "Shell stdin introduced an invalid command before the requested command."\n    }',
               1)
           smoke_path.write_text(smoke, encoding="utf-8", newline="\n")
           '@ | Set-Content -LiteralPath .post-audit-fix.py -Encoding utf8
