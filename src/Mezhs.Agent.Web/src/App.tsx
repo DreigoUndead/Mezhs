@@ -1,0 +1,897 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  ChatComposer,
+  ChatTranscript,
+  expectJson,
+  type ChatSurfaceMessage,
+} from "@mezhs/web-lib";
+
+type Runtime = {
+  status: string;
+  mezhsApi: string;
+  mezhsApiHealthy: boolean;
+};
+
+type AgentPolicy = {
+  id: string;
+  connectionId: string;
+  modelInstructions: string;
+  snapshot: string;
+};
+
+type AgentChat = {
+  chatId: string;
+  policyId: string;
+  originSource: string;
+  originReference?: string;
+  paused: boolean;
+  title?: string;
+  connectionId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type AgentChatMessage = {
+  messageId: string;
+  chatId: string;
+  connectionId: string;
+  role: "user" | "assistant";
+  origin: string;
+  content: string;
+  displayContent: string;
+  commands: ProtocolCommand[];
+  completionClaimed: boolean;
+  fileIds: string[];
+  parentMessageId?: string;
+  replayOfMessageId?: string;
+  replyMessageId?: string;
+  status: "Queued" | "Running" | "Completed" | "Failed" | "Cancelled";
+  error?: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+};
+
+type ExecutionStatus = "Queued" | "Running" | "CancelRequested" | "Completed" | "Failed" | "Cancelled" | "Interrupted";
+type ExecutionKind = "Agent" | "Shell";
+
+type Execution = {
+  executionId: string;
+  parentExecutionId?: string;
+  correlationId: string;
+  kind: ExecutionKind;
+  commandName?: string;
+  triggerMessageId?: string;
+  commandIndex?: number;
+  chatId?: string;
+  policyId: string;
+  connectionId: string;
+  source: string;
+  sourceReference?: string;
+  status: ExecutionStatus;
+  request: string;
+  result?: string;
+  error?: string;
+  exitCode?: number;
+  policySnapshot: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+};
+
+type ProtocolCommand = {
+  name: string;
+  body?: string | null;
+  commandIndex?: number | null;
+};
+
+type ProtocolView = {
+  commands: ProtocolCommand[];
+  completionClaimed: boolean;
+};
+
+type ProtocolCommandState = ProtocolCommand & {
+  execution?: Execution;
+};
+
+type CommandResultPayload = {
+  command: string;
+  executionId?: string;
+  succeeded?: boolean;
+  exitCode?: number;
+  output?: string;
+  error?: string;
+};
+
+type CommandEvidence = CommandResultPayload & {
+  execution?: Execution;
+};
+
+const activeStatuses = new Set<ExecutionStatus>(["Queued", "Running", "CancelRequested"]);
+const terminalStatuses = new Set<ExecutionStatus>(["Completed", "Failed", "Cancelled", "Interrupted"]);
+const executionEnvelope = /^\[MEŽS AGENT EXECUTION ([^\]]+)]/;
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  return expectJson<T>(await fetch(path, init));
+}
+
+function formatTime(value?: string) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function elapsedLabel(execution?: Execution) {
+  if (!execution?.startedAt || execution.completedAt) return null;
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(execution.startedAt).getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return `${minutes}m ${remainder}s`;
+}
+
+function shortId(value: string) {
+  return value.length <= 14 ? value : `${value.slice(0, 8)}…${value.slice(-5)}`;
+}
+
+function displayTitle(chat: AgentChat) {
+  return chat.title?.trim() || `Agent chat ${shortId(chat.chatId)}`;
+}
+
+function statusTone(status: ExecutionStatus) {
+  if (status === "Completed") return "good";
+  if (status === "Failed") return "bad";
+  if (status === "Cancelled" || status === "Interrupted") return "muted";
+  return "active";
+}
+
+function originLabel(origin: string) {
+  const normalized = origin.trim().toLocaleLowerCase();
+  if (!normalized || normalized === "human" || normalized === "manual") return "You";
+  if (normalized === "command-result") return "Command result";
+  if (normalized === "agent-runtime") return "MEŽS Agent";
+  return origin
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part[0].toLocaleUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function originAvatar(origin: string) {
+  const label = originLabel(origin);
+  if (label === "You") return "YOU";
+  if (label === "MEŽS Agent") return "M";
+  if (label === "Command result") return "CMD";
+  return label.slice(0, 3).toLocaleUpperCase();
+}
+
+function executionFromEnvelope(content: string, executions: Execution[]) {
+  const match = content.match(executionEnvelope);
+  return match ? executions.find((execution) => execution.executionId === match[1]) : undefined;
+}
+
+function toSharedMessage(message: AgentChatMessage, executions: Execution[]): ChatSurfaceMessage {
+  let content = message.content;
+  if (message.role === "assistant") {
+    content = message.displayContent;
+  } else if (message.origin === "command-result") {
+    content = "";
+  } else if (message.origin !== "agent-runtime") {
+    content = executionFromEnvelope(message.content, executions)?.request ?? content;
+  }
+
+  return {
+    messageId: message.messageId,
+    connectionId: message.connectionId,
+    role: message.role,
+    origin: message.origin,
+    content,
+    status: message.status,
+    createdAt: message.createdAt,
+    error: message.error,
+  };
+}
+
+function extractJsonArray(content: string): unknown[] | null {
+  const marker = "Command results JSON:";
+  const markerIndex = content.indexOf(marker);
+  if (markerIndex < 0) return null;
+  const start = content.indexOf("[", markerIndex + marker.length);
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < content.length; index++) {
+    const character = content[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+    } else if (character === "[") {
+      depth++;
+    } else if (character === "]") {
+      depth--;
+      if (depth === 0) {
+        try {
+          const parsed = JSON.parse(content.slice(start, index + 1));
+          return Array.isArray(parsed) ? parsed : null;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function parseCommandResults(content: string): CommandResultPayload[] {
+  const parsed = extractJsonArray(content);
+  if (!parsed) return [];
+
+  return parsed.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const item = value as Record<string, unknown>;
+    const command = typeof item.command === "string" ? item.command : "COMMAND";
+    return [{
+      command,
+      executionId: typeof item.executionId === "string" ? item.executionId : undefined,
+      succeeded: typeof item.succeeded === "boolean" ? item.succeeded : undefined,
+      exitCode: typeof item.exitCode === "number" ? item.exitCode : undefined,
+      output: typeof item.output === "string" ? item.output : undefined,
+      error: typeof item.error === "string" ? item.error : undefined,
+    }];
+  });
+}
+
+function commandEvidenceForMessage(message: AgentChatMessage, executions: Execution[]): CommandEvidence[] {
+  if (message.origin !== "command-result") return [];
+  const parsed = parseCommandResults(message.content);
+  if (parsed.length === 0) {
+    return [{ command: "RESULT", output: message.content }];
+  }
+  return parsed.map((result) => ({
+    ...result,
+    execution: result.executionId
+      ? executions.find((execution) => execution.executionId === result.executionId)
+      : undefined,
+  }));
+}
+
+function protocolExecutionMap(
+  messages: AgentChatMessage[],
+  executions: Execution[],
+): Map<string, ProtocolCommandState[]> {
+  const result = new Map<string, ProtocolCommandState[]>();
+  for (const message of messages.filter((candidate) => candidate.role === "assistant")) {
+    const states = message.commands.map((command) => ({
+      ...command,
+      execution: executions.find((candidate) =>
+        candidate.triggerMessageId === message.messageId &&
+        command.commandIndex != null &&
+        candidate.commandIndex === command.commandIndex &&
+        candidate.commandName?.toLocaleUpperCase() === command.name.toLocaleUpperCase()),
+    }));
+    result.set(message.messageId, states);
+  }
+  return result;
+}
+
+function compactPreview(value?: string | null, fallback = "No output") {
+  if (!value) return fallback;
+  const line = value
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((part) => part.trim())
+    .find(Boolean);
+  if (!line) return fallback;
+  return line.length > 150 ? `${line.slice(0, 147)}…` : line;
+}
+
+function evidenceStatus(evidence: CommandEvidence) {
+  if (evidence.execution) return evidence.execution.status;
+  if (evidence.succeeded === false) return "Failed";
+  if (evidence.succeeded === true) return "Completed";
+  return "Result";
+}
+
+function evidenceExitCode(evidence: CommandEvidence) {
+  return evidence.execution?.exitCode ?? evidence.exitCode;
+}
+
+function evidenceOutput(evidence: CommandEvidence) {
+  return evidence.execution?.result ?? evidence.output;
+}
+
+function evidenceError(evidence: CommandEvidence) {
+  return evidence.execution?.error ?? evidence.error;
+}
+
+function evidenceRequest(evidence: CommandEvidence) {
+  return evidence.execution?.request;
+}
+
+function isStartPolicyPrompt(message: AgentChatMessage) {
+  return message.role === "user" &&
+    executionEnvelope.test(message.content) &&
+    message.content.includes("Agent command protocol:");
+}
+
+function policyPromptPreview(content: string) {
+  const marker = "Policy instructions:";
+  const markerIndex = content.indexOf(marker);
+  if (markerIndex >= 0) {
+    const instruction = content
+      .slice(markerIndex + marker.length)
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean);
+    if (instruction) return compactPreview(instruction);
+  }
+  return compactPreview(content, "Initial policy and agent protocol");
+}
+
+export default function App() {
+  const [runtime, setRuntime] = useState<Runtime | null>(null);
+  const [policies, setPolicies] = useState<AgentPolicy[]>([]);
+  const [chats, setChats] = useState<AgentChat[]>([]);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<AgentChatMessage[]>([]);
+  const [executions, setExecutions] = useState<Execution[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [policyId, setPolicyId] = useState("");
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [togglingPause, setTogglingPause] = useState(false);
+  const [stoppingExecutionId, setStoppingExecutionId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
+  const selectedPolicy = policies.find((policy) =>
+    policy.id === (selectedChat?.policyId ?? policyId));
+  const activeExecution = executions.find((execution) =>
+    execution.kind === "Agent" && activeStatuses.has(execution.status));
+  const activeShellExecution = executions.find((execution) =>
+    execution.kind === "Shell" && activeStatuses.has(execution.status));
+  const latestAgentExecution = executions.find((execution) => execution.kind === "Agent");
+  const sharedMessages = useMemo(
+    () => messages.map((message) => toSharedMessage(message, executions)),
+    [messages, executions],
+  );
+  const messageById = useMemo(
+    () => new Map(messages.map((message) => [message.messageId, message])),
+    [messages],
+  );
+  const protocolByMessageId = useMemo(() => new Map<string, ProtocolView>(
+    messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => [message.messageId, {
+        commands: message.commands,
+        completionClaimed: message.completionClaimed,
+      }]),
+  ), [messages]);
+  const protocolCommandsByMessageId = useMemo(
+    () => protocolExecutionMap(messages, executions),
+    [messages, executions],
+  );
+  const commandEvidenceByMessageId = useMemo(() => new Map(
+    messages
+      .filter((message) => message.origin === "command-result")
+      .map((message) => [message.messageId, commandEvidenceForMessage(message, executions)]),
+  ), [messages, executions]);
+  const shellExecutions = useMemo(
+    () => executions.filter((execution) => execution.kind === "Shell"),
+    [executions],
+  );
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [runtimeValue, policyValues, chatValues] = await Promise.all([
+          api<Runtime>("/v1/runtime"),
+          api<AgentPolicy[]>("/v1/policies"),
+          api<AgentChat[]>("/v1/agent-chats"),
+        ]);
+        setRuntime(runtimeValue);
+        setPolicies(policyValues);
+        setChats(chatValues);
+        setPolicyId(policyValues[0]?.id ?? "");
+        if (chatValues.length > 0)
+          setSelectedChatId(chatValues[0].chatId);
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedChatId || creating) {
+      setMessages([]);
+      setExecutions([]);
+      return;
+    }
+    void loadSelected(selectedChatId);
+  }, [selectedChatId, creating]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void refreshChats();
+      if (selectedChatId && !creating)
+        void loadSelected(selectedChatId, false);
+    }, 1200);
+    return () => window.clearInterval(timer);
+  }, [selectedChatId, creating]);
+
+  async function refreshChats() {
+    try {
+      setChats(await api<AgentChat[]>("/v1/agent-chats"));
+    } catch {
+      // Keep the last durable view during transient refresh failures.
+    }
+  }
+
+  async function loadSelected(chatId: string, reportErrors = true) {
+    try {
+      const [messageValues, executionValues] = await Promise.all([
+        api<AgentChatMessage[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/messages`),
+        api<Execution[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/executions`),
+      ]);
+      setMessages(messageValues);
+      setExecutions(executionValues);
+    } catch (error) {
+      if (reportErrors)
+        setNotice(error instanceof Error ? error.message : "Could not load this agent chat.");
+    }
+  }
+
+  function beginNewChat() {
+    setCreating(true);
+    setSelectedChatId(null);
+    setMessages([]);
+    setExecutions([]);
+    setDraft("");
+    setNotice(null);
+    if (!policyId && policies.length > 0)
+      setPolicyId(policies[0].id);
+  }
+
+  async function submit() {
+    const input = draft.trim();
+    const effectivePolicyId = selectedChat?.policyId ?? policyId;
+    if (!input || !effectivePolicyId || sending || activeExecution || selectedChat?.paused)
+      return;
+
+    setSending(true);
+    setNotice(null);
+    try {
+      const execution = await api<Execution>("/v1/executions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          policyId: effectivePolicyId,
+          input,
+          ...(selectedChat ? { chatId: selectedChat.chatId } : {}),
+        }),
+      });
+      setDraft("");
+
+      if (selectedChat) {
+        setExecutions((current) => [execution, ...current]);
+        return;
+      }
+
+      const attachedChatId = await waitForAttachedChat(execution.executionId);
+      setCreating(false);
+      setSelectedChatId(attachedChatId);
+      await refreshChats();
+      await loadSelected(attachedChatId);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Agent execution could not be started.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function waitForAttachedChat(executionId: string) {
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const execution = await api<Execution>(`/v1/executions/${encodeURIComponent(executionId)}`);
+      if (execution.chatId)
+        return execution.chatId;
+      if (terminalStatuses.has(execution.status))
+        throw new Error(execution.error || `Execution ended as ${execution.status} before a chat was attached.`);
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+    throw new Error("The agent execution did not attach a chat in time.");
+  }
+
+  async function stopExecution(executionId: string) {
+    if (stoppingExecutionId)
+      return;
+    setStoppingExecutionId(executionId);
+    setNotice(null);
+    try {
+      await api<Execution>(`/v1/executions/${encodeURIComponent(executionId)}/cancel`, {
+        method: "POST",
+      });
+      if (selectedChatId)
+        await loadSelected(selectedChatId);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Agent execution could not be stopped.");
+    } finally {
+      setStoppingExecutionId(null);
+    }
+  }
+
+  async function togglePause() {
+    if (!selectedChat || togglingPause)
+      return;
+    setTogglingPause(true);
+    setNotice(null);
+    try {
+      const updated = await api<AgentChat>(
+        `/v1/agent-chats/${encodeURIComponent(selectedChat.chatId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paused: !selectedChat.paused }),
+        },
+      );
+      setChats((current) => current.map((chat) =>
+        chat.chatId === updated.chatId ? updated : chat));
+      await loadSelected(updated.chatId);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Agent chat state could not be changed.");
+    } finally {
+      setTogglingPause(false);
+    }
+  }
+
+  function selectChat(chatId: string) {
+    setCreating(false);
+    setSelectedChatId(chatId);
+    setNotice(null);
+  }
+
+  const composerDisabled = sending || !!activeExecution || !!selectedChat?.paused;
+  const composerPlaceholder = selectedChat?.paused
+    ? "Resume this agent chat to continue"
+    : activeExecution
+      ? "Agent execution is running"
+      : creating
+        ? "Describe the task for this agent"
+        : "Continue this agent chat";
+
+  return (
+    <div className="agent-shell">
+      <aside className="agent-sidebar">
+        <div className="agent-brand-row">
+          <div className="agent-brand-mark">M</div>
+          <div><strong>MEŽS Agent</strong><span>Policy-controlled chats</span></div>
+          <span className={`health-dot ${runtime?.mezhsApiHealthy ? "online" : ""}`}
+            title={runtime?.mezhsApiHealthy ? "MEŽS API online" : "MEŽS API unavailable"} />
+        </div>
+
+        <button className="new-chat" type="button" onClick={beginNewChat}><span>+</span> New agent chat</button>
+
+        <span className="section-label">Agent chats</span>
+        <nav className="agent-chat-list" aria-label="Agent chats">
+          {chats.map((chat) => (
+            <button
+              type="button"
+              key={chat.chatId}
+              className={`agent-chat-row ${selectedChatId === chat.chatId && !creating ? "selected" : ""}`}
+              onClick={() => selectChat(chat.chatId)}
+            >
+              <span className="agent-chat-title">{displayTitle(chat)}</span>
+              <small>{chat.policyId} · {chat.originSource}</small>
+              {chat.paused && <i>paused</i>}
+            </button>
+          ))}
+          {chats.length === 0 && <p className="agent-empty-sidebar">No agent chats yet.</p>}
+        </nav>
+
+        <div className="agent-sidebar-footer">
+          <span className={`status-pill ${runtime?.mezhsApiHealthy ? "ready" : "offline"}`}>
+            {runtime?.mezhsApiHealthy ? "API ready" : "API offline"}
+          </span>
+        </div>
+      </aside>
+
+      <main className="agent-main-panel">
+        {creating || !selectedChat ? (
+          <>
+            <header className="agent-header">
+              <div>
+                <span className="eyebrow">Manual execution</span>
+                <h1>New agent chat</h1>
+              </div>
+            </header>
+
+            <section className="agent-new-chat">
+              <p>Choose a policy for this chat. The policy fixes its rules, connection and executable capabilities.</p>
+              <label className="agent-field-label" htmlFor="policy">Policy</label>
+              <select
+                id="policy"
+                value={policyId}
+                onChange={(event) => setPolicyId(event.target.value)}
+                disabled={sending}
+              >
+                {policies.map((policy) => (
+                  <option key={policy.id} value={policy.id}>{policy.id} · {policy.connectionId}</option>
+                ))}
+              </select>
+              {selectedPolicy && (
+                <div className="agent-policy-summary">
+                  <strong>{selectedPolicy.id}</strong>
+                  <span>Connection: {selectedPolicy.connectionId}</span>
+                  {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
+                </div>
+              )}
+            </section>
+
+            <ChatComposer
+              value={draft}
+              onChange={setDraft}
+              onSubmit={submit}
+              placeholder={composerPlaceholder}
+              disabled={!policyId}
+              busy={sending}
+              notice={notice}
+              onDismissNotice={() => setNotice(null)}
+              disclaimer="Agent actions are governed by the selected policy and recorded in execution history."
+            />
+          </>
+        ) : (
+          <>
+            <header className="agent-header">
+              <div>
+                <span className="eyebrow">{selectedChat.originSource} · {selectedChat.policyId}</span>
+                <h1>{displayTitle(selectedChat)}</h1>
+                <div className="agent-header-meta">
+                  <span>{selectedChat.connectionId || selectedPolicy?.connectionId || "connection unavailable"}</span>
+                  <span>·</span>
+                  <span>{shortId(selectedChat.chatId)}</span>
+                  {latestAgentExecution && (
+                    <span className={`agent-execution-status ${statusTone(latestAgentExecution.status)}`}>
+                      {latestAgentExecution.status}
+                    </span>
+                  )}
+                  {activeShellExecution && (
+                    <span className="agent-active-command">
+                      SH {activeShellExecution.status === "CancelRequested" ? "stopping" : "running"} {elapsedLabel(activeShellExecution) ?? ""}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="agent-header-actions">
+                <a
+                  className="agent-secondary agent-download"
+                  href={`/v1/agent-chats/${encodeURIComponent(selectedChat.chatId)}/debug-log`}
+                  download
+                >Download log</a>
+                {activeExecution && activeExecution.status !== "CancelRequested" && (
+                  <button
+                    type="button"
+                    className="agent-danger"
+                    onClick={() => void stopExecution(activeExecution.executionId)}
+                    disabled={!!stoppingExecutionId}
+                  >
+                    {stoppingExecutionId === activeExecution.executionId ? "Stopping…" : "Stop"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={selectedChat.paused ? "agent-primary" : "agent-secondary"}
+                  onClick={() => void togglePause()}
+                  disabled={togglingPause}
+                >
+                  {togglingPause ? "Updating…" : selectedChat.paused ? "Resume" : "Pause"}
+                </button>
+              </div>
+            </header>
+
+            {selectedChat.paused && <div className="agent-paused-banner">This agent chat is paused. New executions are blocked until it is resumed.</div>}
+
+            <ChatTranscript
+              messages={sharedMessages}
+              busy={!!activeExecution}
+              autoScroll
+              autoScrollResetKey={selectedChat.chatId}
+              emptyState={<div className="agent-empty-chat">No conversation messages yet.</div>}
+              getAuthorLabel={(message) => message.role === "assistant" ? "Agent" : originLabel(message.origin)}
+              getAvatarLabel={(message) => message.role === "assistant" ? "M" : originAvatar(message.origin)}
+              renderMessageFooter={(message) => {
+                const rawMessage = messageById.get(message.messageId);
+                const protocol = protocolByMessageId.get(message.messageId);
+                const commandStates = protocolCommandsByMessageId.get(message.messageId) ?? [];
+                const evidence = commandEvidenceByMessageId.get(message.messageId) ?? [];
+                const startPrompt = rawMessage && isStartPolicyPrompt(rawMessage)
+                  ? rawMessage.content
+                  : null;
+                const hasProtocol = !!protocol &&
+                  (protocol.commands.length > 0 || protocol.completionClaimed);
+                if (!startPrompt && evidence.length === 0 && !hasProtocol) return null;
+
+                return (
+                  <>
+                    {startPrompt && (
+                      <details className="agent-start-prompt">
+                        <summary>
+                          <div><strong>Start policy prompt</strong><span>{selectedChat.policyId}</span></div>
+                          <code>{policyPromptPreview(startPrompt)}</code>
+                        </summary>
+                        <div className="agent-start-prompt-body">
+                          <span>Exact prompt sent to the model for the first agent turn</span>
+                          <pre>{startPrompt}</pre>
+                        </div>
+                      </details>
+                    )}
+
+                    {evidence.length > 0 && (
+                      <div className="agent-command-results">
+                        {evidence.map((result, index) => {
+                          const output = evidenceOutput(result);
+                          const error = evidenceError(result);
+                          const request = evidenceRequest(result);
+                          const status = evidenceStatus(result);
+                          const exitCode = evidenceExitCode(result);
+                          return (
+                            <details className="agent-command-evidence agent-command-result" key={`${result.executionId ?? result.command}-${index}`}>
+                              <summary>
+                                <div className="agent-command-result-heading">
+                                  <strong>{result.command}</strong>
+                                  <span>{status}</span>
+                                  {exitCode !== undefined && <span>exit {exitCode}</span>}
+                                </div>
+                                <code>{compactPreview(output || error || request)}</code>
+                              </summary>
+                              <div className="agent-command-result-body">
+                                {result.executionId && (
+                                  <div className="agent-command-result-meta">
+                                    <span>execution</span><code>{result.executionId}</code>
+                                  </div>
+                                )}
+                                {request && (
+                                  <section>
+                                    <span>Command</span>
+                                    <pre>{request}</pre>
+                                  </section>
+                                )}
+                                {output && (
+                                  <section>
+                                    <span>Output</span>
+                                    <pre>{output}</pre>
+                                  </section>
+                                )}
+                                {error && (
+                                  <section className="agent-command-result-error">
+                                    <span>Error</span>
+                                    <pre>{error}</pre>
+                                  </section>
+                                )}
+                                {!request && !output && !error && <p>No command evidence was returned.</p>}
+                              </div>
+                            </details>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {hasProtocol && protocol && (
+                      <div className="agent-protocol-events">
+                        {commandStates.map((command, index) => {
+                          const execution = command.execution;
+                          const status = execution?.status ?? (activeExecution ? "Pending" : "Not executed");
+                          const targetExecutionId = execution?.parentExecutionId ?? activeExecution?.executionId;
+                          return (
+                            <details className="agent-protocol-card agent-command-evidence agent-command-request" key={`${command.name}-${index}`}>
+                              <summary>
+                                <div className="agent-command-request-heading">
+                                  <strong>{command.name}</strong>
+                                  <span className={execution ? `agent-execution-status ${statusTone(execution.status)}` : "agent-execution-status muted"}>
+                                    {status}
+                                  </span>
+                                  {execution?.exitCode !== undefined && <span>exit {execution.exitCode}</span>}
+                                  {execution?.status === "Running" && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
+                                </div>
+                                <code>{compactPreview(command.body, "Agent command requested")}</code>
+                              </summary>
+                              <div className="agent-command-request-body">
+                                {command.body && <pre>{command.body}</pre>}
+                                {execution && (
+                                  <div className="agent-command-request-meta">
+                                    <span>execution</span><code>{execution.executionId}</code>
+                                  </div>
+                                )}
+                                {execution?.result && (
+                                  <section>
+                                    <span>Latest result</span>
+                                    <pre>{execution.result}</pre>
+                                  </section>
+                                )}
+                                {execution?.error && (
+                                  <section className="agent-command-result-error">
+                                    <span>Error</span>
+                                    <pre>{execution.error}</pre>
+                                  </section>
+                                )}
+                                {execution?.status === "Running" && targetExecutionId && (
+                                  <button
+                                    type="button"
+                                    className="agent-danger agent-command-stop"
+                                    onClick={() => void stopExecution(targetExecutionId)}
+                                    disabled={!!stoppingExecutionId}
+                                  >
+                                    {stoppingExecutionId === targetExecutionId ? "Stopping…" : "Stop agent execution"}
+                                  </button>
+                                )}
+                                <small>Execution evidence and result are also retained in execution history.</small>
+                              </div>
+                            </details>
+                          );
+                        })}
+                        {protocol.completionClaimed && (
+                          <div className="agent-protocol-card agent-done-card">
+                            <div><strong>DONE</strong><span>Completion claimed</span></div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                );
+              }}
+            />
+
+            <ChatComposer
+              value={draft}
+              onChange={setDraft}
+              onSubmit={submit}
+              placeholder={composerPlaceholder}
+              disabled={composerDisabled}
+              busy={sending}
+              notice={notice}
+              onDismissNotice={() => setNotice(null)}
+              disclaimer="Agent actions are governed by policy and recorded in execution history."
+            />
+
+            <details className="agent-execution-details">
+              <summary>Execution history {shellExecutions.length > 0 && <span>{shellExecutions.length} shell</span>}</summary>
+              <div className="agent-execution-list">
+                {executions.map((execution) => (
+                  <article className="agent-execution-row" key={execution.executionId}>
+                    <div className="agent-execution-topline">
+                      <strong>{execution.commandName ?? execution.kind}</strong>
+                      <span className={`agent-execution-status ${statusTone(execution.status)}`}>{execution.status}</span>
+                      {execution.exitCode !== undefined && <span>exit {execution.exitCode}</span>}
+                      {activeStatuses.has(execution.status) && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
+                      <time>{formatTime(execution.createdAt)}</time>
+                    </div>
+                    {execution.kind === "Shell" ? <pre className="agent-command-code">{execution.request}</pre> : <code>{execution.request}</code>}
+                    {execution.result && <pre>{execution.result}</pre>}
+                    {execution.error && <pre className="agent-error-output">{execution.error}</pre>}
+                  </article>
+                ))}
+                {executions.length === 0 && <p>No execution records yet.</p>}
+              </div>
+            </details>
+          </>
+        )}
+      </main>
+    </div>
+  );
+}

@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Mezhs;
+using Mezhs.Api.Contracts;
 using Mezhs.Configuration;
 using Mezhs.Integrations;
 using Mezhs.Models;
@@ -128,19 +129,8 @@ app.MapGet("/v1/files/{fileId}/content", (
 });
 
 app.MapGet("/v1/chats", (string? connectionId, ChatStore chats) =>
-    Results.Ok(chats.GetChats(connectionId).Select(chat =>
-    {
-        var messages = chats.GetMessages(chat.ChatId);
-        return new
-        {
-            chat.ChatId,
-            ConnectionId = messages.LastOrDefault()?.ConnectionId ?? string.Empty,
-            chat.CategoryId,
-            chat.CreatedAt,
-            chat.UpdatedAt,
-            title = messages.FirstOrDefault(message => message.Role == "user")?.Content ?? "New chat"
-        };
-    })));
+    Results.Ok(chats.GetChats(connectionId)
+        .Select(chat => ToApiChat(chat, chats.GetMessages(chat.ChatId)))));
 
 app.MapPost("/v1/chats", (
     CreateChatRequest request,
@@ -149,15 +139,8 @@ app.MapPost("/v1/chats", (
 {
     integrations.Get(request.ConnectionId);
     var chat = chats.CreateChat(request.CategoryId);
-    return Results.Created($"/v1/chats/{chat.ChatId}", new
-    {
-        chat.ChatId,
-        request.ConnectionId,
-        chat.CategoryId,
-        chat.CreatedAt,
-        chat.UpdatedAt,
-        title = "New chat"
-    });
+    var response = ToApiChat(chat, [], request.ConnectionId);
+    return Results.Created($"/v1/chats/{chat.ChatId}", response);
 });
 
 app.MapDelete("/v1/chats", ([FromBody] DeleteChatsRequest request, ChatStore chats) =>
@@ -244,15 +227,7 @@ app.MapGet("/v1/chats/{chatId}", (string chatId, ChatStore chats) =>
     var chat = chats.GetChat(chatId);
     if (chat is null)
         return Results.NotFound(new { error = $"Chat '{chatId}' was not found." });
-    var messages = chats.GetMessages(chat.ChatId);
-    return Results.Ok(new
-    {
-        chat.ChatId,
-        ConnectionId = messages.LastOrDefault()?.ConnectionId ?? string.Empty,
-        chat.CategoryId,
-        chat.CreatedAt,
-        chat.UpdatedAt
-    });
+    return Results.Ok(ToApiChat(chat, chats.GetMessages(chat.ChatId)));
 });
 
 app.MapPatch("/v1/chats/{chatId}", (
@@ -264,12 +239,62 @@ app.MapGet("/v1/chats/{chatId}/messages", (string chatId, ChatStore chats) =>
 {
     if (chats.GetChat(chatId) is null)
         return Results.NotFound(new { error = $"Chat '{chatId}' was not found." });
-    return Results.Ok(chats.GetMessages(chatId));
+    return Results.Ok(chats.GetMessages(chatId).Select(ToApiHistoryMessage));
 });
 
 Console.WriteLine($"MEŽS config: {configPath}");
 Console.WriteLine($"MEŽS listening: {options.Server.Listen}");
 await app.RunAsync();
+
+static ApiChat ToApiChat(
+    ChatRecord chat,
+    IReadOnlyList<StoredMessage> messages,
+    string? connectionId = null)
+{
+    var resolvedConnectionId = connectionId
+        ?? messages.LastOrDefault()?.ConnectionId
+        ?? string.Empty;
+    var title = messages.FirstOrDefault(message => message.Role == "user")?.Content
+        ?? "New chat";
+    return new ApiChat(
+        chat.ChatId,
+        resolvedConnectionId,
+        chat.CategoryId,
+        chat.CreatedAt,
+        chat.UpdatedAt,
+        title);
+}
+
+static ApiChatHistoryMessage ToApiHistoryMessage(StoredMessage message)
+{
+    var origin = message.Origin;
+    if (string.IsNullOrWhiteSpace(origin) ||
+        (string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
+         string.Equals(origin, "human", StringComparison.OrdinalIgnoreCase)))
+    {
+        origin = string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase)
+            ? "assistant"
+            : "human";
+    }
+
+    return new ApiChatHistoryMessage(
+        message.MessageId,
+        message.ChatId,
+        message.ConnectionId,
+        message.Role,
+        origin,
+        message.Content,
+        message.FileIds,
+        message.ParentMessageId,
+        message.ReplayOfMessageId,
+        message.ReplyMessageId,
+        message.Status,
+        message.Error,
+        message.CreatedAt,
+        message.StartedAt,
+        message.CompletedAt,
+        message.Model);
+}
 
 static string? GetOption(string[] args, string name)
 {

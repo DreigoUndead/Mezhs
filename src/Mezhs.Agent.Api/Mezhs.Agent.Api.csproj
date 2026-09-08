@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+    <PackageReference Include="YamlDotNet" Version="16.3.0" />
+    <ProjectReference Include="..\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj" />
+    <ProjectReference Include="..\Mezhs.Api.Client\Mezhs.Api.Client.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\agent.yaml" Link="agent.yaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
