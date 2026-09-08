@@ -88,8 +88,8 @@ jobs:
           shell_path = Path("src/Mezhs.Agent.Api/Commands/Shell.cs")
           shell = shell_path.read_text(encoding="utf-8")
           shell = shell.replace(
-              '            startInfo.ArgumentList.Add("/D");\n            startInfo.ArgumentList.Add("/Q");\n            return new ShellInvocation(startInfo, "@chcp 65001>nul\\r\\n" + commandText + "\\r\\n");',
-              '            startInfo.ArgumentList.Add("/D");\n            startInfo.ArgumentList.Add("/Q");\n            startInfo.ArgumentList.Add("/K");\n            startInfo.ArgumentList.Add("chcp 65001>nul");\n            return new ShellInvocation(startInfo, commandText + "\\r\\n");',
+              '            startInfo.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";\n            startInfo.ArgumentList.Add("/D");\n            startInfo.ArgumentList.Add("/Q");\n            return new ShellInvocation(startInfo, "@chcp 65001>nul\\r\\n" + commandText + "\\r\\n");',
+              '            var shellPath = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";\n            startInfo.FileName = shellPath;\n            startInfo.ArgumentList.Add("/D");\n            startInfo.ArgumentList.Add("/Q");\n            startInfo.ArgumentList.Add("/C");\n            startInfo.ArgumentList.Add($"chcp 65001>nul & \\\"{shellPath}\\\" /D /Q");\n            return new ShellInvocation(startInfo, commandText + "\\r\\n");',
               1)
           shell = shell.replace(
               "StandardInputEncoding = Encoding.UTF8,",
