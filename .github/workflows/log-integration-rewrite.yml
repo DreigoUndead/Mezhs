@@ -1,4 +1,4 @@
-name: Normalize Log foundation integration
+name: Validate Log foundation integration
 
 on:
   push:
@@ -8,58 +8,88 @@ permissions:
   contents: write
 
 jobs:
-  normalize:
+  validate:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Keep solution diff minimal
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Update architecture guard for LogSql ownership
         shell: pwsh
         run: |
-          $base = 'd8e313adefa9c089f7628c9ec4ded5e9d0587019'
-          $solution = git show "$base`:Mezhs.sln" | Out-String
-          $projectBlocks = @'
-          Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Log.Shared", "src\Mezhs.Log.Shared\Mezhs.Log.Shared.csproj", "{8D12F19D-2271-4A4A-9EEB-68060D744225}"
-          EndProject
-          Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Log.Data", "src\Mezhs.Log.Data\Mezhs.Log.Data.csproj", "{E63E0A38-B354-43DD-9B30-34857E34E2FD}"
-          EndProject
-          Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Log.Sql", "src\Mezhs.Log.Sql\Mezhs.Log.Sql.csproj", "{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}"
-          EndProject
-          '@
-          $solution = $solution -replace '(?m)^Global\r?$', ($projectBlocks.TrimEnd() + "`r`nGlobal")
+          $path = 'tests/agent-architecture.ps1'
+          $text = Get-Content -LiteralPath $path -Raw
+          $needle = '$executorService = Read "src/Mezhs.Executor/ExecutorService.cs"'
+          $replacement = @'
+          $executorService = Read "src/Mezhs.Executor/ExecutorService.cs"
+          $executorProject = Read "src/Mezhs.Executor/Mezhs.Executor.csproj"
+          $logSqlProject = Read "src/Mezhs.Log.Sql/Mezhs.Log.Sql.csproj"
+          $logSql = Read "src/Mezhs.Log.Sql/LogSql.cs"
+          $solution = Read "Mezhs.sln"
+          '@.Trim()
+          if (-not $text.Contains($needle)) { throw 'Executor service architecture marker not found.' }
+          $text = $text.Replace($needle, $replacement)
 
-          $configs = @'
-          		{8D12F19D-2271-4A4A-9EEB-68060D744225}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-          		{8D12F19D-2271-4A4A-9EEB-68060D744225}.Debug|Any CPU.Build.0 = Debug|Any CPU
-          		{8D12F19D-2271-4A4A-9EEB-68060D744225}.Release|Any CPU.ActiveCfg = Release|Any CPU
-          		{8D12F19D-2271-4A4A-9EEB-68060D744225}.Release|Any CPU.Build.0 = Release|Any CPU
-          		{E63E0A38-B354-43DD-9B30-34857E34E2FD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-          		{E63E0A38-B354-43DD-9B30-34857E34E2FD}.Debug|Any CPU.Build.0 = Debug|Any CPU
-          		{E63E0A38-B354-43DD-9B30-34857E34E2FD}.Release|Any CPU.ActiveCfg = Release|Any CPU
-          		{E63E0A38-B354-43DD-9B30-34857E34E2FD}.Release|Any CPU.Build.0 = Release|Any CPU
-          		{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-          		{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}.Debug|Any CPU.Build.0 = Debug|Any CPU
-          		{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}.Release|Any CPU.ActiveCfg = Release|Any CPU
-          		{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}.Release|Any CPU.Build.0 = Release|Any CPU
-          '@
-          $pattern = '(?s)(\tGlobalSection\(ProjectConfigurationPlatforms\) = postSolution\r?\n)(.*?)(\tEndGlobalSection)'
-          $match = [regex]::Match($solution, $pattern)
-          if (-not $match.Success) { throw 'ProjectConfigurationPlatforms section not found.' }
-          $body = $match.Groups[2].Value.TrimEnd("`r", "`n")
-          $replacement = $match.Groups[1].Value + $body + "`r`n" + $configs.TrimEnd() + "`r`n" + $match.Groups[3].Value
-          $solution = $solution.Substring(0, $match.Index) + $replacement + $solution.Substring($match.Index + $match.Length)
-          [IO.File]::WriteAllText((Join-Path $PWD 'Mezhs.sln'), $solution, [Text.UTF8Encoding]::new($false))
+          $old = 'Assert ($executorStore -match ''SqliteDatabase _database'' -and $executorStore -notmatch ''new SqliteConnectionStringBuilder'') "ExecutorStore bypasses the shared SQLite foundation."'
+          $new = @'
+          Assert ($executorProject -match 'Mezhs.Log.Sql' -and $executorProject -notmatch 'Mezhs.Sqlite') "Executor does not depend on LogSql as its persistence boundary."
+          Assert ($logSqlProject -match 'Mezhs.Sqlite' -and $logSql -match 'new SqliteDatabase\(_resolve\(file\)\)\.Open\(\)' -and $logSql -notmatch 'SqliteConnectionStringBuilder|journal_mode|busy_timeout') "LogSql bypasses or duplicates the shared SQLite connection foundation."
+          Assert ($executorStore -match 'LogSql _log' -and $executorStore -match '_log\.Open\(_file\)' -and $executorStore -notmatch 'SqliteDatabase|new SqliteConnectionStringBuilder') "ExecutorStore bypasses LogSql for SQLite access."
+          Assert ($solution -match 'Mezhs.Log.Shared' -and $solution -match 'Mezhs.Log.Data' -and $solution -match 'Mezhs.Log.Sql') "Log foundation projects are missing from the solution."
+          '@.Trim()
+          if (-not $text.Contains($old)) { throw 'Old Executor SQLite architecture assertion not found.' }
+          $text = $text.Replace($old, $new)
+          Set-Content -LiteralPath $path -Value $text -Encoding UTF8
 
-          git diff --check -- Mezhs.sln
-          $added = (git diff --numstat -- Mezhs.sln).Split("`t")[0]
-          if ([int]$added -gt 30) { throw "Solution integration is unexpectedly large: $added added lines." }
+      - name: Build solution
+        shell: pwsh
+        run: dotnet build Mezhs.sln -c Release --nologo
+      - name: Console regression suite
+        shell: pwsh
+        run: dotnet run --project tests/Mezhs.Console.TestApp/Mezhs.Console.TestApp.csproj -c Release -- Test
+      - name: LogData self-test
+        shell: pwsh
+        run: dotnet run --project src/Mezhs.Log.Data/Mezhs.Log.Data.csproj -c Release -- Test
+      - name: LogSql self-test
+        shell: pwsh
+        run: dotnet run --project src/Mezhs.Log.Sql/Mezhs.Log.Sql.csproj -c Release -- Test
+      - name: Agent architecture
+        shell: pwsh
+        run: pwsh -File tests/agent-architecture.ps1
+      - name: Policy decoder
+        shell: pwsh
+        run: pwsh -File tests/policy-decoder.ps1
+      - name: Executor lifecycle
+        shell: pwsh
+        run: pwsh -File tests/executor-lifecycle.ps1
+      - name: Executor self-restart
+        shell: pwsh
+        run: pwsh -File tests/executor-self-restart.ps1
+      - name: Agent API smoke
+        shell: pwsh
+        run: pwsh -File tests/agent-api-smoke.ps1
+      - name: Executor-backed policy evidence
+        shell: pwsh
+        run: pwsh -File tests/agent-executor-evidence.ps1
+      - name: Pending cancellation recovery
+        shell: pwsh
+        run: pwsh -File tests/agent-cancel-recovery.ps1
+      - name: Agent restart resilience
+        shell: pwsh
+        run: pwsh -File tests/agent-runtime-resilience.ps1
 
-      - name: Commit minimal solution integration
+      - name: Commit guard and remove temporary workflow
+        if: success()
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add Mezhs.sln
-          git commit -m 'Keep Log projects in solution without CLI churn [skip ci]'
+          git rm .github/workflows/log-integration-rewrite.yml
+          git add tests/agent-architecture.ps1
+          git diff --cached --check
+          git commit -m 'Validate LogSql Executor integration [skip ci]'
           git push
