@@ -7,6 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Mezhs.Console\Mezhs.Console.csproj" />
-    <ProjectReference Include="..\Mezhs.Sqlite\Mezhs.Sqlite.csproj" />
+    <ProjectReference Include="..\Mezhs.Log.Sql\Mezhs.Log.Sql.csproj" />
   </ItemGroup>
 </Project>
