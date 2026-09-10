@@ -62,7 +62,9 @@ internal static class HelpWriter
             var width = parameters.Max(x => x.Name?.Length ?? 0);
             foreach (var parameter in parameters)
             {
-                var requirement = IsOptional(parameter) ? "optional" : "required";
+                var requirement = IsOptional(parameter)
+                    ? $"optional  default: {DefaultValue(parameter)}"
+                    : "required";
                 global::System.Console.WriteLine($"  {(parameter.Name ?? "").PadRight(width)}  {ValueBinder.Describe(parameter.ParameterType, syntax)}  {requirement}");
             }
         }
@@ -80,7 +82,9 @@ internal static class HelpWriter
     private static string Usage(CommandDescriptor command)
     {
         var parts = command.Method.GetParameters()
-            .Select(parameter => IsOptional(parameter) ? $"[{parameter.Name}]" : $"<{parameter.Name}>");
+            .Select(parameter => IsOptional(parameter)
+                ? $"[{parameter.Name}={DefaultValue(parameter)}]"
+                : $"<{parameter.Name}>");
         return string.Join(' ', new[] { command.Name }.Concat(parts));
     }
 
@@ -94,7 +98,10 @@ internal static class HelpWriter
         global::System.Console.WriteLine($"  Time: {culture.DateTimeFormat.LongTimePattern}");
         global::System.Console.WriteLine($"  Decimal: {culture.NumberFormat.NumberDecimalSeparator}");
         foreach (var token in syntax.Tokens)
-            global::System.Console.WriteLine($"  {token.Type}: {token.Start}...{token.End}");
+        {
+            var suffix = token.Type == CommandSyntaxTokenType.Object ? " using key:value pairs" : "";
+            global::System.Console.WriteLine($"  {token.Type}: {token.Start}...{token.End}{suffix}");
+        }
     }
 
     private static bool IsOptional(ParameterInfo parameter)
@@ -102,5 +109,19 @@ internal static class HelpWriter
         if (parameter.HasDefaultValue || Nullable.GetUnderlyingType(parameter.ParameterType) is not null)
             return true;
         return !parameter.ParameterType.IsValueType && new NullabilityInfoContext().Create(parameter).ReadState == NullabilityState.Nullable;
+    }
+
+    private static string DefaultValue(ParameterInfo parameter)
+    {
+        var value = parameter.HasDefaultValue ? parameter.DefaultValue : null;
+        return value switch
+        {
+            null => "null",
+            string text when text.Any(char.IsWhiteSpace) => $"\"{text}\"",
+            string text => text,
+            bool boolean => boolean ? "true" : "false",
+            IFormattable formattable => formattable.ToString(null, CultureInfo.CurrentCulture),
+            _ => value.ToString() ?? "null"
+        };
     }
 }

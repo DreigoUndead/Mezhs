@@ -32,6 +32,18 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Integrations.Grok", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Integrations.Mock", "integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A05}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Console", "src\Mezhs.Console\Mezhs.Console.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A12}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Sqlite", "src\Mezhs.Sqlite\Mezhs.Sqlite.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A13}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Executor", "src\Mezhs.Executor\Mezhs.Executor.csproj", "{D12F41F7-98C2-4A72-B71C-9271100B1A14}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Log.Shared", "src\Mezhs.Log.Shared\Mezhs.Log.Shared.csproj", "{8D12F19D-2271-4A4A-9EEB-68060D744225}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Log.Data", "src\Mezhs.Log.Data\Mezhs.Log.Data.csproj", "{E63E0A38-B354-43DD-9B30-34857E34E2FD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Log.Sql", "src\Mezhs.Log.Sql\Mezhs.Log.Sql.csproj", "{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -98,6 +110,30 @@ Global
 		{D12F41F7-98C2-4A72-B71C-9271100B1A05}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D12F41F7-98C2-4A72-B71C-9271100B1A05}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D12F41F7-98C2-4A72-B71C-9271100B1A05}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A12}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A12}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A12}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A12}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A13}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A13}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A13}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A13}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A14}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A14}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A14}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D12F41F7-98C2-4A72-B71C-9271100B1A14}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8D12F19D-2271-4A4A-9EEB-68060D744225}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8D12F19D-2271-4A4A-9EEB-68060D744225}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8D12F19D-2271-4A4A-9EEB-68060D744225}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8D12F19D-2271-4A4A-9EEB-68060D744225}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E63E0A38-B354-43DD-9B30-34857E34E2FD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E63E0A38-B354-43DD-9B30-34857E34E2FD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E63E0A38-B354-43DD-9B30-34857E34E2FD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E63E0A38-B354-43DD-9B30-34857E34E2FD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
