@@ -22,13 +22,7 @@ public sealed class SqliteDatabase
     public void Initialize(string schemaSql)
     {
         ArgumentNullException.ThrowIfNull(schemaSql);
-        EnsureDirectory();
         using var connection = Open();
-        using (var pragmas = connection.CreateCommand())
-        {
-            pragmas.CommandText = "PRAGMA journal_mode=WAL;";
-            pragmas.ExecuteNonQuery();
-        }
         using var schema = connection.CreateCommand();
         schema.CommandText = schemaSql;
         schema.ExecuteNonQuery();
@@ -40,11 +34,16 @@ public sealed class SqliteDatabase
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = Path,
-            Mode = SqliteOpenMode.ReadWriteCreate
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Pooling = true
         }.ToString());
         connection.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = $"PRAGMA busy_timeout={_busyTimeoutMilliseconds};";
+        command.CommandText = $"""
+            PRAGMA foreign_keys = ON;
+            PRAGMA busy_timeout = {_busyTimeoutMilliseconds};
+            PRAGMA journal_mode = WAL;
+            """;
         command.ExecuteNonQuery();
         return connection;
     }
