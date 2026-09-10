@@ -20,16 +20,17 @@ jobs:
         run: |
           $path = 'src/Mezhs.Executor/ExecutorStore.cs'
           $text = Get-Content -LiteralPath $path -Raw
-          $replacements = @(
-            @('using Mezhs.Sqlite;', 'using Mezhs.Log.Sql;'),
-            @('    private readonly SqliteDatabase _database;', "    private readonly LogSql _log = new();`n    private readonly string _file;"),
-            @("        _database = new SqliteDatabase(path);`n        _database.Initialize(`"`"`"", "        _file = System.IO.Path.GetFullPath(path);`n        _log.Execute(_file, `"`"`""),
-            @('    public string Path => _database.Path;', '    public string Path => _file;'),
-            @('_database.Open()', '_log.Open(_file)')
+
+          $rules = @(
+            @{ Pattern = 'using Mezhs\.Sqlite;'; Replacement = 'using Mezhs.Log.Sql;' },
+            @{ Pattern = '    private readonly SqliteDatabase _database;'; Replacement = "    private readonly LogSql _log = new();`r`n    private readonly string _file;" },
+            @{ Pattern = '        _database = new SqliteDatabase\(path\);\r?\n        _database\.Initialize\("""'; Replacement = "        _file = System.IO.Path.GetFullPath(path);`r`n        _log.Execute(_file, `"`"`"" },
+            @{ Pattern = '    public string Path => _database\.Path;'; Replacement = '    public string Path => _file;' },
+            @{ Pattern = '_database\.Open\(\)'; Replacement = '_log.Open(_file)' }
           )
-          foreach ($replacement in $replacements) {
-            if (-not $text.Contains($replacement[0])) { throw "Expected ExecutorStore text not found: $($replacement[0])" }
-            $text = $text.Replace($replacement[0], $replacement[1])
+          foreach ($rule in $rules) {
+            if ($text -notmatch $rule.Pattern) { throw "Expected ExecutorStore pattern not found: $($rule.Pattern)" }
+            $text = [regex]::Replace($text, $rule.Pattern, $rule.Replacement)
           }
           Set-Content -LiteralPath $path -Value $text -Encoding UTF8
 
