@@ -34,6 +34,11 @@ jobs:
           if (-not $text.Contains($needle)) { throw 'Executor service architecture marker not found.' }
           $text = $text.Replace($needle, $replacement)
 
+          $oldSqlite = 'Assert ($sqlite -match ''class SqliteDatabase'' -and $sqlite -match ''journal_mode=WAL'' -and $sqlite -match ''busy_timeout'' -and $sqlite -match ''EnsureColumn'' -and $sqlite -match ''DropColumnIfExists'') "Shared SQLite foundation does not own common path/connection/migration mechanics."'
+          $newSqlite = 'Assert ($sqlite -match ''class SqliteDatabase'' -and $sqlite -match ''journal_mode\s*=\s*WAL'' -and $sqlite -match ''busy_timeout\s*='' -and $sqlite -match ''Pooling\s*=\s*true'' -and $sqlite -match ''EnsureColumn'' -and $sqlite -match ''DropColumnIfExists'') "Shared SQLite foundation does not own common path/connection/migration mechanics."'
+          if (-not $text.Contains($oldSqlite)) { throw 'Old shared SQLite architecture assertion not found.' }
+          $text = $text.Replace($oldSqlite, $newSqlite)
+
           $old = 'Assert ($executorStore -match ''SqliteDatabase _database'' -and $executorStore -notmatch ''new SqliteConnectionStringBuilder'') "ExecutorStore bypasses the shared SQLite foundation."'
           $new = @'
           Assert ($executorProject -match 'Mezhs.Log.Sql' -and $executorProject -notmatch 'Mezhs.Sqlite') "Executor does not depend on LogSql as its persistence boundary."
