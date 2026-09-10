@@ -1,29 +1,30 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Mezhs.Log.Shared;
+using Mezhs.Sqlite;
 
 namespace Mezhs.Log.Sql;
 
-public sealed class LogSql(LogShared shared)
+public sealed class LogSql
 {
     private const string MigrationTable = "__MezhsMigrations";
+    private readonly Func<string, string> _resolve;
 
-    public SqliteConnection Open(string file)
+    public LogSql() : this(file => Path.GetFullPath(file))
     {
-        var path = shared.Resolve(file);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = path,
-            Mode = SqliteOpenMode.ReadWriteCreate,
-            Pooling = true
-        }.ToString());
-        connection.Open();
-        ExecutePragma(connection, "PRAGMA foreign_keys = ON;");
-        ExecutePragma(connection, "PRAGMA busy_timeout = 5000;");
-        ExecutePragma(connection, "PRAGMA journal_mode = WAL;");
-        return connection;
     }
+
+    public LogSql(LogShared shared) : this(shared.Resolve)
+    {
+    }
+
+    public LogSql(Func<string, string> resolve)
+    {
+        _resolve = resolve ?? throw new ArgumentNullException(nameof(resolve));
+    }
+
+    public SqliteConnection Open(string file) =>
+        new SqliteDatabase(_resolve(file)).Open();
 
     public IReadOnlyList<string> GetTables(string file)
     {
@@ -322,11 +323,4 @@ public sealed class LogSql(LogShared shared)
 
     private static string QuoteIdentifier(string value) =>
         $"\"{value.Replace("\"", "\"\"")}\"";
-
-    private static void ExecutePragma(SqliteConnection connection, string sql)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        command.ExecuteNonQuery();
-    }
 }
