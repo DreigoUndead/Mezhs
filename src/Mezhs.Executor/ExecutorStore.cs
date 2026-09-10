@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
-using Mezhs.Sqlite;
+using Mezhs.Log.Sql;
 using Microsoft.Data.Sqlite;
 
 namespace Mezhs.Executor;
@@ -12,12 +12,13 @@ internal sealed record RestartPlan(Execution OldExecution, Execution NewExecutio
 internal sealed class ExecutorStore
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private readonly SqliteDatabase _database;
+    private readonly LogSql _log = new();
+    private readonly string _file;
 
     public ExecutorStore(string path)
     {
-        _database = new SqliteDatabase(path);
-        _database.Initialize("""
+        _file = System.IO.Path.GetFullPath(path);
+        _log.Execute(_file, """
             CREATE TABLE IF NOT EXISTS ExecutorExecutions (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 Status TEXT NOT NULL,
@@ -60,7 +61,7 @@ internal sealed class ExecutorStore
             """);
     }
 
-    public string Path => _database.Path;
+    public string Path => _file;
 
     public CreateExecutionResult Create(
         string commandText,
@@ -72,7 +73,7 @@ internal sealed class ExecutorStore
         var context = ReadContext(environment);
         var environmentJson = JsonSerializer.Serialize(environment, Json);
 
-        using var connection = _database.Open();
+        using var connection = _log.Open(_file);
         using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO ExecutorExecutions (
@@ -124,13 +125,13 @@ internal sealed class ExecutorStore
 
     public StoredExecution? Get(int id)
     {
-        using var connection = _database.Open();
+        using var connection = _log.Open(_file);
         return Get(connection, null, id);
     }
 
     public IReadOnlyList<Execution> List(string? chatId, int limit)
     {
-        using var connection = _database.Open();
+        using var connection = _log.Open(_file);
         using var command = connection.CreateCommand();
         command.CommandText = chatId is null
             ? "SELECT * FROM ExecutorExecutions ORDER BY Id DESC LIMIT $limit;"
@@ -148,7 +149,7 @@ internal sealed class ExecutorStore
     public StoredExecution? Claim(int id, int ownerProcessId)
     {
         var now = DateTimeOffset.UtcNow;
-        using var connection = _database.Open();
+        using var connection = _log.Open(_file);
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE ExecutorExecutions
@@ -171,7 +172,7 @@ internal sealed class ExecutorStore
 
     public void SetProcessId(int id, int processId)
     {
-        using var connection = _database.Open();
+        using var connection = _log.Open(_file);
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE ExecutorExecutions
@@ -188,7 +189,7 @@ internal sealed class ExecutorStore
 
     public Execution? HeartbeatAndGet(int id)
     {
-        using var connection = _database.Open();
+        using var connection = _log.Open(_file);
         using (var heartbeat = connection.CreateCommand())
         {
             heartbeat.CommandText = """
@@ -209,7 +210,7 @@ internal sealed class ExecutorStore
     public Execution? RequestKill(int id)
     {
         var now = DateTimeOffset.UtcNow;
-        using var connection = _database.Open();
+        using var connection = _log.Open(_file);
         using (var command = connection.CreateCommand())
         {
             command.CommandText = """
@@ -254,7 +255,7 @@ internal sealed class ExecutorStore
         if (status is not (ExecutionStatus.Completed or ExecutionStatus.Failed or ExecutionStatus.Killed or ExecutionStatus.TimedOut))
             throw new ArgumentOutOfRangeException(nameof(status));
 
-        using var connection = _database.Open();
+        using var connection = _log.Open(_file);
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE ExecutorExecutions
@@ -280,7 +281,7 @@ internal sealed class ExecutorStore
 
     public void FailCreated(int id, string error)
     {
-        using var connection = _database.Open();
+        using var connection = _log.Open(_file);
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE ExecutorExecutions
@@ -300,7 +301,7 @@ internal sealed class ExecutorStore
 
     public void ReconcileStale(int id, DateTimeOffset cutoff)
     {
-        using var connection = _database.Open();
+        using var connection = _log.Open(_file);
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE ExecutorExecutions
@@ -327,7 +328,7 @@ internal sealed class ExecutorStore
 
     public RestartPlan PrepareRestart(int id)
     {
-        using var connection = _database.Open();
+        using var connection = _log.Open(_file);
         using var transaction = connection.BeginTransaction();
         var now = DateTimeOffset.UtcNow;
         StoredExecution? old;
@@ -534,3 +535,4 @@ internal sealed class ExecutorStore
         string? TriggerMessageId,
         int? CommandIndex);
 }
+
