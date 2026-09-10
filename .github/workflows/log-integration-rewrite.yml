@@ -1,4 +1,4 @@
-name: Integrate Log foundation mechanics
+name: Normalize Log foundation integration
 
 on:
   push:
@@ -8,44 +8,58 @@ permissions:
   contents: write
 
 jobs:
-  rewrite:
+  normalize:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
-      - name: Route Executor store through LogSql and add Log projects
+          fetch-depth: 0
+      - name: Keep solution diff minimal
         shell: pwsh
         run: |
-          $path = 'src/Mezhs.Executor/ExecutorStore.cs'
-          $text = Get-Content -LiteralPath $path -Raw
+          $base = 'd8e313adefa9c089f7628c9ec4ded5e9d0587019'
+          $solution = git show "$base`:Mezhs.sln" | Out-String
+          $projectBlocks = @'
+          Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Log.Shared", "src\Mezhs.Log.Shared\Mezhs.Log.Shared.csproj", "{8D12F19D-2271-4A4A-9EEB-68060D744225}"
+          EndProject
+          Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Log.Data", "src\Mezhs.Log.Data\Mezhs.Log.Data.csproj", "{E63E0A38-B354-43DD-9B30-34857E34E2FD}"
+          EndProject
+          Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Log.Sql", "src\Mezhs.Log.Sql\Mezhs.Log.Sql.csproj", "{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}"
+          EndProject
+          '@
+          $solution = $solution -replace '(?m)^Global\r?$', ($projectBlocks.TrimEnd() + "`r`nGlobal")
 
-          $rules = @(
-            @{ Pattern = 'using Mezhs\.Sqlite;'; Replacement = 'using Mezhs.Log.Sql;' },
-            @{ Pattern = '    private readonly SqliteDatabase _database;'; Replacement = "    private readonly LogSql _log = new();`r`n    private readonly string _file;" },
-            @{ Pattern = '        _database = new SqliteDatabase\(path\);\r?\n        _database\.Initialize\("""'; Replacement = "        _file = System.IO.Path.GetFullPath(path);`r`n        _log.Execute(_file, `"`"`"" },
-            @{ Pattern = '    public string Path => _database\.Path;'; Replacement = '    public string Path => _file;' },
-            @{ Pattern = '_database\.Open\(\)'; Replacement = '_log.Open(_file)' }
-          )
-          foreach ($rule in $rules) {
-            if ($text -notmatch $rule.Pattern) { throw "Expected ExecutorStore pattern not found: $($rule.Pattern)" }
-            $text = [regex]::Replace($text, $rule.Pattern, $rule.Replacement)
-          }
-          Set-Content -LiteralPath $path -Value $text -Encoding UTF8
+          $configs = @'
+          		{8D12F19D-2271-4A4A-9EEB-68060D744225}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+          		{8D12F19D-2271-4A4A-9EEB-68060D744225}.Debug|Any CPU.Build.0 = Debug|Any CPU
+          		{8D12F19D-2271-4A4A-9EEB-68060D744225}.Release|Any CPU.ActiveCfg = Release|Any CPU
+          		{8D12F19D-2271-4A4A-9EEB-68060D744225}.Release|Any CPU.Build.0 = Release|Any CPU
+          		{E63E0A38-B354-43DD-9B30-34857E34E2FD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+          		{E63E0A38-B354-43DD-9B30-34857E34E2FD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+          		{E63E0A38-B354-43DD-9B30-34857E34E2FD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+          		{E63E0A38-B354-43DD-9B30-34857E34E2FD}.Release|Any CPU.Build.0 = Release|Any CPU
+          		{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+          		{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+          		{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+          		{9ECCDCA4-2153-44D1-980A-4009CFDC4DB3}.Release|Any CPU.Build.0 = Release|Any CPU
+          '@
+          $pattern = '(?s)(\tGlobalSection\(ProjectConfigurationPlatforms\) = postSolution\r?\n)(.*?)(\tEndGlobalSection)'
+          $match = [regex]::Match($solution, $pattern)
+          if (-not $match.Success) { throw 'ProjectConfigurationPlatforms section not found.' }
+          $body = $match.Groups[2].Value.TrimEnd("`r", "`n")
+          $replacement = $match.Groups[1].Value + $body + "`r`n" + $configs.TrimEnd() + "`r`n" + $match.Groups[3].Value
+          $solution = $solution.Substring(0, $match.Index) + $replacement + $solution.Substring($match.Index + $match.Length)
+          [IO.File]::WriteAllText((Join-Path $PWD 'Mezhs.sln'), $solution, [Text.UTF8Encoding]::new($false))
 
-          dotnet sln Mezhs.sln add `
-            src/Mezhs.Log.Shared/Mezhs.Log.Shared.csproj `
-            src/Mezhs.Log.Data/Mezhs.Log.Data.csproj `
-            src/Mezhs.Log.Sql/Mezhs.Log.Sql.csproj
-          if ($LASTEXITCODE -ne 0) { throw 'dotnet sln add failed.' }
+          git diff --check -- Mezhs.sln
+          $added = (git diff --numstat -- Mezhs.sln).Split("`t")[0]
+          if ([int]$added -gt 30) { throw "Solution integration is unexpectedly large: $added added lines." }
 
-      - name: Commit integration rewrite
+      - name: Commit minimal solution integration
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/Mezhs.Executor/ExecutorStore.cs Mezhs.sln
-          git diff --cached --check
-          git commit -m 'Complete Log foundation merge [skip ci]'
+          git add Mezhs.sln
+          git commit -m 'Keep Log projects in solution without CLI churn [skip ci]'
           git push
