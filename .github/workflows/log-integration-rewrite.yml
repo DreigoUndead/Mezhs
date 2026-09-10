@@ -1,0 +1,50 @@
+name: Integrate Log foundation mechanics
+
+on:
+  push:
+    branches: [executor-foundation]
+
+permissions:
+  contents: write
+
+jobs:
+  rewrite:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Route Executor store through LogSql and add Log projects
+        shell: pwsh
+        run: |
+          $path = 'src/Mezhs.Executor/ExecutorStore.cs'
+          $text = Get-Content -LiteralPath $path -Raw
+          $replacements = @(
+            @('using Mezhs.Sqlite;', 'using Mezhs.Log.Sql;'),
+            @('    private readonly SqliteDatabase _database;', "    private readonly LogSql _log = new();`n    private readonly string _file;"),
+            @("        _database = new SqliteDatabase(path);`n        _database.Initialize(`"`"`"", "        _file = System.IO.Path.GetFullPath(path);`n        _log.Execute(_file, `"`"`""),
+            @('    public string Path => _database.Path;', '    public string Path => _file;'),
+            @('_database.Open()', '_log.Open(_file)')
+          )
+          foreach ($replacement in $replacements) {
+            if (-not $text.Contains($replacement[0])) { throw "Expected ExecutorStore text not found: $($replacement[0])" }
+            $text = $text.Replace($replacement[0], $replacement[1])
+          }
+          Set-Content -LiteralPath $path -Value $text -Encoding UTF8
+
+          dotnet sln Mezhs.sln add `
+            src/Mezhs.Log.Shared/Mezhs.Log.Shared.csproj `
+            src/Mezhs.Log.Data/Mezhs.Log.Data.csproj `
+            src/Mezhs.Log.Sql/Mezhs.Log.Sql.csproj
+          if ($LASTEXITCODE -ne 0) { throw 'dotnet sln add failed.' }
+
+      - name: Commit integration rewrite
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/Mezhs.Executor/ExecutorStore.cs Mezhs.sln
+          git diff --cached --check
+          git commit -m 'Complete Log foundation merge [skip ci]'
+          git push
