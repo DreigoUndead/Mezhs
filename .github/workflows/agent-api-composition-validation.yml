@@ -1,0 +1,65 @@
+name: agent-api-composition-validation
+
+on:
+  push:
+    branches:
+      - agent-api-composition
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $result = @()
+
+          dotnet build Mezhs.sln *>&1 | Tee-Object -FilePath build.log
+          $build = $LASTEXITCODE
+          $result += "BUILD_EXIT=$build"
+
+          pwsh -NoProfile -File tests/architecture.ps1 *>&1 | Tee-Object -FilePath architecture.log
+          $architecture = $LASTEXITCODE
+          $result += "ARCHITECTURE_EXIT=$architecture"
+
+          pwsh -NoProfile -File tests/agent-architecture.ps1 *>&1 | Tee-Object -FilePath agent-architecture.log
+          $agentArchitecture = $LASTEXITCODE
+          $result += "AGENT_ARCHITECTURE_EXIT=$agentArchitecture"
+
+          $overall = if ($build -eq 0 -and $architecture -eq 0 -and $agentArchitecture -eq 0) { 'PASS' } else { 'FAIL' }
+          $result += "OVERALL=$overall"
+          $result += ""
+          $result += "=== BUILD ==="
+          $result += Get-Content build.log
+          $result += ""
+          $result += "=== ARCHITECTURE ==="
+          $result += Get-Content architecture.log
+          $result += ""
+          $result += "=== AGENT ARCHITECTURE ==="
+          $result += Get-Content agent-architecture.log
+          $result | Set-Content .agent-api-composition-validation.txt
+
+      - name: Commit validation result
+        if: always()
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .agent-api-composition-validation.txt
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "Record Agent API composition validation [skip ci]"
+            git push
+          }
