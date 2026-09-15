@@ -10,219 +10,172 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Run composition cleanup v3'
+    if: github.event.head_commit.message == 'Format composition cleanup'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Normalize cleanup edits
+      - name: Normalize formatting
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
 
-          function Write-Utf8([string]$path, [string]$text) {
-            [IO.File]::WriteAllText((Resolve-Path $path), $text, [Text.UTF8Encoding]::new($false))
-          }
-
-          function Replace-LiteralRegex([string]$path, [string]$pattern, [string]$replacement) {
+          function Replace-Exact([string]$path, [string]$old, [string]$new) {
             $text = Get-Content -LiteralPath $path -Raw
-            $regex = [regex]::new($pattern)
-            if (-not $regex.IsMatch($text)) { throw "Expected pattern not found in $path`n$pattern" }
-            $updated = $regex.Replace($text, [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $replacement })
-            Write-Utf8 $path $updated
+            if (-not $text.Contains($old)) { throw "Expected text not found in $path" }
+            [IO.File]::WriteAllText((Resolve-Path $path), $text.Replace($old, $new), [Text.UTF8Encoding]::new($false))
           }
 
-          function Dedent([string]$text, [int]$spaces) {
-            $prefix = ' ' * $spaces
-            return (($text -split "`r?`n" | ForEach-Object { $_ -replace ('^' + [regex]::Escape($prefix)), '' }) -join "`n")
-          }
+          $old = @'
+useEffect(() => {
+  void (async () => {
+    try {
+      const [policyValues, chatValues] = await Promise.all([
+        api<AgentPolicy[]>("/v1/policies"),
+        api<AgentChat[]>("/v1/agent-chats"),
+      ]);
+      setApiReady(true);
+      setPolicies(policyValues);
+      setChats(chatValues);
+      setPolicyId(policyValues[0]?.id ?? "");
+      if (chatValues.length > 0)
+        setSelectedChatId(chatValues[0].chatId);
+    } catch (error) {
+      setApiReady(false);
+      setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
+    }
+  })();
+}, []);
+'@
+          $new = @'
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [policyValues, chatValues] = await Promise.all([
+          api<AgentPolicy[]>("/v1/policies"),
+          api<AgentChat[]>("/v1/agent-chats"),
+        ]);
+        setApiReady(true);
+        setPolicies(policyValues);
+        setChats(chatValues);
+        setPolicyId(policyValues[0]?.id ?? "");
+        if (chatValues.length > 0)
+          setSelectedChatId(chatValues[0].chatId);
+      } catch (error) {
+        setApiReady(false);
+        setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
+      }
+    })();
+  }, []);
+'@
+          Replace-Exact 'src/Mezhs.Agent.Web/src/App.tsx' $old $new
 
-          # Restore the smoke test from the branch point, then apply only intentional composition assertions.
-          $baseSmoke = git show origin/executor-foundation:tests/agent-api-smoke.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'Could not restore agent-api-smoke.ps1 from executor-foundation.' }
-          Write-Utf8 'tests/agent-api-smoke.ps1' (($baseSmoke -join "`n") + "`n")
+          $old = @'
+async function refreshChats() {
+  try {
+    setChats(await api<AgentChat[]>("/v1/agent-chats"));
+    setApiReady(true);
+  } catch {
+    setApiReady(false);
+    // Keep the last durable view during transient refresh failures.
+  }
+}
+'@
+          $new = @'
+  async function refreshChats() {
+    try {
+      setChats(await api<AgentChat[]>("/v1/agent-chats"));
+      setApiReady(true);
+    } catch {
+      setApiReady(false);
+      // Keep the last durable view during transient refresh failures.
+    }
+  }
+'@
+          Replace-Exact 'src/Mezhs.Agent.Web/src/App.tsx' $old $new
 
-          $appInitial = Dedent @'
-          useEffect(() => {
-            void (async () => {
-              try {
-                const [policyValues, chatValues] = await Promise.all([
-                  api<AgentPolicy[]>("/v1/policies"),
-                  api<AgentChat[]>("/v1/agent-chats"),
-                ]);
-                setApiReady(true);
-                setPolicies(policyValues);
-                setChats(chatValues);
-                setPolicyId(policyValues[0]?.id ?? "");
-                if (chatValues.length > 0)
-                  setSelectedChatId(chatValues[0].chatId);
-              } catch (error) {
-                setApiReady(false);
-                setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
-              }
-            })();
-          }, []);
-          '@ 10
-          Replace-LiteralRegex 'src/Mezhs.Agent.Web/src/App.tsx' `
-            '(?s)  useEffect\(\(\) => \{\s*void \(async \(\) => \{\s*try \{\s*const \[policyValues, chatValues\].*?\n  \}, \[\]\);' `
-            $appInitial
+          $old = @'
+        while (true)
+        {
+  var message = Get(messageId)
+      ?? throw new ResourceNotFoundException($"Message '{messageId}' was not found.");
 
-          $refreshChats = Dedent @'
-          async function refreshChats() {
-            try {
-              setChats(await api<AgentChat[]>("/v1/agent-chats"));
-              setApiReady(true);
-            } catch {
-              setApiReady(false);
-              // Keep the last durable view during transient refresh failures.
+  switch (message.Status)
+  {
+      case MessageStatus.Completed:
+          return message.Reply
+              ?? throw new InvalidOperationException("MEŽS completed without an assistant reply.");
+      case MessageStatus.Failed:
+      case MessageStatus.Cancelled:
+          throw new InvalidOperationException(
+              message.Error ?? $"MEŽS message ended with status {message.Status}.");
+      default:
+          await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+          break;
+  }
+        }
+    }
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+'@
+          $new = @'
+        while (true)
+        {
+            var message = Get(messageId)
+                ?? throw new ResourceNotFoundException($"Message '{messageId}' was not found.");
+
+            switch (message.Status)
+            {
+                case MessageStatus.Completed:
+                    return message.Reply
+                        ?? throw new InvalidOperationException("MEŽS completed without an assistant reply.");
+                case MessageStatus.Failed:
+                case MessageStatus.Cancelled:
+                    throw new InvalidOperationException(
+                        message.Error ?? $"MEŽS message ended with status {message.Status}.");
+                default:
+                    await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+                    break;
             }
-          }
-          '@ 10
-          Replace-LiteralRegex 'src/Mezhs.Agent.Web/src/App.tsx' `
-            '(?s)  async function refreshChats\(\) \{.*?\n  \}' `
-            $refreshChats
+        }
+    }
 
-          $messageBlock = Dedent @'
-              public ApiMessage? Get(string messageId)
-              {
-                  var message = store.GetMessage(messageId);
-                  return message is null ? null : ToApi(message);
-              }
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+'@
+          Replace-Exact 'src/Mezhs.Api/Services/MessageService.cs' $old $new
 
-              public async Task<ApiMessage> SendWithReplyAsync(
-                  PostMessageRequest request,
-                  CancellationToken cancellationToken = default)
-              {
-                  var created = Post(request);
-                  return await WaitForReplyAsync(created.MessageId, cancellationToken);
-              }
-
-              public async Task<ApiMessage> WaitForReplyAsync(
-                  string messageId,
-                  CancellationToken cancellationToken = default)
-              {
-                  while (true)
-                  {
-                      var message = Get(messageId)
-                          ?? throw new ResourceNotFoundException($"Message '{messageId}' was not found.");
-
-                      switch (message.Status)
-                      {
-                          case MessageStatus.Completed:
-                              return message.Reply
-                                  ?? throw new InvalidOperationException("MEŽS completed without an assistant reply.");
-                          case MessageStatus.Failed:
-                          case MessageStatus.Cancelled:
-                              throw new InvalidOperationException(
-                                  message.Error ?? $"MEŽS message ended with status {message.Status}.");
-                          default:
-                              await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
-                              break;
-                      }
-                  }
-              }
-          '@ 10
-          Replace-LiteralRegex 'src/Mezhs.Api/Services/MessageService.cs' `
-            '(?s)    public ApiMessage\? Get\(string messageId\).*?(?=\n    protected override async Task ExecuteAsync)' `
-            $messageBlock
-
-          $cancelOptions = Dedent @'
-              var options = new AgentOptions
-              {
-                  Server = new() { Listen = "http://127.0.0.1:1" },
-                  AgentStorage = agentPath,
-                  Workspace = workspace,
-                  Runtime = new AgentRuntimeOptions(),
-                  Messages = new AgentRuntimeMessages
-                  {
-                      Continue = "continue",
-                      PolicyCorrection = "policy",
-                      CommandCorrection = "command",
-                      CommandResults = "results",
-                      ProtocolIntro = "protocol",
-                      ShellContext = "shell"
-                  },
-                  Policies = new Dictionary<string, PolicyContext>()
-              };
-          '@ 10
-          Replace-LiteralRegex 'tests/agent-cancel-recovery.ps1' `
-            '(?s)\s*var options = new AgentOptions\s*\{.*?\n\s*\};(?=\r?\n    var recovery)' `
-            ("`n`n" + $cancelOptions)
-
-          $healthBlock = Dedent @'
-              if ((Get-Status "http://127.0.0.1:5199/health") -ne 200) {
-                  throw "Loopback Agent API health endpoint is unavailable."
-              }
-              if ((Get-Status "http://127.0.0.1:5199/v1/runtime") -ne 404) {
-                  throw "Obsolete Agent runtime endpoint still exists."
-              }
-              if ((Get-Status "http://127.0.0.1:5199/v1/metrics") -ne 404) {
-                  throw "Unused generic metrics endpoint still exists."
-              }
-
-              $agentConnections = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/connections")
-              if (-not ($agentConnections | Where-Object { $_.id -eq "test" })) {
-                  throw "Agent API does not expose the shared MEŽS API surface."
-              }
-          '@ 10
-          Replace-LiteralRegex 'tests/agent-api-smoke.ps1' `
-            '(?s)    if \(\(Get-Status "http://127\.0\.0\.1:5199/v1/runtime"\) -ne 200\) \{.*?if \(-not \$runtime\.mezhsApiHealthy\) \{ throw "Agent API cannot reach generic MEZS API\." \}' `
-            $healthBlock
-
-          $corsSmoke = Dedent @'
-              $originClient = [Net.Http.HttpClient]::new()
-              try {
-                  $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
-                  $request.Headers.Add("Origin", "https://example.invalid")
-                  $response = $originClient.SendAsync($request).GetAwaiter().GetResult()
-                  try {
-                      if ($response.Headers.Contains("Access-Control-Allow-Origin")) {
-                          throw "Agent API allowed a non-loopback browser origin."
-                      }
-                  } finally { $response.Dispose(); $request.Dispose() }
-
-                  $loopbackRequest = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
-                  $loopbackRequest.Headers.Add("Origin", "http://127.0.0.1:5173")
-                  $loopbackResponse = $originClient.SendAsync($loopbackRequest).GetAwaiter().GetResult()
-                  try {
-                      if (-not $loopbackResponse.Headers.Contains("Access-Control-Allow-Origin")) {
-                          throw "Agent API did not allow a loopback browser origin."
-                      }
-                  } finally { $loopbackResponse.Dispose(); $loopbackRequest.Dispose() }
-              } finally { $originClient.Dispose() }
-          '@ 10
-          Replace-LiteralRegex 'tests/agent-api-smoke.ps1' `
-            '(?s)    \$originClient = \[Net\.Http\.HttpClient\]::new\(\).*?\n    \} finally \{ \$originClient\.Dispose\(\) \}' `
-            $corsSmoke
-
-          $proxyWait = Dedent @'
-              $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
-              do {
-                  try {
-                      $null = Invoke-RestMethod -Uri "http://127.0.0.1:5200/v1/policies"
-                      break
-                  } catch {
-                      if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }
-                  }
-                  Start-Sleep -Milliseconds 150
-              } while ($true)
-          '@ 10
-          Replace-LiteralRegex 'tests/agent-api-smoke.ps1' `
-            '(?s)    \$deadline = \[DateTimeOffset\]::UtcNow\.AddSeconds\(20\)\s*do \{\s*try \{\s*\$proxied = Invoke-RestMethod -Uri "http://127\.0\.0\.1:5200/v1/runtime"\s*if \(\$proxied\.status -eq "ok"\) \{ break \}\s*\} catch \{\s*if \(\[DateTimeOffset\]::UtcNow -ge \$deadline\) \{ throw \}\s*\}\s*Start-Sleep -Milliseconds 150\s*\} while \(\$true\)' `
-            $proxyWait
+          $old = @'
+        Messages = new AgentRuntimeMessages
+        {
+  Continue = "continue",
+  PolicyCorrection = "policy",
+  CommandCorrection = "command",
+  CommandResults = "results",
+  ProtocolIntro = "protocol",
+  ShellContext = "shell"
+        },
+'@
+          $new = @'
+        Messages = new AgentRuntimeMessages
+        {
+            Continue = "continue",
+            PolicyCorrection = "policy",
+            CommandCorrection = "command",
+            CommandResults = "results",
+            ProtocolIntro = "protocol",
+            ShellContext = "shell"
+        },
+'@
+          Replace-Exact 'tests/agent-cancel-recovery.ps1' $old $new
 
           $smoke = Get-Content -LiteralPath 'tests/agent-api-smoke.ps1' -Raw
-          $smoke = $smoke.Replace(
-            '$offlineDebug.Content -notmatch ''chatMessagesUnavailable:''',
-            '$offlineDebug.Content -match ''chatMessagesUnavailable:''')
-          $smoke = $smoke.Replace(
-            'PASS: Agent API/Web are loopback-only, CORS-closed, environment-scoped, DTO-backed, free of requester/metrics ceremony, and keep local debug logs downloadable when MEZS API is unavailable.',
-            'PASS: Agent API/Web are loopback-only, browser CORS is loopback-only, the shared MEŽS API is hosted in-process, and debug logs remain complete when the separate generic API is offline.')
-          Write-Utf8 'tests/agent-api-smoke.ps1' $smoke
+          $smoke = $smoke.Replace('        try {`n  if ($response.Headers.Contains("Access-Control-Allow-Origin")) {`n      throw "Agent API allowed a non-loopback browser origin."`n  }`n        } finally', '        try {`n            if ($response.Headers.Contains("Access-Control-Allow-Origin")) {`n                throw "Agent API allowed a non-loopback browser origin."`n            }`n        } finally')
+          $smoke = $smoke.Replace('        try {`n  if (-not $loopbackResponse.Headers.Contains("Access-Control-Allow-Origin")) {`n      throw "Agent API did not allow a loopback browser origin."`n  }`n        } finally', '        try {`n            if (-not $loopbackResponse.Headers.Contains("Access-Control-Allow-Origin")) {`n                throw "Agent API did not allow a loopback browser origin."`n            }`n        } finally')
+          $smoke = $smoke.Replace('        try {`n  $null = Invoke-RestMethod -Uri "http://127.0.0.1:5200/v1/policies"`n  break`n        } catch {`n  if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }`n        }', '        try {`n            $null = Invoke-RestMethod -Uri "http://127.0.0.1:5200/v1/policies"`n            break`n        } catch {`n            if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }`n        }')
+          [IO.File]::WriteAllText((Resolve-Path 'tests/agent-api-smoke.ps1'), $smoke, [Text.UTF8Encoding]::new($false))
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src tests
-          git commit -m "Normalize Agent API composition cleanup [skip ci]"
-          git push
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "Format Agent API composition cleanup [skip ci]"
+            git push
+          }
