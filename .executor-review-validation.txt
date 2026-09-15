@@ -1,0 +1,9 @@
+build=success
+console_test=failure
+executor_test=success
+executor_lifecycle=success
+executor_restart=success
+agent_recovery=failure
+agent_architecture=failure
+web_build=success
+overall=FAIL
