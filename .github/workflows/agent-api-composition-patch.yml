@@ -10,13 +10,13 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Run composition cleanup v2'
+    if: github.event.head_commit.message == 'Run composition cleanup v3'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Apply final composition cleanup
+      - name: Normalize cleanup edits
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -25,77 +25,65 @@ jobs:
             [IO.File]::WriteAllText((Resolve-Path $path), $text, [Text.UTF8Encoding]::new($false))
           }
 
-          function Replace-Regex([string]$path, [string]$pattern, [string]$replacement) {
+          function Replace-LiteralRegex([string]$path, [string]$pattern, [string]$replacement) {
             $text = Get-Content -LiteralPath $path -Raw
-            $updated = [regex]::Replace($text, $pattern, $replacement)
-            if ($updated -eq $text) { throw "Expected pattern not found in $path`n$pattern" }
+            $regex = [regex]::new($pattern)
+            if (-not $regex.IsMatch($text)) { throw "Expected pattern not found in $path`n$pattern" }
+            $updated = $regex.Replace($text, [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $replacement })
             Write-Utf8 $path $updated
           }
 
-          # Restore the smoke test after an earlier temporary patch duplicated its contents.
+          function Dedent([string]$text, [int]$spaces) {
+            $prefix = ' ' * $spaces
+            return (($text -split "`r?`n" | ForEach-Object { $_ -replace ('^' + [regex]::Escape($prefix)), '' }) -join "`n")
+          }
+
+          # Restore the smoke test from the branch point, then apply only intentional composition assertions.
           $baseSmoke = git show origin/executor-foundation:tests/agent-api-smoke.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Could not restore agent-api-smoke.ps1 from executor-foundation.' }
           Write-Utf8 'tests/agent-api-smoke.ps1' (($baseSmoke -join "`n") + "`n")
 
-          # /v1/runtime is obsolete now that Agent hosts the shared API directly.
-          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
-            '(?s)type Runtime = \{\s*status: string;\s*\};\s*' `
-            ''
-          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
-            'const \[runtime, setRuntime\] = useState<Runtime \| null>\(null\);' `
-            'const [apiReady, setApiReady] = useState(false);'
+          $appInitial = Dedent @'
+          useEffect(() => {
+            void (async () => {
+              try {
+                const [policyValues, chatValues] = await Promise.all([
+                  api<AgentPolicy[]>("/v1/policies"),
+                  api<AgentChat[]>("/v1/agent-chats"),
+                ]);
+                setApiReady(true);
+                setPolicies(policyValues);
+                setChats(chatValues);
+                setPolicyId(policyValues[0]?.id ?? "");
+                if (chatValues.length > 0)
+                  setSelectedChatId(chatValues[0].chatId);
+              } catch (error) {
+                setApiReady(false);
+                setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
+              }
+            })();
+          }, []);
+          '@ 10
+          Replace-LiteralRegex 'src/Mezhs.Agent.Web/src/App.tsx' `
+            '(?s)  useEffect\(\(\) => \{\s*void \(async \(\) => \{\s*try \{\s*const \[policyValues, chatValues\].*?\n  \}, \[\]\);' `
+            $appInitial
 
-          $loadBlock = @'
-          const [policyValues, chatValues] = await Promise.all([
-            api<AgentPolicy[]>("/v1/policies"),
-            api<AgentChat[]>("/v1/agent-chats"),
-          ]);
-          setApiReady(true);
-          setPolicies(policyValues);
-          setChats(chatValues);
-          '@
-          $loadBlock = ($loadBlock -split "`r?`n" | ForEach-Object { $_ -replace '^          ', '' }) -join "`n"
-          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
-            '(?s)const \[runtimeValue, policyValues, chatValues\] = await Promise\.all\(\[\s*api<Runtime>\("/v1/runtime"\),\s*api<AgentPolicy\[\]>\("/v1/policies"\),\s*api<AgentChat\[\]>\("/v1/agent-chats"\),\s*\]\);\s*setRuntime\(runtimeValue\);\s*setPolicies\(policyValues\);\s*setChats\(chatValues\);' `
-            $loadBlock
+          $refreshChats = Dedent @'
+          async function refreshChats() {
+            try {
+              setChats(await api<AgentChat[]>("/v1/agent-chats"));
+              setApiReady(true);
+            } catch {
+              setApiReady(false);
+              // Keep the last durable view during transient refresh failures.
+            }
+          }
+          '@ 10
+          Replace-LiteralRegex 'src/Mezhs.Agent.Web/src/App.tsx' `
+            '(?s)  async function refreshChats\(\) \{.*?\n  \}' `
+            $refreshChats
 
-          $initialCatch = @'
-          catch (error) {
-            setApiReady(false);
-            setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
-          '@
-          $initialCatch = ($initialCatch -split "`r?`n" | ForEach-Object { $_ -replace '^          ', '' }) -join "`n"
-          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
-            'catch \(error\) \{\s*setNotice\(error instanceof Error \? error\.message : "Could not load MEŽS Agent\."\);' `
-            $initialCatch
-
-          $refreshSuccess = @'
-          setChats(await api<AgentChat[]>("/v1/agent-chats"));
-          setApiReady(true);
-          '@
-          $refreshSuccess = ($refreshSuccess -split "`r?`n" | ForEach-Object { $_ -replace '^          ', '' }) -join "`n"
-          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
-            'setChats\(await api<AgentChat\[\]>\("/v1/agent-chats"\)\);' `
-            $refreshSuccess
-
-          $refreshCatch = @'
-          catch {
-            setApiReady(false);
-            // Keep the last durable view during transient refresh failures.
-          '@
-          $refreshCatch = ($refreshCatch -split "`r?`n" | ForEach-Object { $_ -replace '^          ', '' }) -join "`n"
-          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
-            'catch \{\s*// Keep the last durable view during transient refresh failures\.' `
-            $refreshCatch
-          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
-            'runtime\?\.status === "ok"' `
-            'apiReady'
-          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
-            'runtime\?\.mezhsApiHealthy' `
-            'apiReady'
-
-          # Send/wait behavior belongs on MessageService, not an extension shim.
-          $messageMethods = @'
+          $messageBlock = Dedent @'
               public ApiMessage? Get(string messageId)
               {
                   var message = store.GetMessage(messageId);
@@ -134,15 +122,12 @@ jobs:
                       }
                   }
               }
-          '@
-          $messageMethods = ($messageMethods -split "`r?`n" | ForEach-Object { $_ -replace '^              ', '' }) -join "`n"
-          Replace-Regex 'src/Mezhs.Api/Services/MessageService.cs' `
-            '(?s)    public ApiMessage\? Get\(string messageId\)\s*\{\s*var message = store\.GetMessage\(messageId\);\s*return message is null \? null : ToApi\(message\);\s*\}' `
-            $messageMethods
-          Remove-Item -LiteralPath 'src/Mezhs.Api/Services/MessageServiceExtensions.cs'
+          '@ 10
+          Replace-LiteralRegex 'src/Mezhs.Api/Services/MessageService.cs' `
+            '(?s)    public ApiMessage\? Get\(string messageId\).*?(?=\n    protected override async Task ExecuteAsync)' `
+            $messageBlock
 
-          # Tests constructing AgentOptions must use the composed configuration shape.
-          $cancelOptions = @'
+          $cancelOptions = Dedent @'
               var options = new AgentOptions
               {
                   Server = new() { Listen = "http://127.0.0.1:1" },
@@ -160,24 +145,12 @@ jobs:
                   },
                   Policies = new Dictionary<string, PolicyContext>()
               };
-          '@
-          $cancelOptions = ($cancelOptions -split "`r?`n" | ForEach-Object { $_ -replace '^              ', '' }) -join "`n"
-          Replace-Regex 'tests/agent-cancel-recovery.ps1' `
-            '(?s)var options = new AgentOptions\s*\{.*?\n\s*\};(?=\r?\n    var recovery)' `
-            $cancelOptions
+          '@ 10
+          Replace-LiteralRegex 'tests/agent-cancel-recovery.ps1' `
+            '(?s)\s*var options = new AgentOptions\s*\{.*?\n\s*\};(?=\r?\n    var recovery)' `
+            ("`n`n" + $cancelOptions)
 
-          # Browser CORS is allowed only from another loopback-hosted UI.
-          $corsAssertions = @'
-          Assert ($program -notmatch 'AllowAnyOrigin') "Agent API exposes unrestricted cross-origin access."
-          Assert ($program -match 'AddCors' -and $program -match 'UseCors' -and $program -match 'SetIsOriginAllowed' -and $program -match 'uri\.IsLoopback') "Agent API does not restrict browser CORS to loopback origins."
-          '@
-          $corsAssertions = ($corsAssertions -split "`r?`n" | ForEach-Object { $_ -replace '^          ', '' }) -join "`n"
-          Replace-Regex 'tests/agent-architecture.ps1' `
-            'Assert \(\$program -notmatch ''AllowAnyOrigin\|AllowAnyHeader\|AllowAnyMethod\|AddCors\|UseCors''\) "Agent API still exposes permissive CORS\."' `
-            $corsAssertions
-
-          # Reapply smoke assertions to the clean base test.
-          $healthBlock = @'
+          $healthBlock = Dedent @'
               if ((Get-Status "http://127.0.0.1:5199/health") -ne 200) {
                   throw "Loopback Agent API health endpoint is unavailable."
               }
@@ -192,13 +165,12 @@ jobs:
               if (-not ($agentConnections | Where-Object { $_.id -eq "test" })) {
                   throw "Agent API does not expose the shared MEŽS API surface."
               }
-          '@
-          $healthBlock = ($healthBlock -split "`r?`n" | ForEach-Object { $_ -replace '^              ', '' }) -join "`n"
-          Replace-Regex 'tests/agent-api-smoke.ps1' `
+          '@ 10
+          Replace-LiteralRegex 'tests/agent-api-smoke.ps1' `
             '(?s)    if \(\(Get-Status "http://127\.0\.0\.1:5199/v1/runtime"\) -ne 200\) \{.*?if \(-not \$runtime\.mezhsApiHealthy\) \{ throw "Agent API cannot reach generic MEZS API\." \}' `
             $healthBlock
 
-          $corsSmoke = @'
+          $corsSmoke = Dedent @'
               $originClient = [Net.Http.HttpClient]::new()
               try {
                   $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
@@ -219,13 +191,12 @@ jobs:
                       }
                   } finally { $loopbackResponse.Dispose(); $loopbackRequest.Dispose() }
               } finally { $originClient.Dispose() }
-          '@
-          $corsSmoke = ($corsSmoke -split "`r?`n" | ForEach-Object { $_ -replace '^              ', '' }) -join "`n"
-          Replace-Regex 'tests/agent-api-smoke.ps1' `
+          '@ 10
+          Replace-LiteralRegex 'tests/agent-api-smoke.ps1' `
             '(?s)    \$originClient = \[Net\.Http\.HttpClient\]::new\(\).*?\n    \} finally \{ \$originClient\.Dispose\(\) \}' `
             $corsSmoke
 
-          $proxyWait = @'
+          $proxyWait = Dedent @'
               $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
               do {
                   try {
@@ -236,20 +207,22 @@ jobs:
                   }
                   Start-Sleep -Milliseconds 150
               } while ($true)
-          '@
-          $proxyWait = ($proxyWait -split "`r?`n" | ForEach-Object { $_ -replace '^              ', '' }) -join "`n"
-          Replace-Regex 'tests/agent-api-smoke.ps1' `
+          '@ 10
+          Replace-LiteralRegex 'tests/agent-api-smoke.ps1' `
             '(?s)    \$deadline = \[DateTimeOffset\]::UtcNow\.AddSeconds\(20\)\s*do \{\s*try \{\s*\$proxied = Invoke-RestMethod -Uri "http://127\.0\.0\.1:5200/v1/runtime"\s*if \(\$proxied\.status -eq "ok"\) \{ break \}\s*\} catch \{\s*if \(\[DateTimeOffset\]::UtcNow -ge \$deadline\) \{ throw \}\s*\}\s*Start-Sleep -Milliseconds 150\s*\} while \(\$true\)' `
             $proxyWait
-          Replace-Regex 'tests/agent-api-smoke.ps1' `
-            '\$offlineDebug\.Content -notmatch ''chatMessagesUnavailable:''' `
-            '$offlineDebug.Content -match ''chatMessagesUnavailable:'''
-          Replace-Regex 'tests/agent-api-smoke.ps1' `
-            'PASS: Agent API/Web are loopback-only, CORS-closed, environment-scoped, DTO-backed, free of requester/metrics ceremony, and keep local debug logs downloadable when MEZS API is unavailable\.' `
-            'PASS: Agent API/Web are loopback-only, browser CORS is loopback-only, the shared MEŽS API is hosted in-process, and debug logs remain complete when the separate generic API is offline.'
+
+          $smoke = Get-Content -LiteralPath 'tests/agent-api-smoke.ps1' -Raw
+          $smoke = $smoke.Replace(
+            '$offlineDebug.Content -notmatch ''chatMessagesUnavailable:''',
+            '$offlineDebug.Content -match ''chatMessagesUnavailable:''')
+          $smoke = $smoke.Replace(
+            'PASS: Agent API/Web are loopback-only, CORS-closed, environment-scoped, DTO-backed, free of requester/metrics ceremony, and keep local debug logs downloadable when MEZS API is unavailable.',
+            'PASS: Agent API/Web are loopback-only, browser CORS is loopback-only, the shared MEŽS API is hosted in-process, and debug logs remain complete when the separate generic API is offline.')
+          Write-Utf8 'tests/agent-api-smoke.ps1' $smoke
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src tests
-          git commit -m "Finalize Agent API composition cleanup [skip ci]"
+          git commit -m "Normalize Agent API composition cleanup [skip ci]"
           git push
