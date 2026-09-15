@@ -145,8 +145,6 @@ public sealed class AgentWorker : BackgroundService
             if (string.IsNullOrWhiteSpace(chatId))
             {
                 chatId = _chats.Create(new CreateChatRequest(execution.ConnectionId)).ChatId;
-                _store.AttachChat(executionId, chatId);
-                execution.ChatId = chatId;
                 cancellation.Token.ThrowIfCancellationRequested();
             }
             else if (!_chats.Exists(chatId))
@@ -155,11 +153,13 @@ public sealed class AgentWorker : BackgroundService
             }
 
             _store.ClaimAgentChat(
+                executionId,
                 chatId,
                 execution.PolicyId,
                 execution.Source,
                 execution.SourceReference,
                 execution.Environment);
+            execution.ChatId = chatId;
             _store.ValidateAgentChatRunnable(chatId);
 
             var existingMessages = _chats.GetMessages(chatId);

@@ -188,21 +188,8 @@ public sealed class AgentStore(AgentOptions options)
         return GetAgentChat(chatId)!;
     }
 
-    public void AttachChat(string executionId, string chatId)
-    {
-        UpdateActive(
-            executionId,
-            """
-            UPDATE Executions
-            SET ChatId = $chatId
-            WHERE ExecutionId = $executionId
-              AND Kind = $agentKind
-              AND Status IN ($queued, $running);
-            """,
-            command => command.Parameters.AddWithValue("$chatId", chatId));
-    }
-
     public void ClaimAgentChat(
+        string executionId,
         string chatId,
         string policyId,
         string originSource,
@@ -263,6 +250,24 @@ public sealed class AgentStore(AgentOptions options)
             update.Parameters.AddWithValue("$updatedAt", Format(now));
             update.Parameters.AddWithValue("$chatId", chatId);
             update.ExecuteNonQuery();
+        }
+
+        using (var attach = connection.CreateCommand())
+        {
+            attach.Transaction = transaction;
+            attach.CommandText = """
+                UPDATE Executions
+                SET ChatId = $chatId
+                WHERE ExecutionId = $executionId
+                  AND Kind = $agentKind
+                  AND Status IN ($queued, $running);
+                """;
+            attach.Parameters.AddWithValue("$chatId", chatId);
+            attach.Parameters.AddWithValue("$executionId", executionId);
+            attach.Parameters.AddWithValue("$agentKind", AgentExecutionKind.Agent.ToString());
+            attach.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());
+            attach.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
+            attach.ExecuteNonQuery();
         }
 
         transaction.Commit();
@@ -515,19 +520,6 @@ public sealed class AgentStore(AgentOptions options)
         for (var index = 0; index < allowedStatuses.Length; index++)
             command.Parameters.AddWithValue(allowedParameters[index], allowedStatuses[index].ToString());
         return command.ExecuteNonQuery() == 1;
-    }
-
-    private void UpdateActive(string executionId, string sql, Action<SqliteCommand> bind)
-    {
-        using var connection = _database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        command.Parameters.AddWithValue("$executionId", executionId);
-        command.Parameters.AddWithValue("$agentKind", AgentExecutionKind.Agent.ToString());
-        command.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());
-        command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
-        bind(command);
-        command.ExecuteNonQuery();
     }
 
     private static void EnsurePolicyMatches(string chatId, string existingPolicyId, string requestedPolicyId)
