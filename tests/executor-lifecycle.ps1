@@ -29,6 +29,22 @@ try {
     $sleep20 = 'powershell -NoProfile -Command "Start-Sleep -Seconds 20"'
     $sleep30 = 'powershell -NoProfile -Command "Start-Sleep -Seconds 30"'
 
+    # An Agent command identity identifies its direct SH edge only. A nested/direct Executor
+    # invocation inherits conversation lineage, but must not reuse the parent's idempotency key.
+    $env:MEZHS_CHAT_ID = 'inherited-chat'
+    $env:MEZHS_TRIGGER_MESSAGE_ID = 'inherited-message'
+    $env:MEZHS_COMMAND_INDEX = '0'
+    $nestedA = Join-Path $work 'nested-a.txt'
+    $nestedB = Join-Path $work 'nested-b.txt'
+    $nestedAId = [int](Executor Execute "echo a>$nestedA" $work 30)
+    $nestedBId = [int](Executor Execute "echo b>$nestedB" $work 30)
+    Assert ($nestedAId -ne $nestedBId) 'Inherited Agent command identity collapsed two direct Executor calls into one execution.'
+    $nestedARecord = Executor Wait $nestedAId 20
+    $nestedBRecord = Executor Wait $nestedBId 20
+    Assert ((Status $nestedARecord) -eq 'Completed' -and (Status $nestedBRecord) -eq 'Completed') 'Nested direct Executor calls did not both complete.'
+    Assert ((Test-Path $nestedA) -and (Test-Path $nestedB)) 'Nested direct Executor calls did not both produce their side effects.'
+    Remove-Item Env:MEZHS_CHAT_ID,Env:MEZHS_TRIGGER_MESSAGE_ID,Env:MEZHS_COMMAND_INDEX -ErrorAction SilentlyContinue
+
     # Execute must return while an independently owned command continues after its caller exits.
     $file = Join-Path $work 'survived.txt'
     $watch = [Diagnostics.Stopwatch]::StartNew()
@@ -79,31 +95,6 @@ try {
     Assert ((Field $old 'RestartedAsId') -eq "$newId") 'Restart: old lineage missing'
     Assert (@(Get-Content $file).Count -eq 1) 'Restart: old child reached side effect'
 
-    # The same Agent SH identity is exactly-once, and after restart it reconnects to the latest descendant.
-    $env:MEZHS_CHAT_ID = 'validation-chat'
-    $env:MEZHS_TRIGGER_MESSAGE_ID = 'validation-message'
-    $env:MEZHS_COMMAND_INDEX = '0'
-    $file = Join-Path $work 'once.txt'
-    $id1 = [int](Executor Execute "ping -n 3 127.0.0.1 >nul & echo once>>$file" $work 30)
-    $id2 = [int](Executor Execute "ping -n 3 127.0.0.1 >nul & echo once>>$file" $work 30)
-    Assert ($id1 -eq $id2) 'Agent correlation: duplicate Execute changed ID'
-    $record = Executor Wait $id1 20
-    Assert ((Status $record) -eq 'Completed') "Agent correlation: got $(Status $record)"
-    Assert (@(Get-Content $file).Count -eq 1) 'Agent correlation: side effect duplicated'
-
-    $env:MEZHS_TRIGGER_MESSAGE_ID = 'validation-restart-message'
-    $file = Join-Path $work 'restart-identity.txt'
-    $command = "ping -n 3 127.0.0.1 >nul & echo run>>$file"
-    $originalId = [int](Executor Execute $command $work 30)
-    $null = Executor Wait $originalId 20
-    $replacementId = [int](Executor Restart $originalId)
-    $replayedId = [int](Executor Execute $command $work 30)
-    Assert ($replayedId -eq $replacementId) "Agent replay reconnected to $replayedId instead of latest restart $replacementId"
-    $record = Executor Wait $replacementId 20
-    Assert ((Status $record) -eq 'Completed') "Restarted Agent identity replacement: got $(Status $record)"
-    Assert (@(Get-Content $file).Count -eq 2) 'Agent identity executed more than original + explicit restart'
-    Remove-Item Env:MEZHS_CHAT_ID,Env:MEZHS_TRIGGER_MESSAGE_ID,Env:MEZHS_COMMAND_INDEX -ErrorAction SilentlyContinue
-
     # Heartbeat advances while alive; killing only the owner is reconciled lazily to Dead.
     $id = [int](Executor Execute $sleep30 $work 60)
     Start-Sleep -Milliseconds 1200
@@ -127,7 +118,7 @@ try {
         Select-String -Pattern 'ProcessStartInfo|Process\.Start\('
     Assert ($directAgentShell.Count -eq 0) ("Direct Agent shell process API remains: " + ($directAgentShell -join '; '))
 
-    Write-Host 'PASS: Executor detachment, atomic claim, kill, timeout, restart, Agent idempotency/restart reconnection, heartbeat, and lazy Dead reconciliation are correct.'
+    Write-Host 'PASS: Executor nested-identity isolation, detachment, atomic claim, kill, timeout, restart, heartbeat, and lazy Dead reconciliation are correct.'
 }
 finally {
     Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
