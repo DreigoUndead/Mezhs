@@ -7,7 +7,7 @@ on:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Check baseline Unicode [skip ci]'
+    if: github.event.head_commit.message == 'Check baseline Unicode'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,5 +36,5 @@ jobs:
           finally {
             Pop-Location
           }
-          # This job is evidence collection; expose the exit code in logs without making the workflow itself red.
+          # Evidence collection only: keep the workflow green and inspect the explicit exit code above.
           exit 0
