@@ -46,7 +46,7 @@ internal static class ValueBinder
             return false;
         }
 
-        if (ScalarConverter.CanConvert(type))
+        if (ScalarConverter.CanParse(type))
         {
             reason = null;
             return true;
