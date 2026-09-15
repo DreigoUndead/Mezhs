@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Make Agent chat claim atomic'
+    if: github.event.head_commit.message == 'Make Agent chat claim atomic v2'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,28 +18,35 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+
           function Write-Utf8([string]$path, [string]$text) {
             [IO.File]::WriteAllText((Resolve-Path $path), $text, [Text.UTF8Encoding]::new($false))
           }
+
           function Replace-LiteralRegex([string]$path, [string]$pattern, [string]$replacement) {
             $text = Get-Content -LiteralPath $path -Raw
-            $regex = [regex]::new($pattern, [Text.RegularExpressions.RegexOptions]::Singleline)
-            if (-not $regex.IsMatch($text)) { throw "Expected pattern not found in $path" }
+            $options = [Text.RegularExpressions.RegexOptions]::Singleline
+            $regex = [regex]::new($pattern, $options)
+            if (-not $regex.IsMatch($text)) { throw "Expected pattern not found in $path`n$pattern" }
             $updated = $regex.Replace($text, [Text.RegularExpressions.MatchEvaluator]{ param($m) $replacement }, 1)
             Write-Utf8 $path $updated
           }
 
-          Replace-LiteralRegex 'src/Mezhs.Agent.Api/Persistence/AgentStore.cs' '\r?\n    public void AttachChat\(string executionId, string chatId\).*?(?=\r?\n    public void ClaimAgentChat)' ''
+          Replace-LiteralRegex 'src/Mezhs.Agent.Api/Persistence/AgentStore.cs' `
+            '\r?\n    public void AttachChat\(string executionId, string chatId\).*?(?=\r?\n    public void ClaimAgentChat)' `
+            ''
 
           $signature = @(
             '    public void ClaimAgentChat(',
             '        string executionId,',
             '        string chatId,'
           ) -join "`n"
-          Replace-LiteralRegex 'src/Mezhs.Agent.Api/Persistence/AgentStore.cs' '    public void ClaimAgentChat\(\s*string chatId,' $signature
+          Replace-LiteralRegex 'src/Mezhs.Agent.Api/Persistence/AgentStore.cs' `
+            '    public void ClaimAgentChat\(\s*string chatId,' `
+            $signature
 
           $store = Get-Content -LiteralPath 'src/Mezhs.Agent.Api/Persistence/AgentStore.cs' -Raw
-          $attachLines = @(
+          $attachBlock = @(
             '        using (var attach = connection.CreateCommand())',
             '        {',
             '            attach.Transaction = transaction;',
@@ -57,28 +64,32 @@ jobs:
             '            attach.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());',
             '            attach.ExecuteNonQuery();',
             '        }'
-          )
-          $attachBlock = $attachLines -join "`n"
-          $beforeCommit = [regex]::new('(?s)(        using \(var update = connection\.CreateCommand\(\)\).*?            update\.ExecuteNonQuery\(\);\r?\n        \})\r?\n\r?\n        transaction\.Commit\(\);')
-          if (-not $beforeCommit.IsMatch($store)) { throw 'Could not locate ClaimAgentChat commit boundary.' }
-          $store = $beforeCommit.Replace($store, [Text.RegularExpressions.MatchEvaluator]{ param($m) $m.Groups[1].Value + "`n`n" + $attachBlock + "`n`n        transaction.Commit();" }, 1)
-          $store = [regex]::Replace($store, '(?s)\r?\n    private void UpdateActive\(string executionId, string sql, Action<SqliteCommand> bind\).*?(?=\r?\n    private static void EnsurePolicyMatches)', '', 1)
+          ) -join "`n"
+          $commitBoundary = [regex]::new(
+            '(?s)(        using \(var update = connection\.CreateCommand\(\)\).*?            update\.ExecuteNonQuery\(\);\r?\n        \})\r?\n\r?\n        transaction\.Commit\(\);')
+          if (-not $commitBoundary.IsMatch($store)) { throw 'Could not locate ClaimAgentChat commit boundary.' }
+          $store = $commitBoundary.Replace(
+            $store,
+            [Text.RegularExpressions.MatchEvaluator]{ param($m) $m.Groups[1].Value + "`n`n" + $attachBlock + "`n`n        transaction.Commit();" },
+            1)
+          $store = [regex]::Replace(
+            $store,
+            '(?s)\r?\n    private void UpdateActive\(string executionId, string sql, Action<SqliteCommand> bind\).*?(?=\r?\n    private static void EnsurePolicyMatches)',
+            '',
+            1)
           Write-Utf8 'src/Mezhs.Agent.Api/Persistence/AgentStore.cs' $store
 
-          $worker = Get-Content -LiteralPath 'src/Mezhs.Agent.Api/Services/AgentWorker.cs' -Raw
-          $oldCreate = "                chatId = _chats.Create(new CreateChatRequest(execution.ConnectionId)).ChatId;`n                _store.AttachChat(executionId, chatId);`n                execution.ChatId = chatId;`n                cancellation.Token.ThrowIfCancellationRequested();"
-          $newCreate = "                chatId = _chats.Create(new CreateChatRequest(execution.ConnectionId)).ChatId;`n                cancellation.Token.ThrowIfCancellationRequested();"
-          if (-not $worker.Contains($oldCreate)) { throw 'Could not locate new-chat attach sequence.' }
-          $worker = $worker.Replace($oldCreate, $newCreate)
-          $oldClaim = "            _store.ClaimAgentChat(`n                chatId,"
-          $newClaim = "            _store.ClaimAgentChat(`n                executionId,`n                chatId,"
-          if (-not $worker.Contains($oldClaim)) { throw 'Could not locate ClaimAgentChat call.' }
-          $worker = $worker.Replace($oldClaim, $newClaim)
-          $oldClaimEnd = "                execution.Environment);`n            _store.ValidateAgentChatRunnable(chatId);"
-          $newClaimEnd = "                execution.Environment);`n            execution.ChatId = chatId;`n            _store.ValidateAgentChatRunnable(chatId);"
-          if (-not $worker.Contains($oldClaimEnd)) { throw 'Could not locate ClaimAgentChat completion.' }
-          $worker = $worker.Replace($oldClaimEnd, $newClaimEnd)
-          Write-Utf8 'src/Mezhs.Agent.Api/Services/AgentWorker.cs' $worker
+          Replace-LiteralRegex 'src/Mezhs.Agent.Api/Services/AgentWorker.cs' `
+            '                chatId = _chats\.Create\(new CreateChatRequest\(execution\.ConnectionId\)\)\.ChatId;\s*_store\.AttachChat\(executionId, chatId\);\s*execution\.ChatId = chatId;\s*cancellation\.Token\.ThrowIfCancellationRequested\(\);' `
+            ("                chatId = _chats.Create(new CreateChatRequest(execution.ConnectionId)).ChatId;`n                cancellation.Token.ThrowIfCancellationRequested();")
+
+          Replace-LiteralRegex 'src/Mezhs.Agent.Api/Services/AgentWorker.cs' `
+            '_store\.ClaimAgentChat\(\s*chatId,' `
+            ("_store.ClaimAgentChat(`n                executionId,`n                chatId,")
+
+          Replace-LiteralRegex 'src/Mezhs.Agent.Api/Services/AgentWorker.cs' `
+            '                execution\.Environment\);\s*_store\.ValidateAgentChatRunnable\(chatId\);' `
+            ("                execution.Environment);`n            execution.ChatId = chatId;`n            _store.ValidateAgentChatRunnable(chatId);")
 
           $architecture = Get-Content -LiteralPath 'tests/agent-architecture.ps1' -Raw
           $anchor = 'Assert ($store -match ''TryCreateRootExecution'' -and $store -match ''TryClaimNextQueuedExecution'' -and $store -match ''RETURNING \*'') "SQLite is not the authoritative admission/claim owner for root Agent executions."'
