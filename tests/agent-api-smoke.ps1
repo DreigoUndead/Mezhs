@@ -99,15 +99,16 @@ try {
         -WorkingDirectory $root -RedirectStandardOutput $agentOut -RedirectStandardError $agentErr -WindowStyle Hidden -PassThru
     Wait-Health "http://127.0.0.1:5199/health"
 
-    if ((Get-Status "http://127.0.0.1:5199/v1/runtime") -ne 200) {
-        throw "Loopback Agent API unexpectedly requires authentication."
+    if ((Get-Status "http://127.0.0.1:5199/health") -ne 200) {
+        throw "Loopback Agent API health endpoint is unavailable."
+    }
+    if ((Get-Status "http://127.0.0.1:5199/v1/runtime") -ne 404) {
+        throw "Obsolete Agent runtime endpoint still exists."
     }
     if ((Get-Status "http://127.0.0.1:5199/v1/metrics") -ne 404) {
         throw "Unused generic metrics endpoint still exists."
     }
 
-    $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/runtime"
-    if ($runtime.status -ne "ok") { throw "Agent API runtime is not healthy." }
     $agentConnections = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/connections")
     if (-not ($agentConnections | Where-Object { $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Net.Http
@@ -222,14 +223,23 @@ try {
 
     $originClient = [Net.Http.HttpClient]::new()
     try {
-        $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/runtime")
+        $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
         $request.Headers.Add("Origin", "https://example.invalid")
         $response = $originClient.SendAsync($request).GetAwaiter().GetResult()
         try {
             if ($response.Headers.Contains("Access-Control-Allow-Origin")) {
-                throw "Agent API still emits cross-origin access headers."
+  throw "Agent API allowed a non-loopback browser origin."
             }
         } finally { $response.Dispose(); $request.Dispose() }
+
+        $loopbackRequest = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
+        $loopbackRequest.Headers.Add("Origin", "http://127.0.0.1:5173")
+        $loopbackResponse = $originClient.SendAsync($loopbackRequest).GetAwaiter().GetResult()
+        try {
+            if (-not $loopbackResponse.Headers.Contains("Access-Control-Allow-Origin")) {
+  throw "Agent API did not allow a loopback browser origin."
+            }
+        } finally { $loopbackResponse.Dispose(); $loopbackRequest.Dispose() }
     } finally { $originClient.Dispose() }
 
     $created = Start-AgentExecution "test" "hello agent"
@@ -312,8 +322,8 @@ echo %TEST_AGENT_VALUE%
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
     do {
         try {
-            $proxied = Invoke-RestMethod -Uri "http://127.0.0.1:5200/v1/runtime"
-            if ($proxied.status -eq "ok") { break }
+            $null = Invoke-RestMethod -Uri "http://127.0.0.1:5200/v1/policies"
+            break
         } catch {
             if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }
         }
@@ -334,7 +344,7 @@ echo %TEST_AGENT_VALUE%
     $api.WaitForExit()
     $offlineDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log"
     if ($offlineDebug.StatusCode -ne 200 -or $offlineDebug.Headers["Content-Disposition"] -notmatch "attachment" -or
-        $offlineDebug.Content -notmatch $completed.executionId -or $offlineDebug.Content -notmatch 'chatMessagesUnavailable:') {
+        $offlineDebug.Content -notmatch $completed.executionId -or $offlineDebug.Content -match 'chatMessagesUnavailable:') {
         throw "Debug log stopped being available when the generic MEZS API was offline."
     }
     $offlineProxiedDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5200/v1/agent-chats/$($completed.chatId)/debug-log"
@@ -342,7 +352,7 @@ echo %TEST_AGENT_VALUE%
         throw "Agent Web stopped proxying debug logs when the generic MEZS API was offline."
     }
 
-    Write-Host "PASS: Agent API/Web are loopback-only, CORS-closed, environment-scoped, DTO-backed, free of requester/metrics ceremony, and keep local debug logs downloadable when MEZS API is unavailable."
+    Write-Host "PASS: Agent API/Web are loopback-only, browser CORS is loopback-only, the shared MEŽS API is hosted in-process, and debug logs remain complete when the separate generic API is offline."
 }
 finally {
     if ($null -ne $web -and -not $web.HasExited) { Stop-Process -Id $web.Id -Force; $web.WaitForExit() }
@@ -360,14 +370,23 @@ finally {
 
     $originClient = [Net.Http.HttpClient]::new()
     try {
-        $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/runtime")
+        $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
         $request.Headers.Add("Origin", "https://example.invalid")
         $response = $originClient.SendAsync($request).GetAwaiter().GetResult()
         try {
             if ($response.Headers.Contains("Access-Control-Allow-Origin")) {
-                throw "Agent API still emits cross-origin access headers."
+  throw "Agent API allowed a non-loopback browser origin."
             }
         } finally { $response.Dispose(); $request.Dispose() }
+
+        $loopbackRequest = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
+        $loopbackRequest.Headers.Add("Origin", "http://127.0.0.1:5173")
+        $loopbackResponse = $originClient.SendAsync($loopbackRequest).GetAwaiter().GetResult()
+        try {
+            if (-not $loopbackResponse.Headers.Contains("Access-Control-Allow-Origin")) {
+  throw "Agent API did not allow a loopback browser origin."
+            }
+        } finally { $loopbackResponse.Dispose(); $loopbackRequest.Dispose() }
     } finally { $originClient.Dispose() }
 
     $created = Start-AgentExecution "test" "hello agent"
@@ -450,8 +469,8 @@ echo %TEST_AGENT_VALUE%
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
     do {
         try {
-            $proxied = Invoke-RestMethod -Uri "http://127.0.0.1:5200/v1/runtime"
-            if ($proxied.status -eq "ok") { break }
+            $null = Invoke-RestMethod -Uri "http://127.0.0.1:5200/v1/policies"
+            break
         } catch {
             if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }
         }
@@ -472,7 +491,7 @@ echo %TEST_AGENT_VALUE%
     $api.WaitForExit()
     $offlineDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log"
     if ($offlineDebug.StatusCode -ne 200 -or $offlineDebug.Headers["Content-Disposition"] -notmatch "attachment" -or
-        $offlineDebug.Content -notmatch $completed.executionId -or $offlineDebug.Content -notmatch 'chatMessagesUnavailable:') {
+        $offlineDebug.Content -notmatch $completed.executionId -or $offlineDebug.Content -match 'chatMessagesUnavailable:') {
         throw "Debug log stopped being available when the generic MEZS API was offline."
     }
     $offlineProxiedDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5200/v1/agent-chats/$($completed.chatId)/debug-log"
@@ -480,7 +499,7 @@ echo %TEST_AGENT_VALUE%
         throw "Agent Web stopped proxying debug logs when the generic MEZS API was offline."
     }
 
-    Write-Host "PASS: Agent API/Web are loopback-only, CORS-closed, environment-scoped, DTO-backed, free of requester/metrics ceremony, and keep local debug logs downloadable when MEZS API is unavailable."
+    Write-Host "PASS: Agent API/Web are loopback-only, browser CORS is loopback-only, the shared MEŽS API is hosted in-process, and debug logs remain complete when the separate generic API is offline."
 }
 finally {
     if ($null -ne $web -and -not $web.HasExited) { Stop-Process -Id $web.Id -Force; $web.WaitForExit() }

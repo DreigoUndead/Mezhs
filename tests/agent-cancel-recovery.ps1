@@ -86,11 +86,10 @@ try
     if (executor.Get(shellId).Status != ExecutionStatus.Running)
         throw new InvalidOperationException($"Shell did not reach Running before recovery: {executor.Get(shellId).Status}");
 
-    var options = new AgentOptions
+        var options = new AgentOptions
     {
-        Listen = new Uri("http://127.0.0.1:1"),
-        MezhsApi = new Uri("http://127.0.0.1:2"),
-        Storage = agentPath,
+        Server = new() { Listen = "http://127.0.0.1:1" },
+        AgentStorage = agentPath,
         Workspace = workspace,
         Runtime = new AgentRuntimeOptions(),
         Messages = new AgentRuntimeMessages

@@ -6,10 +6,6 @@ import {
   type ChatSurfaceMessage,
 } from "@mezhs/web-lib";
 
-type Runtime = {
-  status: string;
-};
-
 type AgentPolicy = {
   id: string;
   connectionId: string;
@@ -343,7 +339,7 @@ function policyPromptPreview(content: string) {
 }
 
 export default function App() {
-  const [runtime, setRuntime] = useState<Runtime | null>(null);
+  const [apiReady, setApiReady] = useState(false);
   const [policies, setPolicies] = useState<AgentPolicy[]>([]);
   const [chats, setChats] = useState<AgentChat[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
@@ -399,19 +395,19 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const [runtimeValue, policyValues, chatValues] = await Promise.all([
-          api<Runtime>("/v1/runtime"),
-          api<AgentPolicy[]>("/v1/policies"),
-          api<AgentChat[]>("/v1/agent-chats"),
-        ]);
-        setRuntime(runtimeValue);
-        setPolicies(policyValues);
-        setChats(chatValues);
+        const [policyValues, chatValues] = await Promise.all([
+  api<AgentPolicy[]>("/v1/policies"),
+  api<AgentChat[]>("/v1/agent-chats"),
+]);
+setApiReady(true);
+setPolicies(policyValues);
+setChats(chatValues);
         setPolicyId(policyValues[0]?.id ?? "");
         if (chatValues.length > 0)
           setSelectedChatId(chatValues[0].chatId);
       } catch (error) {
-        setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
+  setApiReady(false);
+  setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
       }
     })();
   }, []);
@@ -437,8 +433,10 @@ export default function App() {
   async function refreshChats() {
     try {
       setChats(await api<AgentChat[]>("/v1/agent-chats"));
+setApiReady(true);
     } catch {
-      // Keep the last durable view during transient refresh failures.
+  setApiReady(false);
+  // Keep the last durable view during transient refresh failures.
     }
   }
 
@@ -596,7 +594,7 @@ export default function App() {
         <div className="agent-brand-row">
           <div className="agent-brand-mark">M</div>
           <div><strong>MEŽS Agent</strong><span>Policy-controlled chats</span></div>
-          <span className={`health-dot ${runtime?.status === "ok" ? "online" : ""}`} title={runtime?.status === "ok" ? "MEŽS Agent API online" : "MEŽS Agent API unavailable"} />
+          <span className={`health-dot ${apiReady ? "online" : ""}`} title={apiReady ? "MEŽS Agent API online" : "MEŽS Agent API unavailable"} />
         </div>
 
         <button className="new-chat" type="button" onClick={beginNewChat}><span>+</span> New agent chat</button>
@@ -619,8 +617,8 @@ export default function App() {
         </nav>
 
         <div className="agent-sidebar-footer">
-          <span className={`status-pill ${runtime?.mezhsApiHealthy ? "ready" : "offline"}`}>
-            {runtime?.mezhsApiHealthy ? "API ready" : "API offline"}
+          <span className={`status-pill ${apiReady ? "ready" : "offline"}`}>
+            {apiReady ? "API ready" : "API offline"}
           </span>
         </div>
       </aside>
