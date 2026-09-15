@@ -20,7 +20,7 @@ public sealed class AgentOptions : MezhsOptions
     public Dictionary<string, object?> PolicyDefinitions { get; set; } = [];
 
     [YamlIgnore]
-    public IReadOnlyDictionary<string, PolicyContext> Policies { get; internal set; } =
+    public IReadOnlyDictionary<string, PolicyContext> Policies { get; set; } =
         new Dictionary<string, PolicyContext>(StringComparer.OrdinalIgnoreCase);
 }
 
