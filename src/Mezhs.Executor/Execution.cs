@@ -14,6 +14,9 @@ public enum ExecutionStatus
     Dead
 }
 
+public sealed class ExecutionNotFoundException(int id)
+    : Exception($"Execution '{id}' was not found.");
+
 public sealed class Execution : ReturnObjectBase
 {
     public int Id { get; set; }
