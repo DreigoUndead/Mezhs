@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Reflection;
+using Mezhs.Common;
 
 namespace Mezhs.Console;
 
@@ -194,7 +195,7 @@ public abstract class ConsoleApplication
                 return;
             }
         }
-        global::System.Console.WriteLine(ScalarConverter.Format(result));
+        global::System.Console.WriteLine(Cast.Format(result));
     }
 
     private static int Error(string message, int exitCode = 2)
