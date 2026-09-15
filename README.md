@@ -16,16 +16,10 @@ Agent shell commands always run from the configured `workspace`. Caller-provided
 
 ## Architecture
 
-Agent responsibilities are intentionally split by owner: local-only API exposure, durable execution/evidence persistence, policy compilation/evaluation, durable worker scheduling, shell process lifecycle, and shared chat rendering. The dashboard consumes persisted command identity rather than reconstructing execution state from command text.
+Agent responsibilities are split by semantic owner. `Mezhs.Agent.Api` owns policy, durable root reasoning/admission state, same-chat serialization and root cancellation. `Mezhs.Executor` owns host shell/process lifetime and durable shell execution history. Agent policy validates the concrete `SH` body before Executor receives it; Executor itself does not interpret Agent policy.
 
-SQLite is the source of truth for queued root executions and admission capacity. Workers keep only a tiny in-memory wake signal, atomically claim eligible queued work from SQLite, and enforce same-chat serialization before an execution becomes `Running`. Queued work therefore survives an Agent service restart; only work that had actually started is recovered as `Interrupted`.
+Executor makes each host execution independently observable through one durable SQLite row, one runtime owner process and one owned shell/process. It supports detached execution, heartbeat, timeout, kill, restart lineage, self-restart handoff and lazy reconciliation of stale active owners. Agent API and Agent Web project shell state from Executor instead of maintaining a second shell lifecycle copy.
 
-## Known Issues / TODO
+`Mezhs.Sqlite` owns the generic SQLite connection foundation: path handling, WAL, busy timeout, foreign-key setup and schema helpers. `Mezhs.Log.Sql` builds reusable SQL operations on that foundation. `ExecutorStore` goes through `LogSql` for SQLite access while retaining only execution-specific schema, queries and atomic state transitions; `AgentStore` uses the same `Mezhs.Sqlite` foundation directly for Agent-specific durable state. `Mezhs.Log.Shared` keeps the separate Notes/log-root semantics used by the log CLI rather than imposing them on Executor storage.
 
-### Process isolation
-
-- MEŽS services still need a dedicated supervisor/launcher that owns detached process/session startup.
-- The controlling shell must not be coupled to the lifetime of the service it starts.
-- Development tooling should provide independent start/stop/restart handling instead of relying on killing shared process trees.
-
-This is intentionally not implemented as a shell-script detachment workaround; it needs one explicit process-supervision owner.
+SQLite is the source of truth for queued root Agent executions and admission capacity. Workers keep only a small in-memory wake signal, atomically claim eligible work, and enforce same-chat serialization before an execution becomes `Running`. Queued work survives Agent API restart. Work that had already started is requeued for reasoning recovery; previously launched `SH` blocks reconnect to their existing Executor rows using durable command identity rather than executing the host action again.

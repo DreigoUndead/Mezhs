@@ -35,7 +35,7 @@ type AgentChatMessage = {
   messageId: string;
   chatId: string;
   connectionId: string;
-  role: "user" | "assistant";
+  role: ChatSurfaceMessage["role"];
   origin: string;
   content: string;
   displayContent: string;
@@ -45,21 +45,18 @@ type AgentChatMessage = {
   parentMessageId?: string;
   replayOfMessageId?: string;
   replyMessageId?: string;
-  status: "Queued" | "Running" | "Completed" | "Failed" | "Cancelled";
+  status: ChatSurfaceMessage["status"];
   error?: string;
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
 };
 
-type ExecutionStatus = "Queued" | "Running" | "CancelRequested" | "Completed" | "Failed" | "Cancelled" | "Interrupted";
-type ExecutionKind = "Agent" | "Shell";
-
 type Execution = {
   executionId: string;
   parentExecutionId?: string;
   correlationId: string;
-  kind: ExecutionKind;
+  kind: string;
   commandName?: string;
   triggerMessageId?: string;
   commandIndex?: number;
@@ -68,7 +65,8 @@ type Execution = {
   connectionId: string;
   source: string;
   sourceReference?: string;
-  status: ExecutionStatus;
+  status: string;
+  isTerminal: boolean;
   request: string;
   result?: string;
   error?: string;
@@ -77,6 +75,8 @@ type Execution = {
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
+  restartedFromId?: string;
+  restartedAsId?: string;
 };
 
 type ProtocolCommand = {
@@ -107,8 +107,6 @@ type CommandEvidence = CommandResultPayload & {
   execution?: Execution;
 };
 
-const activeStatuses = new Set<ExecutionStatus>(["Queued", "Running", "CancelRequested"]);
-const terminalStatuses = new Set<ExecutionStatus>(["Completed", "Failed", "Cancelled", "Interrupted"]);
 const executionEnvelope = /^\[MEŽS AGENT EXECUTION ([^\]]+)]/;
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -142,11 +140,11 @@ function displayTitle(chat: AgentChat) {
   return chat.title?.trim() || `Agent chat ${shortId(chat.chatId)}`;
 }
 
-function statusTone(status: ExecutionStatus) {
-  if (status === "Completed") return "good";
-  if (status === "Failed") return "bad";
-  if (status === "Cancelled" || status === "Interrupted") return "muted";
-  return "active";
+function statusTone(execution: Execution) {
+  if (execution.status === "Completed") return "good";
+  if (execution.status === "Failed" || execution.status === "TimedOut" || execution.status === "Dead") return "bad";
+  if (execution.status === "Cancelled" || execution.status === "Interrupted" || execution.status === "Killed") return "muted";
+  return execution.isTerminal ? "muted" : "active";
 }
 
 function originLabel(origin: string) {
@@ -359,15 +357,16 @@ export default function App() {
   const [sending, setSending] = useState(false);
   const [togglingPause, setTogglingPause] = useState(false);
   const [stoppingExecutionId, setStoppingExecutionId] = useState<string | null>(null);
+  const [shellActionExecutionId, setShellActionExecutionId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
   const selectedPolicy = policies.find((policy) =>
     policy.id === (selectedChat?.policyId ?? policyId));
   const activeExecution = executions.find((execution) =>
-    execution.kind === "Agent" && activeStatuses.has(execution.status));
+    execution.kind === "Agent" && !execution.isTerminal);
   const activeShellExecution = executions.find((execution) =>
-    execution.kind === "Shell" && activeStatuses.has(execution.status));
+    execution.kind === "Shell" && !execution.isTerminal);
   const latestAgentExecution = executions.find((execution) => execution.kind === "Agent");
   const sharedMessages = useMemo(
     () => messages.map((message) => toSharedMessage(message, executions)),
@@ -446,17 +445,16 @@ export default function App() {
   }
 
   async function loadSelected(chatId: string, reportErrors = true) {
-    try {
-      const [messageValues, executionValues] = await Promise.all([
-        api<AgentChatMessage[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/messages`),
-        api<Execution[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/executions`),
-      ]);
-      setMessages(messageValues);
-      setExecutions(executionValues);
-    } catch (error) {
-      if (reportErrors)
-        setNotice(error instanceof Error ? error.message : "Could not load this agent chat.");
-    }
+    const results = await Promise.allSettled([
+      api<AgentChatMessage[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/messages`).then(setMessages),
+      api<Execution[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/executions`).then(setExecutions),
+    ]);
+    if (!reportErrors)
+      return;
+
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected")
+      setNotice(failure.reason instanceof Error ? failure.reason.message : "Could not fully refresh this agent chat.");
   }
 
   function beginNewChat() {
@@ -512,7 +510,7 @@ export default function App() {
       const execution = await api<Execution>(`/v1/executions/${encodeURIComponent(executionId)}`);
       if (execution.chatId)
         return execution.chatId;
-      if (terminalStatuses.has(execution.status))
+      if (execution.isTerminal)
         throw new Error(execution.error || `Execution ended as ${execution.status} before a chat was attached.`);
       await new Promise((resolve) => window.setTimeout(resolve, 250));
     }
@@ -534,6 +532,24 @@ export default function App() {
       setNotice(error instanceof Error ? error.message : "Agent execution could not be stopped.");
     } finally {
       setStoppingExecutionId(null);
+    }
+  }
+
+  async function shellAction(executionId: string, action: "kill" | "restart") {
+    if (shellActionExecutionId)
+      return;
+    setShellActionExecutionId(executionId);
+    setNotice(null);
+    try {
+      await api<Execution>(`/v1/executions/${encodeURIComponent(executionId)}/${action}`, {
+        method: "POST",
+      });
+      if (selectedChatId)
+        await loadSelected(selectedChatId);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : `Shell execution could not be ${action === "kill" ? "killed" : "restarted"}.`);
+    } finally {
+      setShellActionExecutionId(null);
     }
   }
 
@@ -667,13 +683,13 @@ export default function App() {
                   <span>·</span>
                   <span>{shortId(selectedChat.chatId)}</span>
                   {latestAgentExecution && (
-                    <span className={`agent-execution-status ${statusTone(latestAgentExecution.status)}`}>
+                    <span className={`agent-execution-status ${statusTone(latestAgentExecution)}`}>
                       {latestAgentExecution.status}
                     </span>
                   )}
                   {activeShellExecution && (
                     <span className="agent-active-command">
-                      SH {activeShellExecution.status === "CancelRequested" ? "stopping" : "running"} {elapsedLabel(activeShellExecution) ?? ""}
+                      SH {activeShellExecution.status === "KillRequested" ? "stopping" : activeShellExecution.status.toLocaleLowerCase()} {elapsedLabel(activeShellExecution) ?? ""}
                     </span>
                   )}
                 </div>
@@ -797,17 +813,16 @@ export default function App() {
                         {commandStates.map((command, index) => {
                           const execution = command.execution;
                           const status = execution?.status ?? (activeExecution ? "Pending" : "Not executed");
-                          const targetExecutionId = execution?.parentExecutionId ?? activeExecution?.executionId;
                           return (
                             <details className="agent-protocol-card agent-command-evidence agent-command-request" key={`${command.name}-${index}`}>
                               <summary>
                                 <div className="agent-command-request-heading">
                                   <strong>{command.name}</strong>
-                                  <span className={execution ? `agent-execution-status ${statusTone(execution.status)}` : "agent-execution-status muted"}>
+                                  <span className={execution ? `agent-execution-status ${statusTone(execution)}` : "agent-execution-status muted"}>
                                     {status}
                                   </span>
                                   {execution?.exitCode !== undefined && <span>exit {execution.exitCode}</span>}
-                                  {execution?.status === "Running" && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
+                                  {execution && !execution.isTerminal && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
                                 </div>
                                 <code>{compactPreview(command.body, "Agent command requested")}</code>
                               </summary>
@@ -816,6 +831,16 @@ export default function App() {
                                 {execution && (
                                   <div className="agent-command-request-meta">
                                     <span>execution</span><code>{execution.executionId}</code>
+                                  </div>
+                                )}
+                                {execution?.restartedFromId && (
+                                  <div className="agent-command-request-meta">
+                                    <span>restarted from</span><code>{execution.restartedFromId}</code>
+                                  </div>
+                                )}
+                                {execution?.restartedAsId && (
+                                  <div className="agent-command-request-meta">
+                                    <span>restarted as</span><code>{execution.restartedAsId}</code>
                                   </div>
                                 )}
                                 {execution?.result && (
@@ -830,17 +855,29 @@ export default function App() {
                                     <pre>{execution.error}</pre>
                                   </section>
                                 )}
-                                {execution?.status === "Running" && targetExecutionId && (
-                                  <button
-                                    type="button"
-                                    className="agent-danger agent-command-stop"
-                                    onClick={() => void stopExecution(targetExecutionId)}
-                                    disabled={!!stoppingExecutionId}
-                                  >
-                                    {stoppingExecutionId === targetExecutionId ? "Stopping…" : "Stop agent execution"}
-                                  </button>
+                                {execution?.kind === "Shell" && (
+                                  <div className="agent-header-actions">
+                                    {!execution.isTerminal && execution.status !== "KillRequested" && (
+                                      <button
+                                        type="button"
+                                        className="agent-danger agent-command-stop"
+                                        onClick={() => void shellAction(execution.executionId, "kill")}
+                                        disabled={!!shellActionExecutionId}
+                                      >
+                                        {shellActionExecutionId === execution.executionId ? "Updating…" : "Kill shell"}
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className="agent-secondary"
+                                      onClick={() => void shellAction(execution.executionId, "restart")}
+                                      disabled={!!shellActionExecutionId}
+                                    >
+                                      {shellActionExecutionId === execution.executionId ? "Updating…" : "Restart shell"}
+                                    </button>
+                                  </div>
                                 )}
-                                <small>Execution evidence and result are also retained in execution history.</small>
+                                <small>Execution evidence and result are retained in Executor history.</small>
                               </div>
                             </details>
                           );
@@ -876,14 +913,34 @@ export default function App() {
                   <article className="agent-execution-row" key={execution.executionId}>
                     <div className="agent-execution-topline">
                       <strong>{execution.commandName ?? execution.kind}</strong>
-                      <span className={`agent-execution-status ${statusTone(execution.status)}`}>{execution.status}</span>
+                      <span className={`agent-execution-status ${statusTone(execution)}`}>{execution.status}</span>
                       {execution.exitCode !== undefined && <span>exit {execution.exitCode}</span>}
-                      {activeStatuses.has(execution.status) && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
+                      {!execution.isTerminal && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
                       <time>{formatTime(execution.createdAt)}</time>
                     </div>
                     {execution.kind === "Shell" ? <pre className="agent-command-code">{execution.request}</pre> : <code>{execution.request}</code>}
+                    {execution.restartedFromId && <small>restarted from {execution.restartedFromId}</small>}
+                    {execution.restartedAsId && <small>restarted as {execution.restartedAsId}</small>}
                     {execution.result && <pre>{execution.result}</pre>}
                     {execution.error && <pre className="agent-error-output">{execution.error}</pre>}
+                    {execution.kind === "Shell" && (
+                      <div className="agent-header-actions">
+                        {!execution.isTerminal && execution.status !== "KillRequested" && (
+                          <button
+                            type="button"
+                            className="agent-danger"
+                            onClick={() => void shellAction(execution.executionId, "kill")}
+                            disabled={!!shellActionExecutionId}
+                          >Kill</button>
+                        )}
+                        <button
+                          type="button"
+                          className="agent-secondary"
+                          onClick={() => void shellAction(execution.executionId, "restart")}
+                          disabled={!!shellActionExecutionId}
+                        >Restart</button>
+                      </div>
+                    )}
                   </article>
                 ))}
                 {executions.length === 0 && <p>No execution records yet.</p>}

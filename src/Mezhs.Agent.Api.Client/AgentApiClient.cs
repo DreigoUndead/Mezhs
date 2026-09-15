@@ -104,6 +104,28 @@ public sealed class AgentApiClient
         return await ReadAsync<AgentExecutionView>(response, cancellationToken);
     }
 
+    public async Task<AgentExecutionView> KillExecutionAsync(
+        string executionId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _client.PostAsync(
+            $"/v1/executions/{Uri.EscapeDataString(executionId)}/kill",
+            null,
+            cancellationToken);
+        return await ReadAsync<AgentExecutionView>(response, cancellationToken);
+    }
+
+    public async Task<AgentExecutionView> RestartExecutionAsync(
+        string executionId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _client.PostAsync(
+            $"/v1/executions/{Uri.EscapeDataString(executionId)}/restart",
+            null,
+            cancellationToken);
+        return await ReadAsync<AgentExecutionView>(response, cancellationToken);
+    }
+
     private static async Task<T> ReadAsync<T>(
         HttpResponseMessage response,
         CancellationToken cancellationToken)
@@ -165,4 +187,6 @@ public sealed record AgentExecutionView(
     string PolicySnapshot,
     DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt,
-    DateTimeOffset? CompletedAt);
+    DateTimeOffset? CompletedAt,
+    string? RestartedFromId = null,
+    string? RestartedAsId = null);

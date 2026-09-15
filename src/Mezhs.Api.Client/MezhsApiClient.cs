@@ -115,9 +115,9 @@ public sealed class MezhsApiClient(HttpClient client)
         return await WaitForReplyAsync(created.MessageId, cancellationToken);
     }
 
-    private async Task<ApiMessage> WaitForReplyAsync(
+    public async Task<ApiMessage> WaitForReplyAsync(
         string messageId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
         while (true)
         {

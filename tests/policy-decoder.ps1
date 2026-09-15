@@ -29,6 +29,7 @@ using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
 using Mezhs.Agent.Services;
 using Mezhs.Api.Contracts;
+using Mezhs.Executor;
 using Microsoft.Data.Sqlite;
 
 var options = AgentConfigLoader.Load(args[0]);
@@ -72,7 +73,6 @@ Assert(incomplete.State == PolicyCompletionState.Incomplete, "Missing DONE was n
 var doneAccepted = done.EvaluateCompletion(new PolicyCompletionContext(
     new PolicyEvaluationContext(rootEvidence, new[] { rootEvidence }), true));
 Assert(doneAccepted.State == PolicyCompletionState.Accepted, "Valid DONE claim was rejected without evidence requirements.");
-
 var evidenceMissing = evidencePolicy.EvaluateCompletion(new PolicyCompletionContext(
     new PolicyEvaluationContext(rootEvidence, new[] { rootEvidence }), true));
 Assert(evidenceMissing.State == PolicyCompletionState.Rejected && evidenceMissing.Error?.Contains("<SH>", StringComparison.Ordinal) == true,
@@ -131,22 +131,23 @@ var shellOptions = new AgentOptions
 {
     Listen = options.Listen,
     MezhsApi = options.MezhsApi,
-    Storage = Path.Combine(Path.GetTempPath(), $"mezhs-shell-test-{Guid.NewGuid():N}.sqlite"),
+    Storage = Path.Combine(Path.GetTempPath(), $"mezhs-agent-policy-{Guid.NewGuid():N}.sqlite"),
     Workspace = options.Workspace,
     Runtime = options.Runtime,
     Messages = options.Messages,
     Policies = options.Policies
 };
+var executorPath = Path.Combine(Path.GetTempPath(), $"mezhs-executor-policy-{Guid.NewGuid():N}.sqlite");
 
 try
 {
     var store = new AgentStore(shellOptions);
     store.Initialize();
-    var evaluations = new PolicyEvaluationService(store);
-    var interpreter = new Interpreter(parser, evaluations, new Shell(store, shellOptions));
+    var executor = new ExecutorService(executorPath);
+    var evaluations = new PolicyEvaluationService(store, executor);
+    var interpreter = new Interpreter(parser, evaluations, new Shell(executor, shellOptions));
     var emptyEnvironment = new Dictionary<string, string>();
 
-    // SQLite is the root execution queue. A running execution must block only later work for the same chat.
     var serialA1 = store.TryCreateRootExecution(
         normal.Id, normal.ConnectionId, "chat_serial_a", "manual", null,
         "serial a1", emptyEnvironment, normal.Snapshot, 100)
@@ -181,18 +182,20 @@ try
         normal.Id, normal.ConnectionId, "chat_shell", "manual", null,
         "shell test", emptyEnvironment, normal.Snapshot, 100)
         ?? throw new InvalidOperationException("Shell test root execution was not admitted.");
-    Assert(store.TryMarkRunning(root.ExecutionId), "Shell test root execution did not start.");
+    root = store.TryClaimNextQueuedExecution()
+        ?? throw new InvalidOperationException("Shell test root execution did not start.");
 
     var simple = await interpreter.InterpretAsync(
         root, normal, "msg-simple", "<SH>\necho MEZHS_SHELL_OK\n</SH>", CancellationToken.None);
     Assert(simple.Error is null && simple.Results.Count == 1 && simple.Results[0].Succeeded,
         $"Simple shell command failed: {simple.Error ?? simple.Results.FirstOrDefault()?.Error}");
-    var simpleChild = store.GetExecutions("chat_shell").Single(record => record.ExecutionId == simple.Results[0].ExecutionId);
-    Assert(simpleChild.CommandName == "SH" && simpleChild.TriggerMessageId == "msg-simple" && simpleChild.CommandIndex == 0,
-        "Shell execution did not persist semantic command/message/index identity.");
-    Assert(simpleChild.Request == "echo MEZHS_SHELL_OK", "Shell command text was rewritten before persistence/execution.");
+    var simpleChild = executor.List("chat_shell").Single(record =>
+        record.Id.ToString(System.Globalization.CultureInfo.InvariantCulture) == simple.Results[0].ExecutionId);
+    Assert(simpleChild.TriggerMessageId == "msg-simple" && simpleChild.CommandIndex == 0,
+        "Executor shell execution did not persist message/index identity.");
+    Assert(simpleChild.Command == "echo MEZHS_SHELL_OK", "Shell command text was rewritten before persistence/execution.");
     Assert(simpleChild.ParentExecutionId == root.ExecutionId && simpleChild.CorrelationId == root.CorrelationId,
-        "Shell execution lost causal identity.");
+        "Executor shell execution lost Agent causal identity.");
 
     var duplicate = await interpreter.InterpretAsync(
         root, normal, "msg-duplicate",
@@ -200,13 +203,13 @@ try
         CancellationToken.None);
     Assert(duplicate.Error is null && duplicate.Results.Count == 2 && duplicate.Results.All(result => result.Succeeded),
         "Duplicate shell commands did not both execute.");
-    var duplicateChildren = store.GetExecutions("chat_shell")
+    var duplicateChildren = executor.List("chat_shell")
         .Where(record => record.TriggerMessageId == "msg-duplicate")
         .OrderBy(record => record.CommandIndex)
         .ToArray();
     Assert(duplicateChildren.Length == 2 && duplicateChildren[0].CommandIndex == 0 && duplicateChildren[1].CommandIndex == 1,
         "Identical commands are not durably distinguishable by command index.");
-    Assert(duplicateChildren.All(record => record.Request == "echo DUPLICATE_OK"),
+    Assert(duplicateChildren.All(record => record.Command == "echo DUPLICATE_OK"),
         "Duplicate command identity depends on rewriting command text.");
 
     var multilineText = OperatingSystem.IsWindows()
@@ -231,7 +234,8 @@ try
         timeoutPolicy.Id, timeoutPolicy.ConnectionId, "chat_timeout", "manual", null,
         "timeout test", emptyEnvironment, timeoutPolicy.Snapshot, 100)
         ?? throw new InvalidOperationException("Timeout root execution was not admitted.");
-    Assert(store.TryMarkRunning(timeoutRoot.ExecutionId), "Timeout root execution did not start.");
+    timeoutRoot = store.TryClaimNextQueuedExecution()
+        ?? throw new InvalidOperationException("Timeout root execution did not start.");
     var timeoutText = OperatingSystem.IsWindows()
         ? "echo BEFORE_TIMEOUT & ping -n 6 127.0.0.1 >nul"
         : "echo BEFORE_TIMEOUT; sleep 5";
@@ -244,20 +248,26 @@ try
     Assert(timedOut.Results[0].Error?.Contains("timed out after 1 seconds", StringComparison.Ordinal) == true,
         $"Timed-out command returned the wrong error: {timedOut.Results[0].Error}");
     Assert(elapsed < TimeSpan.FromSeconds(4), $"Configured timeout was not enforced promptly: {elapsed}.");
-    var timeoutChild = store.GetExecutions("chat_timeout").Single(record => record.Kind == AgentExecutionKind.Shell);
-    Assert(timeoutChild.Status == AgentExecutionStatus.Failed, "Timed-out shell was not persisted as failed evidence.");
+    var timeoutChild = executor.List("chat_timeout").Single();
+    Assert(timeoutChild.Status == ExecutionStatus.TimedOut, "Timed-out shell was not persisted by Executor as TimedOut.");
     Assert(timeoutChild.Result?.Contains("BEFORE_TIMEOUT", StringComparison.Ordinal) == true,
         "Partial shell output was returned transiently but not persisted with timeout evidence.");
 }
 finally
 {
     SqliteConnection.ClearAllPools();
-    File.Delete(shellOptions.Storage);
-    File.Delete(shellOptions.Storage + "-shm");
-    File.Delete(shellOptions.Storage + "-wal");
+    DeleteDatabase(shellOptions.Storage);
+    DeleteDatabase(executorPath);
 }
 
-Console.WriteLine("PASS: typed policy rules, structured actions, immutable completion evidence, durable queue serialization, command identity, shell fidelity, Unicode, and timeout behavior are correct.");
+Console.WriteLine("PASS: typed policy rules, structured actions, immutable completion evidence, durable Agent queue serialization, Executor command identity, shell fidelity, Unicode, and timeout behavior are correct.");
+
+static void DeleteDatabase(string path)
+{
+    File.Delete(path);
+    File.Delete(path + "-shm");
+    File.Delete(path + "-wal");
+}
 
 static void Assert(bool condition, string message)
 {

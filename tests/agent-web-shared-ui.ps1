@@ -55,5 +55,10 @@ if ($agentApp -notmatch 'CancelRequested' -or $agentApp -notmatch 'stopping') {
 if ($agentApp -notmatch 'Download log' -or $agentApp -notmatch '/debug-log') {
     throw "Agent Web no longer exposes authenticated debug-log download through its proxy."
 }
+if ($agentApp -notmatch 'Promise\.allSettled' -or
+    $agentApp -notmatch '\.then\(setMessages\)' -or
+    $agentApp -notmatch '\.then\(setExecutions\)') {
+    throw "Agent Web couples durable execution refresh to the remote chat-message request."
+}
 
-Write-Host "PASS: shared Markdown/composer behavior and canonical Agent API protocol/evidence rendering are wired through their owning components."
+Write-Host "PASS: shared Markdown/composer behavior, independent Agent execution refresh, and canonical Agent API protocol/evidence rendering are wired through their owning components."

@@ -93,6 +93,20 @@ policies:
       maxTurns: 3
       commandTimeoutSeconds: 2
 
+  test-evidence-auto:
+    connectionId: test
+    instructions: Completion is automatic after successful shell evidence exists.
+    commands:
+      allow: [SH]
+    environment:
+      allow: []
+    completion:
+      requireDone: false
+      requiredSuccessfulCommands: [SH]
+    limits:
+      maxTurns: 3
+      commandTimeoutSeconds: 2
+
   test-timeout:
     connectionId: test
     instructions: Exercise shell timeout behavior.

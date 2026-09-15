@@ -68,8 +68,9 @@ function Get-Status([string]$uri) {
 (Get-Content -LiteralPath $agentConfig -Raw).Replace(
     "listen: http://127.0.0.1:5199",
     "listen: http://0.0.0.0:5199") | Set-Content -LiteralPath $badConfig -Encoding UTF8
+$agentDll = (Resolve-Path (Join-Path $root "src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll")).Path
 $badAgent = Start-Process -FilePath "dotnet" `
-    -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $badConfig) `
+    -ArgumentList @($agentDll, "--config", $badConfig) `
     -WorkingDirectory $root -RedirectStandardOutput $badOut -RedirectStandardError $badErr -WindowStyle Hidden -PassThru
 try {
     if (-not $badAgent.WaitForExit(8000)) {
@@ -218,7 +219,19 @@ echo %TEST_AGENT_VALUE%
         throw "Agent Web proxy did not create a normal durable execution."
     }
 
-    Write-Host "PASS: Agent API/Web are loopback-only, CORS-closed, environment-scoped, DTO-backed, free of requester/metrics ceremony, and proxy locally."
+    Stop-Process -Id $api.Id -Force
+    $api.WaitForExit()
+    $offlineDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log"
+    if ($offlineDebug.StatusCode -ne 200 -or $offlineDebug.Headers["Content-Disposition"] -notmatch "attachment" -or
+        $offlineDebug.Content -notmatch $completed.executionId -or $offlineDebug.Content -notmatch 'chatMessagesUnavailable:') {
+        throw "Debug log stopped being available when the generic MEZS API was offline."
+    }
+    $offlineProxiedDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5200/v1/agent-chats/$($completed.chatId)/debug-log"
+    if ($offlineProxiedDebug.StatusCode -ne 200 -or $offlineProxiedDebug.Headers["Content-Disposition"] -notmatch "attachment") {
+        throw "Agent Web stopped proxying debug logs when the generic MEZS API was offline."
+    }
+
+    Write-Host "PASS: Agent API/Web are loopback-only, CORS-closed, environment-scoped, DTO-backed, free of requester/metrics ceremony, and keep local debug logs downloadable when MEZS API is unavailable."
 }
 finally {
     if ($null -ne $web -and -not $web.HasExited) { Stop-Process -Id $web.Id -Force; $web.WaitForExit() }
