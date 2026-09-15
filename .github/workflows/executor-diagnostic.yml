@@ -16,10 +16,46 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Decouple Agent execution refresh from chat messages
+        shell: pwsh
+        run: |
+          $path = 'src/Mezhs.Agent.Web/src/App.tsx'
+          $source = [IO.File]::ReadAllText($path)
+          $old = @'
+  async function loadSelected(chatId: string, reportErrors = true) {
+    try {
+      const [messageValues, executionValues] = await Promise.all([
+        api<AgentChatMessage[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/messages`),
+        api<Execution[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/executions`),
+      ]);
+      setMessages(messageValues);
+      setExecutions(executionValues);
+    } catch (error) {
+      if (reportErrors)
+        setNotice(error instanceof Error ? error.message : "Could not load this agent chat.");
+    }
+  }
+'@
+          $new = @'
+  async function loadSelected(chatId: string, reportErrors = true) {
+    const results = await Promise.allSettled([
+      api<AgentChatMessage[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/messages`).then(setMessages),
+      api<Execution[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/executions`).then(setExecutions),
+    ]);
+    if (!reportErrors)
+      return;
+
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected")
+      setNotice(failure.reason instanceof Error ? failure.reason.message : "Could not fully refresh this agent chat.");
+  }
+'@
+          if (-not $source.Contains($old)) { throw 'Expected Agent Web loadSelected implementation was not found.' }
+          [IO.File]::WriteAllText($path, $source.Replace($old, $new), [Text.UTF8Encoding]::new($false))
       - name: Build
         shell: pwsh
         run: dotnet build Mezhs.sln -c Release
-      - name: Diagnose reported failures
+      - name: Validate reported failures
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
@@ -36,74 +72,27 @@ jobs:
             if ($code -ne 0) { break }
           }
 
-          $lines.Add('=== isolated atomic reproduction ===')
-          $root = (Get-Location).Path
-          $executor = (Resolve-Path 'src/Mezhs.Executor/bin/Release/net10.0/Mezhs.Executor.dll').Path
-          $data = Join-Path $root 'data/executor-diagnostic.sqlite'
-          $work = Join-Path $root 'executor-diagnostic-work'
-          Remove-Item $data,"$data-shm","$data-wal" -Force -ErrorAction SilentlyContinue
-          Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item $work -ItemType Directory | Out-Null
-          $env:MEZHS_EXECUTOR_STORAGE = $data
-          $env:MEZHS_EXECUTION_ID = 'diagnostic-parent'
-          $env:MEZHS_SOURCE = 'executor-diagnostic'
-
-          function Ex([Parameter(ValueFromRemainingArguments=$true)][string[]]$arguments) {
-            $out = & dotnet $executor @arguments 2>&1
-            $code = $LASTEXITCODE
-            return [pscustomobject]@{ Code = $code; Text = ($out -join [Environment]::NewLine).Trim() }
-          }
-
-          $file = Join-Path $work 'atomic.txt'
-          $command = "ping -n 3 127.0.0.1 >nul & echo hit>>$file"
-          $create = Ex Execute $command $work 30
-          $lines.Add("executeCode=$($create.Code)")
-          $lines.Add("executeOut=$($create.Text)")
-          $id = 0
-          [void][int]::TryParse($create.Text, [ref]$id)
-          $lines.Add("parsedId=$id")
-          if ($id -gt 0) {
-            $p1 = Start-Process dotnet -ArgumentList @($executor,'Run',$id,$data) -PassThru -WindowStyle Hidden
-            $p2 = Start-Process dotnet -ArgumentList @($executor,'Run',$id,$data) -PassThru -WindowStyle Hidden
-            $wait = Ex Wait $id 20
-            $p1.WaitForExit(5000) | Out-Null
-            $p2.WaitForExit(5000) | Out-Null
-            $get = Ex Get $id
-            $lines.Add("waitCode=$($wait.Code)")
-            $lines.Add('--- wait ---')
-            $lines.Add($wait.Text)
-            $lines.Add('--- get ---')
-            $lines.Add($get.Text)
-            $lines.Add("p1Exit=$($p1.ExitCode)")
-            $lines.Add("p2Exit=$($p2.ExitCode)")
-            $lines.Add("fileExists=$(Test-Path $file)")
-            if (Test-Path $file) {
-              $content = Get-Content $file -Raw
-              $lines.Add("fileContent=$($content -replace "`r",'<CR>' -replace "`n",'<LF>')")
-            }
-          }
-
-          $lines.Add('=== Agent Web debug-log proxy ===')
-          $original = Get-Content tests/agent-api-smoke.ps1 -Raw
-          $patched = $original.Replace(
-            'if ($proxiedDebug.StatusCode -ne 200) { throw "Agent Web did not proxy the local debug log." }',
-            'if ($proxiedDebug.StatusCode -ne 200 -or $proxiedDebug.Headers["Content-Disposition"] -notmatch "attachment") { throw "Agent Web debug-log proxy did not preserve downloadable response. status=$($proxiedDebug.StatusCode) disposition=$($proxiedDebug.Headers["Content-Disposition"])" }')
-          $diagnosticSmoke = 'tests/agent-api-smoke-diagnostic.ps1'
-          Set-Content $diagnosticSmoke $patched -Encoding utf8
-          $smoke = & pwsh -NoProfile -File $diagnosticSmoke 2>&1
+          $lines.Add('=== Agent API/Web outage debug log ===')
+          $smoke = & pwsh -NoProfile -File tests/agent-api-smoke.ps1 2>&1
           $smokeCode = $LASTEXITCODE
           $lines.Add("exit=$smokeCode")
           foreach ($line in $smoke) { $lines.Add([string]$line) }
-          Remove-Item $diagnosticSmoke -Force -ErrorAction SilentlyContinue
 
+          $lines.Add('=== Agent Web ownership checks ===')
+          $web = & pwsh -NoProfile -File tests/agent-web-shared-ui.ps1 2>&1
+          $webCode = $LASTEXITCODE
+          $lines.Add("exit=$webCode")
+          foreach ($line in $web) { $lines.Add([string]$line) }
+
+          $failed = ($lines | Where-Object { $_ -match '^run=\d+ exit=[^0]$|^exit=[^0]$' }).Count -gt 0
           $lines | Set-Content executor-diagnostic-result.txt -Encoding utf8
-      - name: Commit diagnostic result
-        if: always()
+          if ($failed) { exit 1 }
+      - name: Commit validated source and result
+        if: success()
         shell: pwsh
         run: |
-          if (-not (Test-Path executor-diagnostic-result.txt)) { 'diagnostic did not produce a result file' | Set-Content executor-diagnostic-result.txt }
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add executor-diagnostic-result.txt
-          git commit -m "Record expanded Executor diagnostic result [skip ci]" || exit 0
+          git add src/Mezhs.Agent.Web/src/App.tsx executor-diagnostic-result.txt
+          git commit -m "Apply validated Agent UI refresh repair [skip ci]" || exit 0
           git push
