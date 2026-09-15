@@ -8,6 +8,18 @@ These skills are intentionally small and composable.
 
 There is deliberately no eFlex-specific skill in this repository. eFlex was used as evidence for the general reasoning principles, but Mezhs should acquire project-specific guidance only when its own architecture has enough real patterns and invariants to justify it.
 
+## Shared foundation
+
+`src/Mezhs.Common` contains generic reusable mechanisms shared across projects. Before adding project-local generic helpers, check whether the responsibility already exists there or belongs there.
+
+Current shared primitives include:
+
+- `Cast` — strict scalar text conversion through enum parsing, `IConvertible` / `Convert.ChangeType`, or an exact public static `T Parse(string)` contract. Conversion failures are surfaced rather than hidden by unrelated fallback chains.
+- `TypeExtensions` — common nullable and enumerable type inspection.
+- `Registry<TKey..., TValue>` — typed hierarchical registries with efficient exact and prefix lookup, prefix cleanup, and fixed key depth.
+
+Keep domain-specific behavior out of `Mezhs.Common`. Add mechanisms there only when the responsibility is genuinely generic and reusable, and prefer extending an existing shared owner over creating a second project-local implementation of the same invariant.
+
 ## Repository change gate
 
 Every modification to this repository — code, configuration, tests, documentation, tooling, or `.agents` content — must follow `repository-change-workflow`. That skill is the source of truth for branch/review/merge behavior.
