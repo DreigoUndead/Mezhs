@@ -25,7 +25,6 @@ builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(_ => new ExecutorService(executorStorage));
 builder.Services.AddSingleton<AgentStore>();
-builder.Services.AddSingleton<AgentRecoveryStore>();
 builder.Services.AddSingleton<AgentRecoveryState>();
 builder.Services.AddSingleton<PolicyRegistry>();
 builder.Services.AddSingleton<PolicyEvaluationService>();
