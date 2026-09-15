@@ -6,6 +6,7 @@ $data = Join-Path $root 'data/executor-validation.sqlite'
 $work = Join-Path $root 'executor-validation-work'
 Remove-Item $data,"$data-shm","$data-wal" -Force -ErrorAction SilentlyContinue
 Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+if (Test-Path $work) { throw "Previous executor lifecycle process still owns '$work'." }
 New-Item $work -ItemType Directory | Out-Null
 $env:MEZHS_EXECUTOR_STORAGE = $data
 $env:MEZHS_EXECUTION_ID = 'validation-parent'
@@ -36,6 +37,7 @@ try {
     Assert ($watch.Elapsed.TotalSeconds -lt 5) "Execute blocked for $($watch.Elapsed.TotalSeconds)s instead of detaching"
     $record = Executor Wait $id 20
     Assert ((Status $record) -eq 'Completed') "Detached caller exit: got $(Status $record)"
+    Assert ($record -notmatch '@chcp') 'Executor wrote a UTF-8 preamble into cmd.exe input.'
     Assert (Test-Path $file) 'Detached caller exit: side effect missing'
 
     # Two owners racing for one Created row must still produce one side effect.
@@ -117,7 +119,9 @@ try {
     Start-Sleep -Seconds 10
     $dead = Executor Get $id
     Assert ((Status $dead) -eq 'Dead') "Dead reconciliation: got $(Status $dead)"
-    Stop-Process -Id $child -Force -ErrorAction SilentlyContinue
+    if ($null -ne (Get-Process -Id $child -ErrorAction SilentlyContinue)) {
+        & taskkill.exe /PID $child /T /F 2>$null | Out-Null
+    }
 
     $directAgentShell = Get-ChildItem (Join-Path $root 'src/Mezhs.Agent.Api') -Filter *.cs -Recurse |
         Select-String -Pattern 'ProcessStartInfo|Process\.Start\('
