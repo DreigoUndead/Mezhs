@@ -45,7 +45,7 @@ internal sealed class ExecutorRunner(ExecutorStore store)
             store.SetProcessId(execution.Id, process.Id);
             stdoutTask = process.StandardOutput.ReadToEndAsync();
             stderrTask = process.StandardError.ReadToEndAsync();
-            process.StandardInput.Write(CreatePayload(execution.Command));
+            process.StandardInput.Write(ExecutorPlatform.Current.CreateShellPayload(execution.Command));
             process.StandardInput.Flush();
             process.StandardInput.Close();
 
@@ -131,8 +131,10 @@ internal sealed class ExecutorRunner(ExecutorStore store)
 
     private ProcessStartInfo CreateShellStartInfo(Execution execution, string environmentJson)
     {
+        var platform = ExecutorPlatform.Current;
         var startInfo = new ProcessStartInfo
         {
+            FileName = platform.ShellFileName,
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -141,6 +143,13 @@ internal sealed class ExecutorRunner(ExecutorStore store)
             CreateNoWindow = true,
             WorkingDirectory = execution.Directory
         };
+        foreach (var argument in platform.ShellArguments)
+            startInfo.ArgumentList.Add(argument);
+        if (platform.ShellEncoding is { } encoding)
+        {
+            startInfo.StandardOutputEncoding = encoding;
+            startInfo.StandardErrorEncoding = encoding;
+        }
 
         startInfo.Environment.Clear();
         foreach (var (name, value) in store.DeserializeEnvironment(environmentJson))
@@ -149,26 +158,8 @@ internal sealed class ExecutorRunner(ExecutorStore store)
             startInfo.Environment[ExecutorEnvironment.ParentExecutionIdVariable] = execution.ParentExecutionId;
         startInfo.Environment[ExecutorEnvironment.ExecutionIdVariable] = execution.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
         startInfo.Environment[ExecutorEnvironment.StorageVariable] = store.Path;
-
-        if (OperatingSystem.IsWindows())
-        {
-            startInfo.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
-            startInfo.ArgumentList.Add("/D");
-            startInfo.ArgumentList.Add("/Q");
-            startInfo.StandardOutputEncoding = Encoding.UTF8;
-            startInfo.StandardErrorEncoding = Encoding.UTF8;
-        }
-        else
-        {
-            startInfo.FileName = "/bin/sh";
-        }
         return startInfo;
     }
-
-    private static string CreatePayload(string command) =>
-        OperatingSystem.IsWindows()
-            ? "@chcp 65001>nul\r\n" + command + "\r\n"
-            : command + "\n";
 
     private static string? Terminate(Process process)
     {
