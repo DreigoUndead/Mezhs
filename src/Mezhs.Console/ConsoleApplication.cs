@@ -194,12 +194,7 @@ public abstract class ConsoleApplication
                 return;
             }
         }
-        if (ScalarConverter.CanConvert(returnType))
-        {
-            global::System.Console.WriteLine(ScalarConverter.Format(result, returnType));
-            return;
-        }
-        global::System.Console.WriteLine(result.ToString());
+        global::System.Console.WriteLine(ScalarConverter.Format(result));
     }
 
     private static int Error(string message, int exitCode = 2)
