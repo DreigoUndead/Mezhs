@@ -17,6 +17,8 @@ internal sealed class TestApplication : ConsoleApplication
             ("Quoted null string", () => Expect("Echo \"null\"", "null:null")),
             ("Non-nullable literal null", () => ExpectFailure("Required null", 2, new NullabilityApplication())),
             ("Non-nullable quoted null", () => Expect("Required \"null\"", "null", new NullabilityApplication())),
+            ("Enum scalar", () => Expect("Status completed", "Completed", new ScalarApplication())),
+            ("Static Parse scalar", () => Expect("Parsed alpha", "alpha", new ScalarApplication())),
             ("Enumerable", () => Expect("Insert [1 5 6] tail", "1,5,6|tail", new CollectionApplication())),
             ("Nested enumerable", () => Expect("Nested [[1 2] [3 4]]", "1,2;3,4", new CollectionApplication())),
             ("Object dictionary", () => Expect(
@@ -51,6 +53,7 @@ internal sealed class TestApplication : ConsoleApplication
                     throw new InvalidOperationException($"Unexpected output: {result.Out}");
             }),
             ("Return object round trip", TestReturnObjectRoundTrip),
+            ("Return object static Parse round trip", TestStaticParseReturnObjectRoundTrip),
             ("Return object enumerable round trip", TestReturnObjectMany),
             ("Return object CLI output", () => Expect("Object", "Name: \"hello: world\"", new ReturnObjectApplication())),
             ("Missing MEZHS context warning", TestMissingContext)
@@ -128,6 +131,15 @@ internal sealed class TestApplication : ConsoleApplication
         if (actual.Id != expected.Id || actual.Status != expected.Status || actual.Name != expected.Name ||
             actual.Text != expected.Text || actual.Optional is not null || actual.Time != expected.Time)
             throw new InvalidOperationException($"Round trip mismatch. Serialized: {serialized}");
+    }
+
+    private static void TestStaticParseReturnObjectRoundTrip()
+    {
+        var expected = new ParsedReturnObject { Value = new ParsedValue("custom-value") };
+        var serialized = expected.ToString();
+        var actual = ReturnObjectBase.Parse<ParsedReturnObject>(serialized);
+        if (actual.Value != expected.Value)
+            throw new InvalidOperationException($"Static Parse round trip mismatch. Serialized: {serialized}");
     }
 
     private static void TestReturnObjectMany()
@@ -224,6 +236,12 @@ internal sealed class ObjectApplication : ConsoleApplication
     public int Limited(int limit = 50) => limit;
 }
 
+internal sealed class ScalarApplication : ConsoleApplication
+{
+    [Command] public TestStatus Status(TestStatus value) => value;
+    [Command] public ParsedValue Parsed(ParsedValue value) => value;
+}
+
 internal sealed class AlternateSyntaxApplication : ConsoleApplication
 {
     protected override CommandSyntax Syntax => new([
@@ -274,6 +292,17 @@ internal enum TestStatus
 {
     Running,
     Completed
+}
+
+internal readonly record struct ParsedValue(string Value)
+{
+    public static ParsedValue Parse(string value) => new(value);
+    public override string ToString() => Value;
+}
+
+internal sealed class ParsedReturnObject : ReturnObjectBase
+{
+    public ParsedValue Value { get; set; }
 }
 
 internal sealed class TestReturnObject : ReturnObjectBase
