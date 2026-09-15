@@ -1,0 +1,152 @@
+name: agent-api-composition-patch
+
+on:
+  push:
+    branches:
+      - agent-api-composition
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ github.event.head_commit.message == 'Add temporary composition patch workflow' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply mechanical follow-up edits
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Replace-Exact([string]$path, [string]$old, [string]$new) {
+            $text = Get-Content -LiteralPath $path -Raw
+            if (-not $text.Contains($old)) { throw "Expected text not found in $path`n$old" }
+            [IO.File]::WriteAllText((Resolve-Path $path), $text.Replace($old, $new), [Text.UTF8Encoding]::new($false))
+          }
+
+          Replace-Exact 'src/Mezhs.Agent.Api/Persistence/AgentStore.cs' `
+            'private readonly SqliteDatabase _database = new(options.Storage);' `
+            'private readonly SqliteDatabase _database = new(options.AgentStorage);'
+
+          $oldOptions = @'
+var shellOptions = new AgentOptions
+{
+    Listen = options.Listen,
+    MezhsApi = options.MezhsApi,
+    Storage = Path.Combine(Path.GetTempPath(), $"mezhs-agent-policy-{Guid.NewGuid():N}.sqlite"),
+    Workspace = options.Workspace,
+    Runtime = options.Runtime,
+    Messages = options.Messages,
+    Policies = options.Policies
+};
+'@
+          $newOptions = @'
+var shellOptions = new AgentOptions
+{
+    Version = options.Version,
+    Server = options.Server,
+    Transport = options.Transport,
+    Storage = options.Storage,
+    Connections = options.Connections,
+    AgentStorage = Path.Combine(Path.GetTempPath(), $"mezhs-agent-policy-{Guid.NewGuid():N}.sqlite"),
+    Workspace = options.Workspace,
+    Runtime = options.Runtime,
+    Messages = options.Messages,
+    Policies = options.Policies
+};
+'@
+          Replace-Exact 'tests/policy-decoder.ps1' $oldOptions $newOptions
+          Replace-Exact 'tests/policy-decoder.ps1' 'DeleteDatabase(shellOptions.Storage);' 'DeleteDatabase(shellOptions.AgentStorage);'
+
+          $oldRuntime = @'
+type Runtime = {
+  status: string;
+  mezhsApi: string;
+  mezhsApiHealthy: boolean;
+};
+'@
+          $newRuntime = @'
+type Runtime = {
+  status: string;
+};
+'@
+          Replace-Exact 'src/Mezhs.Agent.Web/src/App.tsx' $oldRuntime $newRuntime
+          $oldHealth = @'
+          <span className={`health-dot ${runtime?.mezhsApiHealthy ? "online" : ""}`}
+            title={runtime?.mezhsApiHealthy ? "MEŽS API online" : "MEŽS API unavailable"} />
+'@
+          $newHealth = @'
+          <span className={`health-dot ${runtime?.status === "ok" ? "online" : ""}`}
+            title={runtime?.status === "ok" ? "MEŽS Agent API online" : "MEŽS Agent API unavailable"} />
+'@
+          Replace-Exact 'src/Mezhs.Agent.Web/src/App.tsx' $oldHealth $newHealth
+
+          $oldRuntimeCheck = @'
+    $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/runtime"
+    if (-not $runtime.mezhsApiHealthy) { throw "Agent API cannot reach generic MEZS API." }
+'@
+          $newRuntimeCheck = @'
+    $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/runtime"
+    if ($runtime.status -ne "ok") { throw "Agent API runtime is not healthy." }
+    $agentConnections = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/connections")
+    if (-not ($agentConnections | Where-Object { $_.id -eq "test" })) {
+        throw "Agent API does not expose the shared MEŽS API surface."
+    }
+'@
+          Replace-Exact 'tests/agent-api-smoke.ps1' $oldRuntimeCheck $newRuntimeCheck
+
+          # Core architecture test: shared composition, not Program.cs, owns middleware.
+          Replace-Exact 'tests/architecture.ps1' `
+            '$program = Get-Content (Join-Path $root "src/Mezhs.Api/Program.cs") -Raw' `
+            '$program = Get-Content (Join-Path $root "src/Mezhs.Api/Program.cs") -Raw`n$apiComposition = Get-Content (Join-Path $root "src/Mezhs.Api/MezhsApi.cs") -Raw'
+          $oldMiddleware = @'
+if ($program -notmatch 'AddExceptionHandler<ApiExceptionHandler>' -or
+    $program -notmatch 'AddProblemDetails' -or
+    $program -notmatch 'UseExceptionHandler') {
+    throw "The API exception handler is not registered as middleware."
+}
+'@
+          $newMiddleware = @'
+if ($apiComposition -notmatch 'AddExceptionHandler<ApiExceptionHandler>' -or
+    $apiComposition -notmatch 'AddProblemDetails' -or
+    $apiComposition -notmatch 'UseExceptionHandler') {
+    throw "The reusable API composition does not own exception middleware."
+}
+if ($program -notmatch 'AddMezhsApi' -or $program -notmatch 'UseMezhsApi' -or $program -notmatch 'MapMezhsApi') {
+    throw "Mezhs.Api is not a thin host over the reusable API composition."
+}
+'@
+          Replace-Exact 'tests/architecture.ps1' $oldMiddleware $newMiddleware
+
+          # Agent architecture: validate composition instead of the removed second-API wiring.
+          $oldLoopback = 'Assert ($config -match ''RequiredLoopbackHttpUri'' -and $config -match ''uri\.IsLoopback'') "Host-shell Agent API is not restricted to loopback binding."'
+          $newLoopback = 'Assert ($options -match '': MezhsOptions'' -and $config -match ''MezhsConfigLoader\.Load<AgentOptions>'' -and $config -match ''options\.Server\.Listen'' -and $config -match ''listen\.IsLoopback'') "Agent configuration does not extend core MEŽS configuration while enforcing loopback binding."'
+          Replace-Exact 'tests/agent-architecture.ps1' $oldLoopback $newLoopback
+
+          $insertAfter = '$agentClient = Read "src/Mezhs.Agent.Api.Client/AgentApiClient.cs"'
+          $withComposition = @'
+$agentClient = Read "src/Mezhs.Agent.Api.Client/AgentApiClient.cs"
+$agentProject = Read "src/Mezhs.Agent.Api/Mezhs.Agent.Api.csproj"
+$coreComposition = Read "src/Mezhs.Api/MezhsApi.cs"
+'@
+          Replace-Exact 'tests/agent-architecture.ps1' $insertAfter $withComposition
+
+          $oldCors = 'Assert ($program -notmatch ''AllowAnyOrigin|AllowAnyHeader|AllowAnyMethod|AddCors|UseCors'') "Agent API still exposes permissive CORS."'
+          $newCors = @'
+Assert ($program -notmatch 'AllowAnyOrigin|AllowAnyHeader|AllowAnyMethod|AddCors|UseCors') "Agent API still exposes permissive CORS."
+Assert ($program -match 'AddMezhsApi\(options\)' -and $program -match 'UseMezhsApi\(\)' -and $program -match 'MapMezhsApi\(\)') "Agent API is not composed from the reusable MEŽS API foundation."
+Assert ($agentProject -match 'Mezhs\.Api\\Mezhs\.Api\.csproj' -and $agentProject -notmatch 'Mezhs\.Api\.Client') "Agent API still consumes the normal API through its HTTP client project."
+Assert ($worker -match 'ChatService' -and $worker -match 'MessageService' -and $worker -notmatch 'MezhsApiClient') "Agent worker still crosses an HTTP boundary instead of using core services directly."
+Assert ($agentClient -match ': MezhsApiClient') "Agent API client is not the normal MEŽS client plus Agent-specific operations."
+Assert ($coreComposition -match 'MapMezhsApi' -and $coreComposition -match 'AddMezhsApi' -and $coreComposition -match 'UseMezhsApi') "Reusable MEŽS API composition is incomplete."
+'@
+          Replace-Exact 'tests/agent-architecture.ps1' $oldCors $newCors
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src tests
+          git commit -m "Complete Agent API composition refactor [skip ci]"
+          git push
