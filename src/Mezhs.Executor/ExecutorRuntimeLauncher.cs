@@ -20,8 +20,7 @@ internal static class ExecutorRuntimeLauncher
             UseShellExecute = true,
             WorkingDirectory = Path.GetDirectoryName(assemblyPath) ?? Environment.CurrentDirectory
         };
-        if (OperatingSystem.IsWindows())
-            startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+        ExecutorPlatform.Current.ConfigureRuntimeStartInfo(startInfo);
 
         var entryAssembly = Assembly.GetEntryAssembly();
         var processPath = Environment.ProcessPath;
