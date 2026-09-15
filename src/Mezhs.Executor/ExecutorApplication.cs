@@ -28,4 +28,43 @@ public sealed class ExecutorApplication : ConsoleApplication
 
     [Command(Description = "Internal execution-owner entry point. Claims and runs an existing execution ID.")]
     public void Run(int id, string? storage = null) => new ExecutorService(storage).Run(id);
+
+    public override string Test()
+    {
+        var storage = Path.Combine(
+            Path.GetTempPath(),
+            $"mezhs-executor-test-{Guid.NewGuid():N}.sqlite");
+        try
+        {
+            var executor = new ExecutorService(storage);
+            var id = executor.Execute(
+                "echo mezhs-executor-self-test",
+                Environment.CurrentDirectory,
+                timeoutSeconds: 10);
+            var execution = executor.Wait(id, timeoutSeconds: 15);
+            if (execution.Status != ExecutionStatus.Completed)
+                throw new InvalidOperationException(
+                    $"Executor self-test ended as {execution.Status}: {execution.Error}");
+            if (execution.ExitCode != 0 ||
+                execution.Result?.Contains("mezhs-executor-self-test", StringComparison.Ordinal) != true)
+            {
+                throw new InvalidOperationException(
+                    $"Executor self-test returned unexpected output: {execution.Result}");
+            }
+            return "PASS: Executor durable shell execution";
+        }
+        finally
+        {
+            DeleteIfExists(storage);
+            DeleteIfExists(storage + "-wal");
+            DeleteIfExists(storage + "-shm");
+        }
+    }
+
+    private static void DeleteIfExists(string path)
+    {
+        try { File.Delete(path); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
 }
