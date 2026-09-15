@@ -10,106 +10,227 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Normalize temporary composition patch workflow'
+    if: github.event.head_commit.message == 'Run composition cleanup'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Apply mechanical follow-up edits
+      - name: Apply final composition cleanup
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+
+          function Write-Utf8([string]$path, [string]$text) {
+            [IO.File]::WriteAllText((Resolve-Path $path), $text, [Text.UTF8Encoding]::new($false))
+          }
 
           function Replace-Regex([string]$path, [string]$pattern, [string]$replacement) {
             $text = Get-Content -LiteralPath $path -Raw
             $updated = [regex]::Replace($text, $pattern, $replacement)
             if ($updated -eq $text) { throw "Expected pattern not found in $path`n$pattern" }
-            [IO.File]::WriteAllText((Resolve-Path $path), $updated, [Text.UTF8Encoding]::new($false))
+            Write-Utf8 $path $updated
           }
 
-          Replace-Regex 'src/Mezhs.Agent.Api/Persistence/AgentStore.cs' `
-            'new\(options\.Storage\)' `
-            'new(options.AgentStorage)'
+          # The previous temporary patch accidentally duplicated agent-api-smoke.ps1.
+          # Restore the known-good base test before applying the new architecture assertions.
+          $baseSmoke = git show origin/executor-foundation:tests/agent-api-smoke.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Could not restore agent-api-smoke.ps1 from executor-foundation.' }
+          Write-Utf8 'tests/agent-api-smoke.ps1' (($baseSmoke -join "`n") + "`n")
 
-          $newOptions = @'
-          var shellOptions = new AgentOptions
-          {
-              Version = options.Version,
-              Server = options.Server,
-              Transport = options.Transport,
-              Storage = options.Storage,
-              Connections = options.Connections,
-              AgentStorage = Path.Combine(Path.GetTempPath(), $"mezhs-agent-policy-{Guid.NewGuid():N}.sqlite"),
-              Workspace = options.Workspace,
-              Runtime = options.Runtime,
-              Messages = options.Messages,
-              Policies = options.Policies
-          };
+          # /v1/runtime is obsolete now that Agent hosts the shared API directly.
+          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
+            '(?s)type Runtime = \{\s*status: string;\s*\};\s*' `
+            ''
+          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
+            'const \[runtime, setRuntime\] = useState<Runtime \| null>\(null\);' `
+            'const [apiReady, setApiReady] = useState(false);'
+          $loadBlock = @'
+          const [policyValues, chatValues] = await Promise.all([
+            api<AgentPolicy[]>("/v1/policies"),
+            api<AgentChat[]>("/v1/agent-chats"),
+          ]);
+          setApiReady(true);
+          setPolicies(policyValues);
+          setChats(chatValues);
           '@.Replace('          ', '')
-          Replace-Regex 'tests/policy-decoder.ps1' `
-            '(?s)var shellOptions = new AgentOptions\s*\{.*?\n\};(?=\r?\nvar executorPath)' `
-            $newOptions
-          Replace-Regex 'tests/policy-decoder.ps1' `
-            'DeleteDatabase\(shellOptions\.Storage\);' `
-            'DeleteDatabase(shellOptions.AgentStorage);'
-
           Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
-            '(?s)type Runtime = \{\s*status: string;\s*mezhsApi: string;\s*mezhsApiHealthy: boolean;\s*\};' `
-            "type Runtime = {`n  status: string;`n};"
+            '(?s)const \[runtimeValue, policyValues, chatValues\] = await Promise\.all\(\[\s*api<Runtime>\("/v1/runtime"\),\s*api<AgentPolicy\[\]>\("/v1/policies"\),\s*api<AgentChat\[\]>\("/v1/agent-chats"\),\s*\]\);\s*setRuntime\(runtimeValue\);\s*setPolicies\(policyValues\);\s*setChats\(chatValues\);' `
+            $loadBlock
           Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
-            '(?s)<span className=\{`health-dot \$\{runtime\?\.mezhsApiHealthy \? "online" : ""\}`\}\s*title=\{runtime\?\.mezhsApiHealthy \? "MEŽS API online" : "MEŽS API unavailable"\} />' `
-            '<span className={`health-dot ${runtime?.status === "ok" ? "online" : ""}`} title={runtime?.status === "ok" ? "MEŽS Agent API online" : "MEŽS Agent API unavailable"} />'
+            'catch \(error\) \{\s*setNotice\(error instanceof Error \? error\.message : "Could not load MEŽS Agent\."\);' `
+            'catch (error) {`n        setApiReady(false);`n        setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");'
+          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
+            'setChats\(await api<AgentChat\[\]>\("/v1/agent-chats"\)\);' `
+            'setChats(await api<AgentChat[]>("/v1/agent-chats"));`n      setApiReady(true);'
+          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
+            'catch \{\s*// Keep the last durable view during transient refresh failures\.' `
+            'catch {`n      setApiReady(false);`n      // Keep the last durable view during transient refresh failures.'
+          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
+            'runtime\?\.status === "ok"' `
+            'apiReady'
+          Replace-Regex 'src/Mezhs.Agent.Web/src/App.tsx' `
+            'runtime\?\.mezhsApiHealthy' `
+            'apiReady'
 
-          $newRuntimeCheck = @'
-              $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/runtime"
-              if ($runtime.status -ne "ok") { throw "Agent API runtime is not healthy." }
+          # Send/wait behavior belongs on MessageService, not an extension shim.
+          $messageMethods = @'
+              public ApiMessage? Get(string messageId)
+              {
+                  var message = store.GetMessage(messageId);
+                  return message is null ? null : ToApi(message);
+              }
+
+              public async Task<ApiMessage> SendWithReplyAsync(
+                  PostMessageRequest request,
+                  CancellationToken cancellationToken = default)
+              {
+                  var created = Post(request);
+                  return await WaitForReplyAsync(created.MessageId, cancellationToken);
+              }
+
+              public async Task<ApiMessage> WaitForReplyAsync(
+                  string messageId,
+                  CancellationToken cancellationToken = default)
+              {
+                  while (true)
+                  {
+                      var message = Get(messageId)
+                          ?? throw new ResourceNotFoundException($"Message '{messageId}' was not found.");
+
+                      switch (message.Status)
+                      {
+                          case MessageStatus.Completed:
+                              return message.Reply
+                                  ?? throw new InvalidOperationException("MEŽS completed without an assistant reply.");
+                          case MessageStatus.Failed:
+                          case MessageStatus.Cancelled:
+                              throw new InvalidOperationException(
+                                  message.Error ?? $"MEŽS message ended with status {message.Status}.");
+                          default:
+                              await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+                              break;
+                      }
+                  }
+              }
+          '@.Replace('              ', '')
+          Replace-Regex 'src/Mezhs.Api/Services/MessageService.cs' `
+            '(?s)    public ApiMessage\? Get\(string messageId\)\s*\{\s*var message = store\.GetMessage\(messageId\);\s*return message is null \? null : ToApi\(message\);\s*\}' `
+            $messageMethods
+          Remove-Item -LiteralPath 'src/Mezhs.Api/Services/MessageServiceExtensions.cs'
+
+          # Remove the client-side runtime model/operation with the deleted endpoint.
+          Replace-Regex 'src/Mezhs.Agent.Api.Client/AgentApiClient.cs' `
+            '(?s)\s*public async Task<AgentRuntimeView> GetRuntimeAsync\(CancellationToken cancellationToken = default\)\s*\{.*?\}\s*(?=public async Task<IReadOnlyList<AgentPolicyView>>)' `
+            "`n`n    "
+          Replace-Regex 'src/Mezhs.Agent.Api.Client/AgentApiClient.cs' `
+            '\s*public sealed record AgentRuntimeView\(string Status\);' `
+            ''
+
+          # Tests constructing AgentOptions must use the composed configuration shape.
+          $cancelOptions = @'
+              var options = new AgentOptions
+              {
+                  Server = new() { Listen = "http://127.0.0.1:1" },
+                  AgentStorage = agentPath,
+                  Workspace = workspace,
+                  Runtime = new AgentRuntimeOptions(),
+                  Messages = new AgentRuntimeMessages
+                  {
+                      Continue = "continue",
+                      PolicyCorrection = "policy",
+                      CommandCorrection = "command",
+                      CommandResults = "results",
+                      ProtocolIntro = "protocol",
+                      ShellContext = "shell"
+                  },
+                  Policies = new Dictionary<string, PolicyContext>()
+              };
+          '@.Replace('              ', '')
+          Replace-Regex 'tests/agent-cancel-recovery.ps1' `
+            '(?s)var options = new AgentOptions\s*\{.*?\n\s*\};(?=\r?\n    var recovery)' `
+            $cancelOptions
+
+          # Architecture should allow CORS only because Agent accepts browser calls from loopback origins.
+          $corsAssertions = @'
+          Assert ($program -notmatch 'AllowAnyOrigin') "Agent API exposes unrestricted cross-origin access."
+          Assert ($program -match 'AddCors' -and $program -match 'UseCors' -and $program -match 'SetIsOriginAllowed' -and $program -match 'uri\.IsLoopback') "Agent API does not restrict browser CORS to loopback origins."
+          '@.Replace('          ', '')
+          Replace-Regex 'tests/agent-architecture.ps1' `
+            'Assert \(\$program -notmatch ''AllowAnyOrigin\|AllowAnyHeader\|AllowAnyMethod\|AddCors\|UseCors''\) "Agent API still exposes permissive CORS\."' `
+            $corsAssertions
+
+          # Reapply smoke assertions to the clean base test.
+          $healthBlock = @'
+              if ((Get-Status "http://127.0.0.1:5199/health") -ne 200) {
+                  throw "Loopback Agent API health endpoint is unavailable."
+              }
+              if ((Get-Status "http://127.0.0.1:5199/v1/runtime") -ne 404) {
+                  throw "Obsolete Agent runtime endpoint still exists."
+              }
+              if ((Get-Status "http://127.0.0.1:5199/v1/metrics") -ne 404) {
+                  throw "Unused generic metrics endpoint still exists."
+              }
+
               $agentConnections = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/connections")
               if (-not ($agentConnections | Where-Object { $_.id -eq "test" })) {
                   throw "Agent API does not expose the shared MEŽS API surface."
               }
-          '@.Replace('          ', '')
+          '@.Replace('              ', '')
           Replace-Regex 'tests/agent-api-smoke.ps1' `
-            '(?m)^    \$runtime = Invoke-RestMethod -Uri "http://127\.0\.0\.1:5199/v1/runtime"\r?\n    if \(-not \$runtime\.mezhsApiHealthy\) \{ throw "Agent API cannot reach generic MEZS API\." \}' `
-            $newRuntimeCheck
+            '(?s)    if \(\(Get-Status "http://127\.0\.0\.1:5199/v1/runtime"\) -ne 200\) \{.*?if \(-not \$runtime\.mezhsApiHealthy\) \{ throw "Agent API cannot reach generic MEZS API\." \}' `
+            $healthBlock
 
-          Replace-Regex 'tests/architecture.ps1' `
-            '\$program = Get-Content \(Join-Path \$root "src/Mezhs\.Api/Program\.cs"\) -Raw' `
-            ('$program = Get-Content (Join-Path $root "src/Mezhs.Api/Program.cs") -Raw' + "`n" + '$apiComposition = Get-Content (Join-Path $root "src/Mezhs.Api/MezhsApi.cs") -Raw')
-          $newMiddleware = @'
-          if ($apiComposition -notmatch 'AddExceptionHandler<ApiExceptionHandler>' -or
-              $apiComposition -notmatch 'AddProblemDetails' -or
-              $apiComposition -notmatch 'UseExceptionHandler') {
-              throw "The reusable API composition does not own exception middleware."
-          }
-          if ($program -notmatch 'AddMezhsApi' -or $program -notmatch 'UseMezhsApi' -or $program -notmatch 'MapMezhsApi') {
-              throw "Mezhs.Api is not a thin host over the reusable API composition."
-          }
-          '@.Replace('          ', '')
-          Replace-Regex 'tests/architecture.ps1' `
-            '(?s)if \(\$program -notmatch ''AddExceptionHandler<ApiExceptionHandler>''.*?throw "The API exception handler is not registered as middleware\."\s*\}' `
-            $newMiddleware
+          $corsSmoke = @'
+              $originClient = [Net.Http.HttpClient]::new()
+              try {
+                  $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
+                  $request.Headers.Add("Origin", "https://example.invalid")
+                  $response = $originClient.SendAsync($request).GetAwaiter().GetResult()
+                  try {
+                      if ($response.Headers.Contains("Access-Control-Allow-Origin")) {
+                          throw "Agent API allowed a non-loopback browser origin."
+                      }
+                  } finally { $response.Dispose(); $request.Dispose() }
 
-          Replace-Regex 'tests/agent-architecture.ps1' `
-            'Assert \(\$config -match ''RequiredLoopbackHttpUri'' -and \$config -match ''uri\\\.IsLoopback''\) "Host-shell Agent API is not restricted to loopback binding\."' `
-            'Assert ($options -match '': MezhsOptions'' -and $config -match ''MezhsConfigLoader\.Load<AgentOptions>'' -and $config -match ''options\.Server\.Listen'' -and $config -match ''listen\.IsLoopback'') "Agent configuration does not extend core MEŽS configuration while enforcing loopback binding."'
-          Replace-Regex 'tests/agent-architecture.ps1' `
-            '\$agentClient = Read "src/Mezhs\.Agent\.Api\.Client/AgentApiClient\.cs"' `
-            ('$agentClient = Read "src/Mezhs.Agent.Api.Client/AgentApiClient.cs"' + "`n" + '$agentProject = Read "src/Mezhs.Agent.Api/Mezhs.Agent.Api.csproj"' + "`n" + '$coreComposition = Read "src/Mezhs.Api/MezhsApi.cs"')
-          $newAgentAssertions = @'
-          Assert ($program -notmatch 'AllowAnyOrigin|AllowAnyHeader|AllowAnyMethod|AddCors|UseCors') "Agent API still exposes permissive CORS."
-          Assert ($program -match 'AddMezhsApi\(options\)' -and $program -match 'UseMezhsApi\(\)' -and $program -match 'MapMezhsApi\(\)') "Agent API is not composed from the reusable MEŽS API foundation."
-          Assert ($agentProject -match 'Mezhs\.Api\\Mezhs\.Api\.csproj' -and $agentProject -notmatch 'Mezhs\.Api\.Client') "Agent API still consumes the normal API through its HTTP client project."
-          Assert ($worker -match 'ChatService' -and $worker -match 'MessageService' -and $worker -notmatch 'MezhsApiClient') "Agent worker still crosses an HTTP boundary instead of using core services directly."
-          Assert ($agentClient -match ': MezhsApiClient') "Agent API client is not the normal MEŽS client plus Agent-specific operations."
-          Assert ($coreComposition -match 'MapMezhsApi' -and $coreComposition -match 'AddMezhsApi' -and $coreComposition -match 'UseMezhsApi') "Reusable MEŽS API composition is incomplete."
-          '@.Replace('          ', '')
-          Replace-Regex 'tests/agent-architecture.ps1' `
-            'Assert \(\$program -notmatch ''AllowAnyOrigin\|AllowAnyHeader\|AllowAnyMethod\|AddCors\|UseCors''\) "Agent API still exposes permissive CORS\."' `
-            $newAgentAssertions
+                  $loopbackRequest = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
+                  $loopbackRequest.Headers.Add("Origin", "http://127.0.0.1:5173")
+                  $loopbackResponse = $originClient.SendAsync($loopbackRequest).GetAwaiter().GetResult()
+                  try {
+                      if (-not $loopbackResponse.Headers.Contains("Access-Control-Allow-Origin")) {
+                          throw "Agent API did not allow a loopback browser origin."
+                      }
+                  } finally { $loopbackResponse.Dispose(); $loopbackRequest.Dispose() }
+              } finally { $originClient.Dispose() }
+          '@.Replace('              ', '')
+          Replace-Regex 'tests/agent-api-smoke.ps1' `
+            '(?s)    \$originClient = \[Net\.Http\.HttpClient\]::new\(\).*?\n    \} finally \{ \$originClient\.Dispose\(\) \}' `
+            $corsSmoke
+
+          $proxyWait = @'
+              $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
+              do {
+                  try {
+                      $null = Invoke-RestMethod -Uri "http://127.0.0.1:5200/v1/policies"
+                      break
+                  } catch {
+                      if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }
+                  }
+                  Start-Sleep -Milliseconds 150
+              } while ($true)
+          '@.Replace('              ', '')
+          Replace-Regex 'tests/agent-api-smoke.ps1' `
+            '(?s)    \$deadline = \[DateTimeOffset\]::UtcNow\.AddSeconds\(20\)\s*do \{\s*try \{\s*\$proxied = Invoke-RestMethod -Uri "http://127\.0\.0\.1:5200/v1/runtime"\s*if \(\$proxied\.status -eq "ok"\) \{ break \}\s*\} catch \{\s*if \(\[DateTimeOffset\]::UtcNow -ge \$deadline\) \{ throw \}\s*\}\s*Start-Sleep -Milliseconds 150\s*\} while \(\$true\)' `
+            $proxyWait
+          Replace-Regex 'tests/agent-api-smoke.ps1' `
+            '\$offlineDebug\.Content -notmatch ''chatMessagesUnavailable:''' `
+            '$offlineDebug.Content -match ''chatMessagesUnavailable:'''
+          Replace-Regex 'tests/agent-api-smoke.ps1' `
+            'PASS: Agent API/Web are loopback-only, CORS-closed, environment-scoped, DTO-backed, free of requester/metrics ceremony, and keep local debug logs downloadable when MEZS API is unavailable\.' `
+            'PASS: Agent API/Web are loopback-only, browser CORS is loopback-only, the shared MEŽS API is hosted in-process, and debug logs remain complete when the separate generic API is offline.'
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src tests
-          git commit -m "Complete Agent API composition refactor [skip ci]"
+          git commit -m "Finalize Agent API composition cleanup [skip ci]"
           git push
