@@ -1,3 +1,4 @@
+# Temporary branch validation; removed before review.
 name: agent-api-composition-validation
 
 on:
