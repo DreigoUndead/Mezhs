@@ -1,39 +1,31 @@
 using System.Net.Http.Json;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Mezhs.Api.Client;
 
 namespace Mezhs.Agent.Api.Client;
 
-public sealed class AgentApiClient
+public sealed class AgentApiClient : MezhsApiClient
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    public AgentApiClient(HttpClient client) : base(client)
     {
-        Converters = { new JsonStringEnumConverter() }
-    };
-    private readonly HttpClient _client;
-
-    public AgentApiClient(HttpClient client)
-    {
-        _client = client;
-        if (_client.BaseAddress is { IsLoopback: false })
+        if (client.BaseAddress is { IsLoopback: false })
             throw new InvalidOperationException("MEŽS Agent API client must target a loopback address.");
     }
 
     public async Task<AgentRuntimeView> GetRuntimeAsync(CancellationToken cancellationToken = default)
     {
-        using var response = await _client.GetAsync("/v1/runtime", cancellationToken);
+        using var response = await Client.GetAsync("/v1/runtime", cancellationToken);
         return await ReadAsync<AgentRuntimeView>(response, cancellationToken);
     }
 
     public async Task<IReadOnlyList<AgentPolicyView>> GetPoliciesAsync(CancellationToken cancellationToken = default)
     {
-        using var response = await _client.GetAsync("/v1/policies", cancellationToken);
+        using var response = await Client.GetAsync("/v1/policies", cancellationToken);
         return await ReadAsync<AgentPolicyView[]>(response, cancellationToken);
     }
 
     public async Task<IReadOnlyList<AgentChatView>> GetChatsAsync(CancellationToken cancellationToken = default)
     {
-        using var response = await _client.GetAsync("/v1/agent-chats", cancellationToken);
+        using var response = await Client.GetAsync("/v1/agent-chats", cancellationToken);
         return await ReadAsync<AgentChatView[]>(response, cancellationToken);
     }
 
@@ -41,7 +33,7 @@ public sealed class AgentApiClient
         string chatId,
         CancellationToken cancellationToken = default)
     {
-        using var response = await _client.GetAsync(
+        using var response = await Client.GetAsync(
             $"/v1/agent-chats/{Uri.EscapeDataString(chatId)}",
             cancellationToken);
         return await ReadAsync<AgentChatView>(response, cancellationToken);
@@ -52,7 +44,7 @@ public sealed class AgentApiClient
         bool paused,
         CancellationToken cancellationToken = default)
     {
-        using var response = await _client.PatchAsJsonAsync(
+        using var response = await Client.PatchAsJsonAsync(
             $"/v1/agent-chats/{Uri.EscapeDataString(chatId)}",
             new { paused },
             Json,
@@ -64,7 +56,7 @@ public sealed class AgentApiClient
         CreateAgentExecutionRequest request,
         CancellationToken cancellationToken = default)
     {
-        using var response = await _client.PostAsJsonAsync(
+        using var response = await Client.PostAsJsonAsync(
             "/v1/executions",
             request,
             Json,
@@ -79,7 +71,7 @@ public sealed class AgentApiClient
         var path = string.IsNullOrWhiteSpace(chatId)
             ? "/v1/executions"
             : $"/v1/executions?chatId={Uri.EscapeDataString(chatId)}";
-        using var response = await _client.GetAsync(path, cancellationToken);
+        using var response = await Client.GetAsync(path, cancellationToken);
         return await ReadAsync<AgentExecutionView[]>(response, cancellationToken);
     }
 
@@ -87,61 +79,41 @@ public sealed class AgentApiClient
         string executionId,
         CancellationToken cancellationToken = default)
     {
-        using var response = await _client.GetAsync(
+        using var response = await Client.GetAsync(
             $"/v1/executions/{Uri.EscapeDataString(executionId)}",
             cancellationToken);
         return await ReadAsync<AgentExecutionView>(response, cancellationToken);
     }
 
-    public async Task<AgentExecutionView> CancelExecutionAsync(
+    public Task<AgentExecutionView> CancelExecutionAsync(
         string executionId,
-        CancellationToken cancellationToken = default)
-    {
-        using var response = await _client.PostAsync(
-            $"/v1/executions/{Uri.EscapeDataString(executionId)}/cancel",
-            null,
-            cancellationToken);
-        return await ReadAsync<AgentExecutionView>(response, cancellationToken);
-    }
+        CancellationToken cancellationToken = default) =>
+        ExecuteActionAsync(executionId, "cancel", cancellationToken);
 
-    public async Task<AgentExecutionView> KillExecutionAsync(
+    public Task<AgentExecutionView> KillExecutionAsync(
         string executionId,
-        CancellationToken cancellationToken = default)
-    {
-        using var response = await _client.PostAsync(
-            $"/v1/executions/{Uri.EscapeDataString(executionId)}/kill",
-            null,
-            cancellationToken);
-        return await ReadAsync<AgentExecutionView>(response, cancellationToken);
-    }
+        CancellationToken cancellationToken = default) =>
+        ExecuteActionAsync(executionId, "kill", cancellationToken);
 
-    public async Task<AgentExecutionView> RestartExecutionAsync(
+    public Task<AgentExecutionView> RestartExecutionAsync(
         string executionId,
-        CancellationToken cancellationToken = default)
-    {
-        using var response = await _client.PostAsync(
-            $"/v1/executions/{Uri.EscapeDataString(executionId)}/restart",
-            null,
-            cancellationToken);
-        return await ReadAsync<AgentExecutionView>(response, cancellationToken);
-    }
+        CancellationToken cancellationToken = default) =>
+        ExecuteActionAsync(executionId, "restart", cancellationToken);
 
-    private static async Task<T> ReadAsync<T>(
-        HttpResponseMessage response,
+    private async Task<AgentExecutionView> ExecuteActionAsync(
+        string executionId,
+        string action,
         CancellationToken cancellationToken)
     {
-        if (!response.IsSuccessStatusCode)
-        {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new InvalidOperationException(
-                $"MEŽS Agent API returned HTTP {(int)response.StatusCode}: {body}");
-        }
-        return await response.Content.ReadFromJsonAsync<T>(Json, cancellationToken)
-            ?? throw new InvalidOperationException("MEŽS Agent API returned an empty response.");
+        using var response = await Client.PostAsync(
+            $"/v1/executions/{Uri.EscapeDataString(executionId)}/{action}",
+            null,
+            cancellationToken);
+        return await ReadAsync<AgentExecutionView>(response, cancellationToken);
     }
 }
 
-public sealed record AgentRuntimeView(string Status, string MezhsApi, bool MezhsApiHealthy);
+public sealed record AgentRuntimeView(string Status);
 
 public sealed record AgentPolicyView(
     string Id,
