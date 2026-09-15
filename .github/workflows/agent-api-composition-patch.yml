@@ -10,47 +10,85 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Format composition cleanup v3'
+    if: github.event.head_commit.message == 'Make Agent chat claim atomic'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - name: Normalize formatting
+      - name: Make chat ownership publication atomic
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          function Prefix-Block([string]$path, [string]$pattern, [string]$prefix) {
+          function Write-Utf8([string]$path, [string]$text) {
+            [IO.File]::WriteAllText((Resolve-Path $path), $text, [Text.UTF8Encoding]::new($false))
+          }
+          function Replace-LiteralRegex([string]$path, [string]$pattern, [string]$replacement) {
             $text = Get-Content -LiteralPath $path -Raw
-            $options = [Text.RegularExpressions.RegexOptions]::Multiline -bor [Text.RegularExpressions.RegexOptions]::Singleline
-            $regex = [regex]::new($pattern, $options)
-            if (-not $regex.IsMatch($text)) { throw "Expected block not found in $path" }
-            $updated = $regex.Replace($text, [Text.RegularExpressions.MatchEvaluator]{ param($m) (($m.Value -split "`r?`n" | ForEach-Object { $prefix + $_ }) -join "`n") }, 1)
-            [IO.File]::WriteAllText((Resolve-Path $path), $updated, [Text.UTF8Encoding]::new($false))
+            $regex = [regex]::new($pattern, [Text.RegularExpressions.RegexOptions]::Singleline)
+            if (-not $regex.IsMatch($text)) { throw "Expected pattern not found in $path" }
+            $updated = $regex.Replace($text, [Text.RegularExpressions.MatchEvaluator]{ param($m) $replacement }, 1)
+            Write-Utf8 $path $updated
           }
 
-          Prefix-Block 'src/Mezhs.Agent.Web/src/App.tsx' '^useEffect\(\(\) => \{.*?^\}, \[\]\);' '  '
-          Prefix-Block 'src/Mezhs.Agent.Web/src/App.tsx' '^async function refreshChats\(\) \{.*?^\}' '  '
+          Replace-LiteralRegex 'src/Mezhs.Agent.Api/Persistence/AgentStore.cs' '\r?\n    public void AttachChat\(string executionId, string chatId\).*?(?=\r?\n    public void ClaimAgentChat)' ''
 
-          dotnet restore src/Mezhs.Api/Mezhs.Api.csproj
-          if ($LASTEXITCODE -ne 0) { throw 'Restore failed before formatting.' }
-          dotnet format whitespace src/Mezhs.Api/Mezhs.Api.csproj --include src/Mezhs.Api/Services/MessageService.cs --no-restore
-          if ($LASTEXITCODE -ne 0) { throw 'C# whitespace formatting failed.' }
+          $signature = @(
+            '    public void ClaimAgentChat(',
+            '        string executionId,',
+            '        string chatId,'
+          ) -join "`n"
+          Replace-LiteralRegex 'src/Mezhs.Agent.Api/Persistence/AgentStore.cs' '    public void ClaimAgentChat\(\s*string chatId,' $signature
 
-          $cancel = Get-Content -LiteralPath 'tests/agent-cancel-recovery.ps1' -Raw
-          $cancel = $cancel.Replace("`n  Continue =", "`n            Continue =")
-          $cancel = $cancel.Replace("`n  PolicyCorrection =", "`n            PolicyCorrection =")
-          $cancel = $cancel.Replace("`n  CommandCorrection =", "`n            CommandCorrection =")
-          $cancel = $cancel.Replace("`n  CommandResults =", "`n            CommandResults =")
-          $cancel = $cancel.Replace("`n  ProtocolIntro =", "`n            ProtocolIntro =")
-          $cancel = $cancel.Replace("`n  ShellContext =", "`n            ShellContext =")
-          [IO.File]::WriteAllText((Resolve-Path 'tests/agent-cancel-recovery.ps1'), $cancel, [Text.UTF8Encoding]::new($false))
+          $store = Get-Content -LiteralPath 'src/Mezhs.Agent.Api/Persistence/AgentStore.cs' -Raw
+          $attachLines = @(
+            '        using (var attach = connection.CreateCommand())',
+            '        {',
+            '            attach.Transaction = transaction;',
+            '            attach.CommandText = """',
+            '                UPDATE Executions',
+            '                SET ChatId = $chatId',
+            '                WHERE ExecutionId = $executionId',
+            '                  AND Kind = $agentKind',
+            '                  AND Status IN ($queued, $running);',
+            '                """;',
+            '            attach.Parameters.AddWithValue("$chatId", chatId);',
+            '            attach.Parameters.AddWithValue("$executionId", executionId);',
+            '            attach.Parameters.AddWithValue("$agentKind", AgentExecutionKind.Agent.ToString());',
+            '            attach.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());',
+            '            attach.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());',
+            '            attach.ExecuteNonQuery();',
+            '        }'
+          )
+          $attachBlock = $attachLines -join "`n"
+          $beforeCommit = [regex]::new('(?s)(        using \(var update = connection\.CreateCommand\(\)\).*?            update\.ExecuteNonQuery\(\);\r?\n        \})\r?\n\r?\n        transaction\.Commit\(\);')
+          if (-not $beforeCommit.IsMatch($store)) { throw 'Could not locate ClaimAgentChat commit boundary.' }
+          $store = $beforeCommit.Replace($store, [Text.RegularExpressions.MatchEvaluator]{ param($m) $m.Groups[1].Value + "`n`n" + $attachBlock + "`n`n        transaction.Commit();" }, 1)
+          $store = [regex]::Replace($store, '(?s)\r?\n    private void UpdateActive\(string executionId, string sql, Action<SqliteCommand> bind\).*?(?=\r?\n    private static void EnsurePolicyMatches)', '', 1)
+          Write-Utf8 'src/Mezhs.Agent.Api/Persistence/AgentStore.cs' $store
+
+          $worker = Get-Content -LiteralPath 'src/Mezhs.Agent.Api/Services/AgentWorker.cs' -Raw
+          $oldCreate = "                chatId = _chats.Create(new CreateChatRequest(execution.ConnectionId)).ChatId;`n                _store.AttachChat(executionId, chatId);`n                execution.ChatId = chatId;`n                cancellation.Token.ThrowIfCancellationRequested();"
+          $newCreate = "                chatId = _chats.Create(new CreateChatRequest(execution.ConnectionId)).ChatId;`n                cancellation.Token.ThrowIfCancellationRequested();"
+          if (-not $worker.Contains($oldCreate)) { throw 'Could not locate new-chat attach sequence.' }
+          $worker = $worker.Replace($oldCreate, $newCreate)
+          $oldClaim = "            _store.ClaimAgentChat(`n                chatId,"
+          $newClaim = "            _store.ClaimAgentChat(`n                executionId,`n                chatId,"
+          if (-not $worker.Contains($oldClaim)) { throw 'Could not locate ClaimAgentChat call.' }
+          $worker = $worker.Replace($oldClaim, $newClaim)
+          $oldClaimEnd = "                execution.Environment);`n            _store.ValidateAgentChatRunnable(chatId);"
+          $newClaimEnd = "                execution.Environment);`n            execution.ChatId = chatId;`n            _store.ValidateAgentChatRunnable(chatId);"
+          if (-not $worker.Contains($oldClaimEnd)) { throw 'Could not locate ClaimAgentChat completion.' }
+          $worker = $worker.Replace($oldClaimEnd, $newClaimEnd)
+          Write-Utf8 'src/Mezhs.Agent.Api/Services/AgentWorker.cs' $worker
+
+          $architecture = Get-Content -LiteralPath 'tests/agent-architecture.ps1' -Raw
+          $anchor = 'Assert ($store -match ''TryCreateRootExecution'' -and $store -match ''TryClaimNextQueuedExecution'' -and $store -match ''RETURNING \*'') "SQLite is not the authoritative admission/claim owner for root Agent executions."'
+          $assertion = 'Assert ($store -match ''ClaimAgentChat\(\s*string executionId'' -and $store -match ''attach\.Transaction = transaction'' -and $store -notmatch ''public void AttachChat'') "Agent chat ownership and execution chat attachment are not published atomically."'
+          if (-not $architecture.Contains($anchor)) { throw 'Could not locate AgentStore architecture assertion anchor.' }
+          $architecture = $architecture.Replace($anchor, $anchor + "`n" + $assertion)
+          Write-Utf8 'tests/agent-architecture.ps1' $architecture
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src tests
-          if (-not (git diff --cached --quiet)) {
-            git commit -m "Format Agent API composition cleanup [skip ci]"
-            git push
-          }
+          git commit -m "Publish Agent chat ownership atomically [skip ci]"
+          git push
