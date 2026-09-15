@@ -17,7 +17,7 @@ public sealed class Shell(
         if (string.IsNullOrWhiteSpace(commandText))
             return new Result(definition.Name, null, false, null, null, "Shell command body cannot be empty.");
 
-        var environment = ExecutorEnvironment.SnapshotCurrent()
+        var environment = ExecutorEnvironment.SnapshotForChildExecution()
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
         foreach (var (name, value) in context.ParentExecution.Environment)
             environment[name] = value;
