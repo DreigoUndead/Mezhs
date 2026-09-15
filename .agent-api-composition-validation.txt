@@ -1,45 +1,52 @@
 BUILD_EXIT=1
-ARCHITECTURE_EXIT=1
+ARCHITECTURE_EXIT=0
 AGENT_ARCHITECTURE_EXIT=1
+POLICY_DECODER_EXIT=1
+API_SMOKE_EXIT=0
+AGENT_API_SMOKE_EXIT=1
+AGENT_RUNTIME_RESILIENCE_EXIT=0
+AGENT_CANCEL_RECOVERY_EXIT=1
+AGENT_EXECUTOR_EVIDENCE_EXIT=0
 OVERALL=FAIL
 
 === BUILD ===
   Determining projects to restore...
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 147 ms).
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 296 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 122 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 297 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj (in 1 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Common\Mezhs.Common.csproj (in 1 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Console\Mezhs.Console.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 158 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 2 ms).
   Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Shared\Mezhs.Log.Shared.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Shared\Mezhs.Log.Shared.csproj (in 4 ms).
   Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Data\Mezhs.Log.Data.csproj (in 4 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\Mezhs.Agent.Api.Client.csproj (in 8 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 3 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 3 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 1.43 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj (in 1 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Sqlite\Mezhs.Sqlite.csproj (in 3.02 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Sql\Mezhs.Log.Sql.csproj (in 3.02 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Executor\Mezhs.Executor.csproj (in 2.96 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Console\Mezhs.Console.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Common\Mezhs.Common.csproj (in 1 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 3.24 sec).
   Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj (in 1 ms).
   Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Client\Mezhs.Api.Client.csproj (in 2 ms).
   Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj (in 1 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Sqlite\Mezhs.Sqlite.csproj (in 2.11 sec).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Executor\Mezhs.Executor.csproj (in 2.12 sec).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Sql\Mezhs.Log.Sql.csproj (in 2.1 sec).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 477 ms).
-  Mezhs.Api.Contracts -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\bin\Debug\net10.0\Mezhs.Api.Contracts.dll
-  Mezhs.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Web\bin\Debug\net10.0\Mezhs.Web.dll
-  Mezhs.Integration.Abstractions -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\bin\Debug\net10.0\Mezhs.Integration.Abstractions.dll
-  Mezhs.Agent.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\bin\Debug\net10.0\Mezhs.Agent.Web.dll
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\Mezhs.Agent.Api.Client.csproj (in 3 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 8 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 3 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 3 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 3 ms).
+  Mezhs.Api.Contracts -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\bin\Release\net10.0\Mezhs.Api.Contracts.dll
+  Mezhs.Agent.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\bin\Release\net10.0\Mezhs.Agent.Web.dll
+  Mezhs.Common -> D:\a\Mezhs\Mezhs\src\Mezhs.Common\bin\Release\net10.0\Mezhs.Common.dll
+  Mezhs.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Web\bin\Release\net10.0\Mezhs.Web.dll
+  Mezhs.Api.Client -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Client\bin\Release\net10.0\Mezhs.Api.Client.dll
+  Mezhs.Agent.Api.Client -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\bin\Release\net10.0\Mezhs.Agent.Api.Client.dll
   npm warn old lockfile
   npm warn old lockfile The package-lock.json file was created with an old version of npm,
   npm warn old lockfile so supplemental metadata must be fetched from the registry.
   npm warn old lockfile
   npm warn old lockfile This is a one-time fix-up, please be patient...
   npm warn old lockfile
-  Mezhs.Common -> D:\a\Mezhs\Mezhs\src\Mezhs.Common\bin\Debug\net10.0\Mezhs.Common.dll
   
-  added 75 packages, and audited 77 packages in 10s
+  added 75 packages, and audited 77 packages in 19s
   
   11 packages are looking for funding
     run `npm fund` for details
@@ -54,11 +61,7 @@ OVERALL=FAIL
   
   Run `npm audit` for details.
   
-  > mezhs-web@0.1.0 build
-  > tsc --noEmit && vite build
-  
-  
-  added 75 packages, and audited 77 packages in 14s
+  added 75 packages, and audited 77 packages in 21s
   
   11 packages are looking for funding
     run `npm fund` for details
@@ -69,60 +72,103 @@ OVERALL=FAIL
     npm audit fix --force
   
   Run `npm audit` for details.
+  
+  > mezhs-web@0.1.0 build
+  > tsc --noEmit && vite build
+  
+  
+  > mezhs-agent-web@0.1.0 build
+  > tsc --noEmit && vite build
+  
   [36mvite v2.9.16 [32mbuilding for production...[36m[39m
   transforming...
+src/App.tsx(622,52): error TS2339: Property 'mezhsApiHealthy' does not exist on type 'Runtime'. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj]
+src/App.tsx(623,23): error TS2339: Property 'mezhsApiHealthy' does not exist on type 'Runtime'. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj]
+D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj(22,5): error MSB3073: The command "npm run build" exited with code 2.
+  Mezhs.Sqlite -> D:\a\Mezhs\Mezhs\src\Mezhs.Sqlite\bin\Release\net10.0\Mezhs.Sqlite.dll
   [32mΓ£ô[39m 41 modules transformed.
   rendering chunks...
   [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.51 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[35massets/index.288a7688.css  [39m [2m22.11 KiB / gzip: 5.63 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[36massets/index.4e4dc77a.js   [39m [2m162.85 KiB / gzip: 51.88 KiB[22m
-  Mezhs.Sqlite -> D:\a\Mezhs\Mezhs\src\Mezhs.Sqlite\bin\Debug\net10.0\Mezhs.Sqlite.dll
-  Mezhs.Console -> D:\a\Mezhs\Mezhs\src\Mezhs.Console\bin\Debug\net10.0\Mezhs.Console.dll
-  Mezhs.Log.Shared -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Shared\bin\Debug\net10.0\Mezhs.Log.Shared.dll
-  
-  > mezhs-agent-web@0.1.0 build
-  > tsc --noEmit && vite build
-  
-  Mezhs.Log.Sql -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Sql\bin\Debug\net10.0\Mezhs.Log.Sql.dll
-  Mezhs.Log.Data -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Data\bin\Debug\net10.0\Mezhs.Log.Data.dll
-  Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Debug\net10.0\Mezhs.Integrations.Mock.dll
-  Mezhs.Executor -> D:\a\Mezhs\Mezhs\src\Mezhs.Executor\bin\Debug\net10.0\Mezhs.Executor.dll
-  [36mvite v2.9.16 [32mbuilding for production...[36m[39m
-  transforming...
-  [32mΓ£ô[39m 42 modules transformed.
-  rendering chunks...
-  [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.44 KiB[22m
-  [90m[37m[2mdist/[22m[90m[39m[35massets/index.9d2000d3.css  [39m [2m31.68 KiB / gzip: 7.13 KiB[22m
-  [90m[37m[2mdist/[22m[90m[39m[36massets/index.882806e9.js   [39m [2m164.56 KiB / gzip: 52.53 KiB[22m
-  Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Debug\net10.0\Mezhs.Browser.Abstractions.dll
-  Mezhs.Api.Client -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Client\bin\Debug\net10.0\Mezhs.Api.Client.dll
-  Mezhs.Agent.Api.Client -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\bin\Debug\net10.0\Mezhs.Agent.Api.Client.dll
-  Mezhs.Browser.Electron -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\bin\Debug\net10.0\Mezhs.Browser.Electron.dll
-  Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Debug\net10.0\Mezhs.Integration.Browser.dll
-  Mezhs.Integrations.ChatGpt -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\bin\Debug\net10.0\Mezhs.Integrations.ChatGpt.dll
-  Mezhs.Integrations.Gemini -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\bin\Debug\net10.0\Mezhs.Integrations.Gemini.dll
-  Mezhs.Integrations.Grok -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\bin\Debug\net10.0\Mezhs.Integrations.Grok.dll
-  Mezhs.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Api\bin\Debug\net10.0\Mezhs.Api.dll
-D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Persistence\AgentStore.cs(13,53): error CS1503: Argument 1: cannot convert from 'Mezhs.Configuration.StorageOptions' to 'string' [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
+  Mezhs.Integration.Abstractions -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\bin\Release\net10.0\Mezhs.Integration.Abstractions.dll
+  Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Release\net10.0\Mezhs.Browser.Abstractions.dll
+  Mezhs.Console -> D:\a\Mezhs\Mezhs\src\Mezhs.Console\bin\Release\net10.0\Mezhs.Console.dll
+  Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Release\net10.0\Mezhs.Integrations.Mock.dll
+  Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Release\net10.0\Mezhs.Integration.Browser.dll
+  Mezhs.Log.Shared -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Shared\bin\Release\net10.0\Mezhs.Log.Shared.dll
+  Mezhs.Browser.Electron -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\bin\Release\net10.0\Mezhs.Browser.Electron.dll
+  Mezhs.Integrations.ChatGpt -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\bin\Release\net10.0\Mezhs.Integrations.ChatGpt.dll
+  Mezhs.Integrations.Gemini -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\bin\Release\net10.0\Mezhs.Integrations.Gemini.dll
+  Mezhs.Log.Data -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Data\bin\Release\net10.0\Mezhs.Log.Data.dll
+  Mezhs.Integrations.Grok -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\bin\Release\net10.0\Mezhs.Integrations.Grok.dll
+  Mezhs.Log.Sql -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Sql\bin\Release\net10.0\Mezhs.Log.Sql.dll
+  Mezhs.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Api\bin\Release\net10.0\Mezhs.Api.dll
+  Mezhs.Executor -> D:\a\Mezhs\Mezhs\src\Mezhs.Executor\bin\Release\net10.0\Mezhs.Executor.dll
+  Mezhs.Agent.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll
 
 Build FAILED.
 
-D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Persistence\AgentStore.cs(13,53): error CS1503: Argument 1: cannot convert from 'Mezhs.Configuration.StorageOptions' to 'string' [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj]
+src/App.tsx(622,52): error TS2339: Property 'mezhsApiHealthy' does not exist on type 'Runtime'. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj]
+src/App.tsx(623,23): error TS2339: Property 'mezhsApiHealthy' does not exist on type 'Runtime'. [D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj]
+D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj(22,5): error MSB3073: The command "npm run build" exited with code 2.
     0 Warning(s)
-    1 Error(s)
+    3 Error(s)
 
-Time Elapsed 00:00:33.68
+Time Elapsed 00:00:52.50
 
 === ARCHITECTURE ===
-Exception: D:\a\Mezhs\Mezhs\tests\architecture.ps1:154
-Line |
- 154 |      throw "The API exception handler is not registered as middleware. …
-     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-     | The API exception handler is not registered as middleware.
+PASS: chats are connection-neutral, message processing is owned, integrations register directly, browser contracts are concise, and provider-specific behavior stays outside core.
 
-=== AGENT ARCHITECTURE ===
+=== AGENT-ARCHITECTURE ===
 Exception: D:\a\Mezhs\Mezhs\tests\agent-architecture.ps1:5
 Line |
    5 |  … dition, [string]$message) { if (-not $condition) { throw $message } }
      |                                                       ~~~~~~~~~~~~~~
-     | Host-shell Agent API is not restricted to loopback binding.
+     | Agent API still exposes permissive CORS.
+
+=== POLICY-DECODER ===
+Unhandled exception. System.InvalidOperationException: Unicode shell output was corrupted: stdout: Microsoft Windows [Version 10.0.26100.33296]
+(c) Microsoft Corporation. All rights reserved.
+
+D:\a\Mezhs\Mezhs>
+D:\a\Mezhs\Mezhs>���������������������� ���
+
+D:\a\Mezhs\Mezhs>
+   at Program.<<Main>$>g__Assert|0_1(Boolean condition, String message) in C:\Users\runneradmin\AppData\Local\Temp\mezhs-policy-test-f7d1b309008744539fb578693467c387\Program.cs:line 253
+   at Program.<Main>$(String[] args) in C:\Users\runneradmin\AppData\Local\Temp\mezhs-policy-test-f7d1b309008744539fb578693467c387\Program.cs:line 208
+   at Program.<Main>(String[] args)
+Exception: D:\a\Mezhs\Mezhs\tests\policy-decoder.ps1:282
+Line |
+ 282 |  … DE -ne 0) { throw "Policy/shell behavior test failed with exit code $ …
+     |                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Policy/shell behavior test failed with exit code -532462766.
+
+=== API-SMOKE ===
+
+PASS message=msg_0defa3e92c4c4b83bab20826b66abb19 chat=chat_ce4d4891a5394eec88b2c57bd77faddf history=12 implicit-follow-up=ok multi-connection=ok categories=ok files=ok downloads=ok deletion=ok api-errors=ok login=ok models=ok model-restore=ok default-reset=ok
+
+=== AGENT-API-SMOKE ===
+Exception: D:\a\Mezhs\Mezhs\tests\agent-api-smoke.ps1:103
+Line |
+ 103 |          throw "Loopback Agent API unexpectedly requires authenticatio …
+     |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Loopback Agent API unexpectedly requires authentication.
+
+=== AGENT-RUNTIME-RESILIENCE ===
+PASS: Root cancellation kills Executor work, durable admission remains bounded, detached shell survives Agent death, recovery reconnects without duplicate shell execution, queued work survives restart, and post-restart work completes.
+
+=== AGENT-CANCEL-RECOVERY ===
+C:\Users\runneradmin\AppData\Local\Temp\mezhs-cancel-recovery-4476fb20a2514fd5b27d6def94241523\Program.cs(68,9): error CS0117: 'AgentOptions' does not contain a definition for 'Listen' [C:\Users\runneradmin\AppData\Local\Temp\mezhs-cancel-recovery-4476fb20a2514fd5b27d6def94241523\Test.csproj]
+C:\Users\runneradmin\AppData\Local\Temp\mezhs-cancel-recovery-4476fb20a2514fd5b27d6def94241523\Program.cs(69,9): error CS0117: 'AgentOptions' does not contain a definition for 'MezhsApi' [C:\Users\runneradmin\AppData\Local\Temp\mezhs-cancel-recovery-4476fb20a2514fd5b27d6def94241523\Test.csproj]
+C:\Users\runneradmin\AppData\Local\Temp\mezhs-cancel-recovery-4476fb20a2514fd5b27d6def94241523\Program.cs(70,19): error CS0029: Cannot implicitly convert type 'string' to 'Mezhs.Configuration.StorageOptions' [C:\Users\runneradmin\AppData\Local\Temp\mezhs-cancel-recovery-4476fb20a2514fd5b27d6def94241523\Test.csproj]
+
+The build failed. Fix the build errors and run again.
+Exception: D:\a\Mezhs\Mezhs\tests\agent-cancel-recovery.ps1:140
+Line |
+ 140 |  … XITCODE -ne 0) { throw "Pending cancellation recovery test failed." }
+     |                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Pending cancellation recovery test failed.
+
+=== AGENT-EXECUTOR-EVIDENCE ===
+PASS: Executor shell execution is the durable SH evidence source for Agent completion policy.
