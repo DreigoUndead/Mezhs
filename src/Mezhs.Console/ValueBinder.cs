@@ -1,5 +1,4 @@
 using System.Collections;
-using System.ComponentModel;
 using System.Globalization;
 
 namespace Mezhs.Console;
@@ -47,7 +46,7 @@ internal static class ValueBinder
             return false;
         }
 
-        if (CanConvertScalar(type))
+        if (ScalarConverter.CanConvert(type))
         {
             reason = null;
             return true;
@@ -91,7 +90,7 @@ internal static class ValueBinder
         if (node is not ScalarNode scalar)
             throw new FormatException($"Expected scalar value for '{FriendlyName(type)}'.");
 
-        return ConvertScalar(scalar.Value, type);
+        return ScalarConverter.Parse(type, scalar.Value);
     }
 
     public static string Describe(Type type, CommandSyntax syntax)
@@ -136,25 +135,6 @@ internal static class ValueBinder
         return value;
     }
 
-    private static bool CanConvertScalar(Type type)
-    {
-        var converter = TypeDescriptor.GetConverter(type);
-        return converter.CanConvertFrom(typeof(string)) || typeof(IConvertible).IsAssignableFrom(type);
-    }
-
-    private static object ConvertScalar(string value, Type type)
-    {
-        var converter = TypeDescriptor.GetConverter(type);
-        if (converter.CanConvertFrom(typeof(string)))
-            return converter.ConvertFromString(null, CultureInfo.CurrentCulture, value)
-                ?? throw new FormatException($"'{value}' cannot be converted to '{FriendlyName(type)}'.");
-
-        if (typeof(IConvertible).IsAssignableFrom(type))
-            return Convert.ChangeType(value, type, CultureInfo.CurrentCulture)!;
-
-        throw new FormatException($"Type '{FriendlyName(type)}' cannot be converted from text.");
-    }
-
     private static object BindList(ListNode list, Type targetType, Type elementType)
     {
         var array = Array.CreateInstance(elementType, list.Items.Count);
@@ -188,7 +168,7 @@ internal static class ValueBinder
 
         foreach (var property in map.Properties)
         {
-            var key = ConvertScalar(property.Key, keyType);
+            var key = ScalarConverter.Parse(keyType, property.Key);
             var value = Bind(property.Value, valueType);
             add.Invoke(result, [key, value]);
         }
