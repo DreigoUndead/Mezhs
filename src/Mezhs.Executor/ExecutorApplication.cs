@@ -29,6 +29,7 @@ public sealed class ExecutorApplication : ConsoleApplication
     [Command(Description = "Internal execution-owner entry point. Claims and runs an existing execution ID.")]
     public void Run(int id, string? storage = null) => new ExecutorService(storage).Run(id);
 
+    [Command(Description = "Run Executor self-tests.")]
     public override string Test()
     {
         var storage = Path.Combine(
