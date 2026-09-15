@@ -3,6 +3,7 @@ using System.Text;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Api.Client;
+using Mezhs.Api.Contracts;
 using Mezhs.Executor;
 
 namespace Mezhs.Agent.Services;
@@ -12,6 +13,8 @@ public sealed class AgentDebugLogBuilder(
     ExecutorService executor,
     MezhsApiClient mezhs)
 {
+    private static readonly TimeSpan ChatMessageTimeout = TimeSpan.FromSeconds(3);
+
     public async Task<string> BuildAsync(
         string chatId,
         CancellationToken cancellationToken)
@@ -27,7 +30,7 @@ public sealed class AgentDebugLogBuilder(
             .OrderBy(execution => execution.CreatedAt)
             .ThenBy(execution => execution.Id)
             .ToArray();
-        var messages = await mezhs.GetMessagesAsync(chatId, cancellationToken);
+        var (messages, messageError) = await GetMessagesBestEffortAsync(chatId, cancellationToken);
         var now = DateTimeOffset.UtcNow;
 
         var log = new StringBuilder();
@@ -80,6 +83,8 @@ public sealed class AgentDebugLogBuilder(
         }
 
         log.AppendLine("=== CHAT MESSAGES ===");
+        if (messageError is not null)
+            log.AppendLine($"chatMessagesUnavailable: {messageError}");
         foreach (var message in messages.OrderBy(message => message.CreatedAt))
         {
             log.AppendLine(
@@ -94,6 +99,26 @@ public sealed class AgentDebugLogBuilder(
         }
 
         return log.ToString();
+    }
+
+    private async Task<(IReadOnlyList<ApiChatHistoryMessage> Messages, string? Error)> GetMessagesBestEffortAsync(
+        string chatId,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ChatMessageTimeout);
+        try
+        {
+            return (await mezhs.GetMessagesAsync(chatId, timeout.Token), null);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return ([], $"MEŽS API did not return chat messages within {ChatMessageTimeout.TotalSeconds:0} seconds.");
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            return ([], ex.Message);
+        }
     }
 
     private static void AppendAgentExecution(
