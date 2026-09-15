@@ -6,8 +6,8 @@ using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
 using Mezhs.Api.Contracts;
-using Mezhs.Api.Client;
 using Mezhs.Executor;
+using Mezhs.Services;
 
 namespace Mezhs.Agent.Services;
 
@@ -15,7 +15,8 @@ public sealed class AgentWorker : BackgroundService
 {
     private readonly AgentStore _store;
     private readonly PolicyRegistry _policies;
-    private readonly MezhsApiClient _mezhs;
+    private readonly ChatService _chats;
+    private readonly MessageService _messages;
     private readonly AgentPromptBuilder _prompts;
     private readonly PolicyEvaluationService _evaluations;
     private readonly Interpreter _commands;
@@ -29,7 +30,8 @@ public sealed class AgentWorker : BackgroundService
     public AgentWorker(
         AgentStore store,
         PolicyRegistry policies,
-        MezhsApiClient mezhs,
+        ChatService chats,
+        MessageService messages,
         AgentPromptBuilder prompts,
         PolicyEvaluationService evaluations,
         Interpreter commands,
@@ -39,7 +41,8 @@ public sealed class AgentWorker : BackgroundService
     {
         _store = store;
         _policies = policies;
-        _mezhs = mezhs;
+        _chats = chats;
+        _messages = messages;
         _prompts = prompts;
         _evaluations = evaluations;
         _commands = commands;
@@ -141,14 +144,12 @@ public sealed class AgentWorker : BackgroundService
             var previouslyOwnedAgentChat = chatId is null ? null : _store.GetAgentChat(chatId);
             if (string.IsNullOrWhiteSpace(chatId))
             {
-                chatId = await _mezhs.CreateChatAsync(
-                    execution.ConnectionId,
-                    cancellation.Token);
+                chatId = _chats.Create(new CreateChatRequest(execution.ConnectionId)).ChatId;
                 _store.AttachChat(executionId, chatId);
                 execution.ChatId = chatId;
                 cancellation.Token.ThrowIfCancellationRequested();
             }
-            else if (!await _mezhs.ChatExistsAsync(chatId, cancellation.Token))
+            else if (!_chats.Exists(chatId))
             {
                 throw new ResourceNotFoundException($"Chat '{chatId}' was not found in MEŽS.");
             }
@@ -161,7 +162,7 @@ public sealed class AgentWorker : BackgroundService
                 execution.Environment);
             _store.ValidateAgentChatRunnable(chatId);
 
-            var existingMessages = await _mezhs.GetMessagesAsync(chatId, cancellation.Token);
+            var existingMessages = _chats.GetMessages(chatId);
             var hasCompletedAgentHistory = existingMessages.Any(message =>
                 message.Role == "user" && message.Status == MessageStatus.Completed);
             var includePolicyInstructions = previouslyOwnedAgentChat is null || !hasCompletedAgentHistory;
@@ -201,11 +202,12 @@ public sealed class AgentWorker : BackgroundService
                     return;
                 }
 
-                var reply = await _mezhs.SendMessageWithReplyAsync(
-                    chatId,
-                    execution.ConnectionId,
-                    nextPrompt.Content,
-                    nextPrompt.Origin,
+                var reply = await _messages.SendWithReplyAsync(
+                    new PostMessageRequest(
+                        Content: nextPrompt.Content,
+                        ConnectionId: execution.ConnectionId,
+                        ChatId: chatId,
+                        Origin: nextPrompt.Origin),
                     cancellation.Token);
 
                 var processed = await ProcessReplyAsync(
@@ -261,7 +263,7 @@ public sealed class AgentWorker : BackgroundService
         if (!string.Equals(latest.Role, "user", StringComparison.OrdinalIgnoreCase))
             return null;
 
-        var reply = await _mezhs.WaitForReplyAsync(latest.MessageId, cancellationToken);
+        var reply = await _messages.WaitForReplyAsync(latest.MessageId, cancellationToken);
         return new RecoveredReply(reply.MessageId, reply.Content);
     }
 
