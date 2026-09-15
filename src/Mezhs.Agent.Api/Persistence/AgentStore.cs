@@ -10,7 +10,7 @@ namespace Mezhs.Agent.Persistence;
 public sealed class AgentStore(AgentOptions options)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private readonly SqliteDatabase _database = new(options.Storage);
+    private readonly SqliteDatabase _database = new(options.AgentStorage);
 
     public void Initialize()
     {

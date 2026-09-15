@@ -8,8 +8,6 @@ import {
 
 type Runtime = {
   status: string;
-  mezhsApi: string;
-  mezhsApiHealthy: boolean;
 };
 
 type AgentPolicy = {
@@ -598,8 +596,7 @@ export default function App() {
         <div className="agent-brand-row">
           <div className="agent-brand-mark">M</div>
           <div><strong>MEŽS Agent</strong><span>Policy-controlled chats</span></div>
-          <span className={`health-dot ${runtime?.mezhsApiHealthy ? "online" : ""}`}
-            title={runtime?.mezhsApiHealthy ? "MEŽS API online" : "MEŽS API unavailable"} />
+          <span className={`health-dot ${runtime?.status === "ok" ? "online" : ""}`} title={runtime?.status === "ok" ? "MEŽS Agent API online" : "MEŽS Agent API unavailable"} />
         </div>
 
         <button className="new-chat" type="button" onClick={beginNewChat}><span>+</span> New agent chat</button>

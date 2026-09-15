@@ -143,15 +143,19 @@ if ($messageService -notmatch 'BackgroundService' -or $messageService -notmatch 
 }
 
 $program = Get-Content (Join-Path $root "src/Mezhs.Api/Program.cs") -Raw
+$apiComposition = Get-Content (Join-Path $root "src/Mezhs.Api/MezhsApi.cs") -Raw
 $apiExceptionHandler = Get-Content (Join-Path $root "src/Mezhs.Api/ApiExceptionHandler.cs") -Raw
 $requestExceptions = Get-Content (Join-Path $root "src/Mezhs.Api/RequestExceptions.cs") -Raw
 if ($program -match 'catch\s*\(\s*(ArgumentException|KeyNotFoundException)') {
     throw "Program endpoint mappings still translate domain exceptions with repeated try/catch blocks."
 }
-if ($program -notmatch 'AddExceptionHandler<ApiExceptionHandler>' -or
-    $program -notmatch 'AddProblemDetails' -or
-    $program -notmatch 'UseExceptionHandler') {
-    throw "The API exception handler is not registered as middleware."
+if ($apiComposition -notmatch 'AddExceptionHandler<ApiExceptionHandler>' -or
+    $apiComposition -notmatch 'AddProblemDetails' -or
+    $apiComposition -notmatch 'UseExceptionHandler') {
+    throw "The reusable API composition does not own exception middleware."
+}
+if ($program -notmatch 'AddMezhsApi' -or $program -notmatch 'UseMezhsApi' -or $program -notmatch 'MapMezhsApi') {
+    throw "Mezhs.Api is not a thin host over the reusable API composition."
 }
 if ($apiExceptionHandler -notmatch 'Status400BadRequest' -or
     $apiExceptionHandler -notmatch 'Status404NotFound' -or

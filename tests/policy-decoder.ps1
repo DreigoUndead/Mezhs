@@ -129,9 +129,12 @@ Assert(promptBuilder.BuildContinue(done).Content.Contains("<DONE>", StringCompar
 
 var shellOptions = new AgentOptions
 {
-    Listen = options.Listen,
-    MezhsApi = options.MezhsApi,
-    Storage = Path.Combine(Path.GetTempPath(), $"mezhs-agent-policy-{Guid.NewGuid():N}.sqlite"),
+    Version = options.Version,
+    Server = options.Server,
+    Transport = options.Transport,
+    Storage = options.Storage,
+    Connections = options.Connections,
+    AgentStorage = Path.Combine(Path.GetTempPath(), $"mezhs-agent-policy-{Guid.NewGuid():N}.sqlite"),
     Workspace = options.Workspace,
     Runtime = options.Runtime,
     Messages = options.Messages,
@@ -256,7 +259,7 @@ try
 finally
 {
     SqliteConnection.ClearAllPools();
-    DeleteDatabase(shellOptions.Storage);
+    DeleteDatabase(shellOptions.AgentStorage);
     DeleteDatabase(executorPath);
 }
 
