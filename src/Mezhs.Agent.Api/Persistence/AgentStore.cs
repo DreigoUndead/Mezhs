@@ -267,7 +267,9 @@ public sealed class AgentStore(AgentOptions options)
             attach.Parameters.AddWithValue("$agentKind", AgentExecutionKind.Agent.ToString());
             attach.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());
             attach.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
-            attach.ExecuteNonQuery();
+            if (attach.ExecuteNonQuery() != 1)
+                throw new InvalidOperationException(
+                    $"Execution '{executionId}' changed state before Agent chat '{chatId}' could be claimed.");
         }
 
         transaction.Commit();
