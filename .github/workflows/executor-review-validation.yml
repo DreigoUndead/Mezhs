@@ -34,7 +34,7 @@ jobs:
         name: Console framework self-test
         continue-on-error: true
         shell: pwsh
-        run: dotnet run --project tests/Mezhs.Console.TestApp -c Release --no-build -- Test
+        run: dotnet run --project tests/Mezhs.Console.TestApp -c Release -- Test
 
       - id: executor_test
         name: Executor self-test
@@ -112,3 +112,11 @@ jobs:
           git add .executor-review-validation.txt
           git commit -m "Record executor review validation [skip ci]"
           git push origin HEAD:executor-foundation
+
+      - name: Enforce validation result
+        if: always()
+        shell: pwsh
+        run: |
+          if ((Get-Content .executor-review-validation.txt -Raw) -notmatch 'overall=PASS') {
+            throw 'Executor review validation failed.'
+          }
