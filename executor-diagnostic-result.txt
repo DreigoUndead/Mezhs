@@ -1,0 +1,76 @@
+head=70a7a32c46ffe2d70d7cbd3f0049cdbca19bfb7c
+generated=2026-09-15T08:08:04.7304127+00:00
+=== existing lifecycle test ===
+exit=0
+PASS: Executor detachment, atomic claim, kill, timeout, restart, Agent idempotency/restart reconnection, heartbeat, and lazy Dead reconciliation are correct.
+=== isolated atomic reproduction ===
+executeCode=0
+executeOut=1
+parsedId=1
+waitCode=0
+--- wait ---
+Id: 1
+Status: Completed
+Command: "ping -n 3 127.0.0.1 >nul & echo hit>>D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work\\atomic.txt"
+Directory: "D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work"
+TimeoutSeconds: 30
+OwnerProcessId: 5948
+ProcessId: 8436
+ExitCode: 0
+Result: "stdout: Microsoft Windows [Version 10.0.26100.33296]
+(c) Microsoft Corporation. All rights reserved.
+
+D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
+D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
+D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
+stderr: '﻿@chcp' is not recognized as an internal or external command,
+operable program or batch file."
+Error: null
+CreatedAt: 2026-09-15T08:08:46.7995053+00:00
+StartedAt: 2026-09-15T08:08:47.1170326+00:00
+HeartbeatAt: 2026-09-15T08:08:49.2679899+00:00
+CompletedAt: 2026-09-15T08:08:49.2679899+00:00
+RestartedFromId: null
+RestartedAsId: null
+ChatId: null
+ParentExecutionId: "diagnostic-parent"
+CorrelationId: null
+Source: "executor-diagnostic"
+Workspace: null
+TriggerMessageId: null
+CommandIndex: null
+--- get ---
+Id: 1
+Status: Completed
+Command: "ping -n 3 127.0.0.1 >nul & echo hit>>D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work\\atomic.txt"
+Directory: "D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work"
+TimeoutSeconds: 30
+OwnerProcessId: 5948
+ProcessId: 8436
+ExitCode: 0
+Result: "stdout: Microsoft Windows [Version 10.0.26100.33296]
+(c) Microsoft Corporation. All rights reserved.
+
+D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
+D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
+D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
+stderr: '﻿@chcp' is not recognized as an internal or external command,
+operable program or batch file."
+Error: null
+CreatedAt: 2026-09-15T08:08:46.7995053+00:00
+StartedAt: 2026-09-15T08:08:47.1170326+00:00
+HeartbeatAt: 2026-09-15T08:08:49.2679899+00:00
+CompletedAt: 2026-09-15T08:08:49.2679899+00:00
+RestartedFromId: null
+RestartedAsId: null
+ChatId: null
+ParentExecutionId: "diagnostic-parent"
+CorrelationId: null
+Source: "executor-diagnostic"
+Workspace: null
+TriggerMessageId: null
+CommandIndex: null
+p1Exit=0
+p2Exit=0
+fileExists=True
+fileContent=hit<CR><LF>
