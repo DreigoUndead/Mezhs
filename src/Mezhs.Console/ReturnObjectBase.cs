@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Reflection;
 using System.Text;
+using Mezhs.Common;
 
 namespace Mezhs.Console;
 
@@ -82,7 +83,7 @@ public abstract class ReturnObjectBase
         if (value is null)
             return "null";
 
-        var type = Nullable.GetUnderlyingType(declaredType) ?? declaredType;
+        var type = declaredType.GetNotNullable();
         if (type == typeof(string))
             return Quote((string)value);
         if (type == typeof(char))
@@ -90,18 +91,10 @@ public abstract class ReturnObjectBase
 
         if (value is IEnumerable enumerable && value is not string)
         {
+            var itemType = type.TryGetEnumerableElementType(out var resolvedItemType)
+                ? resolvedItemType
+                : typeof(object);
             var items = new List<string>();
-            Type itemType = typeof(object);
-            if (type.IsArray)
-                itemType = type.GetElementType()!;
-            else
-            {
-                var enumerableType = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>)
-                    ? type
-                    : type.GetInterfaces().FirstOrDefault(candidate => candidate.IsGenericType && candidate.GetGenericTypeDefinition() == typeof(IEnumerable<>));
-                if (enumerableType is not null)
-                    itemType = enumerableType.GetGenericArguments()[0];
-            }
             foreach (var item in enumerable)
                 items.Add(FormatValue(item, itemType));
             return $"[{string.Join(' ', items)}]";
@@ -112,7 +105,7 @@ public abstract class ReturnObjectBase
 
     private static string FormatScalar(object value)
     {
-        var text = ScalarConverter.Format(value);
+        var text = Cast.Format(value);
         try
         {
             var nodes = CommandLineParser.Parse(text, CommandSyntax.Default);
