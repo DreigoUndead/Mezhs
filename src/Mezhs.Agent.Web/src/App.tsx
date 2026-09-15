@@ -475,17 +475,16 @@ export default function App() {
   }
 
   async function loadSelected(chatId: string, reportErrors = true) {
-    try {
-      const [messageValues, executionValues] = await Promise.all([
-        api<AgentChatMessage[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/messages`),
-        api<Execution[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/executions`),
-      ]);
-      setMessages(messageValues);
-      setExecutions(executionValues);
-    } catch (error) {
-      if (reportErrors)
-        setNotice(error instanceof Error ? error.message : "Could not load this agent chat.");
-    }
+    const results = await Promise.allSettled([
+      api<AgentChatMessage[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/messages`).then(setMessages),
+      api<Execution[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/executions`).then(setExecutions),
+    ]);
+    if (!reportErrors)
+      return;
+
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected")
+      setNotice(failure.reason instanceof Error ? failure.reason.message : "Could not fully refresh this agent chat.");
   }
 
   function beginNewChat() {

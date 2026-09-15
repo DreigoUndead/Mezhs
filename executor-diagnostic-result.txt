@@ -1,85 +1,25 @@
-head=102ff0ac46eef0008a15eb47999ad1768cbdb3f7
-generated=2026-09-15T08:11:41.6647160+00:00
+head=da770bff5e3d8e103edb553fff58331895246d4b
+generated=2026-09-15T08:35:00.5638860+00:00
 === lifecycle stress ===
 run=1 exit=0
 PASS: Executor detachment, atomic claim, kill, timeout, restart, Agent idempotency/restart reconnection, heartbeat, and lazy Dead reconciliation are correct.
-run=2 exit=1
-[31;1mNew-Item: [0mD:\a\Mezhs\Mezhs\tests\executor-lifecycle.ps1:9[0m
-[31;1m[0m[36;1mLine |[0m
-[31;1m[0m[36;1m[36;1m   9 | [0m [36;1mNew-Item $work -ItemType Directory[0m | Out-Null[0m
-[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
-[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAn item with the specified name D:\a\Mezhs\Mezhs\executor-validation-work already exists.[0m
-=== isolated atomic reproduction ===
-executeCode=0
-executeOut=1
-parsedId=1
-waitCode=0
---- wait ---
-Id: 1
-Status: Completed
-Command: "ping -n 3 127.0.0.1 >nul & echo hit>>D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work\\atomic.txt"
-Directory: "D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work"
-TimeoutSeconds: 30
-OwnerProcessId: 2936
-ProcessId: 3216
-ExitCode: 0
-Result: "stdout: Microsoft Windows [Version 10.0.26100.33296]
-(c) Microsoft Corporation. All rights reserved.
-
-D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
-D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
-D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
-stderr: '﻿@chcp' is not recognized as an internal or external command,
-operable program or batch file."
-Error: null
-CreatedAt: 2026-09-15T08:12:24.3816420+00:00
-StartedAt: 2026-09-15T08:12:24.6810211+00:00
-HeartbeatAt: 2026-09-15T08:12:26.8302755+00:00
-CompletedAt: 2026-09-15T08:12:26.8302755+00:00
-RestartedFromId: null
-RestartedAsId: null
-ChatId: null
-ParentExecutionId: "diagnostic-parent"
-CorrelationId: null
-Source: "executor-diagnostic"
-Workspace: null
-TriggerMessageId: null
-CommandIndex: null
---- get ---
-Id: 1
-Status: Completed
-Command: "ping -n 3 127.0.0.1 >nul & echo hit>>D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work\\atomic.txt"
-Directory: "D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work"
-TimeoutSeconds: 30
-OwnerProcessId: 2936
-ProcessId: 3216
-ExitCode: 0
-Result: "stdout: Microsoft Windows [Version 10.0.26100.33296]
-(c) Microsoft Corporation. All rights reserved.
-
-D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
-D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
-D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
-stderr: '﻿@chcp' is not recognized as an internal or external command,
-operable program or batch file."
-Error: null
-CreatedAt: 2026-09-15T08:12:24.3816420+00:00
-StartedAt: 2026-09-15T08:12:24.6810211+00:00
-HeartbeatAt: 2026-09-15T08:12:26.8302755+00:00
-CompletedAt: 2026-09-15T08:12:26.8302755+00:00
-RestartedFromId: null
-RestartedAsId: null
-ChatId: null
-ParentExecutionId: "diagnostic-parent"
-CorrelationId: null
-Source: "executor-diagnostic"
-Workspace: null
-TriggerMessageId: null
-CommandIndex: null
-p1Exit=0
-p2Exit=0
-fileExists=True
-fileContent=hit<CR><LF>
-=== Agent Web debug-log proxy ===
+run=2 exit=0
+PASS: Executor detachment, atomic claim, kill, timeout, restart, Agent idempotency/restart reconnection, heartbeat, and lazy Dead reconciliation are correct.
+run=3 exit=0
+PASS: Executor detachment, atomic claim, kill, timeout, restart, Agent idempotency/restart reconnection, heartbeat, and lazy Dead reconciliation are correct.
+run=4 exit=0
+PASS: Executor detachment, atomic claim, kill, timeout, restart, Agent idempotency/restart reconnection, heartbeat, and lazy Dead reconciliation are correct.
+run=5 exit=0
+PASS: Executor detachment, atomic claim, kill, timeout, restart, Agent idempotency/restart reconnection, heartbeat, and lazy Dead reconciliation are correct.
+run=6 exit=0
+PASS: Executor detachment, atomic claim, kill, timeout, restart, Agent idempotency/restart reconnection, heartbeat, and lazy Dead reconciliation are correct.
+run=7 exit=0
+PASS: Executor detachment, atomic claim, kill, timeout, restart, Agent idempotency/restart reconnection, heartbeat, and lazy Dead reconciliation are correct.
+run=8 exit=0
+PASS: Executor detachment, atomic claim, kill, timeout, restart, Agent idempotency/restart reconnection, heartbeat, and lazy Dead reconciliation are correct.
+=== Agent API/Web outage debug log ===
 exit=0
-PASS: Agent API/Web are loopback-only, CORS-closed, environment-scoped, DTO-backed, free of requester/metrics ceremony, and proxy locally.
+PASS: Agent API/Web are loopback-only, CORS-closed, environment-scoped, DTO-backed, free of requester/metrics ceremony, and keep local debug logs downloadable when MEZS API is unavailable.
+=== Agent Web ownership checks ===
+exit=0
+PASS: shared Markdown/composer behavior, independent Agent execution refresh, and canonical Agent API protocol/evidence rendering are wired through their owning components.
