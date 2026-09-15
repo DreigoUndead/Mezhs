@@ -1,0 +1,311 @@
+name: chatgpt-rate-limit-patch
+
+on:
+  push:
+    branches:
+      - agent-api-composition
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Apply ChatGPT poll rate-limit fix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Patch provider and regression test
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts')
+          source = source_path.read_text(encoding='utf-8')
+
+          marker = '});\n\nmodule.exports = {'
+          replacement = '''});
+
+const CONVERSATION_POLL_INTERVAL_MS = 2000;
+const CONVERSATION_POLL_ATTEMPTS = 120;
+const CONVERSATION_RATE_LIMIT_MAX_FALLBACK_MS = 30000;
+
+module.exports = {'''
+          if marker not in source:
+              raise SystemExit('Could not find ChatGPT module constants insertion point.')
+          source = source.replace(marker, replacement, 1)
+
+          old_error = '''  error.status = response.status;
+  error.endpoint = endpoint;
+  error.detail = detail;
+  throw error;
+}
+
+function isConversationUnavailable(error, conversationId) {'''
+          new_error = '''  error.status = response.status;
+  error.endpoint = endpoint;
+  error.detail = detail;
+  error.retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
+  throw error;
+}
+
+function parseRetryAfterMs(value) {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0)
+    return Math.ceil(seconds * 1000);
+  const date = Date.parse(value);
+  return Number.isNaN(date) ? null : Math.max(0, date - Date.now());
+}
+
+function isConversationUnavailable(error, conversationId) {'''
+          if old_error not in source:
+              raise SystemExit('Could not find ChatGPT API error block.')
+          source = source.replace(old_error, new_error, 1)
+
+          old_wait = '''async function waitForConversation(session, token, conversationId, requestMessageId, sleep) {
+  for (let i = 0; i < 480; i++) {
+    const conversation = await apiJson(session, token, API.conversationById(conversationId));
+    const current = conversation?.mapping?.[conversation.current_node];
+    const message = current?.message;
+    if (message?.author?.role === "assistant" && message.status !== "in_progress") {
+      const files = new Map();
+      const assistantModel = String(
+        message?.metadata?.resolved_model_slug ||
+        message?.metadata?.model_slug ||
+        ""
+      ).trim() || null;
+      let requestResolvedModel = null;
+      let requestFound = false;
+      let node = current;
+      while (node) {
+        if (node.message?.id === requestMessageId) {
+          requestFound = true;
+          requestResolvedModel = String(
+            node.message?.metadata?.resolved_model_slug || ""
+          ).trim() || null;
+          break;
+        }
+        collectFileRefs(node.message, files);
+        node = conversation.mapping[node.parent];
+      }
+      if (!requestFound) {
+        await sleep(500);
+        continue;
+      }
+      return {
+        text: (message.content?.parts || []).filter(x => typeof x === "string").join("\\n").trim(),
+        parentMessageId: message.id,
+        projectId: conversation.gizmo_id || null,
+        model: assistantModel || requestResolvedModel,
+        files
+      };
+    }
+    await sleep(500);
+  }
+  throw new Error("ChatGPT response timed out.");
+}'''
+          new_wait = '''async function waitForConversation(session, token, conversationId, requestMessageId, sleep) {
+  const endpoint = API.conversationById(conversationId);
+  let consecutiveRateLimits = 0;
+  for (let i = 0; i < CONVERSATION_POLL_ATTEMPTS; i++) {
+    let conversation;
+    try {
+      conversation = await apiJson(session, token, endpoint);
+      consecutiveRateLimits = 0;
+    } catch (error) {
+      if (error?.status !== 429 || error?.endpoint !== endpoint)
+        throw error;
+
+      const fallbackDelay = Math.min(
+        CONVERSATION_RATE_LIMIT_MAX_FALLBACK_MS,
+        CONVERSATION_POLL_INTERVAL_MS * (2 ** Math.min(consecutiveRateLimits, 4))
+      );
+      const delay = Math.max(
+        CONVERSATION_POLL_INTERVAL_MS,
+        error.retryAfterMs ?? fallbackDelay
+      );
+      consecutiveRateLimits++;
+      console.error(`ChatGPT conversation poll rate-limited; retrying in ${delay} ms.`);
+      await sleep(delay);
+      continue;
+    }
+
+    const current = conversation?.mapping?.[conversation.current_node];
+    const message = current?.message;
+    if (message?.author?.role === "assistant" && message.status !== "in_progress") {
+      const files = new Map();
+      const assistantModel = String(
+        message?.metadata?.resolved_model_slug ||
+        message?.metadata?.model_slug ||
+        ""
+      ).trim() || null;
+      let requestResolvedModel = null;
+      let requestFound = false;
+      let node = current;
+      while (node) {
+        if (node.message?.id === requestMessageId) {
+          requestFound = true;
+          requestResolvedModel = String(
+            node.message?.metadata?.resolved_model_slug || ""
+          ).trim() || null;
+          break;
+        }
+        collectFileRefs(node.message, files);
+        node = conversation.mapping[node.parent];
+      }
+      if (!requestFound) {
+        await sleep(CONVERSATION_POLL_INTERVAL_MS);
+        continue;
+      }
+      return {
+        text: (message.content?.parts || []).filter(x => typeof x === "string").join("\\n").trim(),
+        parentMessageId: message.id,
+        projectId: conversation.gizmo_id || null,
+        model: assistantModel || requestResolvedModel,
+        files
+      };
+    }
+    await sleep(CONVERSATION_POLL_INTERVAL_MS);
+  }
+  throw new Error("ChatGPT response timed out.");
+}'''
+          if old_wait not in source:
+              raise SystemExit('Could not find ChatGPT conversation polling loop.')
+          source = source.replace(old_wait, new_wait, 1)
+          source_path.write_text(source, encoding='utf-8')
+
+          test_path = Path('tests/chatgpt-native-request.test.js')
+          tests = test_path.read_text(encoding='utf-8')
+          insertion = '''
+test("ChatGPT conversation polling backs off on 429 without resending the turn", async () => {
+  const chatgpt = loadChatGptModule();
+  const browserDebugger = new FakeDebugger();
+  let currentUrl = "https://chatgpt.com/c/native-conversation";
+  let conversationReads = 0;
+  let pageInvocations = 0;
+  const sleeps = [];
+
+  const session = {
+    fetch: async (url, options = {}) => {
+      const target = new URL(String(url));
+      if (target.pathname === "/api/auth/session")
+        return jsonResponse({ accessToken: "token", user: { id: "account-1" } });
+      if (target.pathname === "/backend-api/settings/user_last_used_model_config")
+        return new Response("", { status: 200 });
+      if (target.pathname === "/backend-api/conversation/native-conversation") {
+        conversationReads++;
+        if (conversationReads === 1) {
+          return new Response('{"detail":"Too many requests"}', {
+            status: 429,
+            headers: { "Retry-After": "2" }
+          });
+        }
+        return jsonResponse({
+          conversation_id: "native-conversation",
+          current_node: "assistant-new",
+          mapping: {
+            "assistant-new": {
+              parent: "request-new",
+              message: {
+                id: "assistant-new",
+                author: { role: "assistant" },
+                status: "finished_successfully",
+                content: { parts: ["survived rate limit"] },
+                metadata: { model_slug: "gpt-5-6-thinking" }
+              }
+            },
+            "request-new": {
+              parent: null,
+              message: {
+                id: "native-message-rate-limit",
+                author: { role: "user" },
+                status: "finished_successfully",
+                content: { parts: ["test"] },
+                metadata: { resolved_model_slug: "gpt-5-6-thinking" }
+              }
+            }
+          }
+        });
+      }
+      throw new Error(`Unexpected session request ${target}`);
+    }
+  };
+
+  const window = {
+    loadURL: async url => { currentUrl = url; },
+    webContents: {
+      debugger: browserDebugger,
+      getURL: () => currentUrl
+    }
+  };
+
+  const page = {
+    invoke: async () => {
+      pageInvocations++;
+      browserDebugger.emit("message", {}, "Fetch.requestPaused", {
+        requestId: "request-rate-limit",
+        request: {
+          url: "https://chatgpt.com/backend-api/f/conversation",
+          postData: JSON.stringify({
+            action: "next",
+            conversation_id: "native-conversation",
+            messages: [{ id: "native-message-rate-limit", author: { role: "user" } }],
+            model: "gpt-5-6-thinking"
+          })
+        }
+      });
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  };
+
+  const result = await chatgpt.operations.send({
+    window,
+    session,
+    page,
+    args: {
+      prompt: "test",
+      conversationId: "native-conversation",
+      parentMessageId: "assistant-old",
+      model: "gpt-5-6-thinking",
+      files: []
+    },
+    sleep: async ms => { sleeps.push(ms); }
+  });
+
+  assert.equal(pageInvocations, 1);
+  assert.equal(conversationReads, 2);
+  assert.deepEqual(sleeps, [2000]);
+  assert.equal(result.text, "survived rate limit");
+});
+
+'''
+          marker = 'async function runNativeOverrideCase('
+          if marker not in tests:
+              raise SystemExit('Could not find native ChatGPT test insertion point.')
+          tests = tests.replace(marker, insertion + marker, 1)
+          test_path.write_text(tests, encoding='utf-8')
+          PY
+
+      - name: Validate provider change
+        shell: bash
+        run: |
+          node --test tests/chatgpt-native-request.test.js
+          node --test tests/browser-provider-operations.test.js
+          npx --yes -p typescript@5.9.2 tsc -p integrations/Mezhs.Integrations.ChatGpt/browser/tsconfig.json
+          dotnet build integrations/Mezhs.Integrations.ChatGpt/Mezhs.Integrations.ChatGpt.csproj -c Release
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts tests/chatgpt-native-request.test.js
+          git commit -m "Back off ChatGPT conversation polling"
+          git push
