@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Format composition cleanup v2'
+    if: github.event.head_commit.message == 'Format composition cleanup v3'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,11 +23,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           function Prefix-Block([string]$path, [string]$pattern, [string]$prefix) {
             $text = Get-Content -LiteralPath $path -Raw
-            $regex = [regex]::new($pattern, [Text.RegularExpressions.RegexOptions]::Multiline -bor [Text.RegularExpressions.RegexOptions]::Singleline)
+            $options = [Text.RegularExpressions.RegexOptions]::Multiline -bor [Text.RegularExpressions.RegexOptions]::Singleline
+            $regex = [regex]::new($pattern, $options)
             if (-not $regex.IsMatch($text)) { throw "Expected block not found in $path" }
             $updated = $regex.Replace($text, [Text.RegularExpressions.MatchEvaluator]{ param($m) (($m.Value -split "`r?`n" | ForEach-Object { $prefix + $_ }) -join "`n") }, 1)
             [IO.File]::WriteAllText((Resolve-Path $path), $updated, [Text.UTF8Encoding]::new($false))
           }
+
           Prefix-Block 'src/Mezhs.Agent.Web/src/App.tsx' '^useEffect\(\(\) => \{.*?^\}, \[\]\);' '  '
           Prefix-Block 'src/Mezhs.Agent.Web/src/App.tsx' '^async function refreshChats\(\) \{.*?^\}' '  '
 
@@ -44,18 +46,6 @@ jobs:
           $cancel = $cancel.Replace("`n  ProtocolIntro =", "`n            ProtocolIntro =")
           $cancel = $cancel.Replace("`n  ShellContext =", "`n            ShellContext =")
           [IO.File]::WriteAllText((Resolve-Path 'tests/agent-cancel-recovery.ps1'), $cancel, [Text.UTF8Encoding]::new($false))
-
-          $smoke = Get-Content -LiteralPath 'tests/agent-api-smoke.ps1' -Raw
-          $smoke = $smoke.Replace("`n  if (`$response.Headers.Contains", "`n            if (`$response.Headers.Contains")
-          $smoke = $smoke.Replace("`n      throw \"Agent API allowed", "`n                throw \"Agent API allowed")
-          $smoke = $smoke.Replace("`n  }`n        } finally { `$response", "`n            }`n        } finally { `$response")
-          $smoke = $smoke.Replace("`n  if (-not `$loopbackResponse.Headers.Contains", "`n            if (-not `$loopbackResponse.Headers.Contains")
-          $smoke = $smoke.Replace("`n      throw \"Agent API did not allow", "`n                throw \"Agent API did not allow")
-          $smoke = $smoke.Replace("`n  }`n        } finally { `$loopbackResponse", "`n            }`n        } finally { `$loopbackResponse")
-          $smoke = $smoke.Replace("`n  `$null = Invoke-RestMethod -Uri \"http://127.0.0.1:5200/v1/policies\"", "`n            `$null = Invoke-RestMethod -Uri \"http://127.0.0.1:5200/v1/policies\"")
-          $smoke = $smoke.Replace("`n  break`n        } catch", "`n            break`n        } catch")
-          $smoke = $smoke.Replace("`n  if ([DateTimeOffset]::UtcNow -ge `$deadline) { throw }", "`n            if ([DateTimeOffset]::UtcNow -ge `$deadline) { throw }")
-          [IO.File]::WriteAllText((Resolve-Path 'tests/agent-api-smoke.ps1'), $smoke, [Text.UTF8Encoding]::new($false))
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
