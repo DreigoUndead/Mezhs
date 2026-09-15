@@ -1,8 +1,14 @@
-head=70a7a32c46ffe2d70d7cbd3f0049cdbca19bfb7c
-generated=2026-09-15T08:08:04.7304127+00:00
-=== existing lifecycle test ===
-exit=0
+head=102ff0ac46eef0008a15eb47999ad1768cbdb3f7
+generated=2026-09-15T08:11:41.6647160+00:00
+=== lifecycle stress ===
+run=1 exit=0
 PASS: Executor detachment, atomic claim, kill, timeout, restart, Agent idempotency/restart reconnection, heartbeat, and lazy Dead reconciliation are correct.
+run=2 exit=1
+[31;1mNew-Item: [0mD:\a\Mezhs\Mezhs\tests\executor-lifecycle.ps1:9[0m
+[31;1m[0m[36;1mLine |[0m
+[31;1m[0m[36;1m[36;1m   9 | [0m [36;1mNew-Item $work -ItemType Directory[0m | Out-Null[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAn item with the specified name D:\a\Mezhs\Mezhs\executor-validation-work already exists.[0m
 === isolated atomic reproduction ===
 executeCode=0
 executeOut=1
@@ -14,8 +20,8 @@ Status: Completed
 Command: "ping -n 3 127.0.0.1 >nul & echo hit>>D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work\\atomic.txt"
 Directory: "D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work"
 TimeoutSeconds: 30
-OwnerProcessId: 5948
-ProcessId: 8436
+OwnerProcessId: 2936
+ProcessId: 3216
 ExitCode: 0
 Result: "stdout: Microsoft Windows [Version 10.0.26100.33296]
 (c) Microsoft Corporation. All rights reserved.
@@ -26,10 +32,10 @@ D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
 stderr: '﻿@chcp' is not recognized as an internal or external command,
 operable program or batch file."
 Error: null
-CreatedAt: 2026-09-15T08:08:46.7995053+00:00
-StartedAt: 2026-09-15T08:08:47.1170326+00:00
-HeartbeatAt: 2026-09-15T08:08:49.2679899+00:00
-CompletedAt: 2026-09-15T08:08:49.2679899+00:00
+CreatedAt: 2026-09-15T08:12:24.3816420+00:00
+StartedAt: 2026-09-15T08:12:24.6810211+00:00
+HeartbeatAt: 2026-09-15T08:12:26.8302755+00:00
+CompletedAt: 2026-09-15T08:12:26.8302755+00:00
 RestartedFromId: null
 RestartedAsId: null
 ChatId: null
@@ -45,8 +51,8 @@ Status: Completed
 Command: "ping -n 3 127.0.0.1 >nul & echo hit>>D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work\\atomic.txt"
 Directory: "D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work"
 TimeoutSeconds: 30
-OwnerProcessId: 5948
-ProcessId: 8436
+OwnerProcessId: 2936
+ProcessId: 3216
 ExitCode: 0
 Result: "stdout: Microsoft Windows [Version 10.0.26100.33296]
 (c) Microsoft Corporation. All rights reserved.
@@ -57,10 +63,10 @@ D:\\a\\Mezhs\\Mezhs\\executor-diagnostic-work>
 stderr: '﻿@chcp' is not recognized as an internal or external command,
 operable program or batch file."
 Error: null
-CreatedAt: 2026-09-15T08:08:46.7995053+00:00
-StartedAt: 2026-09-15T08:08:47.1170326+00:00
-HeartbeatAt: 2026-09-15T08:08:49.2679899+00:00
-CompletedAt: 2026-09-15T08:08:49.2679899+00:00
+CreatedAt: 2026-09-15T08:12:24.3816420+00:00
+StartedAt: 2026-09-15T08:12:24.6810211+00:00
+HeartbeatAt: 2026-09-15T08:12:26.8302755+00:00
+CompletedAt: 2026-09-15T08:12:26.8302755+00:00
 RestartedFromId: null
 RestartedAsId: null
 ChatId: null
@@ -74,3 +80,6 @@ p1Exit=0
 p2Exit=0
 fileExists=True
 fileContent=hit<CR><LF>
+=== Agent Web debug-log proxy ===
+exit=0
+PASS: Agent API/Web are loopback-only, CORS-closed, environment-scoped, DTO-backed, free of requester/metrics ceremony, and proxy locally.
