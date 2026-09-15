@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Globalization;
+using Mezhs.Common;
 
 namespace Mezhs.Console;
 
@@ -31,7 +32,7 @@ internal static class ValueBinder
             return false;
         }
 
-        if (TryGetEnumerableElementType(type, out var elementType))
+        if (type.TryGetEnumerableElementType(out var elementType))
         {
             if (!CanBind(elementType, out reason))
                 return false;
@@ -46,7 +47,7 @@ internal static class ValueBinder
             return false;
         }
 
-        if (ScalarConverter.CanParse(type))
+        if (Cast.CanParse(type))
         {
             reason = null;
             return true;
@@ -80,7 +81,7 @@ internal static class ValueBinder
             return BindDictionary(map, type, keyType, valueType);
         }
 
-        if (TryGetEnumerableElementType(type, out var elementType))
+        if (type.TryGetEnumerableElementType(out var elementType))
         {
             if (node is not ListNode list)
                 throw new FormatException($"Expected collection syntax for '{FriendlyName(type)}'.");
@@ -90,7 +91,7 @@ internal static class ValueBinder
         if (node is not ScalarNode scalar)
             throw new FormatException($"Expected scalar value for '{FriendlyName(type)}'.");
 
-        return ScalarConverter.Parse(type, scalar.Value);
+        return Cast.Parse(type, scalar.Value);
     }
 
     public static string Describe(Type type, CommandSyntax syntax)
@@ -106,7 +107,7 @@ internal static class ValueBinder
                 ? $"Dictionary<{Describe(keyType, syntax)}, {Describe(valueType, syntax)}>"
                 : $"{map.Start}{Describe(keyType, syntax)}:{Describe(valueType, syntax)} ...{map.End}";
         }
-        if (TryGetEnumerableElementType(type, out var item))
+        if (type.TryGetEnumerableElementType(out var item))
         {
             var collection = syntax.Tokens.First(x => x.Type == CommandSyntaxTokenType.Collection);
             return $"{collection.Start}{Describe(item, syntax)} ...{collection.End}";
@@ -168,7 +169,7 @@ internal static class ValueBinder
 
         foreach (var property in map.Properties)
         {
-            var key = ScalarConverter.Parse(keyType, property.Key);
+            var key = Cast.Parse(keyType, property.Key);
             var value = Bind(property.Value, valueType);
             add.Invoke(result, [key, value]);
         }
@@ -230,34 +231,6 @@ internal static class ValueBinder
         type.IsGenericType &&
         (type.GetGenericTypeDefinition() == typeof(IDictionary<,>) ||
          type.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>));
-
-    private static bool TryGetEnumerableElementType(Type type, out Type elementType)
-    {
-        if (type == typeof(string) || TryGetDictionaryTypes(type, out _, out _))
-        {
-            elementType = null!;
-            return false;
-        }
-
-        if (type.IsArray)
-        {
-            elementType = type.GetElementType()!;
-            return true;
-        }
-
-        var enumerable = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>)
-            ? type
-            : type.GetInterfaces().FirstOrDefault(x => x.IsGenericType && x.GetGenericTypeDefinition() == typeof(IEnumerable<>));
-
-        if (enumerable is null)
-        {
-            elementType = null!;
-            return false;
-        }
-
-        elementType = enumerable.GetGenericArguments()[0];
-        return true;
-    }
 
     public static string FriendlyName(Type type)
     {
