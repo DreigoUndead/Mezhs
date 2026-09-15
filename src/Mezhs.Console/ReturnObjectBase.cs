@@ -107,7 +107,22 @@ public abstract class ReturnObjectBase
             return $"[{string.Join(' ', items)}]";
         }
 
-        return ScalarConverter.Format(value);
+        return FormatScalar(value);
+    }
+
+    private static string FormatScalar(object value)
+    {
+        var text = ScalarConverter.Format(value);
+        try
+        {
+            var nodes = CommandLineParser.Parse(text, CommandSyntax.Default);
+            if (nodes.Count == 1 && nodes[0] is ScalarNode { Quoted: false, Value: var parsed } && parsed == text)
+                return text;
+        }
+        catch (FormatException)
+        {
+        }
+        return Quote(text);
     }
 
     private static string Quote(string value) =>
