@@ -104,25 +104,24 @@ public sealed class MessageService(
     {
         while (true)
         {
-            var message = Get(messageId)
-  ?? throw new ResourceNotFoundException($"Message '{messageId}' was not found.");
+  var message = Get(messageId)
+      ?? throw new ResourceNotFoundException($"Message '{messageId}' was not found.");
 
-            switch (message.Status)
-            {
-  case MessageStatus.Completed:
-      return message.Reply
-          ?? throw new InvalidOperationException("MEŽS completed without an assistant reply.");
-  case MessageStatus.Failed:
-  case MessageStatus.Cancelled:
-      throw new InvalidOperationException(
-          message.Error ?? $"MEŽS message ended with status {message.Status}.");
-  default:
-      await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
-      break;
-            }
+  switch (message.Status)
+  {
+      case MessageStatus.Completed:
+          return message.Reply
+              ?? throw new InvalidOperationException("MEŽS completed without an assistant reply.");
+      case MessageStatus.Failed:
+      case MessageStatus.Cancelled:
+          throw new InvalidOperationException(
+              message.Error ?? $"MEŽS message ended with status {message.Status}.");
+      default:
+          await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+          break;
+  }
         }
     }
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _ = stoppingToken;

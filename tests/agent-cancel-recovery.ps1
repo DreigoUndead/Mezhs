@@ -86,7 +86,7 @@ try
     if (executor.Get(shellId).Status != ExecutionStatus.Running)
         throw new InvalidOperationException($"Shell did not reach Running before recovery: {executor.Get(shellId).Status}");
 
-        var options = new AgentOptions
+    var options = new AgentOptions
     {
         Server = new() { Listen = "http://127.0.0.1:1" },
         AgentStorage = agentPath,
@@ -94,12 +94,12 @@ try
         Runtime = new AgentRuntimeOptions(),
         Messages = new AgentRuntimeMessages
         {
-            Continue = "continue",
-            PolicyCorrection = "policy",
-            CommandCorrection = "command",
-            CommandResults = "results",
-            ProtocolIntro = "protocol",
-            ShellContext = "shell"
+  Continue = "continue",
+  PolicyCorrection = "policy",
+  CommandCorrection = "command",
+  CommandResults = "results",
+  ProtocolIntro = "protocol",
+  ShellContext = "shell"
         },
         Policies = new Dictionary<string, PolicyContext>()
     };

@@ -392,25 +392,25 @@ export default function App() {
     [executions],
   );
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [policyValues, chatValues] = await Promise.all([
-  api<AgentPolicy[]>("/v1/policies"),
-  api<AgentChat[]>("/v1/agent-chats"),
-]);
-setApiReady(true);
-setPolicies(policyValues);
-setChats(chatValues);
-        setPolicyId(policyValues[0]?.id ?? "");
-        if (chatValues.length > 0)
-          setSelectedChatId(chatValues[0].chatId);
-      } catch (error) {
-  setApiReady(false);
-  setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
-      }
-    })();
-  }, []);
+useEffect(() => {
+  void (async () => {
+    try {
+      const [policyValues, chatValues] = await Promise.all([
+        api<AgentPolicy[]>("/v1/policies"),
+        api<AgentChat[]>("/v1/agent-chats"),
+      ]);
+      setApiReady(true);
+      setPolicies(policyValues);
+      setChats(chatValues);
+      setPolicyId(policyValues[0]?.id ?? "");
+      if (chatValues.length > 0)
+        setSelectedChatId(chatValues[0].chatId);
+    } catch (error) {
+      setApiReady(false);
+      setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
+    }
+  })();
+}, []);
 
   useEffect(() => {
     if (!selectedChatId || creating) {
@@ -430,15 +430,15 @@ setChats(chatValues);
     return () => window.clearInterval(timer);
   }, [selectedChatId, creating]);
 
-  async function refreshChats() {
-    try {
-      setChats(await api<AgentChat[]>("/v1/agent-chats"));
-setApiReady(true);
-    } catch {
-  setApiReady(false);
-  // Keep the last durable view during transient refresh failures.
-    }
+async function refreshChats() {
+  try {
+    setChats(await api<AgentChat[]>("/v1/agent-chats"));
+    setApiReady(true);
+  } catch {
+    setApiReady(false);
+    // Keep the last durable view during transient refresh failures.
   }
+}
 
   async function loadSelected(chatId: string, reportErrors = true) {
     const results = await Promise.allSettled([
