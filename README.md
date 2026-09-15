@@ -16,7 +16,11 @@ Agent shell commands always run from the configured `workspace`. Caller-provided
 
 ## Architecture
 
-Agent responsibilities are split by semantic owner. `Mezhs.Agent.Api` owns policy, durable root reasoning/admission state, same-chat serialization and root cancellation. `Mezhs.Executor` owns host shell/process lifetime and durable shell execution history. Agent policy validates the concrete `SH` body before Executor receives it; Executor itself does not interpret Agent policy.
+`Mezhs.Api` is the reusable core HTTP/API composition. It owns the standard MEŽS services, initialization, exception pipeline and endpoint definitions. `Mezhs.Api.exe` is a thin host over that composition.
+
+`Mezhs.Agent.Api` is a strict superset of the normal API: it hosts the same core composition in-process and then adds Agent policy, reasoning, execution and diagnostic behavior. It does not call a second `Mezhs.Api` process through HTTP. The standard MEŽS Web UI can therefore target either API host, while Agent Web requires `Mezhs.Agent.Api` because only that host exposes the Agent endpoints. Agent configuration extends the normal MEŽS configuration with Agent storage, workspace, runtime, message and policy settings.
+
+Agent responsibilities are split by semantic owner. `Mezhs.Agent.Api` owns policy, durable root reasoning/admission state, same-chat serialization and root cancellation. `Mezhs.Executor` owns host shell/process lifetime and durable shell execution history. Agent policy validates the concrete `SH` body before Executor receives it; Executor itself does not interpret Agent policy. Agent depends on Executor for shell execution, while Executor remains independent of Agent business logic.
 
 Executor makes each host execution independently observable through one durable SQLite row, one runtime owner process and one owned shell/process. It supports detached execution, heartbeat, timeout, kill, restart lineage, self-restart handoff and lazy reconciliation of stale active owners. Agent API and Agent Web project shell state from Executor instead of maintaining a second shell lifecycle copy.
 
