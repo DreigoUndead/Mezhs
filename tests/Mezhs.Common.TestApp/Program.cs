@@ -177,7 +177,9 @@ internal sealed record ParsedValue(int Value)
 }
 
 [TypeConverter(typeof(ConverterOnlyTypeConverter))]
-internal sealed class ConverterOnly;
+internal sealed class ConverterOnly
+{
+}
 
 internal sealed class ConverterOnlyTypeConverter : TypeConverter
 {
