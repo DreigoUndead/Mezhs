@@ -1,0 +1,63 @@
+name: Executor nested identity validation
+
+on:
+  push:
+    branches: [ executor-foundation ]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build and validate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $lines = [System.Collections.Generic.List[string]]::new()
+          $failed = $false
+          $lines.Add("head=$env:GITHUB_SHA")
+          $lines.Add("generated=$([DateTimeOffset]::UtcNow.ToString('O'))")
+
+          function Run-Check([string]$name, [scriptblock]$command) {
+              $script:lines.Add("=== $name ===")
+              $output = & $command 2>&1
+              $code = $LASTEXITCODE
+              $script:lines.Add("exit=$code")
+              foreach ($line in $output) { $script:lines.Add([string]$line) }
+              if ($code -ne 0) { $script:failed = $true }
+          }
+
+          Run-Check 'Release build' { dotnet build Mezhs.sln -c Release --nologo }
+          Run-Check 'Executor lifecycle' { pwsh -NoProfile -File tests/executor-lifecycle.ps1 }
+          Run-Check 'Executor self restart' { pwsh -NoProfile -File tests/executor-self-restart.ps1 }
+          Run-Check 'Agent Executor evidence' { pwsh -NoProfile -File tests/agent-executor-evidence.ps1 }
+          Run-Check 'Agent runtime resilience' { pwsh -NoProfile -File tests/agent-runtime-resilience.ps1 }
+
+          $lines.Add($(if ($failed) { 'overall=FAIL' } else { 'overall=PASS' }))
+          $lines | Set-Content executor-nested-identity-validation.txt -Encoding utf8
+
+      - name: Commit validation result
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path executor-nested-identity-validation.txt)) { exit 0 }
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add executor-nested-identity-validation.txt
+          git commit -m "Record nested Executor identity validation [skip ci]" || exit 0
+          git push
+
+      - name: Fail if validation failed
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path executor-nested-identity-validation.txt)) { throw 'Validation result file was not produced.' }
+          if ((Get-Content executor-nested-identity-validation.txt -Raw) -notmatch 'overall=PASS') { exit 1 }
