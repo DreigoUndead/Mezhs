@@ -107,7 +107,7 @@ public abstract class ReturnObjectBase
             return $"[{string.Join(' ', items)}]";
         }
 
-        return ScalarConverter.Format(value, type);
+        return ScalarConverter.Format(value);
     }
 
     private static string Quote(string value) =>
