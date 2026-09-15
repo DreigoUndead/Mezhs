@@ -11,25 +11,19 @@ public sealed class AgentApiClient : MezhsApiClient
             throw new InvalidOperationException("MEŽS Agent API client must target a loopback address.");
     }
 
-    public async Task<AgentRuntimeView> GetRuntimeAsync(CancellationToken cancellationToken = default)
-    {
-        using var response = await Client.GetAsync("/v1/runtime", cancellationToken);
-        return await ReadAsync<AgentRuntimeView>(response, cancellationToken);
-    }
-
     public async Task<IReadOnlyList<AgentPolicyView>> GetPoliciesAsync(CancellationToken cancellationToken = default)
     {
         using var response = await Client.GetAsync("/v1/policies", cancellationToken);
         return await ReadAsync<AgentPolicyView[]>(response, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<AgentChatView>> GetChatsAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<AgentChatView>> GetAgentChatsAsync(CancellationToken cancellationToken = default)
     {
         using var response = await Client.GetAsync("/v1/agent-chats", cancellationToken);
         return await ReadAsync<AgentChatView[]>(response, cancellationToken);
     }
 
-    public async Task<AgentChatView> GetChatAsync(
+    public async Task<AgentChatView> GetAgentChatAsync(
         string chatId,
         CancellationToken cancellationToken = default)
     {
@@ -39,7 +33,7 @@ public sealed class AgentApiClient : MezhsApiClient
         return await ReadAsync<AgentChatView>(response, cancellationToken);
     }
 
-    public async Task<AgentChatView> SetPausedAsync(
+    public async Task<AgentChatView> SetAgentPausedAsync(
         string chatId,
         bool paused,
         CancellationToken cancellationToken = default)
@@ -112,8 +106,6 @@ public sealed class AgentApiClient : MezhsApiClient
         return await ReadAsync<AgentExecutionView>(response, cancellationToken);
     }
 }
-
-public sealed record AgentRuntimeView(string Status);
 
 public sealed record AgentPolicyView(
     string Id,
