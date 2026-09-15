@@ -58,7 +58,7 @@ Assert ($agentWebApp -match 'Kill' -and $agentWebApp -match 'Restart' -and $agen
 
 Assert ($sqlite -match 'class SqliteDatabase' -and $sqlite -match 'journal_mode\s*=\s*WAL' -and $sqlite -match 'busy_timeout\s*=' -and $sqlite -match 'Pooling\s*=\s*true' -and $sqlite -match 'EnsureColumn' -and $sqlite -match 'DropColumnIfExists') "Shared SQLite foundation does not own common path/connection/migration mechanics."
 Assert ($store -match 'SqliteDatabase _database' -and $store -notmatch 'new SqliteConnectionStringBuilder|private SqliteConnection Open\(') "AgentStore still duplicates SQLite connection ownership."
-Assert ($recovery -match 'new SqliteDatabase' -and $recovery -match 'SqliteDatabase\.TableExists' -and $recovery -notmatch 'new SqliteConnectionStringBuilder') "Agent restart recovery bypasses the shared SQLite foundation."
+Assert ($store -match 'RecoverAfterRestart' -and $recovery -match 'store\.RecoverAfterRestart\(\)' -and $recovery -notmatch 'SqliteDatabase|SqliteConnection') "Agent restart recovery is not owned by AgentStore persistence."
 Assert ($executorProject -match 'Mezhs.Log.Sql' -and $executorProject -notmatch 'Mezhs.Sqlite') "Executor does not depend on LogSql as its persistence boundary."
 Assert ($logSqlProject -match 'Mezhs.Sqlite' -and $logSql -match 'new SqliteDatabase\(_resolve\(file\)\)\.Open\(\)' -and $logSql -notmatch 'SqliteConnectionStringBuilder|journal_mode|busy_timeout') "LogSql bypasses or duplicates the shared SQLite connection foundation."
 Assert ($executorStore -match 'LogSql _log' -and $executorStore -match '_log\.Open\(_file\)' -and $executorStore -notmatch 'SqliteDatabase|new SqliteConnectionStringBuilder') "ExecutorStore bypasses LogSql for SQLite access."
@@ -79,5 +79,4 @@ Assert ($models -notmatch '\bRequester\b' -and $store -notmatch 'Requester TEXT|
 Assert ($sharedChat -match 'MarkdownContent' -and $markdown -match 'safeLink') "Shared chat rendering does not own safe Markdown presentation."
 Assert ($resize -match 'useLayoutEffect' -and $resize -notmatch 'useEffect') "Composer resize still occurs after paint."
 
-Write-Host "PASS: Agent owns reasoning/admission/cancel, Executor exclusively owns shell/process lifecycle and shell evidence, SQLite mechanics are shared, and UI/API expose one combined execution view."
-
+Write-Host "PASS: Agent owns reasoning/admission/cancel/recovery persistence, Executor exclusively owns shell/process lifecycle and shell evidence, SQLite mechanics are shared, and UI/API expose one combined execution view."
