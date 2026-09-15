@@ -5,32 +5,36 @@ on:
     branches:
       - agent-api-composition
 
-permissions:
-  contents: write
-
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Require atomic chat attachment'
+    if: github.event.head_commit.message == 'Check baseline Unicode [skip ci]'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Tighten atomic chat claim
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Reproduce policy Unicode test on executor-foundation
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $path = 'src/Mezhs.Agent.Api/Persistence/AgentStore.cs'
-          $text = Get-Content -LiteralPath $path -Raw
-          $old = '            attach.ExecuteNonQuery();'
-          $new = @(
-            '            if (attach.ExecuteNonQuery() != 1)',
-            '                throw new InvalidOperationException(',
-            '                    $"Execution ''{executionId}'' changed state before Agent chat ''{chatId}'' could be claimed.");'
-          ) -join "`n"
-          if (-not $text.Contains($old)) { throw 'Could not locate atomic attachment update.' }
-          [IO.File]::WriteAllText((Resolve-Path $path), $text.Replace($old, $new), [Text.UTF8Encoding]::new($false))
+          $ErrorActionPreference = 'Continue'
+          chcp 65001 | Out-Null
+          [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+          [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+          $OutputEncoding = [Console]::OutputEncoding
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add $path
-          git commit -m "Require atomic Agent chat attachment [skip ci]"
-          git push
+          git worktree add baseline origin/executor-foundation
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create executor-foundation worktree.' }
+          Push-Location baseline
+          try {
+            pwsh -NoProfile -File tests/policy-decoder.ps1
+            $code = $LASTEXITCODE
+            Write-Host "BASELINE_POLICY_DECODER_EXIT=$code"
+          }
+          finally {
+            Pop-Location
+          }
+          # This job is evidence collection; expose the exit code in logs without making the workflow itself red.
+          exit 0
