@@ -47,7 +47,7 @@ public sealed class ExecutorService
     {
         Reconcile(id);
         return _store.Get(id)?.Execution
-            ?? throw new KeyNotFoundException($"Execution '{id}' was not found.");
+            ?? throw new ExecutionNotFoundException(id);
     }
 
     public IReadOnlyList<Execution> List(string? chatId = null, int limit = 200)
@@ -93,7 +93,7 @@ public sealed class ExecutorService
         if (current.IsTerminal)
             return current;
         return _store.RequestKill(id)
-            ?? throw new KeyNotFoundException($"Execution '{id}' was not found.");
+            ?? throw new ExecutionNotFoundException(id);
     }
 
     public int Restart(int id)
