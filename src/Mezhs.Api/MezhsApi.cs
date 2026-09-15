@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using Mezhs.Api.Contracts;
 using Mezhs.Configuration;
 using Mezhs.Integrations;
+using Mezhs.Models;
 using Mezhs.Services;
 using Microsoft.AspNetCore.Mvc;
 
