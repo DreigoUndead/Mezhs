@@ -55,8 +55,8 @@ public abstract class ConsoleApplication
         foreach (var command in invalid)
         {
             global::System.Console.WriteLine($"{command.Name}: INVALID");
-            foreach (var error in command.ValidationErrors)
-                global::System.Console.WriteLine($"  - {error}");
+            foreach (var validationError in command.ValidationErrors)
+                global::System.Console.WriteLine($"  - {validationError}");
         }
     }
 
@@ -194,9 +194,9 @@ public abstract class ConsoleApplication
                 return;
             }
         }
-        if (result is IConvertible)
+        if (ScalarConverter.CanConvert(returnType))
         {
-            global::System.Console.WriteLine(Convert.ToString(result, System.Globalization.CultureInfo.CurrentCulture));
+            global::System.Console.WriteLine(ScalarConverter.Format(result, returnType));
             return;
         }
         global::System.Console.WriteLine(result.ToString());
