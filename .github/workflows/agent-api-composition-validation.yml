@@ -25,6 +25,11 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
+          chcp 65001 | Out-Null
+          [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+          [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+          $OutputEncoding = [Console]::OutputEncoding
+
           $results = [ordered]@{}
           $logs = [ordered]@{}
 
@@ -56,7 +61,7 @@ jobs:
             $result += "=== $($entry.Key.ToUpperInvariant()) ==="
             $result += Get-Content $entry.Value
           }
-          $result | Set-Content .agent-api-composition-validation.txt
+          $result | Set-Content .agent-api-composition-validation.txt -Encoding utf8
           exit 0
 
       - name: Commit validation result
