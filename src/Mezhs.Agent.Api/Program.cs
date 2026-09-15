@@ -16,8 +16,6 @@ var options = AgentConfigLoader.Load(configPath);
 var executorStorage = Path.Combine(
     Path.GetDirectoryName(options.Storage) ?? Environment.CurrentDirectory,
     "executor.sqlite");
-var recovery = AgentRecoveryState.Prepare(options.Storage);
-var executor = new ExecutorService(executorStorage);
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(options.Listen.ToString());
 builder.Services.ConfigureHttpJsonOptions(json =>
@@ -25,9 +23,10 @@ builder.Services.ConfigureHttpJsonOptions(json =>
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(options);
-builder.Services.AddSingleton(recovery);
-builder.Services.AddSingleton(executor);
+builder.Services.AddSingleton(_ => new ExecutorService(executorStorage));
 builder.Services.AddSingleton<AgentStore>();
+builder.Services.AddSingleton<AgentRecoveryStore>();
+builder.Services.AddSingleton<AgentRecoveryState>();
 builder.Services.AddSingleton<PolicyRegistry>();
 builder.Services.AddSingleton<PolicyEvaluationService>();
 builder.Services.AddSingleton<AgentPromptBuilder>();
@@ -47,7 +46,7 @@ app.UseExceptionHandler();
 
 var store = app.Services.GetRequiredService<AgentStore>();
 store.Initialize();
-recovery.ReconcilePendingCancellations(executor);
+app.Services.GetRequiredService<AgentRecoveryState>().Prepare();
 
 app.MapGet("/", () => Results.Ok(new
 {
@@ -176,16 +175,7 @@ app.MapGet("/v1/executions/{executionId}", (
     ExecutorService executorService) =>
 {
     if (int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out var executorId))
-    {
-        try
-        {
-            return Results.Ok(AgentApiMapper.ToView(executorService.Get(executorId)));
-        }
-        catch (KeyNotFoundException)
-        {
-            return Results.NotFound(new { error = $"Execution '{executionId}' was not found." });
-        }
-    }
+        return Results.Ok(AgentApiMapper.ToView(executorService.Get(executorId)));
 
     var execution = agentStore.GetExecution(executionId);
     return execution is null || execution.Kind != AgentExecutionKind.Agent
@@ -208,14 +198,7 @@ app.MapPost("/v1/executions/{executionId}/kill", (
 {
     if (!int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
         return Results.BadRequest(new { error = "Only shell Executor executions can be killed through this endpoint." });
-    try
-    {
-        return Results.Ok(AgentApiMapper.ToView(executorService.Kill(id)));
-    }
-    catch (KeyNotFoundException)
-    {
-        return Results.NotFound(new { error = $"Execution '{executionId}' was not found." });
-    }
+    return Results.Ok(AgentApiMapper.ToView(executorService.Kill(id)));
 });
 
 app.MapPost("/v1/executions/{executionId}/restart", (
@@ -224,17 +207,10 @@ app.MapPost("/v1/executions/{executionId}/restart", (
 {
     if (!int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
         return Results.BadRequest(new { error = "Only shell Executor executions can be restarted through this endpoint." });
-    try
-    {
-        var replacementId = executorService.Restart(id);
-        return Results.Accepted(
-            $"/v1/executions/{replacementId}",
-            AgentApiMapper.ToView(executorService.Get(replacementId)));
-    }
-    catch (KeyNotFoundException)
-    {
-        return Results.NotFound(new { error = $"Execution '{executionId}' was not found." });
-    }
+    var replacementId = executorService.Restart(id);
+    return Results.Accepted(
+        $"/v1/executions/{replacementId}",
+        AgentApiMapper.ToView(executorService.Get(replacementId)));
 });
 
 Console.WriteLine($"MEŽS Agent config: {configPath}");
