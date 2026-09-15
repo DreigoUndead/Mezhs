@@ -32,4 +32,17 @@ public static class ExecutorEnvironment
         }
         return result;
     }
+
+    public static IReadOnlyDictionary<string, string> SnapshotForChildExecution()
+    {
+        var result = SnapshotCurrent()
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+
+        // These values identify one Agent command block. That identity is deliberately
+        // non-transitive: nested/direct Execute calls are new work unless the orchestrator
+        // explicitly supplies a fresh command identity.
+        result.Remove(TriggerMessageIdVariable);
+        result.Remove(CommandIndexVariable);
+        return result;
+    }
 }
