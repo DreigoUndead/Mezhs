@@ -2,22 +2,18 @@ using System.Globalization;
 using System.Text;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
-using Mezhs.Api.Client;
 using Mezhs.Api.Contracts;
 using Mezhs.Executor;
+using Mezhs.Services;
 
 namespace Mezhs.Agent.Services;
 
 public sealed class AgentDebugLogBuilder(
     AgentStore store,
     ExecutorService executor,
-    MezhsApiClient mezhs)
+    ChatService chats)
 {
-    private static readonly TimeSpan ChatMessageTimeout = TimeSpan.FromSeconds(3);
-
-    public async Task<string> BuildAsync(
-        string chatId,
-        CancellationToken cancellationToken)
+    public string Build(string chatId)
     {
         var chat = store.GetAgentChat(chatId)
             ?? throw new ResourceNotFoundException($"Agent chat '{chatId}' was not found.");
@@ -30,7 +26,7 @@ public sealed class AgentDebugLogBuilder(
             .OrderBy(execution => execution.CreatedAt)
             .ThenBy(execution => execution.Id)
             .ToArray();
-        var (messages, messageError) = await GetMessagesBestEffortAsync(chatId, cancellationToken);
+        var (messages, messageError) = GetMessagesBestEffort(chatId);
         var now = DateTimeOffset.UtcNow;
 
         var log = new StringBuilder();
@@ -101,21 +97,13 @@ public sealed class AgentDebugLogBuilder(
         return log.ToString();
     }
 
-    private async Task<(IReadOnlyList<ApiChatHistoryMessage> Messages, string? Error)> GetMessagesBestEffortAsync(
-        string chatId,
-        CancellationToken cancellationToken)
+    private (IReadOnlyList<ApiChatHistoryMessage> Messages, string? Error) GetMessagesBestEffort(string chatId)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(ChatMessageTimeout);
         try
         {
-            return (await mezhs.GetMessagesAsync(chatId, timeout.Token), null);
+            return (chats.GetMessages(chatId), null);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return ([], $"MEŽS API did not return chat messages within {ChatMessageTimeout.TotalSeconds:0} seconds.");
-        }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception ex)
         {
             return ([], ex.Message);
         }
