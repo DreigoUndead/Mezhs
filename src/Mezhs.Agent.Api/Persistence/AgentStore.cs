@@ -67,6 +67,18 @@ public sealed class AgentStore(AgentOptions options)
         SqliteDatabase.EnsureColumn(connection, "Executions", "TriggerMessageId", "TEXT NULL");
         SqliteDatabase.EnsureColumn(connection, "Executions", "CommandIndex", "INTEGER NULL");
         SqliteDatabase.DropColumnIfExists(connection, "Executions", "Requester");
+
+        // Interrupted was a terminal Agent status before restart recovery became resumable.
+        // Preserve that historical terminal evidence while upgrading to the current status model.
+        using var legacyInterrupted = connection.CreateCommand();
+        legacyInterrupted.CommandText = """
+            UPDATE Executions
+            SET Status = $failed
+            WHERE Status = $interrupted;
+            """;
+        legacyInterrupted.Parameters.AddWithValue("$failed", AgentExecutionStatus.Failed.ToString());
+        legacyInterrupted.Parameters.AddWithValue("$interrupted", "Interrupted");
+        legacyInterrupted.ExecuteNonQuery();
     }
 
     public ExecutionRecord? TryCreateRootExecution(
@@ -632,3 +644,4 @@ public sealed record AgentRecoveryPlan(
     IReadOnlyList<AgentPendingCancellation> PendingCancellations);
 
 public sealed record AgentPendingCancellation(string ExecutionId, string? ChatId);
+
