@@ -19,18 +19,22 @@ jobs:
       - name: Build
         shell: pwsh
         run: dotnet build Mezhs.sln -c Release
-      - name: Reproduce Executor lifecycle failure
+      - name: Diagnose reported failures
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
           $lines = [System.Collections.Generic.List[string]]::new()
           $lines.Add("head=$env:GITHUB_SHA")
           $lines.Add("generated=$([DateTimeOffset]::UtcNow.ToString('O'))")
-          $lines.Add('=== existing lifecycle test ===')
-          $lifecycle = & pwsh -NoProfile -File tests/executor-lifecycle.ps1 2>&1
-          $lifecycleCode = $LASTEXITCODE
-          $lines.Add("exit=$lifecycleCode")
-          foreach ($line in $lifecycle) { $lines.Add([string]$line) }
+
+          $lines.Add('=== lifecycle stress ===')
+          for ($i = 1; $i -le 8; $i++) {
+            $output = & pwsh -NoProfile -File tests/executor-lifecycle.ps1 2>&1
+            $code = $LASTEXITCODE
+            $lines.Add("run=$i exit=$code")
+            foreach ($line in $output) { $lines.Add([string]$line) }
+            if ($code -ne 0) { break }
+          }
 
           $lines.Add('=== isolated atomic reproduction ===')
           $root = (Get-Location).Path
@@ -78,6 +82,20 @@ jobs:
               $lines.Add("fileContent=$($content -replace "`r",'<CR>' -replace "`n",'<LF>')")
             }
           }
+
+          $lines.Add('=== Agent Web debug-log proxy ===')
+          $original = Get-Content tests/agent-api-smoke.ps1 -Raw
+          $patched = $original.Replace(
+            'if ($proxiedDebug.StatusCode -ne 200) { throw "Agent Web did not proxy the local debug log." }',
+            'if ($proxiedDebug.StatusCode -ne 200 -or $proxiedDebug.Headers["Content-Disposition"] -notmatch "attachment") { throw "Agent Web debug-log proxy did not preserve downloadable response. status=$($proxiedDebug.StatusCode) disposition=$($proxiedDebug.Headers["Content-Disposition"])" }')
+          $diagnosticSmoke = 'tests/agent-api-smoke-diagnostic.ps1'
+          Set-Content $diagnosticSmoke $patched -Encoding utf8
+          $smoke = & pwsh -NoProfile -File $diagnosticSmoke 2>&1
+          $smokeCode = $LASTEXITCODE
+          $lines.Add("exit=$smokeCode")
+          foreach ($line in $smoke) { $lines.Add([string]$line) }
+          Remove-Item $diagnosticSmoke -Force -ErrorAction SilentlyContinue
+
           $lines | Set-Content executor-diagnostic-result.txt -Encoding utf8
       - name: Commit diagnostic result
         if: always()
@@ -87,5 +105,5 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add executor-diagnostic-result.txt
-          git commit -m "Record Executor diagnostic result [skip ci]" || exit 0
+          git commit -m "Record expanded Executor diagnostic result [skip ci]" || exit 0
           git push
