@@ -4,7 +4,7 @@ using Mezhs.Executor;
 namespace Mezhs.Agent.Services;
 
 public sealed class AgentRecoveryState(
-    AgentRecoveryStore recoveryStore,
+    AgentStore store,
     ExecutorService executor)
 {
     private readonly HashSet<string> _executionIds = new(StringComparer.OrdinalIgnoreCase);
@@ -13,7 +13,7 @@ public sealed class AgentRecoveryState(
 
     public void Prepare()
     {
-        var recovery = recoveryStore.Recover();
+        var recovery = store.RecoverAfterRestart();
 
         foreach (var pending in recovery.PendingCancellations)
         {
