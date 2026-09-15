@@ -94,12 +94,12 @@ try
         Runtime = new AgentRuntimeOptions(),
         Messages = new AgentRuntimeMessages
         {
-  Continue = "continue",
-  PolicyCorrection = "policy",
-  CommandCorrection = "command",
-  CommandResults = "results",
-  ProtocolIntro = "protocol",
-  ShellContext = "shell"
+            Continue = "continue",
+            PolicyCorrection = "policy",
+            CommandCorrection = "command",
+            CommandResults = "results",
+            ProtocolIntro = "protocol",
+            ShellContext = "shell"
         },
         Policies = new Dictionary<string, PolicyContext>()
     };
