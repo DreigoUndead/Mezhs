@@ -6,7 +6,7 @@ namespace Mezhs.Console;
 
 internal static class ScalarConverter
 {
-    public static bool CanConvert(Type type)
+    public static bool CanParse(Type type)
     {
         type = Nullable.GetUnderlyingType(type) ?? type;
         return type.IsEnum ||
@@ -48,24 +48,18 @@ internal static class ScalarConverter
         throw new FormatException($"Type '{ValueBinder.FriendlyName(type)}' cannot be converted from text.");
     }
 
-    public static string Format(object value, Type declaredType)
-    {
-        var type = Nullable.GetUnderlyingType(declaredType) ?? declaredType;
-        if (!type.IsInstanceOfType(value) && !declaredType.IsInstanceOfType(value))
-            type = value.GetType();
-
-        return value is IConvertible
-            ? Convert.ToString(value, CultureInfo.CurrentCulture)
-                ?? throw new FormatException($"Type '{ValueBinder.FriendlyName(type)}' cannot be formatted as a Console value.")
-            : value.ToString()
-                ?? throw new FormatException($"Type '{ValueBinder.FriendlyName(type)}' cannot be formatted as a Console value.");
-    }
+    public static string Format(object value) =>
+        Convert.ToString(value, CultureInfo.CurrentCulture)
+        ?? throw new FormatException($"Type '{ValueBinder.FriendlyName(value.GetType())}' cannot be formatted as a Console value.");
 
     private static MethodInfo? FindParseMethod(Type type) =>
         type.GetMethods(BindingFlags.Public | BindingFlags.Static)
             .FirstOrDefault(method =>
-                method.Name == "Parse" &&
-                method.ReturnType == type &&
-                method.GetParameters() is [{ ParameterType: var parameterType }] &&
-                parameterType == typeof(string));
+            {
+                var parameters = method.GetParameters();
+                return method.Name == "Parse" &&
+                       method.ReturnType == type &&
+                       parameters.Length == 1 &&
+                       parameters[0].ParameterType == typeof(string);
+            });
 }
