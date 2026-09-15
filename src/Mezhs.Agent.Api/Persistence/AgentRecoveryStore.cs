@@ -5,11 +5,11 @@ using Mezhs.Sqlite;
 
 namespace Mezhs.Agent.Persistence;
 
-internal sealed class AgentRecoveryStore(AgentOptions options)
+public sealed class AgentRecoveryStore(AgentOptions options)
 {
     private readonly SqliteDatabase _database = new(options.Storage);
 
-    public AgentRecoveryPlan Recover()
+    internal AgentRecoveryPlan Recover()
     {
         using var connection = _database.Open();
         using var transaction = connection.BeginTransaction();
