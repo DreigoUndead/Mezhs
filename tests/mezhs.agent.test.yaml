@@ -1,7 +1,27 @@
 version: 1
-listen: http://127.0.0.1:5199
-mezhsApi: http://127.0.0.1:5198
-storage: data-agent-test/agent.sqlite
+
+server:
+  listen: http://127.0.0.1:5199
+
+transport:
+  type: electron
+  idleMinutes: 1
+  electronDirectory: ../electron
+
+storage:
+  root: data-agent-test/core
+
+connections:
+  - id: test
+    name: Deterministic test integration
+    integration: mock
+    defaultModel: mock-fast
+
+  - id: test-login
+    name: Deterministic login integration
+    integration: mock-login
+
+agentStorage: data-agent-test/agent.sqlite
 workspace: ..
 
 runtime:
