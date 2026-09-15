@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Globalization;
 using System.Reflection;
 using System.Text;
 
@@ -88,14 +87,6 @@ public abstract class ReturnObjectBase
             return Quote((string)value);
         if (type == typeof(char))
             return Quote(value.ToString()!);
-        if (type == typeof(DateTimeOffset))
-            return ((DateTimeOffset)value).ToString("O", CultureInfo.InvariantCulture);
-        if (type == typeof(DateTime))
-            return ((DateTime)value).ToString("O", CultureInfo.InvariantCulture);
-        if (type == typeof(TimeSpan))
-            return ((TimeSpan)value).ToString("c", CultureInfo.InvariantCulture);
-        if (type.IsEnum)
-            return value.ToString()!;
 
         if (value is IEnumerable enumerable && value is not string)
         {
@@ -116,8 +107,7 @@ public abstract class ReturnObjectBase
             return $"[{string.Join(' ', items)}]";
         }
 
-        return Convert.ToString(value, CultureInfo.CurrentCulture)
-            ?? throw new FormatException($"Type '{type.Name}' cannot be formatted as a Console value.");
+        return ScalarConverter.Format(value, type);
     }
 
     private static string Quote(string value) =>
