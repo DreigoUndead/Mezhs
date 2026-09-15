@@ -6,7 +6,10 @@ namespace Mezhs.Configuration;
 
 public static partial class MezhsConfigLoader
 {
-    public static MezhsOptions Load(string path)
+    public static MezhsOptions Load(string path) => Load<MezhsOptions>(path);
+
+    public static T Load<T>(string path)
+        where T : MezhsOptions
     {
         if (!File.Exists(path))
             throw new FileNotFoundException("MEŽS configuration file was not found.", path);
@@ -14,10 +17,10 @@ public static partial class MezhsConfigLoader
         var deserializer = new DeserializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .Build();
-        var options = deserializer.Deserialize<MezhsOptions>(File.ReadAllText(path))
+        var options = deserializer.Deserialize<T>(File.ReadAllText(path))
             ?? throw new InvalidOperationException("MEŽS configuration is empty.");
 
-        var configDirectory = Path.GetDirectoryName(path)!;
+        var configDirectory = Path.GetDirectoryName(Path.GetFullPath(path))!;
         options.Storage.Root = Resolve(configDirectory, options.Storage.Root);
         options.Transport.ElectronDirectory = Resolve(
             configDirectory,
@@ -30,6 +33,9 @@ public static partial class MezhsConfigLoader
     {
         if (options.Version != 1)
             throw new InvalidOperationException($"Unsupported config version {options.Version}.");
+        if (!Uri.TryCreate(options.Server.Listen, UriKind.Absolute, out var listen) ||
+            (listen.Scheme != Uri.UriSchemeHttp && listen.Scheme != Uri.UriSchemeHttps))
+            throw new InvalidOperationException("server.listen must be an absolute HTTP or HTTPS URL.");
         if (!string.Equals(options.Transport.Type, "electron", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("The cross-platform API host currently supports transport.type: electron.");
         if (options.Transport.IdleMinutes < 0)
