@@ -25,41 +25,61 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
+          $results = [ordered]@{}
+          $logs = [ordered]@{}
+
+          function Run-Validation([string]$name, [scriptblock]$command) {
+            $log = "$name.log"
+            & $command *>&1 | Tee-Object -FilePath $log
+            $results[$name] = $LASTEXITCODE
+            $logs[$name] = $log
+          }
+
+          Run-Validation 'build' { dotnet build Mezhs.sln -c Release }
+          Run-Validation 'architecture' { pwsh -NoProfile -File tests/architecture.ps1 }
+          Run-Validation 'agent-architecture' { pwsh -NoProfile -File tests/agent-architecture.ps1 }
+          Run-Validation 'policy-decoder' { pwsh -NoProfile -File tests/policy-decoder.ps1 }
+          Run-Validation 'api-smoke' { pwsh -NoProfile -File tests/api-smoke.ps1 }
+          Run-Validation 'agent-api-smoke' { pwsh -NoProfile -File tests/agent-api-smoke.ps1 }
+          Run-Validation 'agent-runtime-resilience' { pwsh -NoProfile -File tests/agent-runtime-resilience.ps1 }
+          Run-Validation 'agent-cancel-recovery' { pwsh -NoProfile -File tests/agent-cancel-recovery.ps1 }
+          Run-Validation 'agent-executor-evidence' { pwsh -NoProfile -File tests/agent-executor-evidence.ps1 }
+
           $result = @()
-
-          dotnet build Mezhs.sln *>&1 | Tee-Object -FilePath build.log
-          $build = $LASTEXITCODE
-          $result += "BUILD_EXIT=$build"
-
-          pwsh -NoProfile -File tests/architecture.ps1 *>&1 | Tee-Object -FilePath architecture.log
-          $architecture = $LASTEXITCODE
-          $result += "ARCHITECTURE_EXIT=$architecture"
-
-          pwsh -NoProfile -File tests/agent-architecture.ps1 *>&1 | Tee-Object -FilePath agent-architecture.log
-          $agentArchitecture = $LASTEXITCODE
-          $result += "AGENT_ARCHITECTURE_EXIT=$agentArchitecture"
-
-          $overall = if ($build -eq 0 -and $architecture -eq 0 -and $agentArchitecture -eq 0) { 'PASS' } else { 'FAIL' }
+          foreach ($entry in $results.GetEnumerator()) {
+            $result += "$($entry.Key.ToUpperInvariant().Replace('-', '_'))_EXIT=$($entry.Value)"
+          }
+          $overall = if (($results.Values | Where-Object { $_ -ne 0 }).Count -eq 0) { 'PASS' } else { 'FAIL' }
           $result += "OVERALL=$overall"
-          $result += ""
-          $result += "=== BUILD ==="
-          $result += Get-Content build.log
-          $result += ""
-          $result += "=== ARCHITECTURE ==="
-          $result += Get-Content architecture.log
-          $result += ""
-          $result += "=== AGENT ARCHITECTURE ==="
-          $result += Get-Content agent-architecture.log
+          foreach ($entry in $logs.GetEnumerator()) {
+            $result += ""
+            $result += "=== $($entry.Key.ToUpperInvariant()) ==="
+            $result += Get-Content $entry.Value
+          }
           $result | Set-Content .agent-api-composition-validation.txt
+          exit 0
 
       - name: Commit validation result
         if: always()
         shell: pwsh
         run: |
+          $remoteSha = (git ls-remote origin "refs/heads/$env:GITHUB_REF_NAME" | ForEach-Object { ($_ -split "`t")[0] })
+          if ($remoteSha -ne $env:GITHUB_SHA) {
+            Write-Host "Branch advanced from $env:GITHUB_SHA to $remoteSha; skipping stale validation result."
+            exit 0
+          }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .agent-api-composition-validation.txt
           if (-not (git diff --cached --quiet)) {
             git commit -m "Record Agent API composition validation [skip ci]"
             git push
+          }
+
+      - name: Enforce validation result
+        if: always()
+        shell: pwsh
+        run: |
+          if ((Get-Content .agent-api-composition-validation.txt -Raw) -notmatch '(?m)^OVERALL=PASS$') {
+            throw 'Agent API composition validation failed.'
           }
