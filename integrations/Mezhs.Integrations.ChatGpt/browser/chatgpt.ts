@@ -21,6 +21,10 @@ const API = Object.freeze({
   fileDownload: id => `/backend-api/files/${encodeURIComponent(id)}/download`
 });
 
+const CONVERSATION_POLL_INTERVAL_MS = 2000;
+const CONVERSATION_POLL_ATTEMPTS = 120;
+const CONVERSATION_RATE_LIMIT_MAX_FALLBACK_MS = 30000;
+
 module.exports = {
   name: "ChatGPT",
   homeUrl: ORIGIN + "/",
@@ -802,11 +806,25 @@ async function apiFetch(session, token, endpoint, options = {}) {
   if (response.ok) return response;
 
   const detail = (await response.text()).slice(0, 1000);
-  const error = new Error(`ChatGPT ${endpoint} failed with HTTP ${response.status}: ${detail}`);
-  error.status = response.status;
-  error.endpoint = endpoint;
-  error.detail = detail;
+  const error = Object.assign(
+    new Error(`ChatGPT ${endpoint} failed with HTTP ${response.status}: ${detail}`),
+    {
+      status: response.status,
+      endpoint,
+      detail,
+      retryAfterMs: parseRetryAfterMs(response.headers.get("retry-after"))
+    }
+  );
   throw error;
+}
+
+function parseRetryAfterMs(value) {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0)
+    return Math.ceil(seconds * 1000);
+  const date = Date.parse(value);
+  return Number.isNaN(date) ? null : Math.max(0, date - Date.now());
 }
 
 function isConversationUnavailable(error, conversationId) {
@@ -864,8 +882,31 @@ function findConversationId(text) {
 }
 
 async function waitForConversation(session, token, conversationId, requestMessageId, sleep) {
-  for (let i = 0; i < 480; i++) {
-    const conversation = await apiJson(session, token, API.conversationById(conversationId));
+  const endpoint = API.conversationById(conversationId);
+  let consecutiveRateLimits = 0;
+  for (let i = 0; i < CONVERSATION_POLL_ATTEMPTS; i++) {
+    let conversation;
+    try {
+      conversation = await apiJson(session, token, endpoint);
+      consecutiveRateLimits = 0;
+    } catch (error) {
+      if (error?.status !== 429 || error?.endpoint !== endpoint)
+        throw error;
+
+      const fallbackDelay = Math.min(
+        CONVERSATION_RATE_LIMIT_MAX_FALLBACK_MS,
+        CONVERSATION_POLL_INTERVAL_MS * (2 ** Math.min(consecutiveRateLimits, 4))
+      );
+      const delay = Math.max(
+        CONVERSATION_POLL_INTERVAL_MS,
+        error.retryAfterMs ?? fallbackDelay
+      );
+      consecutiveRateLimits++;
+      console.error(`ChatGPT conversation poll rate-limited; retrying in ${delay} ms.`);
+      await sleep(delay);
+      continue;
+    }
+
     const current = conversation?.mapping?.[conversation.current_node];
     const message = current?.message;
     if (message?.author?.role === "assistant" && message.status !== "in_progress") {
@@ -890,7 +931,7 @@ async function waitForConversation(session, token, conversationId, requestMessag
         node = conversation.mapping[node.parent];
       }
       if (!requestFound) {
-        await sleep(500);
+        await sleep(CONVERSATION_POLL_INTERVAL_MS);
         continue;
       }
       return {
@@ -901,7 +942,7 @@ async function waitForConversation(session, token, conversationId, requestMessag
         files
       };
     }
-    await sleep(500);
+    await sleep(CONVERSATION_POLL_INTERVAL_MS);
   }
   throw new Error("ChatGPT response timed out.");
 }
