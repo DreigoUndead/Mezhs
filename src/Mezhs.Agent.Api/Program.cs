@@ -20,6 +20,11 @@ var executorStorage = Path.Combine(
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddMezhsApi(options);
+builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
+    policy.SetIsOriginAllowed(origin =>
+            Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.IsLoopback)
+        .AllowAnyHeader()
+        .AllowAnyMethod()));
 builder.Services.AddExceptionHandler<AgentApiExceptionHandler>();
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(_ => new ExecutorService(executorStorage));
@@ -39,6 +44,7 @@ builder.Services.AddSingleton<AgentService>();
 
 var app = builder.Build();
 app.UseMezhsApi();
+app.UseCors();
 
 var store = app.Services.GetRequiredService<AgentStore>();
 store.Initialize();
@@ -55,15 +61,12 @@ app.MapGet("/", () => Results.Ok(new
         "/v1/chats",
         "/v1/categories",
         "/v1/files",
-        "/v1/runtime",
         "/v1/policies",
         "/v1/agent-chats",
         "/v1/executions"
     }
 }));
 app.MapMezhsApi();
-
-app.MapGet("/v1/runtime", () => Results.Ok(new { status = "ok" }));
 
 app.MapGet("/v1/policies", (PolicyRegistry policies) =>
     Results.Ok(policies.GetViews()));
