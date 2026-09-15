@@ -21,7 +21,10 @@ try {
 "@ | Set-Content -LiteralPath (Join-Path $temp 'Test.csproj') -Encoding UTF8
 
     @'
+using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
+using Mezhs.Agent.Persistence;
+using Mezhs.Agent.Policy;
 using Mezhs.Agent.Services;
 using Mezhs.Executor;
 using Mezhs.Sqlite;
@@ -83,7 +86,27 @@ try
     if (executor.Get(shellId).Status != ExecutionStatus.Running)
         throw new InvalidOperationException($"Shell did not reach Running before recovery: {executor.Get(shellId).Status}");
 
-    var recovery = AgentRecoveryState.Prepare(agentPath);
+    var options = new AgentOptions
+    {
+        Listen = new Uri("http://127.0.0.1:1"),
+        MezhsApi = new Uri("http://127.0.0.1:2"),
+        Storage = agentPath,
+        Workspace = workspace,
+        Runtime = new AgentRuntimeOptions(),
+        Messages = new AgentRuntimeMessages
+        {
+            Continue = "continue",
+            PolicyCorrection = "policy",
+            CommandCorrection = "command",
+            CommandResults = "results",
+            ProtocolIntro = "protocol",
+            ShellContext = "shell"
+        },
+        Policies = new Dictionary<string, PolicyContext>()
+    };
+    var recovery = new AgentRecoveryState(new AgentStore(options), executor);
+    recovery.Prepare();
+
     using (var connection = agentDatabase.Open())
     using (var command = connection.CreateCommand())
     {
@@ -94,7 +117,6 @@ try
             throw new InvalidOperationException($"Pending Agent cancellation did not become Cancelled: {status}");
     }
 
-    recovery.ReconcilePendingCancellations(executor);
     var terminal = executor.Wait(shellId, 12);
     if (terminal.Status != ExecutionStatus.Killed)
         throw new InvalidOperationException($"Pending cancellation did not kill detached Executor child: {terminal.Status} - {terminal.Error}");
