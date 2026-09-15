@@ -1,0 +1,91 @@
+name: Executor diagnostic
+
+on:
+  push:
+    branches: [ executor-foundation ]
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build
+        shell: pwsh
+        run: dotnet build Mezhs.sln -c Release
+      - name: Reproduce Executor lifecycle failure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $lines = [System.Collections.Generic.List[string]]::new()
+          $lines.Add("head=$env:GITHUB_SHA")
+          $lines.Add("generated=$([DateTimeOffset]::UtcNow.ToString('O'))")
+          $lines.Add('=== existing lifecycle test ===')
+          $lifecycle = & pwsh -NoProfile -File tests/executor-lifecycle.ps1 2>&1
+          $lifecycleCode = $LASTEXITCODE
+          $lines.Add("exit=$lifecycleCode")
+          foreach ($line in $lifecycle) { $lines.Add([string]$line) }
+
+          $lines.Add('=== isolated atomic reproduction ===')
+          $root = (Get-Location).Path
+          $executor = (Resolve-Path 'src/Mezhs.Executor/bin/Release/net10.0/Mezhs.Executor.dll').Path
+          $data = Join-Path $root 'data/executor-diagnostic.sqlite'
+          $work = Join-Path $root 'executor-diagnostic-work'
+          Remove-Item $data,"$data-shm","$data-wal" -Force -ErrorAction SilentlyContinue
+          Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item $work -ItemType Directory | Out-Null
+          $env:MEZHS_EXECUTOR_STORAGE = $data
+          $env:MEZHS_EXECUTION_ID = 'diagnostic-parent'
+          $env:MEZHS_SOURCE = 'executor-diagnostic'
+
+          function Ex([Parameter(ValueFromRemainingArguments=$true)][string[]]$arguments) {
+            $out = & dotnet $executor @arguments 2>&1
+            $code = $LASTEXITCODE
+            return [pscustomobject]@{ Code = $code; Text = ($out -join [Environment]::NewLine).Trim() }
+          }
+
+          $file = Join-Path $work 'atomic.txt'
+          $command = "ping -n 3 127.0.0.1 >nul & echo hit>>$file"
+          $create = Ex Execute $command $work 30
+          $lines.Add("executeCode=$($create.Code)")
+          $lines.Add("executeOut=$($create.Text)")
+          $id = 0
+          [void][int]::TryParse($create.Text, [ref]$id)
+          $lines.Add("parsedId=$id")
+          if ($id -gt 0) {
+            $p1 = Start-Process dotnet -ArgumentList @($executor,'Run',$id,$data) -PassThru -WindowStyle Hidden
+            $p2 = Start-Process dotnet -ArgumentList @($executor,'Run',$id,$data) -PassThru -WindowStyle Hidden
+            $wait = Ex Wait $id 20
+            $p1.WaitForExit(5000) | Out-Null
+            $p2.WaitForExit(5000) | Out-Null
+            $get = Ex Get $id
+            $lines.Add("waitCode=$($wait.Code)")
+            $lines.Add('--- wait ---')
+            $lines.Add($wait.Text)
+            $lines.Add('--- get ---')
+            $lines.Add($get.Text)
+            $lines.Add("p1Exit=$($p1.ExitCode)")
+            $lines.Add("p2Exit=$($p2.ExitCode)")
+            $lines.Add("fileExists=$(Test-Path $file)")
+            if (Test-Path $file) {
+              $content = Get-Content $file -Raw
+              $lines.Add("fileContent=$($content -replace "`r",'<CR>' -replace "`n",'<LF>')")
+            }
+          }
+          $lines | Set-Content executor-diagnostic-result.txt -Encoding utf8
+      - name: Commit diagnostic result
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path executor-diagnostic-result.txt)) { 'diagnostic did not produce a result file' | Set-Content executor-diagnostic-result.txt }
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add executor-diagnostic-result.txt
+          git commit -m "Record Executor diagnostic result [skip ci]" || exit 0
+          git push
