@@ -4,8 +4,12 @@ on:
   push:
     branches: [agent-api-composition]
 
+concurrency:
+  group: agent-protocol-fixes-validation
+  cancel-in-progress: true
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -20,42 +24,33 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $failed = $false
-          $report = [System.Collections.Generic.List[string]]::new()
 
           function Run-Check([string]$name, [scriptblock]$action) {
-              $report.Add("=== $name ===")
+              Write-Host "`n=== $name ==="
               $global:LASTEXITCODE = 0
-              $output = & $action 2>&1 | Out-String
+              & $action
               $code = $LASTEXITCODE
-              $report.Add($output.TrimEnd())
-              $report.Add("exitCode=$code")
               if ($code -ne 0) {
                   $script:failed = $true
-                  $report.Add("RESULT=FAIL")
+                  Write-Host "RESULT=FAIL exitCode=$code"
               } else {
-                  $report.Add("RESULT=PASS")
+                  Write-Host 'RESULT=PASS'
               }
-              $report.Add('')
           }
 
           Run-Check 'build' { dotnet build Mezhs.sln -c Release }
+          Run-Check 'architecture' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/architecture.ps1 }
+          Run-Check 'agent-architecture' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/agent-architecture.ps1 }
           Run-Check 'policy-decoder' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/policy-decoder.ps1 }
           Run-Check 'agent-protocol-result' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/agent-protocol-result.ps1 }
           Run-Check 'executor-lifecycle' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/executor-lifecycle.ps1 }
           Run-Check 'executor-self-restart' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/executor-self-restart.ps1 }
+          Run-Check 'api-smoke' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/api-smoke.ps1 }
+          Run-Check 'agent-api-smoke' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/agent-api-smoke.ps1 }
           Run-Check 'agent-runtime-resilience' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/agent-runtime-resilience.ps1 }
           Run-Check 'agent-cancel-recovery' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/agent-cancel-recovery.ps1 }
           Run-Check 'agent-executor-evidence' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/agent-executor-evidence.ps1 }
-          Run-Check 'agent-architecture' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/agent-architecture.ps1 }
-          Run-Check 'architecture' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/architecture.ps1 }
-
-          $report.Add("OVERALL=" + $(if ($failed) { 'FAIL' } else { 'PASS' }))
-          $report | Set-Content -LiteralPath .agent-protocol-fixes-validation.txt -Encoding UTF8
-
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .agent-protocol-fixes-validation.txt
-          git commit -m 'Record Agent protocol validation [skip ci]'
-          git push
+          Run-Check 'agent-store-migration' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/agent-store-migration.ps1 }
+          Run-Check 'agent-web-shared-ui' { pwsh -NoProfile -ExecutionPolicy Bypass -File tests/agent-web-shared-ui.ps1 }
 
           if ($failed) { exit 1 }
