@@ -113,13 +113,13 @@ VISIBLE_FINAL_RESULT
     }
 
     $messages = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages")
-    $assistantMessages = @($messages | Where-Object { $_.role -eq 'assistant' })
+    $assistantMessages = @($messages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'assistant' })
     if ($assistantMessages.Count -ne 1) {
         throw "SH + DONE required another assistant turn instead of completing immediately. Assistant turns=$($assistantMessages.Count)"
     }
 
     $executions = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/executions")
-    $shells = @($executions | Where-Object { $_.kind -eq 'Shell' })
+    $shells = @($executions | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
     if ($shells.Count -ne 1 -or $shells[0].status -ne 'Completed' -or $shells[0].result -notmatch 'SAME_TURN_DONE_OK') {
         $observed = $executions | ConvertTo-Json -Depth 6 -Compress
         throw "Same-turn completion did not retain successful Executor evidence. Observed: $observed"
