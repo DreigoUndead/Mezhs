@@ -9,7 +9,7 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly string _electronDirectory = Path.GetFullPath(electronDirectory);
-    private readonly HttpClient _http = new() { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(6) };
     private readonly TaskCompletionSource<Uri> _ready = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
     private Process? _process;

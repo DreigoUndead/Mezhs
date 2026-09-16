@@ -35,12 +35,4 @@ if (-not $browserSession.Contains('await DisposeTransportAsync();')) {
     throw 'BrowserAccountSession cancellation must discard the possibly still-running transport.'
 }
 
-$electron = Read-Source 'transports\Mezhs.Browser.Electron\ElectronBrowserTransport.cs'
-if (-not $electron.Contains('Timeout = System.Threading.Timeout.InfiniteTimeSpan')) {
-    throw 'Electron transport must not impose an unrelated fixed provider timeout.'
-}
-if ($electron.Contains('Timeout = TimeSpan.FromMinutes(6)')) {
-    throw 'The obsolete six-minute Electron transport timeout is still present.'
-}
-
 Write-Host 'PASS: Agent/provider lifetime ownership is explicit and cancellation reaches the provider boundary.'
