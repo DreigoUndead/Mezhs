@@ -31,120 +31,139 @@ internal sealed class ExecutorRunner(ExecutorStore store)
 
     private bool RunOwnedProcess(Execution execution, string environmentJson)
     {
-        using var process = new Process
-        {
-            StartInfo = CreateShellStartInfo(execution, environmentJson)
-        };
-        Task<string>? stdoutTask = null;
-        Task<string>? stderrTask = null;
-
+        var platform = ExecutorPlatform.Current;
+        var shell = platform.PrepareShell(execution.Command);
         try
         {
-            if (!process.Start())
-                throw new InvalidOperationException("Host shell process could not be started.");
-            store.SetProcessId(execution.Id, process.Id);
-            stdoutTask = process.StandardOutput.ReadToEndAsync();
-            stderrTask = process.StandardError.ReadToEndAsync();
-            process.StandardInput.Write(ExecutorPlatform.Current.CreateShellPayload(execution.Command));
-            process.StandardInput.Flush();
-            process.StandardInput.Close();
-
-            var started = Stopwatch.StartNew();
-            var nextHeartbeat = TimeSpan.Zero;
-            var killed = false;
-            var timedOut = false;
-            string? terminationError = null;
-
-            while (!process.WaitForExit(200))
+            using var process = new Process
             {
-                if (execution.TimeoutSeconds > 0 && started.Elapsed >= TimeSpan.FromSeconds(execution.TimeoutSeconds))
+                StartInfo = CreateShellStartInfo(execution, environmentJson, platform, shell)
+            };
+            Task<string>? stdoutTask = null;
+            Task<string>? stderrTask = null;
+
+            try
+            {
+                if (!process.Start())
+                    throw new InvalidOperationException("Host shell process could not be started.");
+                store.SetProcessId(execution.Id, process.Id);
+                stdoutTask = process.StandardOutput.ReadToEndAsync();
+                stderrTask = process.StandardError.ReadToEndAsync();
+                if (shell.StandardInput is { } standardInput)
                 {
-                    timedOut = true;
-                    terminationError = Terminate(process);
-                    break;
+                    process.StandardInput.Write(standardInput);
+                    process.StandardInput.Flush();
+                    process.StandardInput.Close();
                 }
 
-                if (started.Elapsed < nextHeartbeat)
-                    continue;
-                nextHeartbeat = started.Elapsed + TimeSpan.FromSeconds(1);
-                var current = store.HeartbeatAndGet(execution.Id);
-                if (current?.Status == ExecutionStatus.KillRequested)
+                var started = Stopwatch.StartNew();
+                var nextHeartbeat = TimeSpan.Zero;
+                var killed = false;
+                var timedOut = false;
+                string? terminationError = null;
+
+                while (!process.WaitForExit(200))
                 {
-                    killed = true;
-                    terminationError = Terminate(process);
-                    break;
+                    if (execution.TimeoutSeconds > 0 && started.Elapsed >= TimeSpan.FromSeconds(execution.TimeoutSeconds))
+                    {
+                        timedOut = true;
+                        terminationError = Terminate(process);
+                        break;
+                    }
+
+                    if (started.Elapsed < nextHeartbeat)
+                        continue;
+                    nextHeartbeat = started.Elapsed + TimeSpan.FromSeconds(1);
+                    var current = store.HeartbeatAndGet(execution.Id);
+                    if (current?.Status == ExecutionStatus.KillRequested)
+                    {
+                        killed = true;
+                        terminationError = Terminate(process);
+                        break;
+                    }
+                }
+
+                if (!process.HasExited)
+                    process.WaitForExit();
+                var streams = Task.WhenAll(stdoutTask, stderrTask).GetAwaiter().GetResult();
+                var result = FormatResult(streams[0], streams[1]);
+
+                if (terminationError is not null)
+                {
+                    store.Finish(
+                        execution.Id,
+                        ExecutionStatus.Failed,
+                        null,
+                        EmptyToNull(result),
+                        terminationError);
+                    return false;
+                }
+
+                if (timedOut)
+                {
+                    store.Finish(
+                        execution.Id,
+                        ExecutionStatus.TimedOut,
+                        null,
+                        EmptyToNull(result),
+                        $"Shell command timed out after {execution.TimeoutSeconds} seconds.");
+                    return true;
+                }
+
+                if (killed)
+                {
+                    store.Finish(
+                        execution.Id,
+                        ExecutionStatus.Killed,
+                        null,
+                        EmptyToNull(result),
+                        "Killed by request.");
+                    return true;
+                }
+
+                var exitCode = process.ExitCode;
+                store.Finish(
+                    execution.Id,
+                    exitCode == 0 ? ExecutionStatus.Completed : ExecutionStatus.Failed,
+                    exitCode,
+                    EmptyToNull(result),
+                    exitCode == 0 ? null : $"Shell exited with code {exitCode}.");
+                return true;
+            }
+            finally
+            {
+                if (shell.StandardInput is not null)
+                {
+                    try { process.StandardInput.Close(); } catch (InvalidOperationException) { }
                 }
             }
-
-            if (!process.HasExited)
-                process.WaitForExit();
-            var streams = Task.WhenAll(stdoutTask, stderrTask).GetAwaiter().GetResult();
-            var result = FormatResult(streams[0], streams[1]);
-
-            if (terminationError is not null)
-            {
-                store.Finish(
-                    execution.Id,
-                    ExecutionStatus.Failed,
-                    null,
-                    EmptyToNull(result),
-                    terminationError);
-                return false;
-            }
-
-            if (timedOut)
-            {
-                store.Finish(
-                    execution.Id,
-                    ExecutionStatus.TimedOut,
-                    null,
-                    EmptyToNull(result),
-                    $"Shell command timed out after {execution.TimeoutSeconds} seconds.");
-                return true;
-            }
-
-            if (killed)
-            {
-                store.Finish(
-                    execution.Id,
-                    ExecutionStatus.Killed,
-                    null,
-                    EmptyToNull(result),
-                    "Killed by request.");
-                return true;
-            }
-
-            var exitCode = process.ExitCode;
-            store.Finish(
-                execution.Id,
-                exitCode == 0 ? ExecutionStatus.Completed : ExecutionStatus.Failed,
-                exitCode,
-                EmptyToNull(result),
-                exitCode == 0 ? null : $"Shell exited with code {exitCode}.");
-            return true;
         }
         finally
         {
-            try { process.StandardInput.Close(); } catch (InvalidOperationException) { }
+            DeleteTemporaryFile(shell.TemporaryFile);
         }
     }
 
-    private ProcessStartInfo CreateShellStartInfo(Execution execution, string environmentJson)
+    private ProcessStartInfo CreateShellStartInfo(
+        Execution execution,
+        string environmentJson,
+        IExecutorPlatform platform,
+        ExecutorShellInvocation shell)
     {
-        var platform = ExecutorPlatform.Current;
         var startInfo = new ProcessStartInfo
         {
             FileName = platform.ShellFileName,
             UseShellExecute = false,
-            RedirectStandardInput = true,
+            RedirectStandardInput = shell.StandardInput is not null,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             CreateNoWindow = true,
             WorkingDirectory = execution.Directory
         };
-        foreach (var argument in platform.ShellArguments)
+        foreach (var argument in shell.Arguments)
             startInfo.ArgumentList.Add(argument);
+        if (shell.StandardInput is not null)
+            startInfo.StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         if (platform.ShellEncoding is { } encoding)
         {
             startInfo.StandardOutputEncoding = encoding;
@@ -218,6 +237,22 @@ internal sealed class ExecutorRunner(ExecutorStore store)
     {
         try { return process.HasExited; }
         catch (InvalidOperationException) { return true; }
+    }
+
+    private static void DeleteTemporaryFile(string? path)
+    {
+        if (path is null)
+            return;
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     private static string FormatResult(string stdout, string stderr)
