@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Apply shared Web API availability integration'
+    if: github.event.head_commit.message == 'Apply shared Web API availability integration v2'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,12 +23,19 @@ jobs:
           $ErrorActionPreference = 'Stop'
           @'
           from pathlib import Path
+          import re
 
           def replace_once(text, old, new, label):
               count = text.count(old)
               if count != 1:
                   raise SystemExit(f"{label}: expected exactly one match, found {count}")
               return text.replace(old, new, 1)
+
+          def sub_once(text, pattern, replacement, label):
+              value, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              return value
 
           agent_path = Path("src/Mezhs.Agent.Web/src/App.tsx")
           agent = agent_path.read_text(encoding="utf-8")
@@ -91,14 +98,10 @@ jobs:
           agent = agent.replace('apiJson<Execution>(`/v1/executions/', 'apiJson<Execution>("", `/v1/executions/')
           agent = agent.replace('apiJson<AgentChat>(\n        `/v1/agent-chats/', 'apiJson<AgentChat>(\n        "",\n        `/v1/agent-chats/')
 
-          agent = replace_once(agent, '''  useEffect(() => {
-            const timer = window.setInterval(() => {
-              void refreshChats();
-              if (selectedChatId && !creating)
-                void loadSelected(selectedChatId, false);
-            }, 1200);
-            return () => window.clearInterval(timer);
-          }, [selectedChatId, creating]);''', '''  useEffect(() => {
+          agent = sub_once(
+              agent,
+              r'''  useEffect\(\(\) => \{\n    const timer = window\.setInterval\(\(\) => \{\n      void refreshChats\(\);\n      if \(selectedChatId && !creating\)\n        void loadSelected\(selectedChatId, false\);\n    \}, 1200\);\n    return \(\) => window\.clearInterval\(timer\);\n  \}, \[selectedChatId, creating\]\);''',
+              '''  useEffect(() => {
             const timer = window.setInterval(() => {
               if (!apiReady) return;
               void refreshChats();
@@ -106,31 +109,29 @@ jobs:
                 void loadSelected(selectedChatId, false);
             }, 1200);
             return () => window.clearInterval(timer);
-          }, [apiReady, selectedChatId, creating]);''', "Agent refresh interval")
-          agent = replace_once(agent, '''  async function refreshChats() {
-            try {
-              setChats(await apiJson<AgentChat[]>("", "/v1/agent-chats"));
-              setApiReady(true);
-            } catch {
-              setApiReady(false);
-              // Keep the last durable view during transient refresh failures.
-            }
-          }''', '''  async function refreshChats() {
+          }, [apiReady, selectedChatId, creating]);''',
+              "Agent refresh interval",
+          )
+          agent = sub_once(
+              agent,
+              r'''  async function refreshChats\(\) \{\n    try \{\n      setChats\(await apiJson<AgentChat\[\]>\("", "/v1/agent-chats"\)\);\n      setApiReady\(true\);\n    \} catch \{\n      setApiReady\(false\);\n      // Keep the last durable view during transient refresh failures\.\n    \}\n  \}''',
+              '''  async function refreshChats() {
             try {
               setChats(await apiJson<AgentChat[]>("", "/v1/agent-chats"));
             } catch {
               // Keep the last durable view during transient refresh failures.
             }
-          }''', "Agent refresh state")
+          }''',
+              "Agent refresh state",
+          )
           if 'setApiReady(' in agent:
               raise SystemExit("Agent still contains local API readiness mutation")
           if 'api<' in agent or 'await fetch(' in agent:
               raise SystemExit("Agent still contains local API transport")
-          agent_path.write_text(agent, encoding="utf-8")
 
           chat_path = Path("src/Mezhs.Web.Lib/src/MezhsChatApp.tsx")
           chat = chat_path.read_text(encoding="utf-8")
-          chat = replace_once(chat, '''import { ChatProviderRegistry } from "./providers/registry";''', '''import { apiFetch, apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
+          chat = replace_once(chat, '''import { ChatProviderRegistry } from "./providers/registry";''', '''import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
           import { ChatProviderRegistry } from "./providers/registry";''', "Chat API import")
           local_json_start = chat.index('async function expectJson<T>(response: Response): Promise<T> {')
           local_json_end = chat.index('\n}\n\nexport type MezhsChatAppProps', local_json_start) + 2
@@ -236,8 +237,11 @@ jobs:
               raise SystemExit("Chat app still contains local online mutation")
           if 'expectJson<' in chat or 'expectJsonOrEmpty(' in chat or 'await fetch(' in chat:
               raise SystemExit("Chat app still contains local API transport")
+
+          agent_path.write_text(agent, encoding="utf-8")
           chat_path.write_text(chat, encoding="utf-8")
           '@ | python3 -
+          if ($LASTEXITCODE -ne 0) { throw 'Web consumer patch failed.' }
 
           dotnet build src/Mezhs.Agent.Web/Mezhs.Agent.Web.csproj -c Release
           if ($LASTEXITCODE -ne 0) { throw 'Agent Web build failed.' }
