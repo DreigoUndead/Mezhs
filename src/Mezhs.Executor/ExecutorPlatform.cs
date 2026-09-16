@@ -3,12 +3,16 @@ using System.Text;
 
 namespace Mezhs.Executor;
 
+internal sealed record ExecutorShellInvocation(
+    IReadOnlyList<string> Arguments,
+    string? StandardInput,
+    string? TemporaryFile);
+
 internal interface IExecutorPlatform
 {
     string ShellFileName { get; }
-    IReadOnlyList<string> ShellArguments { get; }
     Encoding? ShellEncoding { get; }
-    string CreateShellPayload(string command);
+    ExecutorShellInvocation PrepareShell(string command);
     void ConfigureRuntimeStartInfo(ProcessStartInfo startInfo);
 }
 
@@ -21,13 +25,18 @@ internal static class ExecutorPlatform
 
 internal sealed class WindowsExecutorPlatform : IExecutorPlatform
 {
-    private static readonly string[] Arguments = ["/D", "/Q", "/K", "@chcp 65001>nul"];
-
     public string ShellFileName => Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
-    public IReadOnlyList<string> ShellArguments => Arguments;
     public Encoding ShellEncoding => Encoding.UTF8;
 
-    public string CreateShellPayload(string command) => command + "\r\n";
+    public ExecutorShellInvocation PrepareShell(string command)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mezhs-executor-{Guid.NewGuid():N}.cmd");
+        File.WriteAllText(
+            path,
+            "@chcp 65001>nul\r\n" + command + "\r\n",
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        return new ExecutorShellInvocation(["/D", "/Q", "/C", path], null, path);
+    }
 
     public void ConfigureRuntimeStartInfo(ProcessStartInfo startInfo) =>
         startInfo.WindowStyle = ProcessWindowStyle.Hidden;
@@ -36,10 +45,10 @@ internal sealed class WindowsExecutorPlatform : IExecutorPlatform
 internal sealed class UnixExecutorPlatform : IExecutorPlatform
 {
     public string ShellFileName => "/bin/sh";
-    public IReadOnlyList<string> ShellArguments => [];
     public Encoding? ShellEncoding => null;
 
-    public string CreateShellPayload(string command) => command + "\n";
+    public ExecutorShellInvocation PrepareShell(string command) =>
+        new([], command + "\n", null);
 
     public void ConfigureRuntimeStartInfo(ProcessStartInfo startInfo)
     {
