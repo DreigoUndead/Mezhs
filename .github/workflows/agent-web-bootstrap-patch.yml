@@ -1,0 +1,98 @@
+name: agent-web-bootstrap-patch
+
+on:
+  push:
+    branches:
+      - agent-api-composition
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Apply Agent Web startup retry'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Patch and validate Agent Web bootstrap retry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'src/Mezhs.Agent.Web/src/App.tsx'
+          $text = Get-Content -LiteralPath $path -Raw
+          $old = @'
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [policyValues, chatValues] = await Promise.all([
+          api<AgentPolicy[]>("/v1/policies"),
+          api<AgentChat[]>("/v1/agent-chats"),
+        ]);
+        setApiReady(true);
+        setPolicies(policyValues);
+        setChats(chatValues);
+        setPolicyId(policyValues[0]?.id ?? "");
+        if (chatValues.length > 0)
+          setSelectedChatId(chatValues[0].chatId);
+      } catch (error) {
+        setApiReady(false);
+        setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
+      }
+    })();
+  }, []);
+'@
+          $new = @'
+  useEffect(() => {
+    let cancelled = false;
+    let retryTimer: number | undefined;
+
+    const load = async () => {
+      try {
+        const [policyValues, chatValues] = await Promise.all([
+          api<AgentPolicy[]>("/v1/policies"),
+          api<AgentChat[]>("/v1/agent-chats"),
+        ]);
+        if (cancelled) return;
+
+        setApiReady(true);
+        setPolicies(policyValues);
+        setChats(chatValues);
+        setPolicyId(policyValues[0]?.id ?? "");
+        setNotice(null);
+        if (chatValues.length > 0)
+          setSelectedChatId(chatValues[0].chatId);
+      } catch (error) {
+        if (cancelled) return;
+
+        setApiReady(false);
+        setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
+        retryTimer = window.setTimeout(() => void load(), 500);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+      if (retryTimer !== undefined)
+        window.clearTimeout(retryTimer);
+    };
+  }, []);
+'@
+          if (-not $text.Contains($old)) { throw 'Agent Web bootstrap block was not found.' }
+          $text = $text.Replace($old, $new)
+          Set-Content -LiteralPath $path -Value $text -Encoding utf8
+
+          dotnet build src/Mezhs.Agent.Web/Mezhs.Agent.Web.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Agent Web build failed.' }
+
+      - name: Commit retry
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/Mezhs.Agent.Web/src/App.tsx
+          git commit -m "Retry Agent Web bootstrap until API is ready"
+          git push
