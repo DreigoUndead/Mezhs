@@ -20,6 +20,7 @@ public sealed record Result(
 public sealed record Interpretation(
     bool CompletionClaimed,
     IReadOnlyList<Result> Results,
+    string VisibleContent,
     string? Error);
 
 public sealed class Interpreter(
@@ -41,7 +42,7 @@ public sealed class Interpreter(
         }
         catch (CommandParseException ex)
         {
-            return new Interpretation(false, [], ex.Message);
+            return new Interpretation(false, [], assistantReply, ex.Message);
         }
 
         var results = new List<Result>();
@@ -54,20 +55,20 @@ public sealed class Interpreter(
             cancellationToken.ThrowIfCancellationRequested();
             var command = batch.Commands[i];
             if (!Registry.TryGet(command.Name, out var definition))
-                return new Interpretation(completionClaimed, results, $"Unknown agent command <{command.Name}>.");
+                return new Interpretation(completionClaimed, results, batch.VisibleContent, $"Unknown agent command <{command.Name}>.");
 
             var hasBody = command.Body is not null;
             if (definition.Form == CommandForm.Block && !hasBody)
-                return new Interpretation(completionClaimed, results, $"<{definition.Name}> requires a closing </{definition.Name}> tag.");
+                return new Interpretation(completionClaimed, results, batch.VisibleContent, $"<{definition.Name}> requires a closing </{definition.Name}> tag.");
             if (definition.Form == CommandForm.Marker && hasBody)
-                return new Interpretation(completionClaimed, results, $"<{definition.Name}> is a marker and cannot have a body.");
+                return new Interpretation(completionClaimed, results, batch.VisibleContent, $"<{definition.Name}> is a marker and cannot have a body.");
 
             if (definition.Behavior == CommandBehavior.Complete)
             {
                 if (completionClaimed)
-                    return new Interpretation(true, results, $"<{definition.Name}> may appear only once in an assistant reply.");
+                    return new Interpretation(true, results, batch.VisibleContent, $"<{definition.Name}> may appear only once in an assistant reply.");
                 if (i != batch.Commands.Count - 1)
-                    return new Interpretation(true, results, $"<{definition.Name}> must be the final agent command in an assistant reply.");
+                    return new Interpretation(true, results, batch.VisibleContent, $"<{definition.Name}> must be the final agent command in an assistant reply.");
                 completionClaimed = true;
                 continue;
             }
@@ -78,7 +79,7 @@ public sealed class Interpreter(
                 execution,
                 new PolicyAction(definition, body));
             if (!decision.Allowed)
-                return new Interpretation(completionClaimed, results, decision.Error ?? $"Policy denied {definition.Name} action.");
+                return new Interpretation(completionClaimed, results, batch.VisibleContent, decision.Error ?? $"Policy denied {definition.Name} action.");
 
             switch (definition.Behavior)
             {
@@ -90,10 +91,10 @@ public sealed class Interpreter(
                     executableIndex++;
                     break;
                 default:
-                    return new Interpretation(completionClaimed, results, $"Agent command <{definition.Name}> has no executable behavior.");
+                    return new Interpretation(completionClaimed, results, batch.VisibleContent, $"Agent command <{definition.Name}> has no executable behavior.");
             }
         }
 
-        return new Interpretation(completionClaimed, results, null);
+        return new Interpretation(completionClaimed, results, batch.VisibleContent, null);
     }
 }
