@@ -13,13 +13,18 @@ public sealed class MessageService(
     FileStore files,
     IntegrationRegistry integrations) : BackgroundService
 {
-    private readonly Channel<StoredMessage> _queue = Channel.CreateUnbounded<StoredMessage>(
+    private readonly Channel<QueuedMessage> _queue = Channel.CreateUnbounded<QueuedMessage>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _chatGates =
         new(StringComparer.OrdinalIgnoreCase);
 
-    public ApiMessage Post(PostMessageRequest request)
+    public ApiMessage Post(PostMessageRequest request) =>
+        Post(request, CancellationToken.None);
+
+    private ApiMessage Post(PostMessageRequest request, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var requestedFileIds = request.FileIds ?? [];
         if (string.IsNullOrWhiteSpace(request.Content) && requestedFileIds.Count == 0)
             throw new RequestValidationException("content or at least one file is required.");
@@ -63,7 +68,8 @@ public sealed class MessageService(
             attachedFiles.Select(file => file.FileId).ToArray(),
             NormalizeOrigin(request.Origin),
             model,
-            replayOf: null));
+            replayOf: null,
+            cancellationToken));
     }
 
     public ApiMessage Replay(string messageId)
@@ -81,7 +87,8 @@ public sealed class MessageService(
             original.FileIds,
             NormalizeStoredOrigin(original),
             original.Model,
-            original.MessageId));
+            original.MessageId,
+            CancellationToken.None));
     }
 
     public ApiMessage? Get(string messageId)
@@ -94,7 +101,7 @@ public sealed class MessageService(
         PostMessageRequest request,
         CancellationToken cancellationToken = default)
     {
-        var created = Post(request);
+        var created = Post(request, cancellationToken);
         return await WaitForReplyAsync(created.MessageId, cancellationToken);
     }
 
@@ -122,20 +129,21 @@ public sealed class MessageService(
             }
         }
     }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _ = stoppingToken;
         var running = new HashSet<Task>();
         try
         {
-            await foreach (var message in _queue.Reader.ReadAllAsync())
+            await foreach (var queued in _queue.Reader.ReadAllAsync())
             {
                 foreach (var completed in running.Where(task => task.IsCompleted).ToArray())
                 {
                     await completed;
                     running.Remove(completed);
                 }
-                running.Add(ProcessAsync(message));
+                running.Add(ProcessAsync(queued.Message, queued.CancellationToken));
             }
         }
         finally
@@ -158,7 +166,8 @@ public sealed class MessageService(
         IReadOnlyList<string> fileIds,
         string origin,
         string? model,
-        string? replayOf)
+        string? replayOf,
+        CancellationToken cancellationToken)
     {
         var message = new StoredMessage
         {
@@ -175,7 +184,7 @@ public sealed class MessageService(
         };
         store.SaveMessage(message);
         store.SaveChat(chat);
-        if (_queue.Writer.TryWrite(message))
+        if (_queue.Writer.TryWrite(new QueuedMessage(message, cancellationToken)))
             return message;
 
         message.Status = MessageStatus.Failed;
@@ -185,12 +194,16 @@ public sealed class MessageService(
         throw new InvalidOperationException(message.Error);
     }
 
-    private async Task ProcessAsync(StoredMessage message)
+    private async Task ProcessAsync(StoredMessage message, CancellationToken cancellationToken)
     {
         var gate = _chatGates.GetOrAdd(message.ChatId, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync();
+        var gateTaken = false;
         try
         {
+            await gate.WaitAsync(cancellationToken);
+            gateTaken = true;
+            cancellationToken.ThrowIfCancellationRequested();
+
             message.Status = MessageStatus.Running;
             message.StartedAt = DateTimeOffset.UtcNow;
             store.SaveMessage(message);
@@ -224,7 +237,8 @@ public sealed class MessageService(
                     historyMessages.Select(ToIntegrationMessage).ToArray(),
                     inputFiles,
                     RestoreConversation: !continueRemote),
-                CancellationToken.None);
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
 
             var replyFileIds = new List<string>();
             foreach (var output in result.Files ?? [])
@@ -252,6 +266,7 @@ public sealed class MessageService(
                 }
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             var reply = new StoredMessage
             {
                 MessageId = ChatStore.NewId("msg"),
@@ -277,6 +292,16 @@ public sealed class MessageService(
             message.CompletedAt = reply.CompletedAt;
             store.SaveMessage(message);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            if (store.GetChat(message.ChatId) is null)
+                return;
+            message.Status = MessageStatus.Cancelled;
+            message.Error = "MEŽS message was cancelled.";
+            message.CompletedAt = DateTimeOffset.UtcNow;
+            try { store.SaveMessage(message); }
+            catch (ResourceNotFoundException) { }
+        }
         catch (Exception ex)
         {
             if (store.GetChat(message.ChatId) is null)
@@ -289,7 +314,8 @@ public sealed class MessageService(
         }
         finally
         {
-            gate.Release();
+            if (gateTaken)
+                gate.Release();
         }
     }
 
@@ -422,4 +448,8 @@ public sealed class MessageService(
 
     private static string? NormalizeModel(string? model) =>
         string.IsNullOrWhiteSpace(model) ? null : model.Trim();
+
+    private sealed record QueuedMessage(
+        StoredMessage Message,
+        CancellationToken CancellationToken);
 }
