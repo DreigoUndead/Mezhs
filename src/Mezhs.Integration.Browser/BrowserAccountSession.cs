@@ -119,7 +119,16 @@ public sealed class BrowserAccountSession : IAsyncDisposable
                     showBrowser: false,
                     requireAuthorization: true,
                     cancellationToken);
-            return await action(_transport!, cancellationToken);
+
+            try
+            {
+                return await action(_transport!, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                await DisposeTransportAsync();
+                throw;
+            }
         }
         finally
         {
