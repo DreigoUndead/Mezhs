@@ -21,14 +21,13 @@ internal static class ExecutorPlatform
 
 internal sealed class WindowsExecutorPlatform : IExecutorPlatform
 {
-    private static readonly string[] Arguments = ["/D", "/Q"];
+    private static readonly string[] Arguments = ["/D", "/Q", "/K", "@chcp 65001>nul"];
 
     public string ShellFileName => Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
     public IReadOnlyList<string> ShellArguments => Arguments;
     public Encoding ShellEncoding => Encoding.UTF8;
 
-    public string CreateShellPayload(string command) =>
-        "@chcp 65001>nul\r\n" + command + "\r\n";
+    public string CreateShellPayload(string command) => command + "\r\n";
 
     public void ConfigureRuntimeStartInfo(ProcessStartInfo startInfo) =>
         startInfo.WindowStyle = ProcessWindowStyle.Hidden;
