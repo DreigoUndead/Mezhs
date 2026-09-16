@@ -103,7 +103,10 @@ export async function apiFetch(
       const response = await fetch(endpoint(apiBase, path), init);
       if (unavailableStatuses.has(response.status)) {
         setAvailability(state, "offline");
-        if (read) continue;
+        if (read) {
+          await delay(retryDelayMs);
+          continue;
+        }
         return response;
       }
 
