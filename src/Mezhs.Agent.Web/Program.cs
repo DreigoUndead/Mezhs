@@ -22,56 +22,62 @@ builder.Services.AddHttpClient("agent-api", client =>
 
 var app = builder.Build();
 
-app.Map("/v1/{**path}", async context =>
-{
-    var client = context.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient("agent-api");
-    using var request = new HttpRequestMessage(
-        new HttpMethod(context.Request.Method),
-        context.Request.Path + context.Request.QueryString);
-
-    if (context.Request.ContentLength is > 0 || context.Request.Headers.ContainsKey("Transfer-Encoding"))
-    {
-        request.Content = new StreamContent(context.Request.Body);
-        if (!string.IsNullOrWhiteSpace(context.Request.ContentType))
-            request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(context.Request.ContentType);
-    }
-
-    if (context.Request.Headers.TryGetValue("Accept", out var accept))
-        request.Headers.TryAddWithoutValidation("Accept", accept.ToArray());
-
-    HttpResponseMessage response;
-    try
-    {
-        response = await client.SendAsync(
-            request,
-            HttpCompletionOption.ResponseHeadersRead,
-            context.RequestAborted);
-    }
-    catch (HttpRequestException) when (!context.RequestAborted.IsCancellationRequested)
-    {
-        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-        await context.Response.WriteAsJsonAsync(
-            new { error = "MEŽS Agent API is unavailable." },
-            context.RequestAborted);
-        return;
-    }
-
-    using (response)
-    {
-        context.Response.StatusCode = (int)response.StatusCode;
-        if (response.Content.Headers.ContentType is not null)
-            context.Response.ContentType = response.Content.Headers.ContentType.ToString();
-        if (response.Content.Headers.ContentDisposition is not null)
-            context.Response.Headers.ContentDisposition = response.Content.Headers.ContentDisposition.ToString();
-        await response.Content.CopyToAsync(context.Response.Body, context.RequestAborted);
-    }
-});
+MapApiProxy(app, "/health");
+MapApiProxy(app, "/v1/{**path}");
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+static void MapApiProxy(WebApplication app, string pattern)
+{
+    app.Map(pattern, async context =>
+    {
+        var client = context.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient("agent-api");
+        using var request = new HttpRequestMessage(
+            new HttpMethod(context.Request.Method),
+            context.Request.Path + context.Request.QueryString);
+
+        if (context.Request.ContentLength is > 0 || context.Request.Headers.ContainsKey("Transfer-Encoding"))
+        {
+            request.Content = new StreamContent(context.Request.Body);
+            if (!string.IsNullOrWhiteSpace(context.Request.ContentType))
+                request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(context.Request.ContentType);
+        }
+
+        if (context.Request.Headers.TryGetValue("Accept", out var accept))
+            request.Headers.TryAddWithoutValidation("Accept", accept.ToArray());
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await client.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                context.RequestAborted);
+        }
+        catch (HttpRequestException) when (!context.RequestAborted.IsCancellationRequested)
+        {
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            await context.Response.WriteAsJsonAsync(
+                new { error = "MEŽS Agent API is unavailable." },
+                context.RequestAborted);
+            return;
+        }
+
+        using (response)
+        {
+            context.Response.StatusCode = (int)response.StatusCode;
+            if (response.Content.Headers.ContentType is not null)
+                context.Response.ContentType = response.Content.Headers.ContentType.ToString();
+            if (response.Content.Headers.ContentDisposition is not null)
+                context.Response.Headers.ContentDisposition = response.Content.Headers.ContentDisposition.ToString();
+            await response.Content.CopyToAsync(context.Response.Body, context.RequestAborted);
+        }
+    });
+}
 
 static string[] RequireLoopbackUrls(string value, string setting)
 {
