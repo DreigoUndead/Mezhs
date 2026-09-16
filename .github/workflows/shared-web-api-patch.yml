@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Apply shared Web API availability integration v2'
+    if: github.event.head_commit.message == 'Apply shared Web API availability integration v3'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,21 +25,23 @@ jobs:
           from pathlib import Path
           import re
 
-          def replace_once(text, old, new, label):
+          def once(text, old, new, label):
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+                  raise SystemExit(f"{label}: expected 1 match, got {count}")
               return text.replace(old, new, 1)
 
-          def sub_once(text, pattern, replacement, label):
-              value, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
-              if count != 1:
-                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
-              return value
+          def between(text, start, end, replacement, label):
+              try:
+                  start_index = text.index(start)
+                  end_index = text.index(end, start_index)
+              except ValueError:
+                  raise SystemExit(f"{label}: boundary not found")
+              return text[:start_index] + replacement + text[end_index + len(end):]
 
           agent_path = Path("src/Mezhs.Agent.Web/src/App.tsx")
           agent = agent_path.read_text(encoding="utf-8")
-          agent = replace_once(agent, '''import {
+          agent = once(agent, '''import {
             ChatComposer,
             ChatTranscript,
             expectJson,
@@ -51,20 +53,21 @@ jobs:
             useApiAvailability,
             type ChatSurfaceMessage,
           } from "@mezhs/web-lib";''', "Agent imports")
-          agent = replace_once(agent, '''async function api<T>(path: string, init?: RequestInit): Promise<T> {
+          agent = once(agent, '''async function api<T>(path: string, init?: RequestInit): Promise<T> {
             return expectJson<T>(await fetch(path, init));
           }
 
           ''', '', "Agent local API helper")
-          agent = replace_once(agent, '''  const [apiReady, setApiReady] = useState(false);
+          agent = once(agent, '''  const [apiReady, setApiReady] = useState(false);
             const [policies, setPolicies] = useState<AgentPolicy[]>([]);''', '''  const apiAvailability = useApiAvailability("");
             const apiReady = apiAvailability === "online";
             const [policies, setPolicies] = useState<AgentPolicy[]>([]);''', "Agent API state")
 
-          start = agent.index('  useEffect(() => {\n    let cancelled = false;\n    let retryTimer: number | undefined;')
-          end_marker = '  }, []);\n\n  useEffect(() => {\n    if (!selectedChatId || creating) {'
-          end = agent.index(end_marker, start)
-          bootstrap = '''  useEffect(() => {
+          agent = between(
+              agent,
+              '  useEffect(() => {\n    let cancelled = false;\n    let retryTimer: number | undefined;',
+              '  }, []);\n\n  useEffect(() => {\n    if (!selectedChatId || creating) {',
+              '''  useEffect(() => {
             let cancelled = false;
             void Promise.all([
               apiJson<AgentPolicy[]>("", "/v1/policies"),
@@ -87,21 +90,24 @@ jobs:
           }, []);
 
           useEffect(() => {
-            if (!selectedChatId || creating) {'''
-          agent = agent[:start] + bootstrap + agent[end + len(end_marker):]
+            if (!selectedChatId || creating) {''',
+              "Agent bootstrap",
+          )
 
           agent = agent.replace('api<', 'apiJson<')
-          agent = agent.replace('apiJson<AgentChat[]>("/v1/agent-chats")', 'apiJson<AgentChat[]>("", "/v1/agent-chats")')
-          agent = agent.replace('apiJson<AgentChatMessage[]>(`/v1/agent-chats/', 'apiJson<AgentChatMessage[]>("", `/v1/agent-chats/')
-          agent = agent.replace('apiJson<Execution[]>(`/v1/agent-chats/', 'apiJson<Execution[]>("", `/v1/agent-chats/')
-          agent = agent.replace('apiJson<Execution>("/v1/executions", {', 'apiJson<Execution>("", "/v1/executions", {')
-          agent = agent.replace('apiJson<Execution>(`/v1/executions/', 'apiJson<Execution>("", `/v1/executions/')
-          agent = agent.replace('apiJson<AgentChat>(\n        `/v1/agent-chats/', 'apiJson<AgentChat>(\n        "",\n        `/v1/agent-chats/')
-
-          agent = sub_once(
+          agent = re.sub(
+              r'apiJson<([^>]+)>\(\s*(["`])(/v1/)',
+              lambda match: f'apiJson<{match.group(1)}>("", {match.group(2)}{match.group(3)}',
               agent,
-              r'''  useEffect\(\(\) => \{\n    const timer = window\.setInterval\(\(\) => \{\n      void refreshChats\(\);\n      if \(selectedChatId && !creating\)\n        void loadSelected\(selectedChatId, false\);\n    \}, 1200\);\n    return \(\) => window\.clearInterval\(timer\);\n  \}, \[selectedChatId, creating\]\);''',
-              '''  useEffect(() => {
+          )
+          agent = once(agent, '''  useEffect(() => {
+            const timer = window.setInterval(() => {
+              void refreshChats();
+              if (selectedChatId && !creating)
+                void loadSelected(selectedChatId, false);
+            }, 1200);
+            return () => window.clearInterval(timer);
+          }, [selectedChatId, creating]);''', '''  useEffect(() => {
             const timer = window.setInterval(() => {
               if (!apiReady) return;
               void refreshChats();
@@ -109,67 +115,50 @@ jobs:
                 void loadSelected(selectedChatId, false);
             }, 1200);
             return () => window.clearInterval(timer);
-          }, [apiReady, selectedChatId, creating]);''',
-              "Agent refresh interval",
-          )
-          agent = sub_once(
-              agent,
-              r'''  async function refreshChats\(\) \{\n    try \{\n      setChats\(await apiJson<AgentChat\[\]>\("", "/v1/agent-chats"\)\);\n      setApiReady\(true\);\n    \} catch \{\n      setApiReady\(false\);\n      // Keep the last durable view during transient refresh failures\.\n    \}\n  \}''',
-              '''  async function refreshChats() {
+          }, [apiReady, selectedChatId, creating]);''', "Agent refresh timer")
+          agent = once(agent, '''  async function refreshChats() {
+            try {
+              setChats(await apiJson<AgentChat[]>("", "/v1/agent-chats"));
+              setApiReady(true);
+            } catch {
+              setApiReady(false);
+              // Keep the last durable view during transient refresh failures.
+            }
+          }''', '''  async function refreshChats() {
             try {
               setChats(await apiJson<AgentChat[]>("", "/v1/agent-chats"));
             } catch {
               // Keep the last durable view during transient refresh failures.
             }
-          }''',
-              "Agent refresh state",
-          )
-          if 'setApiReady(' in agent:
-              raise SystemExit("Agent still contains local API readiness mutation")
-          if 'api<' in agent or 'await fetch(' in agent:
-              raise SystemExit("Agent still contains local API transport")
+          }''', "Agent refresh state")
+          if 'setApiReady(' in agent or 'await fetch(' in agent or 'async function api<' in agent:
+              raise SystemExit("Agent Web still owns API availability/transport")
 
           chat_path = Path("src/Mezhs.Web.Lib/src/MezhsChatApp.tsx")
           chat = chat_path.read_text(encoding="utf-8")
-          chat = replace_once(chat, '''import { ChatProviderRegistry } from "./providers/registry";''', '''import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
-          import { ChatProviderRegistry } from "./providers/registry";''', "Chat API import")
-          local_json_start = chat.index('async function expectJson<T>(response: Response): Promise<T> {')
-          local_json_end = chat.index('\n}\n\nexport type MezhsChatAppProps', local_json_start) + 2
-          chat = chat[:local_json_start] + chat[local_json_end + 1:]
-          chat = replace_once(chat, '''  const apiBase = apiBaseUrl.replace(/\/$/, "");
+          chat = once(chat, 'import { ChatProviderRegistry } from "./providers/registry";', 'import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";\nimport { ChatProviderRegistry } from "./providers/registry";', "Chat imports")
+          chat = between(
+              chat,
+              'async function expectJson<T>(response: Response): Promise<T> {',
+              '}\n\nexport type MezhsChatAppProps',
+              'export type MezhsChatAppProps',
+              "Chat local expectJson",
+          )
+          chat = once(chat, '''  const apiBase = apiBaseUrl.replace(/\/$/, "");
             const [connections, setConnections] = useState<Connection[]>([]);''', '''  const apiBase = apiBaseUrl.replace(/\/$/, "");
             const apiAvailability = useApiAvailability(apiBase);
             const online = apiAvailability === "online";
             const [connections, setConnections] = useState<Connection[]>([]);''', "Chat availability")
-          chat = replace_once(chat, '''  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+          chat = once(chat, '''  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
             const [online, setOnline] = useState(false);
             const [loading, setLoading] = useState(true);''', '''  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
-            const [loading, setLoading] = useState(true);''', "Chat local online state")
+            const [loading, setLoading] = useState(true);''', "Chat online state")
 
-          old_bootstrap = '''  useEffect(() => {
-            void (async () => {
-              try {
-                const [healthResponse, connectionResponse, chatResponse, categoryResponse] = await Promise.all([
-                  fetch(`${apiBase}/health`),
-                  fetch(`${apiBase}/v1/connections`),
-                  fetch(`${apiBase}/v1/chats`),
-                  fetch(`${apiBase}/v1/categories`),
-                ]);
-                setOnline(healthResponse.ok);
-                const available = await expectJson<Connection[]>(connectionResponse);
-                providerRegistry.current.configure(apiBase, available);
-                setConnections(available);
-                setChats(await expectJson<Chat[]>(chatResponse));
-                setCategories(await expectJson<Category[]>(categoryResponse));
-                if (available.length) setConnectionId(available[0].id);
-              } catch (error) {
-                setNotice(error instanceof Error ? error.message : "Could not reach MEŽS.");
-              } finally {
-                setLoading(false);
-              }
-            })();
-          }, [apiBase]);'''
-          new_bootstrap = '''  useEffect(() => {
+          chat = between(
+              chat,
+              '  useEffect(() => {\n    void (async () => {\n      try {\n        const [healthResponse, connectionResponse, chatResponse, categoryResponse]',
+              '  }, [apiBase]);\n\n  useEffect(() => () => providerRegistry.current.dispose(), []);',
+              '''  useEffect(() => {
             let cancelled = false;
             void Promise.all([
               apiJson<Connection[]>(apiBase, "/v1/connections"),
@@ -193,30 +182,32 @@ jobs:
                 if (!cancelled) setLoading(false);
               });
             return () => { cancelled = true; };
-          }, [apiBase]);'''
-          chat = replace_once(chat, old_bootstrap, new_bootstrap, "Chat bootstrap")
+          }, [apiBase]);
 
-          replacements = {
-            'setChats(await expectJson<Chat[]>(await fetch(`${base}/v1/chats`)));': 'setChats(await apiJson<Chat[]>(base, "/v1/chats"));',
-            'setCategories(await expectJson<Category[]>(await fetch(`${base}/v1/categories`)));': 'setCategories(await apiJson<Category[]>(base, "/v1/categories"));',
-            'const request = await expectJson<Message>(await fetch(`${apiBase}/v1/messages/${messageId}`));': 'const request = await apiJson<Message>(apiBase, `/v1/messages/${messageId}`);',
-            'const request = await expectJson<Message>(await fetch(`${apiBase}/v1/messages/${messageId}/replay`, {\n        method: "POST",\n      }));': 'const request = await apiJson<Message>(apiBase, `/v1/messages/${messageId}/replay`, {\n        method: "POST",\n      });',
-            'const category = await expectJson<Category>(await fetch(`${apiBase}/v1/categories`, {\n        method: "POST",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ name }),\n      }));': 'const category = await apiJson<Category>(apiBase, "/v1/categories", {\n        method: "POST",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ name }),\n      });',
-            'await expectJsonOrEmpty(await fetch(`${apiBase}/v1/categories/${category.categoryId}`, {\n        method: "DELETE",\n      }));': 'await apiJsonOrEmpty(apiBase, `/v1/categories/${category.categoryId}`, {\n        method: "DELETE",\n      });',
-            'await expectJson<Chat>(await fetch(`${apiBase}/v1/chats/${activeChat.chatId}`, {\n        method: "PATCH",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ categoryId: categoryId || null }),\n      }));': 'await apiJson<Chat>(apiBase, `/v1/chats/${activeChat.chatId}`, {\n        method: "PATCH",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ categoryId: categoryId || null }),\n      });',
-          }
-          for old, new in replacements.items():
-              chat = replace_once(chat, old, new, f"Chat replacement {old[:35]}")
+          useEffect(() => () => providerRegistry.current.dispose(), []);''',
+              "Chat bootstrap",
+          )
 
-          old_delete = '''      const response = ids.length === 1
+          replacements = [
+              ('setChats(await expectJson<Chat[]>(await fetch(`${base}/v1/chats`)));', 'setChats(await apiJson<Chat[]>(base, "/v1/chats"));', 'loadChats'),
+              ('setCategories(await expectJson<Category[]>(await fetch(`${base}/v1/categories`)));', 'setCategories(await apiJson<Category[]>(base, "/v1/categories"));', 'loadCategories'),
+              ('const request = await expectJson<Message>(await fetch(`${apiBase}/v1/messages/${messageId}`));', 'const request = await apiJson<Message>(apiBase, `/v1/messages/${messageId}`);', 'poll'),
+              ('const request = await expectJson<Message>(await fetch(`${apiBase}/v1/messages/${messageId}/replay`, {\n        method: "POST",\n      }));', 'const request = await apiJson<Message>(apiBase, `/v1/messages/${messageId}/replay`, {\n        method: "POST",\n      });', 'replay'),
+              ('const category = await expectJson<Category>(await fetch(`${apiBase}/v1/categories`, {\n        method: "POST",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ name }),\n      }));', 'const category = await apiJson<Category>(apiBase, "/v1/categories", {\n        method: "POST",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ name }),\n      });', 'createCategory'),
+              ('await expectJsonOrEmpty(await fetch(`${apiBase}/v1/categories/${category.categoryId}`, {\n        method: "DELETE",\n      }));', 'await apiJsonOrEmpty(apiBase, `/v1/categories/${category.categoryId}`, {\n        method: "DELETE",\n      });', 'deleteCategory'),
+              ('await expectJson<Chat>(await fetch(`${apiBase}/v1/chats/${activeChat.chatId}`, {\n        method: "PATCH",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ categoryId: categoryId || null }),\n      }));', 'await apiJson<Chat>(apiBase, `/v1/chats/${activeChat.chatId}`, {\n        method: "PATCH",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ categoryId: categoryId || null }),\n      });', 'assignCategory'),
+          ]
+          for old, new, label in replacements:
+              chat = once(chat, old, new, label)
+
+          chat = once(chat, '''      const response = ids.length === 1
                 ? await fetch(`${apiBase}/v1/chats/${encodeURIComponent(ids[0])}`, { method: "DELETE" })
                 : await fetch(`${apiBase}/v1/chats`, {
                     method: "DELETE",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ chatIds: ids }),
                   });
-              await expectJsonOrEmpty(response);'''
-          new_delete = '''      if (ids.length === 1) {
+              await expectJsonOrEmpty(response);''', '''      if (ids.length === 1) {
                 await apiJsonOrEmpty(apiBase, `/v1/chats/${encodeURIComponent(ids[0])}`, {
                   method: "DELETE",
                 });
@@ -226,17 +217,14 @@ jobs:
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ chatIds: ids }),
                 });
-              }'''
-          chat = replace_once(chat, old_delete, new_delete, "Chat deletion")
+              }''', "delete conversations")
 
-          local_empty_start = chat.find('\nasync function expectJsonOrEmpty(response: Response) {')
-          if local_empty_start < 0:
-              raise SystemExit("Local expectJsonOrEmpty was not found")
-          chat = chat[:local_empty_start] + '\n'
-          if 'setOnline(' in chat:
-              raise SystemExit("Chat app still contains local online mutation")
-          if 'expectJson<' in chat or 'expectJsonOrEmpty(' in chat or 'await fetch(' in chat:
-              raise SystemExit("Chat app still contains local API transport")
+          local_empty = chat.find('\nasync function expectJsonOrEmpty(response: Response) {')
+          if local_empty < 0:
+              raise SystemExit("Chat local expectJsonOrEmpty not found")
+          chat = chat[:local_empty] + '\n'
+          if 'setOnline(' in chat or 'await fetch(' in chat or 'expectJson<' in chat or 'expectJsonOrEmpty(' in chat:
+              raise SystemExit("MezhsChatApp still owns API availability/transport")
 
           agent_path.write_text(agent, encoding="utf-8")
           chat_path.write_text(chat, encoding="utf-8")
