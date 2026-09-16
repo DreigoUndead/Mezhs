@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  apiJson,
   ChatComposer,
   ChatTranscript,
-  expectJson,
+  useApiAvailability,
   type ChatSurfaceMessage,
 } from "@mezhs/web-lib";
 
@@ -102,10 +103,6 @@ type CommandEvidence = CommandResultPayload & {
 };
 
 const executionEnvelope = /^\[MEŽS AGENT EXECUTION ([^\]]+)]/;
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  return expectJson<T>(await fetch(path, init));
-}
 
 function formatTime(value?: string) {
   if (!value) return "";
@@ -339,7 +336,8 @@ function policyPromptPreview(content: string) {
 }
 
 export default function App() {
-  const [apiReady, setApiReady] = useState(false);
+  const apiAvailability = useApiAvailability("");
+  const apiReady = apiAvailability === "online";
   const [policies, setPolicies] = useState<AgentPolicy[]>([]);
   const [chats, setChats] = useState<AgentChat[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
@@ -393,43 +391,29 @@ export default function App() {
   );
 
   useEffect(() => {
-    let cancelled = false;
-    let retryTimer: number | undefined;
-
-    const load = async () => {
-      try {
-        const [policyValues, chatValues] = await Promise.all([
-          api<AgentPolicy[]>("/v1/policies"),
-          api<AgentChat[]>("/v1/agent-chats"),
-        ]);
-        if (cancelled) return;
-
-        setApiReady(true);
-        setPolicies(policyValues);
-        setChats(chatValues);
-        setPolicyId(policyValues[0]?.id ?? "");
-        setNotice(null);
-        if (chatValues.length > 0)
-          setSelectedChatId(chatValues[0].chatId);
-      } catch (error) {
-        if (cancelled) return;
-
-        setApiReady(false);
+  let cancelled = false;
+  void Promise.all([
+    apiJson<AgentPolicy[]>("", "/v1/policies"),
+    apiJson<AgentChat[]>("", "/v1/agent-chats"),
+  ])
+    .then(([policyValues, chatValues]) => {
+      if (cancelled) return;
+      setPolicies(policyValues);
+      setChats(chatValues);
+      setPolicyId(policyValues[0]?.id ?? "");
+      setNotice(null);
+      if (chatValues.length > 0)
+        setSelectedChatId(chatValues[0].chatId);
+    })
+    .catch((error) => {
+      if (!cancelled)
         setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
-        retryTimer = window.setTimeout(() => void load(), 500);
-      }
-    };
+    });
+  return () => { cancelled = true; };
+}, []);
 
-    void load();
-    return () => {
-      cancelled = true;
-      if (retryTimer !== undefined)
-        window.clearTimeout(retryTimer);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!selectedChatId || creating) {
+useEffect(() => {
+  if (!selectedChatId || creating) {
       setMessages([]);
       setExecutions([]);
       return;
@@ -438,28 +422,27 @@ export default function App() {
   }, [selectedChatId, creating]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      void refreshChats();
-      if (selectedChatId && !creating)
-        void loadSelected(selectedChatId, false);
-    }, 1200);
-    return () => window.clearInterval(timer);
-  }, [selectedChatId, creating]);
+  const timer = window.setInterval(() => {
+    if (!apiReady) return;
+    void refreshChats();
+    if (selectedChatId && !creating)
+      void loadSelected(selectedChatId, false);
+  }, 1200);
+  return () => window.clearInterval(timer);
+}, [apiReady, selectedChatId, creating]);
 
   async function refreshChats() {
-    try {
-      setChats(await api<AgentChat[]>("/v1/agent-chats"));
-      setApiReady(true);
-    } catch {
-      setApiReady(false);
-      // Keep the last durable view during transient refresh failures.
-    }
+  try {
+    setChats(await apiJson<AgentChat[]>("", "/v1/agent-chats"));
+  } catch {
+    // Keep the last durable view during transient refresh failures.
   }
+}
 
-  async function loadSelected(chatId: string, reportErrors = true) {
+async function loadSelected(chatId: string, reportErrors = true) {
     const results = await Promise.allSettled([
-      api<AgentChatMessage[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/messages`).then(setMessages),
-      api<Execution[]>(`/v1/agent-chats/${encodeURIComponent(chatId)}/executions`).then(setExecutions),
+      apiJson<AgentChatMessage[]>("", `/v1/agent-chats/${encodeURIComponent(chatId)}/messages`).then(setMessages),
+      apiJson<Execution[]>("", `/v1/agent-chats/${encodeURIComponent(chatId)}/executions`).then(setExecutions),
     ]);
     if (!reportErrors)
       return;
@@ -489,7 +472,7 @@ export default function App() {
     setSending(true);
     setNotice(null);
     try {
-      const execution = await api<Execution>("/v1/executions", {
+      const execution = await apiJson<Execution>("", "/v1/executions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -519,7 +502,7 @@ export default function App() {
 
   async function waitForAttachedChat(executionId: string) {
     for (let attempt = 0; attempt < 80; attempt++) {
-      const execution = await api<Execution>(`/v1/executions/${encodeURIComponent(executionId)}`);
+      const execution = await apiJson<Execution>("", `/v1/executions/${encodeURIComponent(executionId)}`);
       if (execution.chatId)
         return execution.chatId;
       if (execution.isTerminal)
@@ -535,7 +518,7 @@ export default function App() {
     setStoppingExecutionId(executionId);
     setNotice(null);
     try {
-      await api<Execution>(`/v1/executions/${encodeURIComponent(executionId)}/cancel`, {
+      await apiJson<Execution>("", `/v1/executions/${encodeURIComponent(executionId)}/cancel`, {
         method: "POST",
       });
       if (selectedChatId)
@@ -553,7 +536,7 @@ export default function App() {
     setShellActionExecutionId(executionId);
     setNotice(null);
     try {
-      await api<Execution>(`/v1/executions/${encodeURIComponent(executionId)}/${action}`, {
+      await apiJson<Execution>("", `/v1/executions/${encodeURIComponent(executionId)}/${action}`, {
         method: "POST",
       });
       if (selectedChatId)
@@ -571,8 +554,7 @@ export default function App() {
     setTogglingPause(true);
     setNotice(null);
     try {
-      const updated = await api<AgentChat>(
-        `/v1/agent-chats/${encodeURIComponent(selectedChat.chatId)}`,
+      const updated = await apiJson<AgentChat>("", `/v1/agent-chats/${encodeURIComponent(selectedChat.chatId)}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },

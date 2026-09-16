@@ -1,4 +1,5 @@
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
 import { ChatProviderRegistry } from "./providers/registry";
 import { useAutoResizeTextArea } from "./useAutoResizeTextArea";
 import type {
@@ -44,20 +45,14 @@ function matchesChatQuery(chat: Chat, query: string, connectionName?: string, ca
     .some((value) => value?.toLocaleLowerCase().includes(normalized));
 }
 
-async function expectJson<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(body.error || `Request failed (${response.status})`);
-  }
-  return response.json() as Promise<T>;
-}
-
 export type MezhsChatAppProps = {
   apiBaseUrl: string;
 };
 
 export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const apiBase = apiBaseUrl.replace(/\/$/, "");
+  const apiAvailability = useApiAvailability(apiBase);
+  const online = apiAvailability === "online";
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [models, setModels] = useState<ConnectionModel[]>([]);
@@ -74,7 +69,6 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
-  const [online, setOnline] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -120,30 +114,32 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
     managedChats.every((chat) => selectedChatIds.has(chat.chatId));
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const [healthResponse, connectionResponse, chatResponse, categoryResponse] = await Promise.all([
-          fetch(`${apiBase}/health`),
-          fetch(`${apiBase}/v1/connections`),
-          fetch(`${apiBase}/v1/chats`),
-          fetch(`${apiBase}/v1/categories`),
-        ]);
-        setOnline(healthResponse.ok);
-        const available = await expectJson<Connection[]>(connectionResponse);
-        providerRegistry.current.configure(apiBase, available);
-        setConnections(available);
-        setChats(await expectJson<Chat[]>(chatResponse));
-        setCategories(await expectJson<Category[]>(categoryResponse));
-        if (available.length) setConnectionId(available[0].id);
-      } catch (error) {
+  let cancelled = false;
+  void Promise.all([
+    apiJson<Connection[]>(apiBase, "/v1/connections"),
+    apiJson<Chat[]>(apiBase, "/v1/chats"),
+    apiJson<Category[]>(apiBase, "/v1/categories"),
+  ])
+    .then(([available, chatValues, categoryValues]) => {
+      if (cancelled) return;
+      providerRegistry.current.configure(apiBase, available);
+      setConnections(available);
+      setChats(chatValues);
+      setCategories(categoryValues);
+      if (available.length) setConnectionId(available[0].id);
+      setNotice(null);
+    })
+    .catch((error) => {
+      if (!cancelled)
         setNotice(error instanceof Error ? error.message : "Could not reach MEŽS.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [apiBase]);
+    })
+    .finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+  return () => { cancelled = true; };
+}, [apiBase]);
 
-  useEffect(() => () => providerRegistry.current.dispose(), []);
+useEffect(() => () => providerRegistry.current.dispose(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -179,14 +175,14 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
 
   async function loadChats(base = apiBase) {
     try {
-      setChats(await expectJson<Chat[]>(await fetch(`${base}/v1/chats`)));
+      setChats(await apiJson<Chat[]>(base, "/v1/chats"));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not load conversations.");
     }
   }
 
   async function loadCategories(base = apiBase) {
-    setCategories(await expectJson<Category[]>(await fetch(`${base}/v1/categories`)));
+    setCategories(await apiJson<Category[]>(base, "/v1/categories"));
   }
 
   async function openChat(chat: Chat) {
@@ -246,7 +242,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   async function poll(messageId: string, targetChatId: string) {
     while (true) {
       await new Promise((resolve) => window.setTimeout(resolve, 650));
-      const request = await expectJson<Message>(await fetch(`${apiBase}/v1/messages/${messageId}`));
+      const request = await apiJson<Message>(apiBase, `/v1/messages/${messageId}`);
       setMessages((current) => current.map((message) =>
         message.messageId === messageId ? request : message,
       ));
@@ -272,9 +268,9 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
     setSending(true);
     setNotice(null);
     try {
-      const request = await expectJson<Message>(await fetch(`${apiBase}/v1/messages/${messageId}/replay`, {
+      const request = await apiJson<Message>(apiBase, `/v1/messages/${messageId}/replay`, {
         method: "POST",
-      }));
+      });
       setMessages((current) => [...current, request]);
       await poll(request.messageId, request.chatId);
     } catch (error) {
@@ -289,11 +285,11 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
     const name = newCategoryName.trim();
     if (!name) return;
     try {
-      const category = await expectJson<Category>(await fetch(`${apiBase}/v1/categories`, {
+      const category = await apiJson<Category>(apiBase, "/v1/categories", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
-      }));
+      });
       await loadCategories();
       setCategoryFilter(category.categoryId);
       setNewChatCategoryId(category.categoryId);
@@ -307,9 +303,9 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   async function deleteCategory(category: Category) {
     if (!window.confirm(`Delete the group '${category.name}'? Conversations will be kept.`)) return;
     try {
-      await expectJsonOrEmpty(await fetch(`${apiBase}/v1/categories/${category.categoryId}`, {
+      await apiJsonOrEmpty(apiBase, `/v1/categories/${category.categoryId}`, {
         method: "DELETE",
-      }));
+      });
       if (categoryFilter === category.categoryId) setCategoryFilter("all");
       if (newChatCategoryId === category.categoryId) setNewChatCategoryId("");
       await Promise.all([loadCategories(), loadChats()]);
@@ -357,14 +353,15 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
     setChatMenuId(null);
     setNotice(null);
     try {
-      const response = ids.length === 1
-        ? await fetch(`${apiBase}/v1/chats/${encodeURIComponent(ids[0])}`, { method: "DELETE" })
-        : await fetch(`${apiBase}/v1/chats`, {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ chatIds: ids }),
-          });
-      await expectJsonOrEmpty(response);
+      if (ids.length === 1) {
+      await apiJsonOrEmpty(apiBase, `/v1/chats/${encodeURIComponent(ids[0])}`, { method: "DELETE" });
+    } else {
+      await apiJsonOrEmpty(apiBase, "/v1/chats", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatIds: ids }),
+      });
+    }
 
       const deleted = new Set(ids);
       setChats((current) => current.filter((chat) => !deleted.has(chat.chatId)));
@@ -386,11 +383,11 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
       return;
     }
     try {
-      await expectJson<Chat>(await fetch(`${apiBase}/v1/chats/${activeChat.chatId}`, {
+      await apiJson<Chat>(apiBase, `/v1/chats/${activeChat.chatId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ categoryId: categoryId || null }),
-      }));
+      });
       await loadChats();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Conversation could not be moved.");
@@ -781,9 +778,3 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   );
 }
 
-async function expectJsonOrEmpty(response: Response) {
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(body.error || `Request failed (${response.status})`);
-  }
-}
