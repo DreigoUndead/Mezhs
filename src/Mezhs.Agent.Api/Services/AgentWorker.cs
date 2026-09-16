@@ -284,29 +284,42 @@ public sealed class AgentWorker : BackgroundService
             return new ReplyProcessing(false, _prompts.BuildCommandCorrection(commandError));
 
         if (interpretation.Results.Count > 0)
+        {
+            if (interpretation.CompletionClaimed && interpretation.Results.All(result => result.Succeeded))
+            {
+                var sameTurnCompletion = _evaluations.EvaluateCompletion(policy, execution, completionClaimed: true);
+                if (sameTurnCompletion.State == PolicyCompletionState.Accepted)
+                    return CompleteExecution(execution, interpretation.VisibleContent);
+            }
+
             return new ReplyProcessing(false, _prompts.BuildCommandResults(interpretation.Results, policy));
+        }
 
         var completion = _evaluations.EvaluateCompletion(
             policy,
             execution,
             interpretation.CompletionClaimed);
         if (completion.State == PolicyCompletionState.Accepted)
-        {
-            if (_store.Complete(execution.ExecutionId, replyContent))
-                return new ReplyProcessing(true, null);
-            if (_store.GetExecution(execution.ExecutionId)?.Status == AgentExecutionStatus.CancelRequested)
-            {
-                _store.CompleteCancellation(execution.ExecutionId);
-                return new ReplyProcessing(true, null);
-            }
-            throw new InvalidOperationException("Agent execution changed state before completion could be recorded.");
-        }
+            return CompleteExecution(execution, interpretation.VisibleContent);
 
         return new ReplyProcessing(
             false,
             completion.State == PolicyCompletionState.Rejected
                 ? _prompts.BuildPolicyCorrection(completion.Error)
                 : _prompts.BuildContinue(policy));
+    }
+
+    private ReplyProcessing CompleteExecution(ExecutionRecord execution, string visibleContent)
+    {
+        var result = string.IsNullOrWhiteSpace(visibleContent) ? null : visibleContent;
+        if (_store.Complete(execution.ExecutionId, result))
+            return new ReplyProcessing(true, null);
+        if (_store.GetExecution(execution.ExecutionId)?.Status == AgentExecutionStatus.CancelRequested)
+        {
+            _store.CompleteCancellation(execution.ExecutionId);
+            return new ReplyProcessing(true, null);
+        }
+        throw new InvalidOperationException("Agent execution changed state before completion could be recorded.");
     }
 
     private static int CountExecutionTurns(
