@@ -49,11 +49,15 @@ public sealed class Parser
 
     private static int FindClosingTag(IReadOnlyList<LineSlice> lines, int start, string name)
     {
+        var openingTag = $"<{name}>";
         var closingTag = $"</{name}>";
         for (var i = start; i < lines.Count; i++)
         {
-            if (string.Equals(lines[i].Text.Trim(), closingTag, StringComparison.Ordinal))
+            var text = lines[i].Text.Trim();
+            if (string.Equals(text, closingTag, StringComparison.Ordinal))
                 return i;
+            if (string.Equals(text, openingTag, StringComparison.Ordinal))
+                throw new CommandParseException($"Nested <{name}> command blocks are not supported.");
         }
         return -1;
     }
