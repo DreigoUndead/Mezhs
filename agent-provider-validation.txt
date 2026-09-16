@@ -1,32 +1,31 @@
 === dotnet build ===
   Determining projects to restore...
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 270 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 270 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\Mezhs.Agent.Api.Client.csproj (in 270 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 272 ms).
-  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 5 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Client\Mezhs.Api.Client.csproj (in 4 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 5 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Console\Mezhs.Console.csproj (in 3 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 93 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Data\Mezhs.Log.Data.csproj (in 149 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Shared\Mezhs.Log.Shared.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj (in 1 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Sqlite\Mezhs.Sqlite.csproj (in 2.84 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Executor\Mezhs.Executor.csproj (in 2.66 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Sql\Mezhs.Log.Sql.csproj (in 2.72 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Console\Mezhs.Console.csproj (in 2 ms).
   Restored D:\a\Mezhs\Mezhs\src\Mezhs.Common\Mezhs.Common.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 5 ms).
-  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Web\Mezhs.Web.csproj (in 2 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 1.1 sec).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Sqlite\Mezhs.Sqlite.csproj (in 1.84 sec).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Sql\Mezhs.Log.Sql.csproj (in 840 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Executor\Mezhs.Executor.csproj (in 1.9 sec).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 1.93 sec).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Shared\Mezhs.Log.Shared.csproj (in 3 ms).
-  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Data\Mezhs.Log.Data.csproj (in 3 ms).
-  Mezhs.Agent.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\bin\Release\net10.0\Mezhs.Agent.Web.dll
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 2.84 sec).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 1 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj (in 1 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Client\Mezhs.Api.Client.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\Mezhs.Agent.Api.Client.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 9 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 5 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 3 ms).
   Mezhs.Api.Contracts -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\bin\Release\net10.0\Mezhs.Api.Contracts.dll
   Mezhs.Integration.Abstractions -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\bin\Release\net10.0\Mezhs.Integration.Abstractions.dll
+  Mezhs.Agent.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Web\bin\Release\net10.0\Mezhs.Agent.Web.dll
   Mezhs.Web -> D:\a\Mezhs\Mezhs\src\Mezhs.Web\bin\Release\net10.0\Mezhs.Web.dll
-  Mezhs.Common -> D:\a\Mezhs\Mezhs\src\Mezhs.Common\bin\Release\net10.0\Mezhs.Common.dll
   npm warn old lockfile
   npm warn old lockfile The package-lock.json file was created with an old version of npm,
   npm warn old lockfile so supplemental metadata must be fetched from the registry.
@@ -34,7 +33,7 @@
   npm warn old lockfile This is a one-time fix-up, please be patient...
   npm warn old lockfile
   
-  added 75 packages, and audited 77 packages in 11s
+  added 75 packages, and audited 77 packages in 22s
   
   11 packages are looking for funding
     run `npm fund` for details
@@ -49,7 +48,7 @@
   
   Run `npm audit` for details.
   
-  added 75 packages, and audited 77 packages in 13s
+  added 75 packages, and audited 77 packages in 25s
   
   11 packages are looking for funding
     run `npm fund` for details
@@ -64,47 +63,48 @@
   > mezhs-web@0.1.0 build
   > tsc --noEmit && vite build
   
-  [36mvite v2.9.16 [32mbuilding for production...[36m[39m
-  transforming...
   
   > mezhs-agent-web@0.1.0 build
   > tsc --noEmit && vite build
   
+  [36mvite v2.9.16 [32mbuilding for production...[36m[39m
+  transforming...
   [32mΓ£ô[39m 42 modules transformed.
   rendering chunks...
   [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.51 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[35massets/index.288a7688.css  [39m [2m22.11 KiB / gzip: 5.63 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[36massets/index.96d52dff.js   [39m [2m163.81 KiB / gzip: 52.37 KiB[22m
-  Mezhs.Sqlite -> D:\a\Mezhs\Mezhs\src\Mezhs.Sqlite\bin\Release\net10.0\Mezhs.Sqlite.dll
   Mezhs.Api.Client -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Client\bin\Release\net10.0\Mezhs.Api.Client.dll
-  Mezhs.Agent.Api.Client -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\bin\Release\net10.0\Mezhs.Agent.Api.Client.dll
-  Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Release\net10.0\Mezhs.Integrations.Mock.dll
   [36mvite v2.9.16 [32mbuilding for production...[36m[39m
   transforming...
+  Mezhs.Agent.Api.Client -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api.Client\bin\Release\net10.0\Mezhs.Agent.Api.Client.dll
   [32mΓ£ô[39m 43 modules transformed.
   rendering chunks...
   [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.44 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[35massets/index.9d2000d3.css  [39m [2m31.68 KiB / gzip: 7.13 KiB[22m
   [90m[37m[2mdist/[22m[90m[39m[36massets/index.43351583.js   [39m [2m165.85 KiB / gzip: 53.03 KiB[22m
-  Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Release\net10.0\Mezhs.Browser.Abstractions.dll
+  Mezhs.Common -> D:\a\Mezhs\Mezhs\src\Mezhs.Common\bin\Release\net10.0\Mezhs.Common.dll
   Mezhs.Console -> D:\a\Mezhs\Mezhs\src\Mezhs.Console\bin\Release\net10.0\Mezhs.Console.dll
+  Mezhs.Sqlite -> D:\a\Mezhs\Mezhs\src\Mezhs.Sqlite\bin\Release\net10.0\Mezhs.Sqlite.dll
+  Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Release\net10.0\Mezhs.Browser.Abstractions.dll
   Mezhs.Log.Shared -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Shared\bin\Release\net10.0\Mezhs.Log.Shared.dll
-  Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Release\net10.0\Mezhs.Integration.Browser.dll
-  Mezhs.Log.Data -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Data\bin\Release\net10.0\Mezhs.Log.Data.dll
   Mezhs.Browser.Electron -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\bin\Release\net10.0\Mezhs.Browser.Electron.dll
-  Mezhs.Integrations.Grok -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\bin\Release\net10.0\Mezhs.Integrations.Grok.dll
-  Mezhs.Integrations.ChatGpt -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\bin\Release\net10.0\Mezhs.Integrations.ChatGpt.dll
-  Mezhs.Integrations.Gemini -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\bin\Release\net10.0\Mezhs.Integrations.Gemini.dll
+  Mezhs.Log.Data -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Data\bin\Release\net10.0\Mezhs.Log.Data.dll
   Mezhs.Log.Sql -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Sql\bin\Release\net10.0\Mezhs.Log.Sql.dll
-  Mezhs.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Api\bin\Release\net10.0\Mezhs.Api.dll
+  Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Release\net10.0\Mezhs.Integrations.Mock.dll
+  Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Release\net10.0\Mezhs.Integration.Browser.dll
+  Mezhs.Integrations.Gemini -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\bin\Release\net10.0\Mezhs.Integrations.Gemini.dll
+  Mezhs.Integrations.ChatGpt -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\bin\Release\net10.0\Mezhs.Integrations.ChatGpt.dll
   Mezhs.Executor -> D:\a\Mezhs\Mezhs\src\Mezhs.Executor\bin\Release\net10.0\Mezhs.Executor.dll
+  Mezhs.Integrations.Grok -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\bin\Release\net10.0\Mezhs.Integrations.Grok.dll
+  Mezhs.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Api\bin\Release\net10.0\Mezhs.Api.dll
   Mezhs.Agent.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll
 
 Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:44.38
+Time Elapsed 00:01:07.41
 EXIT: 0
 
 === ChatGPT native request tests ===
@@ -112,13 +112,13 @@ TAP version 13
 # Subtest: ChatGPT inaccessible continuation returns provider state instead of throwing
 ok 1 - ChatGPT inaccessible continuation returns provider state instead of throwing
   ---
-  duration_ms: 357.2803
+  duration_ms: 4795.923
   type: 'test'
   ...
 # Subtest: ChatGPT unrelated conversation 404 still fails
 ok 2 - ChatGPT unrelated conversation 404 still fails
   ---
-  duration_ms: 24.7559
+  duration_ms: 59.6453
   type: 'test'
   ...
 # ChatGPT native model: requested=gpt-5-5-thinking/standard, composer=gpt-5-6-thinking/standard
@@ -126,14 +126,14 @@ ok 2 - ChatGPT unrelated conversation 404 still fails
 # Subtest: ChatGPT project send applies requested model to the native request
 ok 3 - ChatGPT project send applies requested model to the native request
   ---
-  duration_ms: 172.9296
+  duration_ms: 77.8083
   type: 'test'
   ...
 # ChatGPT native model: requested=gpt-5-6-thinking, composer=gpt-5-6-thinking
 # Subtest: ChatGPT follow-up ignores the previous finished assistant while waiting for the new turn
 ok 4 - ChatGPT follow-up ignores the previous finished assistant while waiting for the new turn
   ---
-  duration_ms: 18.8428
+  duration_ms: 6.5648
   type: 'test'
   ...
 # ChatGPT conversation poll rate-limited; retrying in 2000 ms.
@@ -141,34 +141,34 @@ ok 4 - ChatGPT follow-up ignores the previous finished assistant while waiting f
 # Subtest: ChatGPT conversation polling backs off on 429 without resending the turn
 ok 5 - ChatGPT conversation polling backs off on 429 without resending the turn
   ---
-  duration_ms: 12.8055
+  duration_ms: 6.9061
   type: 'test'
   ...
 # ChatGPT native model: requested=gpt-5-6-thinking, composer=gpt-5-6-thinking
 # Subtest: ChatGPT native send injects selected thinking effort when the composer omits it
 ok 6 - ChatGPT native send injects selected thinking effort when the composer omits it
   ---
-  duration_ms: 18.0891
+  duration_ms: 22.4757
   type: 'test'
   ...
 # ChatGPT native model: requested=gpt-5-5, composer=gpt-5-6-instant
 # Subtest: ChatGPT native send removes composer thinking effort when the selection has none
 ok 7 - ChatGPT native send removes composer thinking effort when the selection has none
   ---
-  duration_ms: 56.5001
+  duration_ms: 12.6414
   type: 'test'
   ...
 # Subtest: ChatGPT Instant compatibility alias remains applied to preference and native request
 ok 8 - ChatGPT Instant compatibility alias remains applied to preference and native request
   ---
-  duration_ms: 10.288
+  duration_ms: 8.2469
   type: 'test'
   ...
 # ChatGPT native model: requested=auto, composer=gpt-5-6-thinking
 # Subtest: ChatGPT native observation timeout starts after the UI submit finishes
 ok 9 - ChatGPT native observation timeout starts after the UI submit finishes
   ---
-  duration_ms: 175.5166
+  duration_ms: 67.9104
   type: 'test'
   ...
 1..9
@@ -179,7 +179,7 @@ ok 9 - ChatGPT native observation timeout starts after the UI submit finishes
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 624.2279
+# duration_ms 5128.5174
 EXIT: 0
 
 === Agent provider lifetime checks ===
@@ -200,7 +200,7 @@ EXIT: 0
 
 === API smoke ===
 
-PASS message=msg_1938e54da40c4e259a2e4e3beee31127 chat=chat_292ac164d2094115a551f81cacc4be95 history=12 implicit-follow-up=ok multi-connection=ok categories=ok files=ok downloads=ok deletion=ok api-errors=ok login=ok models=ok model-restore=ok default-reset=ok
+PASS message=msg_3c0a157b87754131a2dd619109254e12 chat=chat_93c2ffe6affc41e5aba40e7ded302d49 history=12 implicit-follow-up=ok multi-connection=ok categories=ok files=ok downloads=ok deletion=ok api-errors=ok login=ok models=ok model-restore=ok default-reset=ok
 EXIT: 0
 
 === Agent API smoke ===
