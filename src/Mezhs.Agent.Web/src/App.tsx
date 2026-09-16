@@ -393,23 +393,39 @@ export default function App() {
   );
 
   useEffect(() => {
-    void (async () => {
+    let cancelled = false;
+    let retryTimer: number | undefined;
+
+    const load = async () => {
       try {
         const [policyValues, chatValues] = await Promise.all([
           api<AgentPolicy[]>("/v1/policies"),
           api<AgentChat[]>("/v1/agent-chats"),
         ]);
+        if (cancelled) return;
+
         setApiReady(true);
         setPolicies(policyValues);
         setChats(chatValues);
         setPolicyId(policyValues[0]?.id ?? "");
+        setNotice(null);
         if (chatValues.length > 0)
           setSelectedChatId(chatValues[0].chatId);
       } catch (error) {
+        if (cancelled) return;
+
         setApiReady(false);
         setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
+        retryTimer = window.setTimeout(() => void load(), 500);
       }
-    })();
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+      if (retryTimer !== undefined)
+        window.clearTimeout(retryTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -947,3 +963,4 @@ export default function App() {
     </div>
   );
 }
+
