@@ -1,5 +1,4 @@
 using System.Text.Json.Serialization;
-using Mezhs.Api.Contracts;
 
 namespace Mezhs.Agent.Models;
 
@@ -10,14 +9,21 @@ public enum AgentExecutionStatus
     CancelRequested,
     Completed,
     Failed,
-    Cancelled,
-    Interrupted
+    Cancelled
 }
 
 public enum AgentExecutionKind
 {
     Agent,
     Shell
+}
+
+internal static class AgentExecutionStatusExtensions
+{
+    public static bool IsTerminal(this AgentExecutionStatus status) =>
+        status is AgentExecutionStatus.Completed
+            or AgentExecutionStatus.Failed
+            or AgentExecutionStatus.Cancelled;
 }
 
 public sealed class AgentChatRecord
@@ -61,7 +67,7 @@ public sealed record AgentChatMessageView(
     string? ParentMessageId,
     string? ReplayOfMessageId,
     string? ReplyMessageId,
-    MessageStatus Status,
+    string Status,
     string? Error,
     DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt,
@@ -114,7 +120,7 @@ public sealed record AgentExecutionView(
     string ExecutionId,
     string? ParentExecutionId,
     string CorrelationId,
-    AgentExecutionKind Kind,
+    string Kind,
     string? CommandName,
     string? TriggerMessageId,
     int? CommandIndex,
@@ -123,7 +129,8 @@ public sealed record AgentExecutionView(
     string ConnectionId,
     string Source,
     string? SourceReference,
-    AgentExecutionStatus Status,
+    string Status,
+    bool IsTerminal,
     string Request,
     string? Result,
     string? Error,
@@ -131,7 +138,9 @@ public sealed record AgentExecutionView(
     string PolicySnapshot,
     DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt,
-    DateTimeOffset? CompletedAt);
+    DateTimeOffset? CompletedAt,
+    string? RestartedFromId = null,
+    string? RestartedAsId = null);
 
 public static class AgentIds
 {

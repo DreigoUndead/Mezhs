@@ -1,5 +1,7 @@
+using System.Globalization;
 using Mezhs.Agent.Commands;
 using Mezhs.Api.Contracts;
+using ExecutorExecution = Mezhs.Executor.Execution;
 
 namespace Mezhs.Agent.Models;
 
@@ -9,7 +11,7 @@ public static class AgentApiMapper
         record.ExecutionId,
         record.ParentExecutionId,
         record.CorrelationId,
-        record.Kind,
+        record.Kind.ToString(),
         record.CommandName,
         record.TriggerMessageId,
         record.CommandIndex,
@@ -18,7 +20,8 @@ public static class AgentApiMapper
         record.ConnectionId,
         record.Source,
         record.SourceReference,
-        record.Status,
+        record.Status.ToString(),
+        record.Status.IsTerminal(),
         record.Request,
         record.Result,
         record.Error,
@@ -27,6 +30,32 @@ public static class AgentApiMapper
         record.CreatedAt,
         record.StartedAt,
         record.CompletedAt);
+
+    public static AgentExecutionView ToView(ExecutorExecution execution) => new(
+        execution.Id.ToString(CultureInfo.InvariantCulture),
+        execution.ParentExecutionId,
+        execution.CorrelationId ?? string.Empty,
+        AgentExecutionKind.Shell.ToString(),
+        Registry.Get(CommandBehavior.Shell).Name,
+        execution.TriggerMessageId,
+        execution.CommandIndex,
+        execution.ChatId,
+        string.Empty,
+        string.Empty,
+        execution.Source ?? "executor",
+        null,
+        execution.Status.ToString(),
+        execution.IsTerminal,
+        execution.Command,
+        execution.Result,
+        execution.Error,
+        execution.ExitCode,
+        string.Empty,
+        execution.CreatedAt,
+        execution.StartedAt,
+        execution.CompletedAt,
+        execution.RestartedFromId?.ToString(CultureInfo.InvariantCulture),
+        execution.RestartedAsId?.ToString(CultureInfo.InvariantCulture));
 
     public static AgentChatMessageView ToView(
         ApiChatHistoryMessage message,
@@ -79,7 +108,7 @@ public static class AgentApiMapper
             message.ParentMessageId,
             message.ReplayOfMessageId,
             message.ReplyMessageId,
-            message.Status,
+            message.Status.ToString(),
             message.Error,
             message.CreatedAt,
             message.StartedAt,

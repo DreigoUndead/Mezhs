@@ -68,8 +68,9 @@ function Get-Status([string]$uri) {
 (Get-Content -LiteralPath $agentConfig -Raw).Replace(
     "listen: http://127.0.0.1:5199",
     "listen: http://0.0.0.0:5199") | Set-Content -LiteralPath $badConfig -Encoding UTF8
+$agentDll = (Resolve-Path (Join-Path $root "src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll")).Path
 $badAgent = Start-Process -FilePath "dotnet" `
-    -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $badConfig) `
+    -ArgumentList @($agentDll, "--config", $badConfig) `
     -WorkingDirectory $root -RedirectStandardOutput $badOut -RedirectStandardError $badErr -WindowStyle Hidden -PassThru
 try {
     if (-not $badAgent.WaitForExit(8000)) {
@@ -98,26 +99,40 @@ try {
         -WorkingDirectory $root -RedirectStandardOutput $agentOut -RedirectStandardError $agentErr -WindowStyle Hidden -PassThru
     Wait-Health "http://127.0.0.1:5199/health"
 
-    if ((Get-Status "http://127.0.0.1:5199/v1/runtime") -ne 200) {
-        throw "Loopback Agent API unexpectedly requires authentication."
+    if ((Get-Status "http://127.0.0.1:5199/health") -ne 200) {
+        throw "Loopback Agent API health endpoint is unavailable."
+    }
+    if ((Get-Status "http://127.0.0.1:5199/v1/runtime") -ne 404) {
+        throw "Obsolete Agent runtime endpoint still exists."
     }
     if ((Get-Status "http://127.0.0.1:5199/v1/metrics") -ne 404) {
         throw "Unused generic metrics endpoint still exists."
     }
 
-    $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/runtime"
-    if (-not $runtime.mezhsApiHealthy) { throw "Agent API cannot reach generic MEZS API." }
+    $agentConnections = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/connections")
+    if (-not ($agentConnections | Where-Object { $_.id -eq "test" })) {
+        throw "Agent API does not expose the shared MEŽS API surface."
+    }
 
     $originClient = [Net.Http.HttpClient]::new()
     try {
-        $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/runtime")
+        $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
         $request.Headers.Add("Origin", "https://example.invalid")
         $response = $originClient.SendAsync($request).GetAwaiter().GetResult()
         try {
-            if ($response.Headers.Contains("Access-Control-Allow-Origin")) {
-                throw "Agent API still emits cross-origin access headers."
-            }
+  if ($response.Headers.Contains("Access-Control-Allow-Origin")) {
+      throw "Agent API allowed a non-loopback browser origin."
+  }
         } finally { $response.Dispose(); $request.Dispose() }
+
+        $loopbackRequest = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
+        $loopbackRequest.Headers.Add("Origin", "http://127.0.0.1:5173")
+        $loopbackResponse = $originClient.SendAsync($loopbackRequest).GetAwaiter().GetResult()
+        try {
+  if (-not $loopbackResponse.Headers.Contains("Access-Control-Allow-Origin")) {
+      throw "Agent API did not allow a loopback browser origin."
+  }
+        } finally { $loopbackResponse.Dispose(); $loopbackRequest.Dispose() }
     } finally { $originClient.Dispose() }
 
     $created = Start-AgentExecution "test" "hello agent"
@@ -200,10 +215,10 @@ echo %TEST_AGENT_VALUE%
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
     do {
         try {
-            $proxied = Invoke-RestMethod -Uri "http://127.0.0.1:5200/v1/runtime"
-            if ($proxied.status -eq "ok") { break }
+  $null = Invoke-RestMethod -Uri "http://127.0.0.1:5200/v1/policies"
+  break
         } catch {
-            if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }
+  if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }
         }
         Start-Sleep -Milliseconds 150
     } while ($true)
@@ -218,7 +233,19 @@ echo %TEST_AGENT_VALUE%
         throw "Agent Web proxy did not create a normal durable execution."
     }
 
-    Write-Host "PASS: Agent API/Web are loopback-only, CORS-closed, environment-scoped, DTO-backed, free of requester/metrics ceremony, and proxy locally."
+    Stop-Process -Id $api.Id -Force
+    $api.WaitForExit()
+    $offlineDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log"
+    if ($offlineDebug.StatusCode -ne 200 -or $offlineDebug.Headers["Content-Disposition"] -notmatch "attachment" -or
+        $offlineDebug.Content -notmatch $completed.executionId -or $offlineDebug.Content -match 'chatMessagesUnavailable:') {
+        throw "Debug log stopped being available when the generic MEZS API was offline."
+    }
+    $offlineProxiedDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5200/v1/agent-chats/$($completed.chatId)/debug-log"
+    if ($offlineProxiedDebug.StatusCode -ne 200 -or $offlineProxiedDebug.Headers["Content-Disposition"] -notmatch "attachment") {
+        throw "Agent Web stopped proxying debug logs when the generic MEZS API was offline."
+    }
+
+    Write-Host "PASS: Agent API/Web are loopback-only, browser CORS is loopback-only, the shared MEŽS API is hosted in-process, and debug logs remain complete when the separate generic API is offline."
 }
 finally {
     if ($null -ne $web -and -not $web.HasExited) { Stop-Process -Id $web.Id -Force; $web.WaitForExit() }

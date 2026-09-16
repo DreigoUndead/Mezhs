@@ -1,17 +1,27 @@
 using System.ComponentModel.DataAnnotations;
 using Mezhs.Agent.Policy;
+using Mezhs.Configuration;
+using YamlDotNet.Serialization;
 
 namespace Mezhs.Agent.Configuration;
 
-public sealed class AgentOptions
+public sealed class AgentOptions : MezhsOptions
 {
-    public required Uri Listen { get; init; }
-    public required Uri MezhsApi { get; init; }
-    public required string Storage { get; init; }
-    public required string Workspace { get; init; }
-    public required AgentRuntimeOptions Runtime { get; init; }
-    public required AgentRuntimeMessages Messages { get; init; }
-    public required IReadOnlyDictionary<string, PolicyContext> Policies { get; init; }
+    [Required]
+    public string AgentStorage { get; set; } = "data/agent.sqlite";
+
+    [Required]
+    public string Workspace { get; set; } = ".";
+
+    public AgentRuntimeOptions Runtime { get; set; } = new();
+    public AgentRuntimeMessages Messages { get; set; } = new();
+
+    [YamlMember(Alias = "policies")]
+    public Dictionary<string, object?> PolicyDefinitions { get; set; } = [];
+
+    [YamlIgnore]
+    public IReadOnlyDictionary<string, PolicyContext> Policies { get; set; } =
+        new Dictionary<string, PolicyContext>(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class AgentRuntimeOptions

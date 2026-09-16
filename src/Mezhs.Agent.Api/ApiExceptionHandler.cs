@@ -1,8 +1,9 @@
+using Mezhs.Executor;
 using Microsoft.AspNetCore.Diagnostics;
 
 namespace Mezhs.Agent;
 
-public sealed class ApiExceptionHandler : IExceptionHandler
+public sealed class AgentApiExceptionHandler : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext,
@@ -11,8 +12,7 @@ public sealed class ApiExceptionHandler : IExceptionHandler
     {
         var statusCode = exception switch
         {
-            RequestValidationException => StatusCodes.Status400BadRequest,
-            ResourceNotFoundException => StatusCodes.Status404NotFound,
+            ExecutionNotFoundException => StatusCodes.Status404NotFound,
             AgentCapacityExceededException => StatusCodes.Status429TooManyRequests,
             _ => (int?)null
         };

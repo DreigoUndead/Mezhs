@@ -3,7 +3,8 @@ namespace Mezhs.Console;
 public enum CommandSyntaxTokenType
 {
     Quote,
-    Collection
+    Collection,
+    Object
 }
 
 public sealed record CommandSyntaxToken(
@@ -16,7 +17,8 @@ public sealed class CommandSyntax
 {
     public static CommandSyntax Default { get; } = new([
         new(CommandSyntaxTokenType.Quote, '"', '"', '\\'),
-        new(CommandSyntaxTokenType.Collection, '[', ']')
+        new(CommandSyntaxTokenType.Collection, '[', ']'),
+        new(CommandSyntaxTokenType.Object, '{', '}')
     ]);
 
     public CommandSyntax(IReadOnlyList<CommandSyntaxToken> tokens) => Tokens = tokens;

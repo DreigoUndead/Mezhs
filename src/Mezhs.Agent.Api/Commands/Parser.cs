@@ -49,14 +49,11 @@ public sealed class Parser
 
     private static int FindClosingTag(IReadOnlyList<LineSlice> lines, int start, string name)
     {
+        var closingTag = $"</{name}>";
         for (var i = start; i < lines.Count; i++)
         {
-            var text = lines[i].Text.Trim();
-            if (!TryTag(text, out var candidate, out var closing))
-                continue;
-            if (closing && string.Equals(candidate, name, StringComparison.Ordinal))
+            if (string.Equals(lines[i].Text.Trim(), closingTag, StringComparison.Ordinal))
                 return i;
-            return -1;
         }
         return -1;
     }

@@ -1,5 +1,6 @@
+using System.Collections;
 using System.Reflection;
-using System.Text.Json;
+using Mezhs.Common;
 
 namespace Mezhs.Console;
 
@@ -55,10 +56,16 @@ public abstract class ConsoleApplication
         foreach (var command in invalid)
         {
             global::System.Console.WriteLine($"{command.Name}: INVALID");
-            foreach (var error in command.ValidationErrors)
-                global::System.Console.WriteLine($"  - {error}");
+            foreach (var validationError in command.ValidationErrors)
+                global::System.Console.WriteLine($"  - {validationError}");
         }
     }
+
+    [Command(Description = "Run application self-tests.")]
+    public virtual string Test() => "No tests are defined for this application.";
+
+    protected virtual object? ExecuteCommand(MethodInfo method, object?[] arguments) =>
+        method.Invoke(this, arguments);
 
     private int Execute(IReadOnlyList<ValueNode> nodes)
     {
@@ -100,7 +107,7 @@ public abstract class ConsoleApplication
 
         try
         {
-            var result = command.Method.Invoke(this, arguments);
+            var result = ExecuteCommand(command.Method, arguments);
             WriteResult(result, command.Method.ReturnType);
             return 0;
         }
@@ -127,7 +134,7 @@ public abstract class ConsoleApplication
             var parameter = parameters[i];
             if (i < values.Count)
             {
-                if (values[i] is ScalarNode { Value: var value } &&
+                if (values[i] is ScalarNode { Value: var value, Quoted: false } &&
                     value.Equals("null", StringComparison.OrdinalIgnoreCase) &&
                     !IsNullable(parameter, nullability))
                 {
@@ -174,12 +181,21 @@ public abstract class ConsoleApplication
             global::System.Console.WriteLine(text);
             return;
         }
-        if (result is IConvertible)
+        if (result is ReturnObjectBase returnObject)
         {
-            global::System.Console.WriteLine(Convert.ToString(result, System.Globalization.CultureInfo.CurrentCulture));
+            global::System.Console.WriteLine(returnObject.ToString());
             return;
         }
-        global::System.Console.WriteLine(JsonSerializer.Serialize(result, result.GetType()));
+        if (result is IEnumerable enumerable)
+        {
+            var items = enumerable.Cast<object?>().ToArray();
+            if (items.All(item => item is ReturnObjectBase))
+            {
+                global::System.Console.WriteLine(ReturnObjectBase.FormatMany(items.Cast<ReturnObjectBase>()));
+                return;
+            }
+        }
+        global::System.Console.WriteLine(Cast.Format(result));
     }
 
     private static int Error(string message, int exitCode = 2)

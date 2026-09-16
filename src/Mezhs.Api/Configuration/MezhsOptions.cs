@@ -1,6 +1,6 @@
 namespace Mezhs.Configuration;
 
-public sealed class MezhsOptions
+public class MezhsOptions
 {
     public int Version { get; set; } = 1;
     public ServerOptions Server { get; set; } = new();
