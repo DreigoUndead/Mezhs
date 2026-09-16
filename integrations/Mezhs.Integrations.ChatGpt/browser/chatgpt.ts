@@ -312,10 +312,6 @@ async function observeNativeConversationRequest(debuggerClient, selection, trigg
     resolveRequest = resolve;
     rejectRequest = reject;
   });
-  const timeout = setTimeout(
-    () => rejectRequest(new Error("ChatGPT native send request was not observed.")),
-    60000
-  );
 
   const onMessage = async (_event, method, params) => {
     if (method !== "Fetch.requestPaused") return;
@@ -380,9 +376,16 @@ async function observeNativeConversationRequest(debuggerClient, selection, trigg
       }]
     });
     await trigger();
-    return await request;
+    const timeout = setTimeout(
+      () => rejectRequest(new Error("ChatGPT native send request was not observed.")),
+      60000
+    );
+    try {
+      return await request;
+    } finally {
+      clearTimeout(timeout);
+    }
   } finally {
-    clearTimeout(timeout);
     debuggerClient.removeListener("message", onMessage);
     await debuggerClient.sendCommand("Fetch.disable").catch(() => {});
     if (attachedHere && debuggerClient.isAttached()) debuggerClient.detach();
