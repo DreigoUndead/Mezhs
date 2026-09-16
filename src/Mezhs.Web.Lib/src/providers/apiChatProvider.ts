@@ -1,4 +1,4 @@
-import { apiFetch, apiJson } from "../api";
+import { apiFetch, apiJson, expectJson } from "../api";
 import {
   ApiFile,
   Chat,
@@ -42,7 +42,7 @@ export class ApiChatProvider implements ChatProvider {
     );
     const models = response.status === 401
       ? [{ id: null, name: "Default" }]
-      : await response.json() as ConnectionModel[];
+      : await expectJson<ConnectionModel[]>(response);
     const configured = this.connection.defaultModel?.trim();
     return configured && !models.some((model) => model.id === configured)
       ? [...models, { id: configured, name: configured }]
