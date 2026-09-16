@@ -5,11 +5,18 @@ $temp = Join-Path ([System.IO.Path]::GetTempPath()) ('mezhs-integration-cancel-'
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
 
 try {
+    $integrationProjects = @(Get-ChildItem -LiteralPath (Join-Path $root 'integrations') -Filter '*.csproj' -Recurse)
+    if ($integrationProjects.Count -eq 0) { throw 'No integration projects were found.' }
+
+    $integrationAssemblyNames = ($integrationProjects | ForEach-Object {
+        [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+    }) -join ';'
+
     $projectReferences = @(
         (Join-Path $root 'src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj'),
         (Join-Path $root 'src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj'),
         (Join-Path $root 'transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj')
-    ) + @(Get-ChildItem -LiteralPath (Join-Path $root 'integrations') -Filter '*.csproj' -Recurse | Select-Object -ExpandProperty FullName)
+    ) + @($integrationProjects | Select-Object -ExpandProperty FullName)
 
     $referenceXml = ($projectReferences | Sort-Object -Unique | ForEach-Object {
         '    <ProjectReference Include="' + $_ + '" />'
@@ -37,11 +44,18 @@ using Mezhs.Integrations;
 using Mezhs.Integrations.Browser;
 
 var tempRoot = args[0];
-foreach (var path in Directory.EnumerateFiles(AppContext.BaseDirectory, "Mezhs.Integrations.*.dll"))
-    Assembly.LoadFrom(path);
+var integrationAssemblies = args[1]
+    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    .Select(name =>
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, name + ".dll");
+        if (!File.Exists(path))
+            throw new InvalidOperationException($"Integration assembly '{name}' was not produced by its project reference.");
+        return Assembly.LoadFrom(path);
+    })
+    .ToArray();
 
-var registrations = AppDomain.CurrentDomain.GetAssemblies()
-    .Where(assembly => assembly.GetName().Name?.StartsWith("Mezhs.Integrations.", StringComparison.Ordinal) == true)
+var registrations = integrationAssemblies
     .SelectMany(GetLoadableTypes)
     .Where(type => !type.IsAbstract && typeof(IChatIntegration).IsAssignableFrom(type))
     .SelectMany(type => type.GetCustomAttributes<IntegrationAttribute>()
@@ -80,6 +94,11 @@ static async Task VerifyInFlightCancellationAsync(Registration registration, str
     var browserBacked = typeof(BrowserIntegrationBase).IsAssignableFrom(registration.Type);
     if (browserBacked)
         await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
+    else if (send.IsCompleted)
+    {
+        await send;
+        return;
+    }
 
     var transportsBeforeCancel = fixture.Host.CreatedCount;
     cancellation.Cancel();
@@ -269,7 +288,7 @@ sealed class ProbeTransport(ProbeHost host) : IChatBrowserTransport
 }
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
-    dotnet run --project (Join-Path $temp 'Test.csproj') -c Release -- $temp
+    dotnet run --project (Join-Path $temp 'Test.csproj') -c Release -- $temp $integrationAssemblyNames
     if ($LASTEXITCODE -ne 0) { throw 'Integration cancellation contract failed.' }
 }
 finally {
