@@ -143,7 +143,9 @@ public sealed class PolicyDecoder
         if (settings.Completion.RequireDone)
         {
             var done = Registry.Get(CommandBehavior.Complete);
-            rules.Add($"Signal completion by returning <{done.Name}> on a line by itself.");
+            rules.Add(
+                $"Signal completion by returning <{done.Name}> on a line by itself. " +
+                $"If <{done.Name}> follows executable commands in the same reply, MEŽS may finish immediately after those commands succeed and completion policy is satisfied; omit <{done.Name}> when you need to inspect their results first.");
         }
 
         if (settings.Completion.RequiredSuccessfulCommands.Count > 0)
@@ -180,10 +182,10 @@ public sealed class PolicyDecoder
         foreach (var raw in values ?? [])
         {
             var value = raw?.Trim() ?? string.Empty;
-            if (value.Length == 0 || value.Contains('=') || value.Contains('\0'))
+            if (string.IsNullOrWhiteSpace(value))
+                throw new InvalidOperationException($"{path} cannot contain an empty environment variable name.");
+            if (value.Contains('=') || value.Contains('\0'))
                 throw new InvalidOperationException($"{path} contains invalid environment variable name '{raw}'.");
-            if (value.StartsWith("MEZHS_", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException($"{path} cannot allow reserved MEZHS_ environment variable '{value}'.");
             if (seen.Add(value))
                 result.Add(value);
         }
