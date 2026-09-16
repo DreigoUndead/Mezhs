@@ -125,7 +125,32 @@ VISIBLE_FINAL_RESULT
         throw "Same-turn completion did not retain successful Executor evidence. Observed: $observed"
     }
 
-    Write-Host 'PASS: Successful SH + DONE completes in one turn and stores visible assistant content as the Agent result.'
+    $continuedTask = @'
+<SH>
+echo CONTINUED_RESULT_OK
+</SH>
+FIRST_VISIBLE_RESULT
+'@
+    $continuedCreated = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:5199/v1/executions' `
+        -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence-auto'; input = $continuedTask })
+    $continued = Wait-Execution $continuedCreated.executionId 20
+    if ($continued.status -ne 'Completed') {
+        throw "Continued execution did not complete: status=$($continued.status), error=$($continued.error)"
+    }
+    if ($continued.result -notmatch 'FIRST_VISIBLE_RESULT') {
+        throw "Agent durable result lost visible output from the pre-continuation turn: $($continued.result)"
+    }
+    if ($continued.result -match 'echo CONTINUED_RESULT_OK') {
+        throw "Aggregated Agent result contains executable SH protocol: $($continued.result)"
+    }
+
+    $continuedMessages = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($continued.chatId)/messages")
+    $continuedAssistantMessages = @($continuedMessages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'assistant' })
+    if ($continuedAssistantMessages.Count -lt 2) {
+        throw "Continuation-result regression did not actually cross an assistant command-result turn. Assistant turns=$($continuedAssistantMessages.Count)"
+    }
+
+    Write-Host 'PASS: Same-turn completion and command-result continuation both preserve protocol-stripped visible Agent results.'
 }
 finally {
     if ($null -ne $agent -and -not $agent.HasExited) {
