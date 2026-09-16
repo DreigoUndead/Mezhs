@@ -8,9 +8,7 @@ $agentOut = Join-Path $PSScriptRoot 'agent-protocol-result.out.log'
 $agentErr = Join-Path $PSScriptRoot 'agent-protocol-result.err.log'
 $temp = Join-Path ([System.IO.Path]::GetTempPath()) ('mezhs-agent-protocol-' + [Guid]::NewGuid().ToString('N'))
 
-foreach ($path in @($dataPath)) {
-    Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
-}
+Remove-Item -LiteralPath $dataPath -Recurse -Force -ErrorAction SilentlyContinue
 foreach ($path in @($agentOut, $agentErr)) {
     Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
 }
@@ -73,7 +71,16 @@ if (parsed.Commands[1].Name != "DONE" || parsed.Commands[1].Body is not null)
 if (parsed.VisibleContent != "before\nafter")
     throw new InvalidOperationException($"Visible content was wrong: '{parsed.VisibleContent}'.");
 
-Console.WriteLine("PASS: Agent parser treats SH body text as opaque until the matching closing tag.");
+try
+{
+    parser.Parse("<SH>\necho outer\n<SH>\necho nested\n</SH>\n</SH>");
+    throw new InvalidOperationException("Nested SH block was accepted.");
+}
+catch (CommandParseException ex) when (ex.Message.Contains("Nested <SH>", StringComparison.Ordinal))
+{
+}
+
+Console.WriteLine("PASS: Agent parser keeps unrelated tag-like SH text opaque and rejects an actual nested SH block.");
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
     dotnet run --project (Join-Path $temp 'ParserTest.csproj') -c Release
@@ -114,7 +121,8 @@ VISIBLE_FINAL_RESULT
     $executions = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/executions")
     $shells = @($executions | Where-Object { $_.kind -eq 'Shell' })
     if ($shells.Count -ne 1 -or $shells[0].status -ne 'Completed' -or $shells[0].result -notmatch 'SAME_TURN_DONE_OK') {
-        throw 'Same-turn completion did not retain successful Executor evidence.'
+        $observed = $executions | ConvertTo-Json -Depth 6 -Compress
+        throw "Same-turn completion did not retain successful Executor evidence. Observed: $observed"
     }
 
     Write-Host 'PASS: Successful SH + DONE completes in one turn and stores visible assistant content as the Agent result.'
