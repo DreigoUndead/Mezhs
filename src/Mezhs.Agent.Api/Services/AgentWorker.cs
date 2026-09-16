@@ -19,6 +19,7 @@ public sealed class AgentWorker : BackgroundService
     private readonly MessageService _messages;
     private readonly AgentPromptBuilder _prompts;
     private readonly PolicyEvaluationService _evaluations;
+    private readonly Parser _parser;
     private readonly Interpreter _commands;
     private readonly ExecutorService _executor;
     private readonly AgentRecoveryState _recovery;
@@ -34,6 +35,7 @@ public sealed class AgentWorker : BackgroundService
         MessageService messages,
         AgentPromptBuilder prompts,
         PolicyEvaluationService evaluations,
+        Parser parser,
         Interpreter commands,
         ExecutorService executor,
         AgentRecoveryState recovery,
@@ -45,6 +47,7 @@ public sealed class AgentWorker : BackgroundService
         _messages = messages;
         _prompts = prompts;
         _evaluations = evaluations;
+        _parser = parser;
         _commands = commands;
         _executor = executor;
         _recovery = recovery;
@@ -289,7 +292,7 @@ public sealed class AgentWorker : BackgroundService
             {
                 var sameTurnCompletion = _evaluations.EvaluateCompletion(policy, execution, completionClaimed: true);
                 if (sameTurnCompletion.State == PolicyCompletionState.Accepted)
-                    return CompleteExecution(execution, interpretation.VisibleContent);
+                    return CompleteExecution(execution);
             }
 
             return new ReplyProcessing(false, _prompts.BuildCommandResults(interpretation.Results, policy));
@@ -300,7 +303,7 @@ public sealed class AgentWorker : BackgroundService
             execution,
             interpretation.CompletionClaimed);
         if (completion.State == PolicyCompletionState.Accepted)
-            return CompleteExecution(execution, interpretation.VisibleContent);
+            return CompleteExecution(execution);
 
         return new ReplyProcessing(
             false,
@@ -309,10 +312,9 @@ public sealed class AgentWorker : BackgroundService
                 : _prompts.BuildContinue(policy));
     }
 
-    private ReplyProcessing CompleteExecution(ExecutionRecord execution, string visibleContent)
+    private ReplyProcessing CompleteExecution(ExecutionRecord execution)
     {
-        var result = string.IsNullOrWhiteSpace(visibleContent) ? null : visibleContent;
-        if (_store.Complete(execution.ExecutionId, result))
+        if (_store.Complete(execution.ExecutionId, BuildExecutionResult(execution)))
             return new ReplyProcessing(true, null);
         if (_store.GetExecution(execution.ExecutionId)?.Status == AgentExecutionStatus.CancelRequested)
         {
@@ -322,31 +324,62 @@ public sealed class AgentWorker : BackgroundService
         throw new InvalidOperationException("Agent execution changed state before completion could be recorded.");
     }
 
+    private string? BuildExecutionResult(ExecutionRecord execution)
+    {
+        if (string.IsNullOrWhiteSpace(execution.ChatId))
+            return null;
+
+        var visible = new List<string>();
+        foreach (var message in GetExecutionMessages(_chats.GetMessages(execution.ChatId), execution.ExecutionId))
+        {
+            if (!string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) ||
+                message.Status != MessageStatus.Completed)
+            {
+                continue;
+            }
+
+            try
+            {
+                var content = _parser.Parse(message.Content).VisibleContent;
+                if (!string.IsNullOrWhiteSpace(content))
+                    visible.Add(content.Trim());
+            }
+            catch (CommandParseException)
+            {
+                // Malformed protocol turns were rejected by runtime validation and are not execution results.
+            }
+        }
+
+        return visible.Count == 0 ? null : string.Join("\n\n", visible);
+    }
+
     private static int CountExecutionTurns(
+        IReadOnlyList<ApiChatHistoryMessage> messages,
+        string executionId) =>
+        GetExecutionMessages(messages, executionId).Count(message =>
+            string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
+            message.Status == MessageStatus.Completed);
+
+    private static IEnumerable<ApiChatHistoryMessage> GetExecutionMessages(
         IReadOnlyList<ApiChatHistoryMessage> messages,
         string executionId)
     {
         var envelope = $"[MEŽS AGENT EXECUTION {executionId}]";
         var inExecution = false;
-        var count = 0;
         foreach (var message in messages
                      .OrderBy(message => message.CreatedAt)
                      .ThenBy(message => message.MessageId, StringComparer.Ordinal))
         {
             if (string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase) &&
-                message.Content.StartsWith(envelope, StringComparison.Ordinal))
+                message.Content.StartsWith("[MEŽS AGENT EXECUTION ", StringComparison.Ordinal))
             {
-                inExecution = true;
+                inExecution = message.Content.StartsWith(envelope, StringComparison.Ordinal);
                 continue;
             }
-            if (inExecution &&
-                string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
-                message.Status == MessageStatus.Completed)
-            {
-                count++;
-            }
+
+            if (inExecution)
+                yield return message;
         }
-        return count;
     }
 
     private sealed record RecoveredReply(string MessageId, string Content);
