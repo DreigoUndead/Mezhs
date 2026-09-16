@@ -23,64 +23,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $path = 'src/Mezhs.Agent.Web/src/App.tsx'
           $text = Get-Content -LiteralPath $path -Raw
-          $old = @'
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [policyValues, chatValues] = await Promise.all([
-          api<AgentPolicy[]>("/v1/policies"),
-          api<AgentChat[]>("/v1/agent-chats"),
-        ]);
-        setApiReady(true);
-        setPolicies(policyValues);
-        setChats(chatValues);
-        setPolicyId(policyValues[0]?.id ?? "");
-        if (chatValues.length > 0)
-          setSelectedChatId(chatValues[0].chatId);
-      } catch (error) {
-        setApiReady(false);
-        setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
-      }
-    })();
-  }, []);
-'@
-          $new = @'
-  useEffect(() => {
-    let cancelled = false;
-    let retryTimer: number | undefined;
-
-    const load = async () => {
-      try {
-        const [policyValues, chatValues] = await Promise.all([
-          api<AgentPolicy[]>("/v1/policies"),
-          api<AgentChat[]>("/v1/agent-chats"),
-        ]);
-        if (cancelled) return;
-
-        setApiReady(true);
-        setPolicies(policyValues);
-        setChats(chatValues);
-        setPolicyId(policyValues[0]?.id ?? "");
-        setNotice(null);
-        if (chatValues.length > 0)
-          setSelectedChatId(chatValues[0].chatId);
-      } catch (error) {
-        if (cancelled) return;
-
-        setApiReady(false);
-        setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
-        retryTimer = window.setTimeout(() => void load(), 500);
-      }
-    };
-
-    void load();
-    return () => {
-      cancelled = true;
-      if (retryTimer !== undefined)
-        window.clearTimeout(retryTimer);
-    };
-  }, []);
-'@
+          $old = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('ICB1c2VFZmZlY3QoKCkgPT4gewogICAgdm9pZCAoYXN5bmMgKCkgPT4gewogICAgICB0cnkgewogICAgICAgIGNvbnN0IFtwb2xpY3lWYWx1ZXMsIGNoYXRWYWx1ZXNdID0gYXdhaXQgUHJvbWlzZS5hbGwoWwogICAgICAgICAgYXBpPEFnZW50UG9saWN5W10+KCIvdjEvcG9saWNpZXMiKSwKICAgICAgICAgIGFwaTxBZ2VudENoYXRbXT4oIi92MS9hZ2VudC1jaGF0cyIpLAogICAgICAgIF0pOwogICAgICAgIHNldEFwaVJlYWR5KHRydWUpOwogICAgICAgIHNldFBvbGljaWVzKHBvbGljeVZhbHVlcyk7CiAgICAgICAgc2V0Q2hhdHMoY2hhdFZhbHVlcyk7CiAgICAgICAgc2V0UG9saWN5SWQocG9saWN5VmFsdWVzWzBdPy5pZCA/PyAiIik7CiAgICAgICAgaWYgKGNoYXRWYWx1ZXMubGVuZ3RoID4gMCkKICAgICAgICAgIHNldFNlbGVjdGVkQ2hhdElkKGNoYXRWYWx1ZXNbMF0uY2hhdElkKTsKICAgICAgfSBjYXRjaCAoZXJyb3IpIHsKICAgICAgICBzZXRBcGlSZWFkeShmYWxzZSk7CiAgICAgICAgc2V0Tm90aWNlKGVycm9yIGluc3RhbmNlb2YgRXJyb3IgPyBlcnJvci5tZXNzYWdlIDogIkNvdWxkIG5vdCBsb2FkIE1Fxb1TIEFnZW50LiIpOwogICAgICB9CiAgICB9KSgpOwogIH0sIFtdKTsK'))
+          $new = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('ICB1c2VFZmZlY3QoKCkgPT4gewogICAgbGV0IGNhbmNlbGxlZCA9IGZhbHNlOwogICAgbGV0IHJldHJ5VGltZXI6IG51bWJlciB8IHVuZGVmaW5lZDsKCiAgICBjb25zdCBsb2FkID0gYXN5bmMgKCkgPT4gewogICAgICB0cnkgewogICAgICAgIGNvbnN0IFtwb2xpY3lWYWx1ZXMsIGNoYXRWYWx1ZXNdID0gYXdhaXQgUHJvbWlzZS5hbGwoWwogICAgICAgICAgYXBpPEFnZW50UG9saWN5W10+KCIvdjEvcG9saWNpZXMiKSwKICAgICAgICAgIGFwaTxBZ2VudENoYXRbXT4oIi92MS9hZ2VudC1jaGF0cyIpLAogICAgICAgIF0pOwogICAgICAgIGlmIChjYW5jZWxsZWQpIHJldHVybjsKCiAgICAgICAgc2V0QXBpUmVhZHkodHJ1ZSk7CiAgICAgICAgc2V0UG9saWNpZXMocG9saWN5VmFsdWVzKTsKICAgICAgICBzZXRDaGF0cyhjaGF0VmFsdWVzKTsKICAgICAgICBzZXRQb2xpY3lJZChwb2xpY3lWYWx1ZXNbMF0/LmlkID8/ICIiKTsKICAgICAgICBzZXROb3RpY2UobnVsbCk7CiAgICAgICAgaWYgKGNoYXRWYWx1ZXMubGVuZ3RoID4gMCkKICAgICAgICAgIHNldFNlbGVjdGVkQ2hhdElkKGNoYXRWYWx1ZXNbMF0uY2hhdElkKTsKICAgICAgfSBjYXRjaCAoZXJyb3IpIHsKICAgICAgICBpZiAoY2FuY2VsbGVkKSByZXR1cm47CgogICAgICAgIHNldEFwaVJlYWR5KGZhbHNlKTsKICAgICAgICBzZXROb3RpY2UoZXJyb3IgaW5zdGFuY2VvZiBFcnJvciA/IGVycm9yLm1lc3NhZ2UgOiAiQ291bGQgbm90IGxvYWQgTUXFvVMgQWdlbnQuIik7CiAgICAgICAgcmV0cnlUaW1lciA9IHdpbmRvdy5zZXRUaW1lb3V0KCgpID0+IHZvaWQgbG9hZCgpLCA1MDApOwogICAgICB9CiAgICB9OwoKICAgIHZvaWQgbG9hZCgpOwogICAgcmV0dXJuICgpID0+IHsKICAgICAgY2FuY2VsbGVkID0gdHJ1ZTsKICAgICAgaWYgKHJldHJ5VGltZXIgIT09IHVuZGVmaW5lZCkKICAgICAgICB3aW5kb3cuY2xlYXJUaW1lb3V0KHJldHJ5VGltZXIpOwogICAgfTsKICB9LCBbXSk7Cg=='))
           if (-not $text.Contains($old)) { throw 'Agent Web bootstrap block was not found.' }
           $text = $text.Replace($old, $new)
           Set-Content -LiteralPath $path -Value $text -Encoding utf8
