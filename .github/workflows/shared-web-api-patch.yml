@@ -1,0 +1,256 @@
+name: shared-web-api-patch
+
+on:
+  push:
+    branches:
+      - agent-api-composition
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Apply shared Web API availability integration'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Patch Web consumers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              return text.replace(old, new, 1)
+
+          agent_path = Path("src/Mezhs.Agent.Web/src/App.tsx")
+          agent = agent_path.read_text(encoding="utf-8")
+          agent = replace_once(agent, '''import {
+            ChatComposer,
+            ChatTranscript,
+            expectJson,
+            type ChatSurfaceMessage,
+          } from "@mezhs/web-lib";''', '''import {
+            apiJson,
+            ChatComposer,
+            ChatTranscript,
+            useApiAvailability,
+            type ChatSurfaceMessage,
+          } from "@mezhs/web-lib";''', "Agent imports")
+          agent = replace_once(agent, '''async function api<T>(path: string, init?: RequestInit): Promise<T> {
+            return expectJson<T>(await fetch(path, init));
+          }
+
+          ''', '', "Agent local API helper")
+          agent = replace_once(agent, '''  const [apiReady, setApiReady] = useState(false);
+            const [policies, setPolicies] = useState<AgentPolicy[]>([]);''', '''  const apiAvailability = useApiAvailability("");
+            const apiReady = apiAvailability === "online";
+            const [policies, setPolicies] = useState<AgentPolicy[]>([]);''', "Agent API state")
+
+          start = agent.index('  useEffect(() => {\n    let cancelled = false;\n    let retryTimer: number | undefined;')
+          end_marker = '  }, []);\n\n  useEffect(() => {\n    if (!selectedChatId || creating) {'
+          end = agent.index(end_marker, start)
+          bootstrap = '''  useEffect(() => {
+            let cancelled = false;
+            void Promise.all([
+              apiJson<AgentPolicy[]>("", "/v1/policies"),
+              apiJson<AgentChat[]>("", "/v1/agent-chats"),
+            ])
+              .then(([policyValues, chatValues]) => {
+                if (cancelled) return;
+                setPolicies(policyValues);
+                setChats(chatValues);
+                setPolicyId(policyValues[0]?.id ?? "");
+                setNotice(null);
+                if (chatValues.length > 0)
+                  setSelectedChatId(chatValues[0].chatId);
+              })
+              .catch((error) => {
+                if (!cancelled)
+                  setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
+              });
+            return () => { cancelled = true; };
+          }, []);
+
+          useEffect(() => {
+            if (!selectedChatId || creating) {'''
+          agent = agent[:start] + bootstrap + agent[end + len(end_marker):]
+
+          agent = agent.replace('api<', 'apiJson<')
+          agent = agent.replace('apiJson<AgentChat[]>("/v1/agent-chats")', 'apiJson<AgentChat[]>("", "/v1/agent-chats")')
+          agent = agent.replace('apiJson<AgentChatMessage[]>(`/v1/agent-chats/', 'apiJson<AgentChatMessage[]>("", `/v1/agent-chats/')
+          agent = agent.replace('apiJson<Execution[]>(`/v1/agent-chats/', 'apiJson<Execution[]>("", `/v1/agent-chats/')
+          agent = agent.replace('apiJson<Execution>("/v1/executions", {', 'apiJson<Execution>("", "/v1/executions", {')
+          agent = agent.replace('apiJson<Execution>(`/v1/executions/', 'apiJson<Execution>("", `/v1/executions/')
+          agent = agent.replace('apiJson<AgentChat>(\n        `/v1/agent-chats/', 'apiJson<AgentChat>(\n        "",\n        `/v1/agent-chats/')
+
+          agent = replace_once(agent, '''  useEffect(() => {
+            const timer = window.setInterval(() => {
+              void refreshChats();
+              if (selectedChatId && !creating)
+                void loadSelected(selectedChatId, false);
+            }, 1200);
+            return () => window.clearInterval(timer);
+          }, [selectedChatId, creating]);''', '''  useEffect(() => {
+            const timer = window.setInterval(() => {
+              if (!apiReady) return;
+              void refreshChats();
+              if (selectedChatId && !creating)
+                void loadSelected(selectedChatId, false);
+            }, 1200);
+            return () => window.clearInterval(timer);
+          }, [apiReady, selectedChatId, creating]);''', "Agent refresh interval")
+          agent = replace_once(agent, '''  async function refreshChats() {
+            try {
+              setChats(await apiJson<AgentChat[]>("", "/v1/agent-chats"));
+              setApiReady(true);
+            } catch {
+              setApiReady(false);
+              // Keep the last durable view during transient refresh failures.
+            }
+          }''', '''  async function refreshChats() {
+            try {
+              setChats(await apiJson<AgentChat[]>("", "/v1/agent-chats"));
+            } catch {
+              // Keep the last durable view during transient refresh failures.
+            }
+          }''', "Agent refresh state")
+          if 'setApiReady(' in agent:
+              raise SystemExit("Agent still contains local API readiness mutation")
+          if 'api<' in agent or 'await fetch(' in agent:
+              raise SystemExit("Agent still contains local API transport")
+          agent_path.write_text(agent, encoding="utf-8")
+
+          chat_path = Path("src/Mezhs.Web.Lib/src/MezhsChatApp.tsx")
+          chat = chat_path.read_text(encoding="utf-8")
+          chat = replace_once(chat, '''import { ChatProviderRegistry } from "./providers/registry";''', '''import { apiFetch, apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
+          import { ChatProviderRegistry } from "./providers/registry";''', "Chat API import")
+          local_json_start = chat.index('async function expectJson<T>(response: Response): Promise<T> {')
+          local_json_end = chat.index('\n}\n\nexport type MezhsChatAppProps', local_json_start) + 2
+          chat = chat[:local_json_start] + chat[local_json_end + 1:]
+          chat = replace_once(chat, '''  const apiBase = apiBaseUrl.replace(/\/$/, "");
+            const [connections, setConnections] = useState<Connection[]>([]);''', '''  const apiBase = apiBaseUrl.replace(/\/$/, "");
+            const apiAvailability = useApiAvailability(apiBase);
+            const online = apiAvailability === "online";
+            const [connections, setConnections] = useState<Connection[]>([]);''', "Chat availability")
+          chat = replace_once(chat, '''  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+            const [online, setOnline] = useState(false);
+            const [loading, setLoading] = useState(true);''', '''  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+            const [loading, setLoading] = useState(true);''', "Chat local online state")
+
+          old_bootstrap = '''  useEffect(() => {
+            void (async () => {
+              try {
+                const [healthResponse, connectionResponse, chatResponse, categoryResponse] = await Promise.all([
+                  fetch(`${apiBase}/health`),
+                  fetch(`${apiBase}/v1/connections`),
+                  fetch(`${apiBase}/v1/chats`),
+                  fetch(`${apiBase}/v1/categories`),
+                ]);
+                setOnline(healthResponse.ok);
+                const available = await expectJson<Connection[]>(connectionResponse);
+                providerRegistry.current.configure(apiBase, available);
+                setConnections(available);
+                setChats(await expectJson<Chat[]>(chatResponse));
+                setCategories(await expectJson<Category[]>(categoryResponse));
+                if (available.length) setConnectionId(available[0].id);
+              } catch (error) {
+                setNotice(error instanceof Error ? error.message : "Could not reach MEŽS.");
+              } finally {
+                setLoading(false);
+              }
+            })();
+          }, [apiBase]);'''
+          new_bootstrap = '''  useEffect(() => {
+            let cancelled = false;
+            void Promise.all([
+              apiJson<Connection[]>(apiBase, "/v1/connections"),
+              apiJson<Chat[]>(apiBase, "/v1/chats"),
+              apiJson<Category[]>(apiBase, "/v1/categories"),
+            ])
+              .then(([available, chatValues, categoryValues]) => {
+                if (cancelled) return;
+                providerRegistry.current.configure(apiBase, available);
+                setConnections(available);
+                setChats(chatValues);
+                setCategories(categoryValues);
+                if (available.length) setConnectionId(available[0].id);
+                setNotice(null);
+              })
+              .catch((error) => {
+                if (!cancelled)
+                  setNotice(error instanceof Error ? error.message : "Could not reach MEŽS.");
+              })
+              .finally(() => {
+                if (!cancelled) setLoading(false);
+              });
+            return () => { cancelled = true; };
+          }, [apiBase]);'''
+          chat = replace_once(chat, old_bootstrap, new_bootstrap, "Chat bootstrap")
+
+          replacements = {
+            'setChats(await expectJson<Chat[]>(await fetch(`${base}/v1/chats`)));': 'setChats(await apiJson<Chat[]>(base, "/v1/chats"));',
+            'setCategories(await expectJson<Category[]>(await fetch(`${base}/v1/categories`)));': 'setCategories(await apiJson<Category[]>(base, "/v1/categories"));',
+            'const request = await expectJson<Message>(await fetch(`${apiBase}/v1/messages/${messageId}`));': 'const request = await apiJson<Message>(apiBase, `/v1/messages/${messageId}`);',
+            'const request = await expectJson<Message>(await fetch(`${apiBase}/v1/messages/${messageId}/replay`, {\n        method: "POST",\n      }));': 'const request = await apiJson<Message>(apiBase, `/v1/messages/${messageId}/replay`, {\n        method: "POST",\n      });',
+            'const category = await expectJson<Category>(await fetch(`${apiBase}/v1/categories`, {\n        method: "POST",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ name }),\n      }));': 'const category = await apiJson<Category>(apiBase, "/v1/categories", {\n        method: "POST",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ name }),\n      });',
+            'await expectJsonOrEmpty(await fetch(`${apiBase}/v1/categories/${category.categoryId}`, {\n        method: "DELETE",\n      }));': 'await apiJsonOrEmpty(apiBase, `/v1/categories/${category.categoryId}`, {\n        method: "DELETE",\n      });',
+            'await expectJson<Chat>(await fetch(`${apiBase}/v1/chats/${activeChat.chatId}`, {\n        method: "PATCH",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ categoryId: categoryId || null }),\n      }));': 'await apiJson<Chat>(apiBase, `/v1/chats/${activeChat.chatId}`, {\n        method: "PATCH",\n        headers: { "Content-Type": "application/json" },\n        body: JSON.stringify({ categoryId: categoryId || null }),\n      });',
+          }
+          for old, new in replacements.items():
+              chat = replace_once(chat, old, new, f"Chat replacement {old[:35]}")
+
+          old_delete = '''      const response = ids.length === 1
+                ? await fetch(`${apiBase}/v1/chats/${encodeURIComponent(ids[0])}`, { method: "DELETE" })
+                : await fetch(`${apiBase}/v1/chats`, {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ chatIds: ids }),
+                  });
+              await expectJsonOrEmpty(response);'''
+          new_delete = '''      if (ids.length === 1) {
+                await apiJsonOrEmpty(apiBase, `/v1/chats/${encodeURIComponent(ids[0])}`, {
+                  method: "DELETE",
+                });
+              } else {
+                await apiJsonOrEmpty(apiBase, "/v1/chats", {
+                  method: "DELETE",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ chatIds: ids }),
+                });
+              }'''
+          chat = replace_once(chat, old_delete, new_delete, "Chat deletion")
+
+          local_empty_start = chat.find('\nasync function expectJsonOrEmpty(response: Response) {')
+          if local_empty_start < 0:
+              raise SystemExit("Local expectJsonOrEmpty was not found")
+          chat = chat[:local_empty_start] + '\n'
+          if 'setOnline(' in chat:
+              raise SystemExit("Chat app still contains local online mutation")
+          if 'expectJson<' in chat or 'expectJsonOrEmpty(' in chat or 'await fetch(' in chat:
+              raise SystemExit("Chat app still contains local API transport")
+          chat_path.write_text(chat, encoding="utf-8")
+          '@ | python3 -
+
+          dotnet build src/Mezhs.Agent.Web/Mezhs.Agent.Web.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Agent Web build failed.' }
+          dotnet build src/Mezhs.Web/Mezhs.Web.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'MEŽS Web build failed.' }
+          pwsh -NoProfile -File tests/agent-web-shared-ui.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Shared Agent Web UI test failed.' }
+
+      - name: Commit shared integration
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/Mezhs.Agent.Web/src/App.tsx src/Mezhs.Web.Lib/src/MezhsChatApp.tsx
+          git commit -m "Use shared API availability across Web apps"
+          git push
