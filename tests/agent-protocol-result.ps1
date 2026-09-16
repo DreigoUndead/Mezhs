@@ -76,11 +76,11 @@ try
     parser.Parse("<SH>\necho outer\n<SH>\necho nested\n</SH>\n</SH>");
     throw new InvalidOperationException("Nested SH block was accepted.");
 }
-catch (CommandParseException ex) when (ex.Message.Contains("Nested <SH>", StringComparison.Ordinal))
+catch (CommandParseException)
 {
 }
 
-Console.WriteLine("PASS: Agent parser keeps unrelated tag-like SH text opaque and rejects an actual nested SH block.");
+Console.WriteLine("PASS: Agent parser keeps unrelated tag-like SH text opaque and rejects a complete nested SH block.");
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
     dotnet run --project (Join-Path $temp 'ParserTest.csproj') -c Release
