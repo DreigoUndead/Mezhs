@@ -94,16 +94,29 @@ function assertProofToken(token, seed, difficulty) {
   assert.ok(digest.subarray(0, target.length).compare(target) < 0);
 }
 
-test("browser transport has one named provider-operation bridge", () => {
+test("browser transport polls long provider operations through short HTTP requests", () => {
   const electron = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8");
+  const transport = fs.readFileSync(
+    path.join(root, "transports", "Mezhs.Browser.Electron", "ElectronBrowserTransport.cs"),
+    "utf8"
+  );
   const contract = fs.readFileSync(
     path.join(root, "transports", "Mezhs.Browser.Abstractions", "IChatBrowserTransport.cs"),
     "utf8"
   );
 
-  assert.match(electron, /request\.url === "\/invoke"/);
+  assert.match(electron, /requestUrl\.pathname === "\/invoke"/);
+  assert.match(electron, /requestUrl\.pathname\.startsWith\("\/invoke\/"\)/);
+  assert.match(electron, /writeJson\(response, 202, \{ operationId \}\)/);
+  assert.match(electron, /queueProviderOperation\(body\)/);
   assert.doesNotMatch(electron, /request\.url === "\/prompt"/);
   assert.doesNotMatch(electron, /request\.url === "\/fetch"/);
+
+  assert.match(transport, /Timeout = TimeSpan\.FromSeconds\(10\)/);
+  assert.match(transport, /OperationPollInterval = TimeSpan\.FromSeconds\(2\)/);
+  assert.match(transport, /GetAsync\(/);
+  assert.doesNotMatch(transport, /FromMinutes\(6\)/);
+
   assert.match(contract, /InvokeAsync<TResult>/);
   assert.doesNotMatch(contract, /SendPromptAsync|SendWebRequestAsync|BrowserWebRequest|BrowserWebResponse/);
 });
