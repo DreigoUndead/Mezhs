@@ -118,6 +118,10 @@ test("browser transport polls long provider operations through short HTTP reques
   assert.doesNotMatch(transport, /FromMinutes\(6\)/);
 
   assert.match(contract, /InvokeAsync<TResult>/);
+  assert.match(contract, /InvokeWithProgressAsync<TResult>/);
+  assert.match(contract, /BrowserOperationProgress/);
+  assert.match(electron, /reportProgress/);
+  assert.match(transport, /reportProgress\?\.Invoke\(progress\)/);
   assert.doesNotMatch(contract, /SendPromptAsync|SendWebRequestAsync|BrowserWebRequest|BrowserWebResponse/);
 });
 
