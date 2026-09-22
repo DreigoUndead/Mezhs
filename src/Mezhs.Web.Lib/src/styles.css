@@ -145,6 +145,9 @@ button { color: inherit; }
 .message-file span { min-width: 0; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .message-file i { color: #7e786f; font-size: 8px; font-style: normal; }
 .message-error { margin: 10px 0 0; padding: 10px 12px; border-left: 2px solid #c95b52; color: #8b403a; background: #f7e8e5; font-size: 11px; line-height: 1.45; }
+.message-analysis { margin-top: 10px; border: 1px solid #ded9cf; border-radius: 9px; background: #f1eee7; }
+.message-analysis summary { padding: 7px 10px; color: #777169; font-size: 9px; font-weight: 700; cursor: pointer; }
+.message-analysis pre { max-height: 320px; margin: 0; overflow: auto; padding: 10px; border-top: 1px solid #ded9cf; color: #575149; background: #ebe7df; font: 10px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .replay { margin-top: 10px; padding: 4px 0; border: 0; color: #8b857b; background: transparent; font-size: 10px; cursor: pointer; }
 .replay:hover { color: #31302b; }
 .thinking { display: flex; align-items: center; gap: 5px; padding: 15px 0 15px 53px; color: #89837a; font-size: 10px; }
