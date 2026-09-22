@@ -8,8 +8,9 @@ namespace Mezhs.Browser.Electron;
 public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBrowserTransport
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly TimeSpan OperationPollInterval = TimeSpan.FromSeconds(2);
     private readonly string _electronDirectory = Path.GetFullPath(electronDirectory);
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(6) };
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
     private readonly TaskCompletionSource<Uri> _ready = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
     private Process? _process;
@@ -74,18 +75,66 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         CancellationToken cancellationToken = default)
     {
         EnsureRunning();
-        using var response = await _http.PostAsJsonAsync(
+        using var startResponse = await _http.PostAsJsonAsync(
             "invoke",
             new { operation, arguments },
             JsonOptions,
             cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        if (!startResponse.IsSuccessStatusCode)
             throw new InvalidOperationException(
-                $"Electron provider operation failed: {await response.Content.ReadAsStringAsync(cancellationToken)}");
+                $"Electron provider operation could not start: {await startResponse.Content.ReadAsStringAsync(cancellationToken)}");
 
-        return await response.Content.ReadFromJsonAsync<TResult>(JsonOptions, cancellationToken)
+        var started = await startResponse.Content.ReadFromJsonAsync<ProviderOperationStarted>(
+            JsonOptions,
+            cancellationToken)
             ?? throw new InvalidOperationException(
-                $"Electron provider operation '{operation}' returned no result.");
+                $"Electron provider operation '{operation}' returned no operation id.");
+        if (string.IsNullOrWhiteSpace(started.OperationId))
+            throw new InvalidOperationException(
+                $"Electron provider operation '{operation}' returned an empty operation id.");
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var statusResponse = await _http.GetAsync(
+                $"invoke/{Uri.EscapeDataString(started.OperationId)}",
+                cancellationToken);
+            if (!statusResponse.IsSuccessStatusCode)
+                throw new InvalidOperationException(
+                    $"Electron provider operation status failed: {await statusResponse.Content.ReadAsStringAsync(cancellationToken)}");
+
+            var state = await statusResponse.Content.ReadFromJsonAsync<ProviderOperationState>(
+                JsonOptions,
+                cancellationToken)
+                ?? throw new InvalidOperationException(
+                    $"Electron provider operation '{operation}' returned no status.");
+
+            switch (state.Status)
+            {
+                case "queued":
+                case "running":
+                    await Task.Delay(OperationPollInterval, cancellationToken);
+                    continue;
+
+                case "completed":
+                    if (state.Result is null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Electron provider operation '{operation}' returned no result.");
+                    }
+                    return state.Result.Value.Deserialize<TResult>(JsonOptions)
+                        ?? throw new InvalidOperationException(
+                            $"Electron provider operation '{operation}' returned no result.");
+
+                case "failed":
+                    throw new InvalidOperationException(
+                        $"Electron provider operation failed: {state.Error ?? "Unknown provider error."}");
+
+                default:
+                    throw new InvalidOperationException(
+                        $"Electron provider operation '{operation}' returned unknown status '{state.Status}'.");
+            }
+        }
     }
 
     public async Task ShowAsync(CancellationToken cancellationToken = default)
@@ -195,6 +244,12 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         if (_process is null || _process.HasExited || _http.BaseAddress is null)
             throw new InvalidOperationException("Electron process is not running.");
     }
+
+    private sealed record ProviderOperationStarted(string OperationId);
+    private sealed record ProviderOperationState(
+        string Status,
+        JsonElement? Result,
+        string? Error);
 
     private static async Task IgnoreFailureAsync(Task task)
     {
