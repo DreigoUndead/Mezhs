@@ -82,3 +82,4 @@ policies:
     limits:
       maxTurns: 30
       commandTimeoutSeconds: 120
+      turnTimeoutSeconds: 120
