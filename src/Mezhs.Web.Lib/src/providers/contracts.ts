@@ -46,6 +46,10 @@ export type ChatMessage = {
   createdAt: string;
   error?: string;
   replayOfMessageId?: string;
+  activity?: string | null;
+  activityDetail?: string | null;
+  analysis?: string | null;
+  activityAt?: string | null;
   reply?: ChatMessage;
 };
 
