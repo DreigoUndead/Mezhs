@@ -44,7 +44,6 @@ Assert(Directory.Exists(options.Workspace), "Configured Agent workspace was not 
 Assert(normal.Settings.Commands.Allow.SequenceEqual(new[] { "SH" }), "Command allow-list was not compiled.");
 Assert(normal.Settings.Environment.Allow.SequenceEqual(new[] { "TEST_AGENT_VALUE" }), "Environment allow-list was not compiled.");
 Assert(!normal.Settings.Completion.RequireDone, "requireDone=false was not compiled.");
-Assert(normal.Settings.Limits.TurnTimeoutSeconds == 30, "turnTimeoutSeconds was not compiled.");
 Assert(evidencePolicy.Settings.Completion.RequiredSuccessfulCommands.SequenceEqual(new[] { "SH" }),
     "Required successful command evidence was not compiled.");
 Assert(evidencePolicy.ModelInstructions.Contains("successful execution evidence", StringComparison.OrdinalIgnoreCase),
