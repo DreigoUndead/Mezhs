@@ -45,6 +45,9 @@ public sealed class PolicyLimitsDefinition
 
     [Range(1, int.MaxValue)]
     public int CommandTimeoutSeconds { get; set; } = 120;
+
+    [Range(1, int.MaxValue)]
+    public int TurnTimeoutSeconds { get; set; } = 120;
 }
 
 public sealed record PolicySettings(
@@ -67,4 +70,5 @@ public sealed record PolicyCompletionSettings(
 
 public sealed record PolicyLimitsSettings(
     int MaxTurns,
-    int CommandTimeoutSeconds);
+    int CommandTimeoutSeconds,
+    int TurnTimeoutSeconds);
