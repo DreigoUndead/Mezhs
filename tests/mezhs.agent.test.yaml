@@ -43,6 +43,7 @@ messages:
     Correct the command or continue without it.
   commandResults: |
     MEŽS runtime command results follow.
+    Separate observed facts from hypotheses. A change that fixes a symptom does not by itself prove the original cause; state causality as established only when the evidence distinguishes it from plausible alternatives.
 
     Command results JSON:
     {json}
@@ -52,6 +53,7 @@ messages:
     Agent command protocol:
     - Only use commands allowed by policy.
     - Execution history is evidence.
+    - Separate observed facts from hypotheses. Do not present a suspected cause as established unless the available evidence distinguishes it from plausible alternatives.
   shellContext: |
     Host shell: {shell}
     Each executable agent command has a timeout of {timeout} seconds.
