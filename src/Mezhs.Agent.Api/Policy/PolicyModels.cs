@@ -41,13 +41,7 @@ public sealed class PolicyCompletionDefinition
 public sealed class PolicyLimitsDefinition
 {
     [Range(1, int.MaxValue)]
-    public int MaxTurns { get; set; } = 30;
-
-    [Range(1, int.MaxValue)]
     public int CommandTimeoutSeconds { get; set; } = 120;
-
-    [Range(1, int.MaxValue)]
-    public int TurnTimeoutSeconds { get; set; } = 120;
 }
 
 public sealed record PolicySettings(
@@ -69,6 +63,4 @@ public sealed record PolicyCompletionSettings(
     IReadOnlyList<string> RequiredSuccessfulCommands);
 
 public sealed record PolicyLimitsSettings(
-    int MaxTurns,
-    int CommandTimeoutSeconds,
-    int TurnTimeoutSeconds);
+    int CommandTimeoutSeconds);
