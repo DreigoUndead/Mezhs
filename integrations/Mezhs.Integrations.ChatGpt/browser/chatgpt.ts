@@ -32,8 +32,8 @@ const PROMPT_EDITOR_SELECTOR = [
 
 const CONVERSATION_POLL_INTERVAL_MS = 2000;
 const CONVERSATION_RATE_LIMIT_MAX_FALLBACK_MS = 30000;
-const TURN_START_WATCHDOG_MS = 20000;
-const TURN_START_RETRY_LIMIT = 1;
+const TURN_INACTIVITY_WATCHDOG_MS = 20000;
+const TURN_RECOVERY_RETRY_LIMIT = 1;
 
 module.exports = {
   name: "ChatGPT",
@@ -333,7 +333,7 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
       const retryMessageId = randomUUID();
       reportProgress?.({
         state: "retrying",
-        detail: "No model activity was detected; reposting the prompt once."
+        detail: `No active model generation was detected for ${TURN_INACTIVITY_WATCHDOG_MS / 1000}s; reposting the prompt once.`
       });
       const retryConversationId = await postConversationTurn(
         window,
@@ -795,8 +795,8 @@ async function waitForConversation(
 ) {
   const endpoint = API.conversationById(conversationId);
   let consecutiveRateLimits = 0;
-  let startupWaitMs = 0;
-  let activityObserved = false;
+  let inactiveWaitMs = 0;
+  let lastProgressKey = null;
   let retries = 0;
 
   while (true) {
@@ -836,24 +836,30 @@ async function waitForConversation(
       return turn.reply;
     }
 
-    if (turn.started)
-      activityObserved = true;
-
     reportProgress?.({
       state: turn.state,
       detail: turn.detail,
       analysis: turn.analysis
     });
 
-    if (!activityObserved && startupWaitMs >= TURN_START_WATCHDOG_MS) {
-      if (retries >= TURN_START_RETRY_LIMIT)
+    const progressObserved = Boolean(
+      turn.progressKey && turn.progressKey !== lastProgressKey
+    );
+    if (progressObserved)
+      lastProgressKey = turn.progressKey;
+
+    if (turn.active || progressObserved) {
+      inactiveWaitMs = 0;
+    } else if (inactiveWaitMs >= TURN_INACTIVITY_WATCHDOG_MS) {
+      if (retries >= TURN_RECOVERY_RETRY_LIMIT)
         throw new Error(
-          `ChatGPT did not start responding within ${TURN_START_WATCHDOG_MS / 1000}s after the automatic retry.`
+          `ChatGPT showed no active generation for ${TURN_INACTIVITY_WATCHDOG_MS / 1000}s after the automatic retry.`
         );
 
       requestMessageId = await retryTurn();
       retries++;
-      startupWaitMs = 0;
+      inactiveWaitMs = 0;
+      lastProgressKey = null;
       reportProgress?.({
         state: "waiting",
         detail: "Prompt reposted; waiting for model activity."
@@ -862,8 +868,8 @@ async function waitForConversation(
     }
 
     await sleep(CONVERSATION_POLL_INTERVAL_MS);
-    if (!activityObserved)
-      startupWaitMs += CONVERSATION_POLL_INTERVAL_MS;
+    if (!turn.active)
+      inactiveWaitMs += CONVERSATION_POLL_INTERVAL_MS;
   }
 }
 
@@ -872,13 +878,15 @@ function inspectConversationTurn(conversation, requestMessageId) {
   if (reply)
     return {
       reply,
-      started: true,
+      active: false,
+      progressKey: String(conversation?.current_node || reply.parentMessageId || ""),
       state: "responding",
       detail: "Model response completed.",
       analysis: collectTurnAnalysis(conversation, requestMessageId)
     };
 
   const mapping = conversation?.mapping || {};
+  const progressKey = String(conversation?.current_node || "");
   let node = mapping[conversation?.current_node];
   let reachedRequest = false;
   let assistantObserved = false;
@@ -910,7 +918,8 @@ function inspectConversationTurn(conversation, requestMessageId) {
   if (!reachedRequest) {
     return {
       reply: null,
-      started: false,
+      active: false,
+      progressKey: null,
       state: "waiting",
       detail: "Waiting for the submitted prompt to become the active ChatGPT turn.",
       analysis: null
@@ -921,7 +930,8 @@ function inspectConversationTurn(conversation, requestMessageId) {
     const thinking = inProgress.channel === "analysis";
     return {
       reply: null,
-      started: true,
+      active: true,
+      progressKey,
       state: thinking ? "thinking" : "responding",
       detail: thinking ? "Model is thinking." : "Model is generating a response.",
       analysis: analysisText
@@ -931,16 +941,18 @@ function inspectConversationTurn(conversation, requestMessageId) {
   if (assistantObserved) {
     return {
       reply: null,
-      started: true,
-      state: "active",
-      detail: "Model activity was observed; ChatGPT does not expose an active generation marker for the current node.",
+      active: false,
+      progressKey,
+      state: "waiting",
+      detail: "Model activity was observed, but no active generation is currently detected.",
       analysis: analysisText
     };
   }
 
   return {
     reply: null,
-    started: false,
+    active: false,
+    progressKey,
     state: "waiting",
     detail: "Prompt is present, but no model activity has started yet.",
     analysis: null
