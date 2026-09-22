@@ -1,5 +1,6 @@
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
+import { modelActivityLabel } from "./ChatSurface";
 import { ChatProviderRegistry } from "./providers/registry";
 import { useAutoResizeTextArea } from "./useAutoResizeTextArea";
 import type {
@@ -93,6 +94,9 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   );
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
+  const activeMessage = [...messages].reverse().find((message) =>
+    message.role === "user" && !terminalStatuses.has(message.status));
+  const busyLabel = modelActivityLabel(activeMessage?.activity, activeMessage?.activityDetail);
 
   const filteredChats = useMemo(() => {
     return chats.filter((chat) => {
@@ -712,6 +716,12 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                     </div>
                   )}
                   {message.error && <p className="message-error">{message.error}</p>}
+                  {message.analysis && (
+                    <details className="message-analysis">
+                      <summary>Model analysis</summary>
+                      <pre>{message.analysis}</pre>
+                    </details>
+                  )}
                   {message.role === "user" && terminalStatuses.has(message.status) && (
                     <button className="replay" onClick={() => void replay(message.messageId)} disabled={sending}>Replay request</button>
                   )}
@@ -719,7 +729,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
               </article>
             );
           })}
-          {sending && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>{selectedModel?.id ? `${selectedModel.name} is thinking...` : "Working through it..."}</span></div>}
+          {sending && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>{busyLabel}</span></div>}
           <div ref={endRef} />
         </section>
 
