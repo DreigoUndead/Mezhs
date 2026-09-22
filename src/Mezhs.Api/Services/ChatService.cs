@@ -90,6 +90,7 @@ public sealed class ChatService(
             message.Activity,
             message.ActivityDetail,
             message.Analysis,
-            message.ActivityAt);
+            message.ActivityAt,
+            message.ActivityHistory);
     }
 }
