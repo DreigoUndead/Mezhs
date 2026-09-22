@@ -1,0 +1,34 @@
+name: Cleanup merged branches
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete merged branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          branches=(
+            "agent/grok-account-integration"
+            "agent/web-lib-conversation-management"
+            "agent-api-composition"
+            "executor-foundation"
+            "log-foundation"
+            "whatsapp-cli-foundation"
+          )
+          for branch in "${branches[@]}"; do
+            git fetch origin "$branch:refs/remotes/origin/$branch"
+            git merge-base --is-ancestor "refs/remotes/origin/$branch" HEAD
+            git push origin --delete "$branch"
+          done
