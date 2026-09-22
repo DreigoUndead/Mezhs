@@ -264,7 +264,7 @@ test("ChatGPT getModels follows the native picker instead of the raw catalog", a
   ]);
 });
 
-test("ChatGPT o3 newChat follows the native protocol and reports the assistant model", async () => {
+test("ChatGPT o3 newChat follows the semantic web API protocol and reports the assistant model", async () => {
   const chatgpt = loadChatGptModule();
   const seed = "0.559779845730002";
   const difficulty = "ffffff";
@@ -332,8 +332,19 @@ test("ChatGPT o3 newChat follows the native protocol and reports the assistant m
 
   const result = await chatgpt.operations.newChat({
     window: {
+      loadURL: async () => {
+        throw new Error("ChatGPT account send must not navigate the UI.");
+      },
       getBounds: () => ({ width: 1200, height: 850 }),
-      webContents: { getUserAgent: () => "TestBrowser/1.0" }
+      webContents: {
+        getUserAgent: () => "TestBrowser/1.0",
+        debugger: {}
+      }
+    },
+    page: {
+      invoke: async () => {
+        throw new Error("ChatGPT account send must not invoke page operations.");
+      }
     },
     session,
     args: {
