@@ -81,9 +81,13 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                     projectId,
                     context.Message.Model,
                     files);
-                var response = await transport.InvokeAsync<ChatGptSendResponse>(
+                var response = await transport.InvokeWithProgressAsync<ChatGptSendResponse>(
                     newChat ? "newChat" : "send",
                     request,
+                    progress => context.ReportActivity?.Invoke(new IntegrationActivity(
+                        progress.State,
+                        progress.Detail,
+                        progress.Analysis)),
                     token);
                 return (response, projectId);
             }
