@@ -42,8 +42,7 @@ module.exports = {
 
           let lastText = '';
           let stableSamples = 0;
-          const responseDeadline = Date.now() + 180000;
-          while (Date.now() < responseDeadline) {
+          while (true) {
             const messages = document.querySelectorAll(assistantSelector);
             const latest = messages[messages.length - 1];
             const text = latest?.innerText?.trim() || '';
@@ -54,7 +53,6 @@ module.exports = {
             if (text && !stopButton && stableSamples >= 6) return { ok: true, text };
             await sleep(500);
           }
-          return { ok: false, text: lastText, error: 'Gemini response timed out.' };
         })()
       `, true);
     }
