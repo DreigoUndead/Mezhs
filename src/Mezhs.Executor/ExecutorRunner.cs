@@ -39,16 +39,14 @@ internal sealed class ExecutorRunner(ExecutorStore store)
             {
                 StartInfo = CreateShellStartInfo(execution, environmentJson, platform, shell)
             };
-            Task<string>? stdoutTask = null;
-            Task<string>? stderrTask = null;
+            using var output = new ProcessOutputCapture(process);
 
             try
             {
                 if (!process.Start())
                     throw new InvalidOperationException("Host shell process could not be started.");
                 store.SetProcessId(execution.Id, process.Id);
-                stdoutTask = process.StandardOutput.ReadToEndAsync();
-                stderrTask = process.StandardError.ReadToEndAsync();
+                output.Start();
                 if (shell.StandardInput is { } standardInput)
                 {
                     process.StandardInput.Write(standardInput);
@@ -85,8 +83,13 @@ internal sealed class ExecutorRunner(ExecutorStore store)
 
                 if (!process.HasExited)
                     process.WaitForExit();
-                var streams = Task.WhenAll(stdoutTask, stderrTask).GetAwaiter().GetResult();
-                var result = FormatResult(streams[0], streams[1]);
+
+                // The direct shell owns this execution. A command such as Windows
+                // 'start /b' may intentionally leave a descendant alive with inherited
+                // stdout/stderr handles. Do not wait for those descendant handles to
+                // close after the shell itself has exited.
+                var streams = output.Complete(TimeSpan.FromMilliseconds(500));
+                var result = FormatResult(streams.Stdout, streams.Stderr);
 
                 if (terminationError is not null)
                 {
@@ -252,6 +255,89 @@ internal sealed class ExecutorRunner(ExecutorStore store)
         }
         catch (UnauthorizedAccessException)
         {
+        }
+    }
+
+    private sealed class ProcessOutputCapture : IDisposable
+    {
+        private readonly Process _process;
+        private readonly object _stdoutLock = new();
+        private readonly object _stderrLock = new();
+        private readonly StringBuilder _stdout = new();
+        private readonly StringBuilder _stderr = new();
+        private readonly ManualResetEventSlim _stdoutClosed = new();
+        private readonly ManualResetEventSlim _stderrClosed = new();
+        private bool _started;
+
+        public ProcessOutputCapture(Process process)
+        {
+            _process = process;
+            _process.OutputDataReceived += (_, args) => Capture(args.Data, _stdout, _stdoutLock, _stdoutClosed);
+            _process.ErrorDataReceived += (_, args) => Capture(args.Data, _stderr, _stderrLock, _stderrClosed);
+        }
+
+        public void Start()
+        {
+            _process.BeginOutputReadLine();
+            _process.BeginErrorReadLine();
+            _started = true;
+        }
+
+        public (string Stdout, string Stderr) Complete(TimeSpan grace)
+        {
+            if (!_started)
+                return (string.Empty, string.Empty);
+
+            var deadline = Stopwatch.StartNew();
+            WaitForClose(_stdoutClosed, grace, deadline);
+            WaitForClose(_stderrClosed, grace, deadline);
+
+            if (!_stdoutClosed.IsSet)
+                TryCancel(_process.CancelOutputRead);
+            if (!_stderrClosed.IsSet)
+                TryCancel(_process.CancelErrorRead);
+
+            lock (_stdoutLock)
+            lock (_stderrLock)
+                return (_stdout.ToString(), _stderr.ToString());
+        }
+
+        public void Dispose()
+        {
+            _stdoutClosed.Dispose();
+            _stderrClosed.Dispose();
+        }
+
+        private static void Capture(
+            string? value,
+            StringBuilder target,
+            object gate,
+            ManualResetEventSlim closed)
+        {
+            if (value is null)
+            {
+                closed.Set();
+                return;
+            }
+
+            lock (gate)
+                target.AppendLine(value);
+        }
+
+        private static void WaitForClose(
+            ManualResetEventSlim closed,
+            TimeSpan grace,
+            Stopwatch elapsed)
+        {
+            var remaining = grace - elapsed.Elapsed;
+            if (remaining > TimeSpan.Zero)
+                closed.Wait(remaining);
+        }
+
+        private static void TryCancel(Action cancel)
+        {
+            try { cancel(); }
+            catch (InvalidOperationException) { }
         }
     }
 
