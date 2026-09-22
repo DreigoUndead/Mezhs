@@ -21,13 +21,20 @@ const API = Object.freeze({
   fileDownload: id => `/backend-api/files/${encodeURIComponent(id)}/download`
 });
 
-const PROMPT_EDITOR_SELECTOR = [
+const PROMPT_EDITOR_SELECTORS = [
   '#prompt-textarea',
-  'textarea[name="prompt-textarea"]',
   '[data-testid="prompt-textarea"]',
   '.ProseMirror[contenteditable="true"]',
   '[contenteditable="true"][role="textbox"]',
-  '[contenteditable="true"][data-virtualkeyboard="true"]'
+  '[contenteditable="true"][data-virtualkeyboard="true"]',
+  'textarea[name="prompt-textarea"]'
+];
+
+const SEND_BUTTON_SELECTOR = [
+  '#composer-submit-button',
+  'button[data-testid="send-button"]',
+  'button[aria-label="Send prompt"]',
+  'button[aria-label="Send message"]'
 ].join(', ');
 
 const CONVERSATION_POLL_INTERVAL_MS = 2000;
@@ -81,15 +88,31 @@ module.exports = {
     async sendPrompt({ window, args }) {
       if (args.newChat) await window.loadURL(module.exports.homeUrl);
       const prompt = JSON.stringify(String(args.prompt || ""));
-      const promptEditorSelector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
+      const promptEditorSelectors = JSON.stringify(PROMPT_EDITOR_SELECTORS);
+      const sendButtonSelector = JSON.stringify(SEND_BUTTON_SELECTOR);
       return window.webContents.executeJavaScript(`
         (async () => {
           const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
           const selector = '[data-message-author-role="assistant"]';
           const before = document.querySelectorAll(selector).length;
+          const isUsable = element => {
+            if (!element || element.disabled || element.isConnected === false) return false;
+            if (element.getAttribute?.('aria-hidden') === 'true') return false;
+            const style = getComputedStyle(element);
+            if (style.display === 'none' || style.visibility === 'hidden') return false;
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 || rect.height > 0;
+          };
+          const findEditor = () => {
+            for (const selector of ${promptEditorSelectors}) {
+              for (const candidate of document.querySelectorAll(selector))
+                if (isUsable(candidate)) return candidate;
+            }
+            return null;
+          };
           let editor = null;
           for (let i = 0; i < 120 && !editor; i++) {
-            editor = document.querySelector(${promptEditorSelector});
+            editor = findEditor();
             if (!editor) await sleep(250);
           }
           if (!editor) return { ok: false, error: 'ChatGPT prompt editor was not found.' };
@@ -105,12 +128,24 @@ module.exports = {
             document.execCommand('insertText', false, ${prompt});
             editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
           }
+          const findSend = () => {
+            const local = editor.closest?.('form');
+            const scopes = local ? [local, document] : [document];
+            for (const scope of scopes) {
+              for (const candidate of scope.querySelectorAll(${sendButtonSelector})) {
+                if (!isUsable(candidate)) continue;
+                if (candidate.disabled || candidate.getAttribute?.('aria-disabled') === 'true') continue;
+                return candidate;
+              }
+            }
+            return null;
+          };
           let send = null;
-          for (let i = 0; i < 360 && (!send || send.disabled); i++) {
-            send = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
-            if (!send || send.disabled) await sleep(250);
+          for (let i = 0; i < 360 && !send; i++) {
+            send = findSend();
+            if (!send) await sleep(250);
           }
-          if (!send || send.disabled) return { ok: false, error: 'ChatGPT send button did not become available.' };
+          if (!send) return { ok: false, error: 'ChatGPT send button did not become available.' };
           send.click();
           let last = '';
           let stable = 0;
@@ -227,6 +262,49 @@ function parseModelSelection(value) {
   };
 }
 
+function isUsablePromptEditor(editor) {
+  if (!editor || editor.disabled || editor.isConnected === false) return false;
+  if (editor.getAttribute?.("aria-hidden") === "true") return false;
+
+  const view = editor.ownerDocument?.defaultView;
+  const style = view?.getComputedStyle?.(editor);
+  if (style && (style.display === "none" || style.visibility === "hidden"))
+    return false;
+
+  if (typeof editor.getBoundingClientRect === "function") {
+    const rect = editor.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return false;
+  }
+  return true;
+}
+
+function findPromptEditor(root = document) {
+  for (const selector of PROMPT_EDITOR_SELECTORS) {
+    const candidates = typeof root.querySelectorAll === "function"
+      ? root.querySelectorAll(selector)
+      : [root.querySelector?.(selector)].filter(Boolean);
+    for (const candidate of candidates)
+      if (isUsablePromptEditor(candidate)) return candidate;
+  }
+  return null;
+}
+
+function findSendButton(editor, root = document) {
+  const form = editor?.closest?.("form");
+  const scopes = form ? [form, root] : [root];
+  for (const scope of scopes) {
+    const candidates = typeof scope.querySelectorAll === "function"
+      ? scope.querySelectorAll(SEND_BUTTON_SELECTOR)
+      : [scope.querySelector?.(SEND_BUTTON_SELECTOR)].filter(Boolean);
+    for (const candidate of candidates) {
+      if (!isUsablePromptEditor(candidate)) continue;
+      if (candidate.disabled || candidate.getAttribute?.("aria-disabled") === "true") continue;
+      return candidate;
+    }
+  }
+  return null;
+}
+
 function setPromptEditorValue(editor, prompt) {
   editor.focus();
   const tagName = String(editor.tagName || "").toUpperCase();
@@ -257,7 +335,7 @@ async function submitPrompt({ args, sleep }) {
   const prompt = String(args.prompt || "");
   let editor = null;
   for (let i = 0; i < 120 && !editor; i++) {
-    editor = document.querySelector(PROMPT_EDITOR_SELECTOR);
+    editor = findPromptEditor();
     if (!editor) await sleep(250);
   }
   if (!editor) {
@@ -268,13 +346,11 @@ async function submitPrompt({ args, sleep }) {
   setPromptEditorValue(editor, prompt);
 
   let send = null;
-  for (let i = 0; i < 360 && (!send || send.disabled); i++) {
-    send = document.querySelector(
-      'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
-    );
-    if (!send || send.disabled) await sleep(250);
+  for (let i = 0; i < 360 && !send; i++) {
+    send = findSendButton(editor);
+    if (!send) await sleep(250);
   }
-  if (!send || send.disabled)
+  if (!send)
     throw new Error("ChatGPT send button did not become available.");
   send.click();
   return true;
