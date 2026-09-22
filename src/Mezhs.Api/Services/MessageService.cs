@@ -236,7 +236,8 @@ public sealed class MessageService(
                     ToIntegrationMessage(message),
                     historyMessages.Select(ToIntegrationMessage).ToArray(),
                     inputFiles,
-                    RestoreConversation: !continueRemote),
+                    RestoreConversation: !continueRemote,
+                    ReportActivity: activity => UpdateActivity(message, activity)),
                 cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -317,6 +318,31 @@ public sealed class MessageService(
             if (gateTaken)
                 gate.Release();
         }
+    }
+
+    private void UpdateActivity(StoredMessage message, IntegrationActivity activity)
+    {
+        if (message.Status != MessageStatus.Running)
+            return;
+
+        var state = activity.State?.Trim();
+        if (string.IsNullOrWhiteSpace(state))
+            return;
+        var detail = string.IsNullOrWhiteSpace(activity.Detail) ? null : activity.Detail.Trim();
+        var analysis = string.IsNullOrWhiteSpace(activity.Analysis)
+            ? message.Analysis
+            : activity.Analysis.Trim();
+
+        if (string.Equals(message.Activity, state, StringComparison.Ordinal) &&
+            string.Equals(message.ActivityDetail, detail, StringComparison.Ordinal) &&
+            string.Equals(message.Analysis, analysis, StringComparison.Ordinal))
+            return;
+
+        message.Activity = state;
+        message.ActivityDetail = detail;
+        message.Analysis = analysis;
+        message.ActivityAt = DateTimeOffset.UtcNow;
+        store.SaveMessage(message);
     }
 
     private IReadOnlyList<StoredMessage> BuildHistory(StoredMessage current)
@@ -426,7 +452,11 @@ public sealed class MessageService(
             message.Error,
             message.ReplayOfMessageId,
             reply,
-            message.Model);
+            message.Model,
+            message.Activity,
+            message.ActivityDetail,
+            message.Analysis,
+            message.ActivityAt);
     }
 
     private static string NormalizeStoredOrigin(StoredMessage message)
