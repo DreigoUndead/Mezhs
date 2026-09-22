@@ -1,0 +1,68 @@
+name: Temporary final runtime validation
+
+on:
+  push:
+    branches:
+      - fix-chatgpt-composer-selection
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix-chatgpt-composer-selection
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $lines = [System.Collections.Generic.List[string]]::new()
+          $failed = $false
+
+          function Run-Check([string]$name, [scriptblock]$command) {
+            $script:lines.Add("=== $name ===")
+            & $command 2>&1 | ForEach-Object {
+              $script:lines.Add([string]$_)
+              Write-Host $_
+            }
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -ne 0) {
+              $script:failed = $true
+              $script:lines.Add("RESULT: FAIL ($exitCode)")
+            } else {
+              $script:lines.Add("RESULT: PASS")
+            }
+            $script:lines.Add("")
+          }
+
+          Run-Check "release build" { dotnet build Mezhs.sln -c Release }
+          Run-Check "node tests" {
+            $files = Get-ChildItem tests -Filter *.test.js | ForEach-Object FullName
+            node --test $files
+          }
+          Run-Check "policy decoder" { pwsh -NoProfile -File ./tests/policy-decoder.ps1 }
+          Run-Check "executor lifecycle" { pwsh -NoProfile -File ./tests/executor-lifecycle.ps1 }
+          Run-Check "agent provider lifetime" { pwsh -NoProfile -File ./tests/agent-provider-lifetime.ps1 }
+          Run-Check "agent architecture" { pwsh -NoProfile -File ./tests/agent-architecture.ps1 }
+          Run-Check "architecture" { pwsh -NoProfile -File ./tests/architecture.ps1 }
+
+          $status = if ($failed) { "FAIL" } else { "PASS" }
+          @("status: $status", "commit: $env:GITHUB_SHA", "") + $lines |
+            Set-Content .final-runtime-validation.txt -Encoding utf8
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .final-runtime-validation.txt
+          git commit -m "Record temporary final runtime validation [skip ci]"
+          git push origin HEAD:fix-chatgpt-composer-selection
+
+          if ($failed) { exit 1 }
