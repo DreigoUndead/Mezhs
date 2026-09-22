@@ -70,6 +70,7 @@ policies:
     limits:
       maxTurns: 3
       commandTimeoutSeconds: 2
+      turnTimeoutSeconds: 30
 
   test-alt:
     connectionId: test
