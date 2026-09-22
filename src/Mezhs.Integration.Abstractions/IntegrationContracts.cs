@@ -94,7 +94,8 @@ public sealed record IntegrationSendContext(
     IntegrationMessageContext Message,
     IReadOnlyList<IntegrationMessageContext> History,
     IReadOnlyList<IntegrationInputFile> Files,
-    bool RestoreConversation = false)
+    bool RestoreConversation = false,
+    Action<IntegrationActivity>? ReportActivity = null)
 {
     public string Prompt
     {
@@ -130,6 +131,11 @@ public sealed record IntegrationOutputFile(
     string Name,
     string ContentType,
     bool DeleteAfterImport = true);
+
+public sealed record IntegrationActivity(
+    string State,
+    string? Detail = null,
+    string? Analysis = null);
 
 public sealed record IntegrationSendResult(
     string Text,
