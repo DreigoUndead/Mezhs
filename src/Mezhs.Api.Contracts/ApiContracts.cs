@@ -17,6 +17,11 @@ public enum FileSource
     Assistant
 }
 
+public sealed record MessageActivity(
+    string State,
+    string? Detail,
+    DateTimeOffset At);
+
 public sealed record CreateChatRequest(
     string ConnectionId,
     string? CategoryId = null);
@@ -102,7 +107,8 @@ public sealed record ApiMessage(
     string? Activity = null,
     string? ActivityDetail = null,
     string? Analysis = null,
-    DateTimeOffset? ActivityAt = null);
+    DateTimeOffset? ActivityAt = null,
+    IReadOnlyList<MessageActivity>? ActivityHistory = null);
 
 public sealed record ApiChatHistoryMessage(
     string MessageId,
@@ -124,4 +130,5 @@ public sealed record ApiChatHistoryMessage(
     string? Activity = null,
     string? ActivityDetail = null,
     string? Analysis = null,
-    DateTimeOffset? ActivityAt = null);
+    DateTimeOffset? ActivityAt = null,
+    IReadOnlyList<MessageActivity>? ActivityHistory = null);
