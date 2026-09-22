@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace Mezhs.Executor;
 
 public sealed class ExecutorService
@@ -134,41 +132,6 @@ public sealed class ExecutorService
         return current;
     }
 
-    private void Reconcile(int id)
-    {
-        var execution = _store.Get(id)?.Execution;
-        if (execution is null || execution.IsTerminal || execution.HeartbeatAt is null)
-            return;
-
-        var cutoff = DateTimeOffset.UtcNow - StaleThreshold;
-        if (execution.HeartbeatAt >= cutoff || OwnerProcessExists(execution.OwnerProcessId))
-            return;
-
-        _store.ReconcileStale(id, cutoff);
-    }
-
-    private static bool OwnerProcessExists(int? processId)
-    {
-        if (processId is not > 0)
-            return false;
-
-        try
-        {
-            using var process = Process.GetProcessById(processId.Value);
-            return !process.HasExited;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            // Failure to inspect the process is not evidence that it is gone.
-            return true;
-        }
-    }
+    private void Reconcile(int id) =>
+        _store.ReconcileStale(id, DateTimeOffset.UtcNow - StaleThreshold);
 }
