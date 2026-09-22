@@ -32,6 +32,8 @@ const PROMPT_EDITOR_SELECTOR = [
 
 const CONVERSATION_POLL_INTERVAL_MS = 2000;
 const CONVERSATION_RATE_LIMIT_MAX_FALLBACK_MS = 30000;
+const TURN_START_WATCHDOG_MS = 20000;
+const TURN_START_RETRY_LIMIT = 1;
 
 module.exports = {
   name: "ChatGPT",
@@ -238,9 +240,8 @@ async function setModelPreference(session, token, selection) {
   await apiFetch(session, token, url.pathname + url.search, { method: "PATCH" });
 }
 
-async function sendApiAccountMessage({ window, session, args, sleep }, isNew, token, selection) {
+async function sendApiAccountMessage({ window, session, args, sleep, reportProgress }, isNew, token, selection) {
   const uploaded = await uploadFiles(session, token, args.files || []);
-  const messageId = randomUUID();
   const imageParts = uploaded
     .filter(file => file.contentType.startsWith("image/"))
     .map(file => ({
@@ -254,48 +255,103 @@ async function sendApiAccountMessage({ window, session, args, sleep }, isNew, to
     mimeType: file.contentType,
     size: file.size
   }));
-
-  const projectMode = isNew && args.projectId;
-  const model = selection.model;
   const metadata = {
     selected_sources: [],
     serialization_metadata: { custom_symbol_offsets: [] },
     ...(attachments.length ? { attachments } : {})
   };
-  const payload = {
-    action: "next",
-    conversation_id: isNew ? undefined : args.conversationId,
-    messages: [{
-      id: messageId,
-      author: { role: "user" },
-      create_time: Date.now() / 1000,
-      content: {
-        content_type: imageParts.length ? "multimodal_text" : "text",
-        parts: [...imageParts, String(args.prompt || "")]
-      },
-      metadata
-    }],
-    model,
-    parent_message_id: isNew ? "client-created-root" : args.parentMessageId,
-    client_prepare_state: "success",
-    timezone_offset_min: new Date().getTimezoneOffset(),
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-    conversation_mode: isNew
-      ? projectMode
-        ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
-        : { kind: "primary_assistant" }
-      : undefined,
-    system_hints: [],
-    supports_buffering: true,
-    supported_encodings: ["v1"],
-    client_contextual_info: clientContext(window),
-    paragen_cot_summary_display_override: "allow",
-    force_parallel_switch: "auto",
-    local_function_names: ["local.continue_in_work"]
-  };
-  if (selection.thinkingEffort)
-    payload.thinking_effort = selection.thinkingEffort;
+  const projectMode = isNew && args.projectId
+    ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
+    : isNew
+      ? { kind: "primary_assistant" }
+      : undefined;
+  const parentMessageId = isNew ? "client-created-root" : args.parentMessageId;
 
+  function buildPayload(messageId, conversationId) {
+    const payload = {
+      action: "next",
+      conversation_id: conversationId,
+      messages: [{
+        id: messageId,
+        author: { role: "user" },
+        create_time: Date.now() / 1000,
+        content: {
+          content_type: imageParts.length ? "multimodal_text" : "text",
+          parts: [...imageParts, String(args.prompt || "")]
+        },
+        metadata
+      }],
+      model: selection.model,
+      parent_message_id: parentMessageId,
+      client_prepare_state: "success",
+      timezone_offset_min: new Date().getTimezoneOffset(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+      conversation_mode: projectMode,
+      system_hints: [],
+      supports_buffering: true,
+      supported_encodings: ["v1"],
+      client_contextual_info: clientContext(window),
+      paragen_cot_summary_display_override: "allow",
+      force_parallel_switch: "auto",
+      local_function_names: ["local.continue_in_work"]
+    };
+    if (selection.thinkingEffort)
+      payload.thinking_effort = selection.thinkingEffort;
+    return payload;
+  }
+
+  reportProgress?.({
+    state: "submitting",
+    detail: "Submitting prompt to ChatGPT."
+  });
+
+  let requestMessageId = randomUUID();
+  let conversationId = await postConversationTurn(
+    window,
+    session,
+    token,
+    buildPayload(requestMessageId, isNew ? undefined : args.conversationId),
+    args.conversationId
+  );
+  if (!conversationId)
+    throw new Error("ChatGPT did not return a conversation id.");
+
+  reportProgress?.({
+    state: "waiting",
+    detail: "Prompt accepted; waiting for model activity."
+  });
+
+  return completeAccountMessage(
+    session,
+    token,
+    conversationId,
+    requestMessageId,
+    sleep,
+    isNew,
+    reportProgress,
+    async () => {
+      const retryMessageId = randomUUID();
+      reportProgress?.({
+        state: "retrying",
+        detail: "No model activity was detected; reposting the prompt once."
+      });
+      const retryConversationId = await postConversationTurn(
+        window,
+        session,
+        token,
+        buildPayload(retryMessageId, conversationId),
+        conversationId
+      );
+      if (retryConversationId !== conversationId)
+        throw new Error(
+          `ChatGPT retry switched conversation from '${conversationId}' to '${retryConversationId}'.`
+        );
+      return retryMessageId;
+    }
+  );
+}
+
+async function postConversationTurn(window, session, token, payload, fallbackConversationId = null) {
   const config = sentinelConfig(window);
   const turnTraceId = randomUUID();
   const conduitToken = await getConduitToken(
@@ -327,23 +383,30 @@ async function sendApiAccountMessage({ window, session, args, sleep }, isNew, to
     headers,
     body: JSON.stringify(payload)
   });
-  const conversationId = findConversationId(await response.text()) || args.conversationId;
-  if (!conversationId) throw new Error("ChatGPT did not return a conversation id.");
-
-  return completeAccountMessage(
-    session,
-    token,
-    conversationId,
-    messageId,
-    sleep,
-    isNew
-  );
+  return findConversationId(await response.text()) || fallbackConversationId;
 }
 
-async function completeAccountMessage(session, token, conversationId, messageId, sleep, isNew) {
+async function completeAccountMessage(
+  session,
+  token,
+  conversationId,
+  requestMessageId,
+  sleep,
+  isNew,
+  reportProgress,
+  retryTurn
+) {
   let result;
   try {
-    result = await waitForConversation(session, token, conversationId, messageId, sleep);
+    result = await waitForConversation(
+      session,
+      token,
+      conversationId,
+      requestMessageId,
+      sleep,
+      reportProgress,
+      retryTurn
+    );
   } catch (error) {
     if (!isNew && isConversationUnavailable(error, conversationId))
       return { conversationUnavailable: true };
@@ -721,9 +784,21 @@ function findConversationId(text) {
   return null;
 }
 
-async function waitForConversation(session, token, conversationId, requestMessageId, sleep) {
+async function waitForConversation(
+  session,
+  token,
+  conversationId,
+  requestMessageId,
+  sleep,
+  reportProgress,
+  retryTurn
+) {
   const endpoint = API.conversationById(conversationId);
   let consecutiveRateLimits = 0;
+  let startupWaitMs = 0;
+  let activityObserved = false;
+  let retries = 0;
+
   while (true) {
     let conversation;
     try {
@@ -742,15 +817,145 @@ async function waitForConversation(session, token, conversationId, requestMessag
         error.retryAfterMs ?? fallbackDelay
       );
       consecutiveRateLimits++;
+      reportProgress?.({
+        state: "rate-limited",
+        detail: `ChatGPT rate limited state checks; retrying in ${Math.ceil(delay / 1000)}s.`
+      });
       console.error(`ChatGPT conversation poll rate-limited; retrying in ${delay} ms.`);
       await sleep(delay);
       continue;
     }
 
-    const reply = findVisibleAssistantReply(conversation, requestMessageId);
-    if (reply) return reply;
+    const turn = inspectConversationTurn(conversation, requestMessageId);
+    if (turn.reply) return turn.reply;
+
+    if (turn.started)
+      activityObserved = true;
+
+    reportProgress?.({
+      state: turn.state,
+      detail: turn.detail,
+      analysis: turn.analysis
+    });
+
+    if (!activityObserved && startupWaitMs >= TURN_START_WATCHDOG_MS) {
+      if (retries >= TURN_START_RETRY_LIMIT)
+        throw new Error(
+          `ChatGPT did not start responding within ${TURN_START_WATCHDOG_MS / 1000}s after the automatic retry.`
+        );
+
+      requestMessageId = await retryTurn();
+      retries++;
+      startupWaitMs = 0;
+      reportProgress?.({
+        state: "waiting",
+        detail: "Prompt reposted; waiting for model activity."
+      });
+      continue;
+    }
+
     await sleep(CONVERSATION_POLL_INTERVAL_MS);
+    if (!activityObserved)
+      startupWaitMs += CONVERSATION_POLL_INTERVAL_MS;
   }
+}
+
+function inspectConversationTurn(conversation, requestMessageId) {
+  const reply = findVisibleAssistantReply(conversation, requestMessageId);
+  if (reply)
+    return {
+      reply,
+      started: true,
+      state: "responding",
+      detail: "Model response completed.",
+      analysis: collectTurnAnalysis(conversation, requestMessageId)
+    };
+
+  const mapping = conversation?.mapping || {};
+  let node = mapping[conversation?.current_node];
+  let reachedRequest = false;
+  let assistantObserved = false;
+  let inProgress = null;
+  const analysis = [];
+
+  while (node) {
+    const message = node.message;
+    if (message?.id === requestMessageId) {
+      reachedRequest = true;
+      break;
+    }
+
+    if (message?.author?.role === "assistant") {
+      assistantObserved = true;
+      const channel = String(message.channel || "").trim().toLowerCase();
+      if (channel === "analysis") {
+        const text = visibleAssistantText(message);
+        if (text) analysis.push(text);
+      }
+      if (!inProgress && message.status === "in_progress")
+        inProgress = { channel };
+    }
+
+    node = mapping[node.parent];
+  }
+
+  const analysisText = analysis.reverse().join("\n\n").trim() || null;
+  if (!reachedRequest) {
+    return {
+      reply: null,
+      started: false,
+      state: "waiting",
+      detail: "Waiting for the submitted prompt to become the active ChatGPT turn.",
+      analysis: null
+    };
+  }
+
+  if (inProgress) {
+    const thinking = inProgress.channel === "analysis";
+    return {
+      reply: null,
+      started: true,
+      state: thinking ? "thinking" : "responding",
+      detail: thinking ? "Model is thinking." : "Model is generating a response.",
+      analysis: analysisText
+    };
+  }
+
+  if (assistantObserved) {
+    return {
+      reply: null,
+      started: true,
+      state: "active",
+      detail: "Model activity was observed; ChatGPT does not expose an active generation marker for the current node.",
+      analysis: analysisText
+    };
+  }
+
+  return {
+    reply: null,
+    started: false,
+    state: "waiting",
+    detail: "Prompt is present, but no model activity has started yet.",
+    analysis: null
+  };
+}
+
+function collectTurnAnalysis(conversation, requestMessageId) {
+  const mapping = conversation?.mapping || {};
+  let node = mapping[conversation?.current_node];
+  const values = [];
+  while (node) {
+    const message = node.message;
+    if (message?.id === requestMessageId)
+      return values.reverse().join("\n\n").trim() || null;
+    if (message?.author?.role === "assistant" &&
+        String(message.channel || "").trim().toLowerCase() === "analysis") {
+      const text = visibleAssistantText(message);
+      if (text) values.push(text);
+    }
+    node = mapping[node.parent];
+  }
+  return null;
 }
 
 function findVisibleAssistantReply(conversation, requestMessageId) {
