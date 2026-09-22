@@ -317,7 +317,7 @@ internal sealed class ExecutorStore
               AND HeartbeatAt < $cutoff;
             """;
         command.Parameters.AddWithValue("$dead", ExecutionStatus.Dead.ToString());
-        command.Parameters.AddWithValue("$error", "Execution runtime owner is no longer running after its heartbeat became stale.");
+        command.Parameters.AddWithValue("$error", "Execution owner heartbeat became stale.");
         command.Parameters.AddWithValue("$completedAt", Format(DateTimeOffset.UtcNow));
         command.Parameters.AddWithValue("$id", id);
         command.Parameters.AddWithValue("$running", ExecutionStatus.Running.ToString());
