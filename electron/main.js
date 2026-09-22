@@ -193,22 +193,55 @@ function writeJson(response, status, value) {
   response.end(body);
 }
 
+const providerOperations = new Map();
 let operationQueue = Promise.resolve();
+
+function queueProviderOperation(request) {
+  const operationId = randomUUID();
+  const state = {
+    status: "queued",
+    result: undefined,
+    error: null
+  };
+  providerOperations.set(operationId, state);
+
+  operationQueue = operationQueue.then(async () => {
+    state.status = "running";
+    try {
+      state.result = await invokeProvider(request);
+      state.status = "completed";
+    } catch (error) {
+      state.error = String(error?.stack ?? error);
+      state.status = "failed";
+    } finally {
+      setTimeout(() => providerOperations.delete(operationId), 60000).unref();
+    }
+  });
+
+  return operationId;
+}
 
 async function start() {
   const server = http.createServer(async (request, response) => {
     try {
-      if (request.method === "POST" && request.url === "/invoke") {
+      const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
+      if (request.method === "POST" && requestUrl.pathname === "/invoke") {
         const body = await readJson(request);
-        const result = await (operationQueue = operationQueue
-          .catch(() => {})
-          .then(() => invokeProvider(body)));
-        writeJson(response, 200, result);
-      } else if (request.method === "POST" && request.url === "/show") {
+        const operationId = queueProviderOperation(body);
+        writeJson(response, 202, { operationId });
+      } else if (request.method === "GET" && requestUrl.pathname.startsWith("/invoke/")) {
+        const operationId = decodeURIComponent(requestUrl.pathname.slice("/invoke/".length));
+        const state = providerOperations.get(operationId);
+        if (!state) {
+          writeJson(response, 404, { error: "Provider operation was not found." });
+          return;
+        }
+        writeJson(response, 200, state);
+      } else if (request.method === "POST" && requestUrl.pathname === "/show") {
         window?.show();
         window?.focus();
         writeJson(response, 200, { shown: true });
-      } else if (request.method === "POST" && request.url === "/shutdown") {
+      } else if (request.method === "POST" && requestUrl.pathname === "/shutdown") {
         shuttingDown = true;
         activeSession?.flushStorageData();
         await activeSession?.cookies.flushStore();
