@@ -66,6 +66,7 @@ messages:
     Host shell: {shell}
     Shell command bodies are passed directly to that shell. Do not wrap them in another shell invocation such as cmd /c, powershell -Command, sh -c, or bash -c unless the assigned task specifically requires a nested shell.
     One shell block is one shell execution. Its succeeded flag reflects that shell process's final exit code, not whether every statement in a compound script succeeded. When independent success/failure evidence matters, use separate shell blocks or explicitly preserve failures with the host shell's normal operators/error-level handling.
+    If a shell command intentionally launches a background child, redirect that child's stdout/stderr away from MEŽS. The SH execution is complete when its direct shell exits; background descendants do not extend that command lifetime.
     Each executable agent command has a timeout of {timeout} seconds. A timed-out command is stopped and returned as failed evidence; do not assume it completed.
 
 policies:
