@@ -153,7 +153,7 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
   return { ready: true };
 }
 
-function invokeProvider({ operation, arguments: args }) {
+function invokeProvider({ operation, arguments: args }, reportProgress) {
   if (!window || !browserModule || !activeSession)
     throw new Error("Electron browser is not initialized.");
   const method = browserModule.operations[operation];
@@ -167,7 +167,8 @@ function invokeProvider({ operation, arguments: args }) {
         invokePageOperation(window, pageOperation, pageArgs)
     },
     args: args ?? {},
-    sleep
+    sleep,
+    reportProgress
   });
 }
 
@@ -201,14 +202,24 @@ function queueProviderOperation(request) {
   const state = {
     status: "queued",
     result: undefined,
-    error: null
+    error: null,
+    progress: null
   };
   providerOperations.set(operationId, state);
 
   operationQueue = operationQueue.then(async () => {
     state.status = "running";
     try {
-      state.result = await invokeProvider(request);
+      state.result = await invokeProvider(request, progress => {
+        if (!progress || typeof progress !== "object") return;
+        const progressState = String(progress.state || "").trim();
+        if (!progressState) return;
+        state.progress = {
+          state: progressState,
+          detail: progress.detail == null ? null : String(progress.detail),
+          analysis: progress.analysis == null ? null : String(progress.analysis)
+        };
+      });
       state.status = "completed";
     } catch (error) {
       state.error = String(error?.stack ?? error);
