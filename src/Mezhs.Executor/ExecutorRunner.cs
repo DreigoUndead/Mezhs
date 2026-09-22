@@ -39,7 +39,7 @@ internal sealed class ExecutorRunner(ExecutorStore store)
             {
                 StartInfo = CreateShellStartInfo(execution, environmentJson, platform, shell)
             };
-            using var output = new ProcessOutputCapture(process);
+            var output = new ProcessOutputCapture(process);
 
             try
             {
@@ -258,15 +258,17 @@ internal sealed class ExecutorRunner(ExecutorStore store)
         }
     }
 
-    private sealed class ProcessOutputCapture : IDisposable
+    private sealed class ProcessOutputCapture
     {
         private readonly Process _process;
         private readonly object _stdoutLock = new();
         private readonly object _stderrLock = new();
         private readonly StringBuilder _stdout = new();
         private readonly StringBuilder _stderr = new();
-        private readonly ManualResetEventSlim _stdoutClosed = new();
-        private readonly ManualResetEventSlim _stderrClosed = new();
+        private readonly TaskCompletionSource _stdoutClosed =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _stderrClosed =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         private bool _started;
 
         public ProcessOutputCapture(Process process)
@@ -288,13 +290,13 @@ internal sealed class ExecutorRunner(ExecutorStore store)
             if (!_started)
                 return (string.Empty, string.Empty);
 
-            var deadline = Stopwatch.StartNew();
-            WaitForClose(_stdoutClosed, grace, deadline);
-            WaitForClose(_stderrClosed, grace, deadline);
+            var elapsed = Stopwatch.StartNew();
+            WaitForClose(_stdoutClosed.Task, grace, elapsed);
+            WaitForClose(_stderrClosed.Task, grace, elapsed);
 
-            if (!_stdoutClosed.IsSet)
+            if (!_stdoutClosed.Task.IsCompleted)
                 TryCancel(_process.CancelOutputRead);
-            if (!_stderrClosed.IsSet)
+            if (!_stderrClosed.Task.IsCompleted)
                 TryCancel(_process.CancelErrorRead);
 
             lock (_stdoutLock)
@@ -302,21 +304,15 @@ internal sealed class ExecutorRunner(ExecutorStore store)
                 return (_stdout.ToString(), _stderr.ToString());
         }
 
-        public void Dispose()
-        {
-            _stdoutClosed.Dispose();
-            _stderrClosed.Dispose();
-        }
-
         private static void Capture(
             string? value,
             StringBuilder target,
             object gate,
-            ManualResetEventSlim closed)
+            TaskCompletionSource closed)
         {
             if (value is null)
             {
-                closed.Set();
+                closed.TrySetResult();
                 return;
             }
 
@@ -324,10 +320,7 @@ internal sealed class ExecutorRunner(ExecutorStore store)
                 target.AppendLine(value);
         }
 
-        private static void WaitForClose(
-            ManualResetEventSlim closed,
-            TimeSpan grace,
-            Stopwatch elapsed)
+        private static void WaitForClose(Task closed, TimeSpan grace, Stopwatch elapsed)
         {
             var remaining = grace - elapsed.Elapsed;
             if (remaining > TimeSpan.Zero)
