@@ -5,7 +5,6 @@ namespace Mezhs.Agent.Policy;
 
 public sealed class PolicyContext
 {
-    private readonly IReadOnlyList<Func<PolicyTurnContext, string?>> _turnValidators;
     private readonly Func<PolicyCompletionContext, bool> _completionClaim;
     private readonly IReadOnlyList<Func<PolicyCompletionContext, string?>> _completionValidators;
     private readonly IReadOnlyList<Func<PolicyActionContext, PolicyActionRuleResult>> _actionRules;
@@ -15,7 +14,6 @@ public sealed class PolicyContext
         PolicySettings settings,
         string modelInstructions,
         string snapshot,
-        IReadOnlyList<Func<PolicyTurnContext, string?>> turnValidators,
         Func<PolicyCompletionContext, bool> completionClaim,
         IReadOnlyList<Func<PolicyCompletionContext, string?>> completionValidators,
         IReadOnlyList<Func<PolicyActionContext, PolicyActionRuleResult>> actionRules)
@@ -24,7 +22,6 @@ public sealed class PolicyContext
         Settings = settings;
         ModelInstructions = modelInstructions;
         Snapshot = snapshot;
-        _turnValidators = turnValidators;
         _completionClaim = completionClaim;
         _completionValidators = completionValidators;
         _actionRules = actionRules;
@@ -35,16 +32,6 @@ public sealed class PolicyContext
     public string ConnectionId => Settings.ConnectionId;
     public string ModelInstructions { get; }
     public string Snapshot { get; }
-
-    public PolicyDecision ValidateTurn(PolicyTurnContext context)
-    {
-        foreach (var validate in _turnValidators)
-        {
-            if (validate(context) is { } error)
-                return PolicyDecision.Deny(error);
-        }
-        return PolicyDecision.Allow();
-    }
 
     public PolicyCompletionDecision EvaluateCompletion(PolicyCompletionContext context)
     {
@@ -98,9 +85,6 @@ public sealed record PolicyEvaluationContext(
     ExecutionEvidence Execution,
     IReadOnlyList<ExecutionEvidence> Evidence);
 
-public sealed record PolicyTurnContext(
-    PolicyEvaluationContext Execution,
-    int TurnIndex);
 
 public sealed record PolicyCompletionContext(
     PolicyEvaluationContext Execution,
