@@ -205,12 +205,11 @@ public sealed class AgentWorker : BackgroundService
                     return;
                 }
 
-                var reply = await _messages.SendWithReplyAsync(
-                    new PostMessageRequest(
-                        Content: nextPrompt.Content,
-                        ConnectionId: execution.ConnectionId,
-                        ChatId: chatId,
-                        Origin: nextPrompt.Origin),
+                var reply = await SendTurnAsync(
+                    execution,
+                    policy,
+                    chatId,
+                    nextPrompt,
                     cancellation.Token);
 
                 var processed = await ProcessReplyAsync(
@@ -268,6 +267,35 @@ public sealed class AgentWorker : BackgroundService
 
         var reply = await _messages.WaitForReplyAsync(latest.MessageId, cancellationToken);
         return new RecoveredReply(reply.MessageId, reply.Content);
+    }
+
+    private async Task<ApiMessage> SendTurnAsync(
+        ExecutionRecord execution,
+        PolicyContext policy,
+        string chatId,
+        AgentPrompt prompt,
+        CancellationToken cancellationToken)
+    {
+        var timeoutSeconds = policy.Settings.Limits.TurnTimeoutSeconds;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+        try
+        {
+            return await _messages.SendWithReplyAsync(
+                new PostMessageRequest(
+                    Content: prompt.Content,
+                    ConnectionId: execution.ConnectionId,
+                    ChatId: chatId,
+                    Origin: prompt.Origin),
+                timeout.Token);
+        }
+        catch (OperationCanceledException) when (
+            !cancellationToken.IsCancellationRequested &&
+            timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Agent turn timed out after {timeoutSeconds} seconds.");
+        }
     }
 
     private async Task<ReplyProcessing> ProcessReplyAsync(
