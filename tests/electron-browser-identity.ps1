@@ -56,6 +56,7 @@ module.exports = {
   homeUrl: "data:text/html,<html><body>identity</body></html>",
   operations: {
     async inspect({ window, session, page }) {
+      await new Promise(resolve => setTimeout(resolve, 2500));
       const attachedPageText = await page.invoke("bodyText");
       const main = await readIdentity(window.webContents);
       const childHost = await createChildServer();
@@ -167,12 +168,49 @@ try {
 
     $body = @{ operation = 'inspect'; arguments = @{} } | ConvertTo-Json -Compress
     try {
-        $response = Invoke-RestMethod `
+        $startedAt = [DateTimeOffset]::UtcNow
+        $start = Invoke-RestMethod `
             -Method Post `
             -Uri "http://127.0.0.1:$port/invoke" `
             -ContentType 'application/json' `
             -Body $body `
-            -TimeoutSec 15
+            -TimeoutSec 10
+        $startElapsed = [DateTimeOffset]::UtcNow - $startedAt
+        if ([string]::IsNullOrWhiteSpace($start.operationId)) {
+            throw 'Electron invoke did not return an operation id.'
+        }
+        if ($startElapsed -ge [TimeSpan]::FromSeconds(1.5)) {
+            throw "Electron invoke start waited for provider completion instead of returning promptly: $startElapsed"
+        }
+
+        $observedPending = $false
+        $deadline = [DateTimeOffset]::UtcNow.AddSeconds(15)
+        $response = $null
+        while ([DateTimeOffset]::UtcNow -lt $deadline) {
+            $status = Invoke-RestMethod `
+                -Method Get `
+                -Uri "http://127.0.0.1:$port/invoke/$($start.operationId)" `
+                -TimeoutSec 10
+            if ($status.status -eq 'queued' -or $status.status -eq 'running') {
+                $observedPending = $true
+                Start-Sleep -Milliseconds 200
+                continue
+            }
+            if ($status.status -eq 'failed') {
+                throw "Electron provider operation failed: $($status.error)"
+            }
+            if ($status.status -eq 'completed') {
+                $response = $status.result
+                break
+            }
+            throw "Electron provider operation returned unknown status '$($status.status)'."
+        }
+        if ($null -eq $response) {
+            throw 'Electron provider operation did not complete within the test window.'
+        }
+        if (-not $observedPending) {
+            throw 'Electron provider operation never exposed queued/running state to polling.'
+        }
     }
     catch {
         $stdout = Get-Content $stdoutPath -Raw -ErrorAction SilentlyContinue
@@ -198,7 +236,7 @@ try {
         throw 'child OAuth window lost window.opener'
     }
 
-    Write-Host 'PASS: Electron attaches provider page operations and preserves OAuth session, opener, Chrome UA, and runtime identity.'
+    Write-Host 'PASS: Electron polls long provider operations through short HTTP requests and preserves OAuth session, opener, Chrome UA, and runtime identity.'
 }
 finally {
     if ($null -ne $port) {
