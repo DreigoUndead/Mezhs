@@ -122,9 +122,8 @@ Assert(mappedMessage.Commands.Count == 1 &&
     "Agent API protocol view lost SH body/index or DONE claim.");
 
 var promptBuilder = new AgentPromptBuilder(options);
-var initialPrompt = promptBuilder.BuildInitial(root, normal, includePolicyInstructions: true).Content;
-Assert(initialPrompt.Contains("Separate observed facts from hypotheses", StringComparison.Ordinal),
-    "Initial Agent prompt lost evidence-calibration guidance.");
+Assert(options.Messages.ProtocolIntro!.Contains("Separate observed facts from hypotheses", StringComparison.Ordinal),
+    "Initial Agent protocol lost evidence-calibration guidance.");
 var commandResultPrompt = promptBuilder.BuildCommandResults(
     new[] { new Result("SH", "1", true, 0, "stdout: changed", null) },
     normal).Content;
