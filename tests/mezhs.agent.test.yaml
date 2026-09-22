@@ -68,10 +68,7 @@ policies:
       requireDone: false
       requiredSuccessfulCommands: []
     limits:
-      maxTurns: 3
       commandTimeoutSeconds: 2
-      turnTimeoutSeconds: 30
-
   test-alt:
     connectionId: test
     instructions: Alternative deterministic policy for ownership validation.
@@ -83,7 +80,6 @@ policies:
       requireDone: false
       requiredSuccessfulCommands: []
     limits:
-      maxTurns: 3
       commandTimeoutSeconds: 2
 
   test-done:
@@ -97,7 +93,6 @@ policies:
       requireDone: true
       requiredSuccessfulCommands: []
     limits:
-      maxTurns: 1
       commandTimeoutSeconds: 2
 
   test-evidence:
@@ -111,7 +106,6 @@ policies:
       requireDone: true
       requiredSuccessfulCommands: [SH]
     limits:
-      maxTurns: 3
       commandTimeoutSeconds: 2
 
   test-evidence-auto:
@@ -125,7 +119,6 @@ policies:
       requireDone: false
       requiredSuccessfulCommands: [SH]
     limits:
-      maxTurns: 3
       commandTimeoutSeconds: 2
 
   test-timeout:
@@ -139,7 +132,6 @@ policies:
       requireDone: false
       requiredSuccessfulCommands: []
     limits:
-      maxTurns: 3
       commandTimeoutSeconds: 1
 
   test-cancel:
@@ -153,5 +145,4 @@ policies:
       requireDone: false
       requiredSuccessfulCommands: []
     limits:
-      maxTurns: 3
       commandTimeoutSeconds: 30
