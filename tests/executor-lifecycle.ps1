@@ -56,6 +56,31 @@ try {
     Assert ($record -notmatch '@chcp') 'Executor wrote a UTF-8 preamble into cmd.exe input.'
     Assert (Test-Path $file) 'Detached caller exit: side effect missing'
 
+    # The direct shell may intentionally launch a background descendant. The
+    # descendant must not keep Executor's redirected output handles open and turn the
+    # already-finished shell execution into a false Dead record.
+    if ($IsWindows) {
+        $backgroundScript = Join-Path $work 'background-service.cmd'
+        $backgroundFile = Join-Path $work 'background-child.txt'
+        @'
+@echo off
+ping -n 12 127.0.0.1 >nul
+echo survived>background-child.txt
+exit
+'@ | Set-Content -LiteralPath $backgroundScript -Encoding Ascii
+        $watch = [Diagnostics.Stopwatch]::StartNew()
+        $id = [int](Executor Execute 'start "" /b background-service.cmd > background-service.log 2>&1' $work 30)
+        $record = Executor Wait $id 5
+        $watch.Stop()
+        Assert ((Status $record) -eq 'Completed') "Background descendant held the direct shell execution open: $(Status $record)"
+        Assert ($watch.Elapsed.TotalSeconds -lt 5) "Background shell command did not complete promptly: $($watch.Elapsed.TotalSeconds)s"
+        $deadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
+        while (-not (Test-Path $backgroundFile) -and [DateTimeOffset]::UtcNow -lt $deadline) {
+            Start-Sleep -Milliseconds 200
+        }
+        Assert (Test-Path $backgroundFile) 'Background descendant did not survive the completed direct shell.'
+    }
+
     # Two owners racing for one Created row must still produce one side effect.
     $file = Join-Path $work 'atomic.txt'
     $id = [int](Executor Execute "ping -n 3 127.0.0.1 >nul & echo hit>>$file" $work 30)
