@@ -72,6 +72,10 @@ public sealed record AgentChatMessageView(
     DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt,
+    string? Activity,
+    string? ActivityDetail,
+    string? Analysis,
+    DateTimeOffset? ActivityAt,
     IReadOnlyList<AgentProtocolCommandView> Commands,
     bool CompletionClaimed);
 
