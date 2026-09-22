@@ -89,6 +89,13 @@ public sealed class AgentDebugLogBuilder(
                 log.AppendLine($"parentMessageId: {message.ParentMessageId}");
             if (!string.IsNullOrWhiteSpace(message.ReplyMessageId))
                 log.AppendLine($"replyMessageId: {message.ReplyMessageId}");
+            if (!string.IsNullOrWhiteSpace(message.Activity))
+                log.AppendLine($"activity: {message.Activity}");
+            if (!string.IsNullOrWhiteSpace(message.ActivityDetail))
+                log.AppendLine($"activityDetail: {message.ActivityDetail}");
+            if (message.ActivityAt is { } activityAt)
+                log.AppendLine($"activityAt: {Format(activityAt)}");
+            AppendBlock(log, "analysis", message.Analysis);
             AppendBlock(log, "content", message.Content);
             AppendBlock(log, "error", message.Error);
             log.AppendLine();
