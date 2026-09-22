@@ -251,6 +251,264 @@ test("ChatGPT API polling backs off on 429 without resending the turn", async ()
 });
 
 
+test("ChatGPT reposts once when a submitted turn never shows model activity", async () => {
+  const chatgpt = loadChatGptModule();
+  const requestIds = [];
+  const postedConversationIds = [];
+  let reads = 0;
+
+  const session = protocolSession({
+    conversationId: "conv-retry-start",
+    onConversationPost: body => {
+      requestIds.push(body.messages[0].id);
+      postedConversationIds.push(body.conversation_id ?? null);
+    },
+    onConversationRead: () => {
+      reads++;
+      const activeRequestId = requestIds.at(-1);
+      if (requestIds.length === 1) {
+        return jsonResponse({
+          conversation_id: "conv-retry-start",
+          current_node: "request-new",
+          mapping: {
+            "request-new": {
+              parent: null,
+              message: {
+                id: activeRequestId,
+                author: { role: "user" },
+                status: "finished_successfully",
+                content: { content_type: "text", parts: ["prompt"] }
+              }
+            }
+          }
+        });
+      }
+      return jsonResponse(
+        completedConversation("conv-retry-start", activeRequestId, "retry worked")
+      );
+    }
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...hostileBrowserSurface(),
+    session,
+    args: { prompt: "retry me", files: [] },
+    sleep: async () => {}
+  });
+
+  assert.equal(requestIds.length, 2);
+  assert.notEqual(requestIds[0], requestIds[1]);
+  assert.deepEqual(postedConversationIds, [null, "conv-retry-start"]);
+  assert.ok(reads >= 11);
+  assert.equal(result.text, "retry worked");
+});
+
+test("first model activity permanently disarms the turn-start watchdog", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  let posts = 0;
+  let reads = 0;
+  const progress = [];
+
+  const analysisConversation = () => ({
+    conversation_id: "conv-long-thinking",
+    current_node: "assistant-analysis",
+    mapping: {
+      "assistant-analysis": {
+        parent: "request-new",
+        message: {
+          id: "assistant-analysis",
+          author: { role: "assistant" },
+          status: "finished_successfully",
+          channel: "analysis",
+          content: {
+            content_type: "text",
+            parts: ["Still working through the task."]
+          }
+        }
+      },
+      "request-new": {
+        parent: null,
+        message: {
+          id: requestMessageId,
+          author: { role: "user" },
+          status: "finished_successfully",
+          content: { content_type: "text", parts: ["prompt"] }
+        }
+      }
+    }
+  });
+
+  const session = protocolSession({
+    conversationId: "conv-long-thinking",
+    onConversationPost: body => {
+      posts++;
+      requestMessageId = body.messages[0].id;
+    },
+    onConversationRead: () => {
+      reads++;
+      return jsonResponse(
+        reads <= 15
+          ? analysisConversation()
+          : completedConversation("conv-long-thinking", requestMessageId, "finally done")
+      );
+    }
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...hostileBrowserSurface(),
+    session,
+    args: { prompt: "think for a long time", files: [] },
+    sleep: async () => {},
+    reportProgress: value => progress.push(value)
+  });
+
+  assert.equal(posts, 1);
+  assert.equal(reads, 16);
+  assert.equal(result.text, "finally done");
+  assert.ok(progress.some(value =>
+    value.state === "active" &&
+    value.analysis === "Still working through the task."
+  ));
+});
+
+test("ChatGPT reports explicit in-progress analysis as thinking", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  let reads = 0;
+  const progress = [];
+
+  const session = protocolSession({
+    conversationId: "conv-thinking-state",
+    onConversationPost: body => { requestMessageId = body.messages[0].id; },
+    onConversationRead: () => {
+      reads++;
+      if (reads > 1)
+        return jsonResponse(completedConversation("conv-thinking-state", requestMessageId, "done"));
+      return jsonResponse({
+        conversation_id: "conv-thinking-state",
+        current_node: "assistant-analysis",
+        mapping: {
+          "assistant-analysis": {
+            parent: "request-new",
+            message: {
+              id: "assistant-analysis",
+              author: { role: "assistant" },
+              status: "in_progress",
+              channel: "analysis",
+              content: {
+                content_type: "text",
+                parts: ["Inspecting the failure state."]
+              }
+            }
+          },
+          "request-new": {
+            parent: null,
+            message: {
+              id: requestMessageId,
+              author: { role: "user" },
+              status: "finished_successfully",
+              content: { content_type: "text", parts: ["prompt"] }
+            }
+          }
+        }
+      });
+    }
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...hostileBrowserSurface(),
+    session,
+    args: { prompt: "state please", files: [] },
+    sleep: async () => {},
+    reportProgress: value => progress.push(value)
+  });
+
+  assert.equal(result.text, "done");
+  assert.ok(progress.some(value =>
+    value.state === "thinking" &&
+    value.analysis === "Inspecting the failure state."
+  ));
+});
+
+test("rate-limited state checks do not consume the turn-start watchdog", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  let posts = 0;
+  let reads = 0;
+
+  const session = protocolSession({
+    conversationId: "conv-rate-limit-watchdog",
+    onConversationPost: body => {
+      posts++;
+      requestMessageId = body.messages[0].id;
+    },
+    onConversationRead: () => {
+      reads++;
+      if (reads <= 12) {
+        return new Response('{"detail":"Too many requests"}', {
+          status: 429,
+          headers: { "Retry-After": "2" }
+        });
+      }
+      return jsonResponse(
+        completedConversation("conv-rate-limit-watchdog", requestMessageId, "after throttling")
+      );
+    }
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...hostileBrowserSurface(),
+    session,
+    args: { prompt: "do not duplicate", files: [] },
+    sleep: async () => {}
+  });
+
+  assert.equal(posts, 1);
+  assert.equal(reads, 13);
+  assert.equal(result.text, "after throttling");
+});
+
+test("ChatGPT fails after one automatic repost if model activity still never starts", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  let posts = 0;
+
+  const session = protocolSession({
+    conversationId: "conv-dead-start",
+    onConversationPost: body => {
+      posts++;
+      requestMessageId = body.messages[0].id;
+    },
+    onConversationRead: () => jsonResponse({
+      conversation_id: "conv-dead-start",
+      current_node: "request-new",
+      mapping: {
+        "request-new": {
+          parent: null,
+          message: {
+            id: requestMessageId,
+            author: { role: "user" },
+            status: "finished_successfully",
+            content: { content_type: "text", parts: ["prompt"] }
+          }
+        }
+      }
+    })
+  });
+
+  await assert.rejects(
+    chatgpt.operations.newChat({
+      ...hostileBrowserSurface(),
+      session,
+      args: { prompt: "never starts", files: [] },
+      sleep: async () => {}
+    }),
+    /did not start responding within 20s after the automatic retry/
+  );
+  assert.equal(posts, 2);
+});
+
 test("ChatGPT account does not surface analysis-channel control text as the reply", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
