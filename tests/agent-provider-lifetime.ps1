@@ -17,17 +17,16 @@ if (-not $chatGpt.Contains('return sendApiAccountMessage(context, isNew, token, 
     throw 'ChatGPT account sending must use the semantic API path.'
 }
 
+$policyModels = Read-Source 'src\Mezhs.Agent.Api\Policy\PolicyModels.cs'
+if ($policyModels.Contains('MaxTurns') -or $policyModels.Contains('TurnTimeoutSeconds')) {
+    throw 'Agent policy must not impose turn-count or turn-duration limits.'
+}
+
 $agentWorker = Read-Source 'src\Mezhs.Agent.Api\Services\AgentWorker.cs'
-if (-not $agentWorker.Contains('policy.Settings.Limits.TurnTimeoutSeconds')) {
-    throw 'Agent turns are not bounded by the configured turn timeout.'
-}
-if (-not $agentWorker.Contains('CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)') -or
-    -not $agentWorker.Contains('timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));')) {
-    throw 'Agent turn timeout does not cancel the actual provider operation.'
-}
-if (-not $agentWorker.Contains('throw new TimeoutException(') -or
-    -not $agentWorker.Contains('Agent turn timed out after {timeoutSeconds} seconds.')) {
-    throw 'Agent turn timeout is not surfaced as a deterministic failure.'
+if ($agentWorker.Contains('ValidateTurn(') -or
+    $agentWorker.Contains('SendTurnAsync(') -or
+    $agentWorker.Contains('CancelAfter(')) {
+    throw 'Agent runtime still contains a turn-count or turn-duration limit.'
 }
 
 $messageService = Read-Source 'src\Mezhs.Api\Services\MessageService.cs'
@@ -52,4 +51,4 @@ if (-not $browserSession.Contains('await DisposeTransportAsync();')) {
     throw 'BrowserAccountSession cancellation must discard the possibly still-running transport.'
 }
 
-Write-Host 'PASS: Agent/provider lifetime ownership is explicit, Agent turns are bounded, and cancellation reaches the provider boundary.'
+Write-Host 'PASS: Agent/provider lifetime ownership is explicit, Agent turns are unbounded, and cancellation reaches the provider boundary.'
