@@ -52,6 +52,7 @@ export function modelActivityLabel(activity?: string | null, detail?: string | n
     case "waiting": return "Waiting for model activity…";
     case "thinking": return "Model is thinking…";
     case "responding": return "Model is responding…";
+    case "completed": return "Model response received.";
     case "active": return "Model activity observed…";
     case "retrying": return "Retrying model turn…";
     case "rate-limited": return "Model state check is rate limited…";
