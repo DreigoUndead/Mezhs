@@ -121,6 +121,21 @@ test("browser transport polls long provider operations through short HTTP reques
   assert.doesNotMatch(contract, /SendPromptAsync|SendWebRequestAsync|BrowserWebRequest|BrowserWebResponse/);
 });
 
+test("provider response lifetime is not capped by wall-clock deadlines", () => {
+  const files = [
+    path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "chatgpt.ts"),
+    path.join(root, "integrations", "Mezhs.Integrations.Grok", "browser", "grok.ts"),
+    path.join(root, "integrations", "Mezhs.Integrations.Gemini", "browser", "gemini.ts")
+  ];
+
+  for (const file of files) {
+    const source = fs.readFileSync(file, "utf8");
+    assert.doesNotMatch(source, /response timed out/i, file);
+    assert.doesNotMatch(source, /CONVERSATION_POLL_ATTEMPTS/, file);
+    assert.doesNotMatch(source, /responseDeadline\s*=|const deadline = Date\.now\(\) \+ 180000/, file);
+  }
+});
+
 test("ChatGPT getProjects uses the private API and follows pagination", async () => {
   const chatgpt = loadChatGptModule();
   const calls = [];
