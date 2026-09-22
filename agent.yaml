@@ -80,6 +80,4 @@ policies:
       requireDone: true
       requiredSuccessfulCommands: []
     limits:
-      maxTurns: 30
       commandTimeoutSeconds: 120
-      turnTimeoutSeconds: 120
