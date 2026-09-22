@@ -138,8 +138,8 @@ $messageService = Get-Content (Join-Path $root "src/Mezhs.Api/Services/MessageSe
 if ($messageService -match 'Task\.Run') {
     throw "MessageService still launches unowned fire-and-forget Task.Run work."
 }
-if ($messageService -notmatch 'BackgroundService' -or $messageService -notmatch 'Channel<StoredMessage>') {
-    throw "MessageService does not own message processing through a host-managed queue."
+if ($messageService -notmatch 'BackgroundService' -or $messageService -notmatch 'Channel<QueuedMessage>') {
+    throw "MessageService does not own message processing through a host-managed queue that preserves operation cancellation."
 }
 
 $program = Get-Content (Join-Path $root "src/Mezhs.Api/Program.cs") -Raw
