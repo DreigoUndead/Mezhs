@@ -197,11 +197,6 @@ const providerOperations = new Map();
 let operationQueue = Promise.resolve();
 
 function queueProviderOperation(request) {
-  for (const [operationId, state] of providerOperations) {
-    if (state.status === "completed" || state.status === "failed")
-      providerOperations.delete(operationId);
-  }
-
   const operationId = randomUUID();
   const state = {
     status: "queued",
@@ -239,6 +234,8 @@ async function start() {
           writeJson(response, 404, { error: "Provider operation was not found." });
           return;
         }
+        if (state.status === "completed" || state.status === "failed")
+          response.once("finish", () => providerOperations.delete(operationId));
         writeJson(response, 200, state);
       } else if (request.method === "POST" && requestUrl.pathname === "/show") {
         window?.show();
