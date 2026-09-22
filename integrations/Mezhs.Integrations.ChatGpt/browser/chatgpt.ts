@@ -747,43 +747,74 @@ async function waitForConversation(session, token, conversationId, requestMessag
       continue;
     }
 
-    const current = conversation?.mapping?.[conversation.current_node];
-    const message = current?.message;
-    if (message?.author?.role === "assistant" && message.status !== "in_progress") {
-      const files = new Map();
+    const reply = findVisibleAssistantReply(conversation, requestMessageId);
+    if (reply) return reply;
+    await sleep(CONVERSATION_POLL_INTERVAL_MS);
+  }
+}
+
+function findVisibleAssistantReply(conversation, requestMessageId) {
+  const mapping = conversation?.mapping || {};
+  let node = mapping[conversation?.current_node];
+  let assistant = null;
+  const files = new Map();
+
+  while (node) {
+    const message = node.message;
+    if (message?.id === requestMessageId) {
+      if (!assistant) return null;
       const assistantModel = String(
-        message?.metadata?.resolved_model_slug ||
-        message?.metadata?.model_slug ||
+        assistant.metadata?.resolved_model_slug ||
+        assistant.metadata?.model_slug ||
         ""
       ).trim() || null;
-      let requestResolvedModel = null;
-      let requestFound = false;
-      let node = current;
-      while (node) {
-        if (node.message?.id === requestMessageId) {
-          requestFound = true;
-          requestResolvedModel = String(
-            node.message?.metadata?.resolved_model_slug || ""
-          ).trim() || null;
-          break;
-        }
-        collectFileRefs(node.message, files);
-        node = conversation.mapping[node.parent];
-      }
-      if (!requestFound) {
-        await sleep(CONVERSATION_POLL_INTERVAL_MS);
-        continue;
-      }
+      const requestResolvedModel = String(
+        message.metadata?.resolved_model_slug || ""
+      ).trim() || null;
       return {
-        text: (message.content?.parts || []).filter(x => typeof x === "string").join("\n").trim(),
-        parentMessageId: message.id,
+        text: visibleAssistantText(assistant),
+        parentMessageId: assistant.id,
         projectId: conversation.gizmo_id || null,
         model: assistantModel || requestResolvedModel,
         files
       };
     }
-    await sleep(CONVERSATION_POLL_INTERVAL_MS);
+
+    collectFileRefs(message, files);
+    if (!assistant && isVisibleAssistantMessage(message))
+      assistant = message;
+    node = mapping[node.parent];
   }
+
+  return null;
+}
+
+function isVisibleAssistantMessage(message) {
+  if (message?.author?.role !== "assistant" || message.status === "in_progress")
+    return false;
+  if (message.metadata?.is_visually_hidden_from_conversation === true || message.weight === 0)
+    return false;
+
+  const channel = String(message.channel || "").trim().toLowerCase();
+  if (channel && channel !== "final")
+    return false;
+
+  const recipient = String(message.recipient || "").trim().toLowerCase();
+  if (recipient && recipient !== "all")
+    return false;
+
+  const contentType = String(message.content?.content_type || "text").trim().toLowerCase();
+  if (contentType !== "text" && contentType !== "multimodal_text")
+    return false;
+
+  return Boolean(visibleAssistantText(message));
+}
+
+function visibleAssistantText(message) {
+  return (message?.content?.parts || [])
+    .filter(part => typeof part === "string")
+    .join("\n")
+    .trim();
 }
 
 function collectFileRefs(value, refs) {
