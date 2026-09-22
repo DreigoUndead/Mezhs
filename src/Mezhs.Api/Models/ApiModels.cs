@@ -47,6 +47,7 @@ public sealed class StoredMessage
     public string? ActivityDetail { get; set; }
     public string? Analysis { get; set; }
     public DateTimeOffset? ActivityAt { get; set; }
+    public List<MessageActivity> ActivityHistory { get; init; } = [];
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
