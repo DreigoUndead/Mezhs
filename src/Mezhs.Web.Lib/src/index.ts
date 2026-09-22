@@ -1,6 +1,6 @@
 export { default as MezhsChatApp } from "./MezhsChatApp";
 export type { MezhsChatAppProps } from "./MezhsChatApp";
-export { ChatComposer, ChatTranscript } from "./ChatSurface";
+export { ChatComposer, ChatTranscript, modelActivityLabel } from "./ChatSurface";
 export type {
   ChatComposerProps,
   ChatSurfaceMessage,
