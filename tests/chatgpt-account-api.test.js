@@ -249,3 +249,143 @@ test("ChatGPT API polling backs off on 429 without resending the turn", async ()
   assert.deepEqual(sleeps, [2000]);
   assert.equal(result.text, "survived rate limit");
 });
+
+
+test("ChatGPT account does not surface analysis-channel control text as the reply", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  let reads = 0;
+
+  const analysisOnly = () => ({
+    conversation_id: "conv-analysis",
+    current_node: "assistant-analysis",
+    mapping: {
+      "assistant-analysis": {
+        parent: "request-new",
+        message: {
+          id: "assistant-analysis",
+          author: { role: "assistant" },
+          status: "finished_successfully",
+          channel: "analysis",
+          content: {
+            content_type: "text",
+            parts: [
+              "Need inspect WhatsApp project. Need find run instructions. Use command.\n<SH>\ndir\n</SH>\n\n<|end|>"
+            ]
+          },
+          metadata: { model_slug: "gpt-5-6-thinking" }
+        }
+      },
+      "request-new": {
+        parent: null,
+        message: {
+          id: requestMessageId,
+          author: { role: "user" },
+          status: "finished_successfully",
+          content: { content_type: "text", parts: ["prompt"] },
+          metadata: { resolved_model_slug: "gpt-5-6-thinking" }
+        }
+      }
+    }
+  });
+
+  const finalConversation = () => ({
+    conversation_id: "conv-analysis",
+    current_node: "assistant-final",
+    mapping: {
+      "assistant-final": {
+        parent: "assistant-analysis",
+        message: {
+          id: "assistant-final",
+          author: { role: "assistant" },
+          status: "finished_successfully",
+          channel: "final",
+          content: { content_type: "text", parts: ["Visible final answer"] },
+          metadata: { model_slug: "gpt-5-6-thinking" }
+        }
+      },
+      ...analysisOnly().mapping
+    }
+  });
+
+  const session = protocolSession({
+    conversationId: "conv-analysis",
+    onConversationPost: body => { requestMessageId = body.messages[0].id; },
+    onConversationRead: () => {
+      reads++;
+      return jsonResponse(reads === 1 ? analysisOnly() : finalConversation());
+    }
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...hostileBrowserSurface(),
+    session,
+    args: { prompt: "test internal filtering", files: [] },
+    sleep: async () => {}
+  });
+
+  assert.equal(reads, 2);
+  assert.equal(result.text, "Visible final answer");
+  assert.equal(result.parentMessageId, "assistant-final");
+  assert.doesNotMatch(result.text, /<\|end\|>/);
+  assert.doesNotMatch(result.text, /Need inspect WhatsApp project/);
+});
+
+test("ChatGPT account walks past hidden current nodes to the visible final reply", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+
+  const session = protocolSession({
+    conversationId: "conv-hidden-tail",
+    onConversationPost: body => { requestMessageId = body.messages[0].id; },
+    onConversationRead: () => jsonResponse({
+      conversation_id: "conv-hidden-tail",
+      current_node: "assistant-hidden",
+      mapping: {
+        "assistant-hidden": {
+          parent: "assistant-final",
+          message: {
+            id: "assistant-hidden",
+            author: { role: "assistant" },
+            status: "finished_successfully",
+            content: { content_type: "text", parts: ["<|end|>"] },
+            metadata: {
+              is_visually_hidden_from_conversation: true,
+              model_slug: "gpt-5-6-thinking"
+            }
+          }
+        },
+        "assistant-final": {
+          parent: "request-new",
+          message: {
+            id: "assistant-final",
+            author: { role: "assistant" },
+            status: "finished_successfully",
+            content: { content_type: "text", parts: ["Actual visible reply"] },
+            metadata: { model_slug: "gpt-5-6-thinking" }
+          }
+        },
+        "request-new": {
+          parent: null,
+          message: {
+            id: requestMessageId,
+            author: { role: "user" },
+            status: "finished_successfully",
+            content: { content_type: "text", parts: ["prompt"] },
+            metadata: { resolved_model_slug: "gpt-5-6-thinking" }
+          }
+        }
+      }
+    })
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...hostileBrowserSurface(),
+    session,
+    args: { prompt: "test hidden tail", files: [] },
+    sleep: async () => {}
+  });
+
+  assert.equal(result.text, "Actual visible reply");
+  assert.equal(result.parentMessageId, "assistant-final");
+});
