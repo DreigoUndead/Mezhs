@@ -55,7 +55,10 @@ public sealed class PolicyDecoder
                 NormalizeCommandNames(
                     completion.RequiredSuccessfulCommands,
                     $"policies.{id}.completion.requiredSuccessfulCommands")),
-            new PolicyLimitsSettings(limits.MaxTurns, limits.CommandTimeoutSeconds));
+            new PolicyLimitsSettings(
+                limits.MaxTurns,
+                limits.CommandTimeoutSeconds,
+                limits.TurnTimeoutSeconds));
 
         return new PolicyContext(
             id,
