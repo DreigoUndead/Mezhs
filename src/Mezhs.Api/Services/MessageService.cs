@@ -333,16 +333,23 @@ public sealed class MessageService(
             ? message.Analysis
             : activity.Analysis.Trim();
 
-        if (string.Equals(message.Activity, state, StringComparison.Ordinal) &&
-            string.Equals(message.ActivityDetail, detail, StringComparison.Ordinal) &&
-            string.Equals(message.Analysis, analysis, StringComparison.Ordinal))
+        var stateChanged =
+            !string.Equals(message.Activity, state, StringComparison.Ordinal) ||
+            !string.Equals(message.ActivityDetail, detail, StringComparison.Ordinal);
+        var analysisChanged = !string.Equals(message.Analysis, analysis, StringComparison.Ordinal);
+        if (!stateChanged && !analysisChanged)
             return;
 
         message.Activity = state;
         message.ActivityDetail = detail;
         message.Analysis = analysis;
         message.ActivityAt = DateTimeOffset.UtcNow;
-        store.SaveMessage(message);
+
+        // StoredMessage is the live in-memory source used by API reads. Persist state
+        // transitions, but do not append the entire growing analysis on every poll.
+        // The normal terminal SaveMessage persists the latest analysis once more.
+        if (stateChanged)
+            store.SaveMessage(message);
     }
 
     private IReadOnlyList<StoredMessage> BuildHistory(StoredMessage current)
