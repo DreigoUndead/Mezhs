@@ -46,7 +46,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Log.Sql", "src\Mezhs.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Common", "src\Mezhs.Common\Mezhs.Common.csproj", "{098C4223-1AC5-4F37-A476-D1664223C2B1}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.WhatsApp", "src\\Mezhs.WhatsApp\\Mezhs.WhatsApp.csproj", "{4B959CCB-D991-4B2F-8B87-AE635ED91C68}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.WhatsApp", "src\Mezhs.WhatsApp\Mezhs.WhatsApp.csproj", "{4B959CCB-D991-4B2F-8B87-AE635ED91C68}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
