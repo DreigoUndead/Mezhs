@@ -122,8 +122,7 @@ module.exports = {
 
       let lastText = "";
       let stableSamples = 0;
-      const deadline = Date.now() + 180000;
-      while (Date.now() < deadline) {
+      while (true) {
         const current = responseSnapshot();
         const changed = Boolean(current.text) && (
           current.count > before.count ||
@@ -145,7 +144,6 @@ module.exports = {
         await sleep(500);
       }
 
-      throw new Error(`Grok response timed out at ${location.href}.`);
     }
   }
 };
