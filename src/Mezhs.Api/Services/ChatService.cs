@@ -86,6 +86,10 @@ public sealed class ChatService(
             message.CreatedAt,
             message.StartedAt,
             message.CompletedAt,
-            message.Model);
+            message.Model,
+            message.Activity,
+            message.ActivityDetail,
+            message.Analysis,
+            message.ActivityAt);
     }
 }
