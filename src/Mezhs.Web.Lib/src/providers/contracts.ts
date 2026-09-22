@@ -33,6 +33,12 @@ export type ApiFile = {
   downloadUrl: string;
 };
 
+export type MessageActivity = {
+  state: string;
+  detail?: string | null;
+  at: string;
+};
+
 export type ChatMessage = {
   messageId: string;
   chatId: string;
@@ -46,6 +52,11 @@ export type ChatMessage = {
   createdAt: string;
   error?: string;
   replayOfMessageId?: string;
+  activity?: string | null;
+  activityDetail?: string | null;
+  analysis?: string | null;
+  activityAt?: string | null;
+  activityHistory?: MessageActivity[] | null;
   reply?: ChatMessage;
 };
 

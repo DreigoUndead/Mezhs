@@ -10,12 +10,6 @@ public sealed class PolicyEvaluationService(
     AgentStore store,
     ExecutorService executor)
 {
-    public PolicyDecision ValidateTurn(
-        PolicyContext policy,
-        ExecutionRecord execution,
-        int turnIndex) =>
-        policy.ValidateTurn(new PolicyTurnContext(Create(execution), turnIndex));
-
     public PolicyCompletionDecision EvaluateCompletion(
         PolicyContext policy,
         ExecutionRecord execution,

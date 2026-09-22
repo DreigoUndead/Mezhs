@@ -236,7 +236,8 @@ public sealed class MessageService(
                     ToIntegrationMessage(message),
                     historyMessages.Select(ToIntegrationMessage).ToArray(),
                     inputFiles,
-                    RestoreConversation: !continueRemote),
+                    RestoreConversation: !continueRemote,
+                    ReportActivity: activity => UpdateActivity(message, activity)),
                 cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -316,6 +317,42 @@ public sealed class MessageService(
         {
             if (gateTaken)
                 gate.Release();
+        }
+    }
+
+    private void UpdateActivity(StoredMessage message, IntegrationActivity activity)
+    {
+        if (message.Status != MessageStatus.Running)
+            return;
+
+        var state = activity.State?.Trim();
+        if (string.IsNullOrWhiteSpace(state))
+            return;
+        var detail = string.IsNullOrWhiteSpace(activity.Detail) ? null : activity.Detail.Trim();
+        var analysis = string.IsNullOrWhiteSpace(activity.Analysis)
+            ? message.Analysis
+            : activity.Analysis.Trim();
+
+        var stateChanged =
+            !string.Equals(message.Activity, state, StringComparison.Ordinal) ||
+            !string.Equals(message.ActivityDetail, detail, StringComparison.Ordinal);
+        var analysisChanged = !string.Equals(message.Analysis, analysis, StringComparison.Ordinal);
+        if (!stateChanged && !analysisChanged)
+            return;
+
+        var activityAt = DateTimeOffset.UtcNow;
+        message.Activity = state;
+        message.ActivityDetail = detail;
+        message.Analysis = analysis;
+        message.ActivityAt = activityAt;
+
+        // StoredMessage is the live in-memory source used by API reads. Persist state
+        // transitions, but do not append the entire growing analysis on every poll.
+        // The normal terminal SaveMessage persists the latest analysis once more.
+        if (stateChanged)
+        {
+            message.ActivityHistory.Add(new MessageActivity(state, detail, activityAt));
+            store.SaveMessage(message);
         }
     }
 
@@ -426,7 +463,12 @@ public sealed class MessageService(
             message.Error,
             message.ReplayOfMessageId,
             reply,
-            message.Model);
+            message.Model,
+            message.Activity,
+            message.ActivityDetail,
+            message.Analysis,
+            message.ActivityAt,
+            message.ActivityHistory);
     }
 
     private static string NormalizeStoredOrigin(StoredMessage message)

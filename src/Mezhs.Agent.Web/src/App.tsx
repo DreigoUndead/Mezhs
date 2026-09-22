@@ -3,6 +3,7 @@ import {
   apiJson,
   ChatComposer,
   ChatTranscript,
+  modelActivityLabel,
   useApiAvailability,
   type ChatSurfaceMessage,
 } from "@mezhs/web-lib";
@@ -42,6 +43,10 @@ type AgentChatMessage = {
   replyMessageId?: string;
   status: ChatSurfaceMessage["status"];
   error?: string;
+  activity?: string;
+  activityDetail?: string;
+  analysis?: string;
+  activityAt?: string;
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
@@ -182,6 +187,10 @@ function toSharedMessage(message: AgentChatMessage, executions: Execution[]): Ch
     status: message.status,
     createdAt: message.createdAt,
     error: message.error,
+    activity: message.activity,
+    activityDetail: message.activityDetail,
+    analysis: message.analysis,
+    activityAt: message.activityAt,
   };
 }
 
@@ -360,6 +369,21 @@ export default function App() {
   const activeShellExecution = executions.find((execution) =>
     execution.kind === "Shell" && !execution.isTerminal);
   const latestAgentExecution = executions.find((execution) => execution.kind === "Agent");
+  const activeMessage = [...messages].reverse().find((message) =>
+    message.role === "user" && (message.status === "Queued" || message.status === "Running"));
+  const agentBusyLabel = activeShellExecution
+    ? activeShellExecution.status === "KillRequested"
+      ? "Stopping shell command…"
+      : `Executing SH command${elapsedLabel(activeShellExecution) ? ` · ${elapsedLabel(activeShellExecution)}` : ""}`
+    : activeMessage?.activity
+      ? modelActivityLabel(activeMessage.activity, activeMessage.activityDetail)
+      : activeMessage?.origin === "command-result"
+        ? "Processing command result…"
+        : activeMessage
+          ? "Waiting for model…"
+          : activeExecution
+            ? "Processing model response…"
+            : undefined;
   const sharedMessages = useMemo(
     () => messages.map((message) => toSharedMessage(message, executions)),
     [messages, executions],
@@ -719,6 +743,7 @@ async function loadSelected(chatId: string, reportErrors = true) {
             <ChatTranscript
               messages={sharedMessages}
               busy={!!activeExecution}
+              busyLabel={agentBusyLabel}
               autoScroll
               autoScrollResetKey={selectedChat.chatId}
               emptyState={<div className="agent-empty-chat">No conversation messages yet.</div>}

@@ -5,7 +5,8 @@ import { useAutoResizeTextArea } from "./useAutoResizeTextArea";
 
 export type ChatSurfaceMessage = Pick<
   ChatMessage,
-  "messageId" | "connectionId" | "role" | "origin" | "content" | "status" | "createdAt" | "error"
+  "messageId" | "connectionId" | "role" | "origin" | "content" | "status" | "createdAt" | "error" |
+  "activity" | "activityDetail" | "analysis" | "activityAt"
 > & {
   files?: ApiFile[];
 };
@@ -14,6 +15,7 @@ export type ChatTranscriptProps = {
   messages: ChatSurfaceMessage[];
   apiBaseUrl?: string;
   busy?: boolean;
+  busyLabel?: string;
   emptyState?: ReactNode;
   getAuthorLabel?: (message: ChatSurfaceMessage) => string;
   getAvatarLabel?: (message: ChatSurfaceMessage) => string;
@@ -41,10 +43,28 @@ function defaultAvatarLabel(message: ChatSurfaceMessage) {
   return message.role === "assistant" ? "M" : "YOU";
 }
 
+export function modelActivityLabel(activity?: string | null, detail?: string | null) {
+  const explicit = detail?.trim();
+  if (explicit) return explicit;
+
+  switch (activity?.trim().toLocaleLowerCase()) {
+    case "submitting": return "Submitting prompt…";
+    case "waiting": return "Waiting for model activity…";
+    case "thinking": return "Model is thinking…";
+    case "responding": return "Model is responding…";
+    case "completed": return "Model response received.";
+    case "active": return "Model activity observed…";
+    case "retrying": return "Retrying model turn…";
+    case "rate-limited": return "Model state check is rate limited…";
+    default: return "Waiting for model…";
+  }
+}
+
 export function ChatTranscript({
   messages,
   apiBaseUrl = "",
   busy = false,
+  busyLabel,
   emptyState,
   getAuthorLabel = defaultAuthorLabel,
   getAvatarLabel = defaultAvatarLabel,
@@ -55,6 +75,10 @@ export function ChatTranscript({
   autoScrollResetKey,
 }: ChatTranscriptProps) {
   const apiBase = apiBaseUrl.replace(/\/$/, "");
+  const activeMessage = [...messages].reverse().find((message) =>
+    message.role === "user" && !terminalStatuses.has(message.status));
+  const resolvedBusyLabel = busyLabel ??
+    modelActivityLabel(activeMessage?.activity, activeMessage?.activityDetail);
   const transcriptRef = useRef<HTMLElement | null>(null);
   const followsBottomRef = useRef(true);
 
@@ -119,6 +143,12 @@ export function ChatTranscript({
               </div>
             )}
             {message.error && <p className="message-error">{message.error}</p>}
+            {message.analysis && (
+              <details className="message-analysis">
+                <summary>Model analysis</summary>
+                <pre>{message.analysis}</pre>
+              </details>
+            )}
             {renderMessageFooter?.(message)}
             {onReplay && message.role === "user" && terminalStatuses.has(message.status) && (
               <button className="replay" onClick={() => onReplay(message.messageId)} disabled={replayDisabled}>Replay request</button>
@@ -126,7 +156,7 @@ export function ChatTranscript({
           </div>
         </article>
       ))}
-      {busy && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>Working through it...</span></div>}
+      {busy && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>{resolvedBusyLabel}</span></div>}
     </section>
   );
 }

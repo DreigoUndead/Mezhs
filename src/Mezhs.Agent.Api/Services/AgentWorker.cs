@@ -170,14 +170,9 @@ public sealed class AgentWorker : BackgroundService
                 message.Role == "user" && message.Status == MessageStatus.Completed);
             var includePolicyInstructions = previouslyOwnedAgentChat is null || !hasCompletedAgentHistory;
             AgentPrompt nextPrompt;
-            var nextTurn = 0;
 
             if (recovering && await RecoverReplyAsync(existingMessages, cancellation.Token) is { } recoveredReply)
             {
-                nextTurn = CountExecutionTurns(existingMessages, executionId);
-                if (!existingMessages.Any(message => string.Equals(message.MessageId, recoveredReply.MessageId, StringComparison.Ordinal)))
-                    nextTurn++;
-
                 var recovered = await ProcessReplyAsync(
                     execution,
                     policy,
@@ -193,17 +188,10 @@ public sealed class AgentWorker : BackgroundService
                 nextPrompt = _prompts.BuildInitial(execution, policy, includePolicyInstructions);
             }
 
-            for (var turn = nextTurn; ; turn++)
+            while (true)
             {
                 cancellation.Token.ThrowIfCancellationRequested();
                 _store.ValidateAgentChatRunnable(chatId);
-
-                var turnDecision = _evaluations.ValidateTurn(policy, execution, turn);
-                if (!turnDecision.Allowed)
-                {
-                    _store.Fail(executionId, turnDecision.Error ?? "Policy rejected the next agent turn.");
-                    return;
-                }
 
                 var reply = await _messages.SendWithReplyAsync(
                     new PostMessageRequest(
@@ -352,13 +340,6 @@ public sealed class AgentWorker : BackgroundService
 
         return visible.Count == 0 ? null : string.Join("\n\n", visible);
     }
-
-    private static int CountExecutionTurns(
-        IReadOnlyList<ApiChatHistoryMessage> messages,
-        string executionId) =>
-        GetExecutionMessages(messages, executionId).Count(message =>
-            string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
-            message.Status == MessageStatus.Completed);
 
     private static IEnumerable<ApiChatHistoryMessage> GetExecutionMessages(
         IReadOnlyList<ApiChatHistoryMessage> messages,

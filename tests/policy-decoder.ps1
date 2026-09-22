@@ -122,6 +122,13 @@ Assert(mappedMessage.Commands.Count == 1 &&
     "Agent API protocol view lost SH body/index or DONE claim.");
 
 var promptBuilder = new AgentPromptBuilder(options);
+Assert(options.Messages.ProtocolIntro!.Contains("Separate observed facts from hypotheses", StringComparison.Ordinal),
+    "Initial Agent protocol lost evidence-calibration guidance.");
+var commandResultPrompt = promptBuilder.BuildCommandResults(
+    new[] { new Result("SH", "1", true, 0, "stdout: changed", null) },
+    normal).Content;
+Assert(commandResultPrompt.Contains("does not by itself prove the original cause", StringComparison.Ordinal),
+    "Command-result prompt lost causality-calibration guidance.");
 Assert(!promptBuilder.BuildContinue(normal).Content.Contains("<DONE>", StringComparison.Ordinal),
     "requireDone=false continuation still instructs DONE.");
 Assert(promptBuilder.BuildContinue(done).Content.Contains("<DONE>", StringComparison.Ordinal),

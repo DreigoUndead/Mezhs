@@ -94,18 +94,50 @@ function assertProofToken(token, seed, difficulty) {
   assert.ok(digest.subarray(0, target.length).compare(target) < 0);
 }
 
-test("browser transport has one named provider-operation bridge", () => {
+test("browser transport polls long provider operations through short HTTP requests", () => {
   const electron = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8");
+  const transport = fs.readFileSync(
+    path.join(root, "transports", "Mezhs.Browser.Electron", "ElectronBrowserTransport.cs"),
+    "utf8"
+  );
   const contract = fs.readFileSync(
     path.join(root, "transports", "Mezhs.Browser.Abstractions", "IChatBrowserTransport.cs"),
     "utf8"
   );
 
-  assert.match(electron, /request\.url === "\/invoke"/);
+  assert.match(electron, /requestUrl\.pathname === "\/invoke"/);
+  assert.match(electron, /requestUrl\.pathname\.startsWith\("\/invoke\/"\)/);
+  assert.match(electron, /writeJson\(response, 202, \{ operationId \}\)/);
+  assert.match(electron, /queueProviderOperation\(body\)/);
   assert.doesNotMatch(electron, /request\.url === "\/prompt"/);
   assert.doesNotMatch(electron, /request\.url === "\/fetch"/);
+
+  assert.match(transport, /Timeout = TimeSpan\.FromSeconds\(10\)/);
+  assert.match(transport, /OperationPollInterval = TimeSpan\.FromSeconds\(2\)/);
+  assert.match(transport, /GetAsync\(/);
+  assert.doesNotMatch(transport, /FromMinutes\(6\)/);
+
   assert.match(contract, /InvokeAsync<TResult>/);
+  assert.match(contract, /InvokeWithProgressAsync<TResult>/);
+  assert.match(contract, /BrowserOperationProgress/);
+  assert.match(electron, /reportProgress/);
+  assert.match(transport, /reportProgress\?\.Invoke\(progress\)/);
   assert.doesNotMatch(contract, /SendPromptAsync|SendWebRequestAsync|BrowserWebRequest|BrowserWebResponse/);
+});
+
+test("provider response lifetime is not capped by wall-clock deadlines", () => {
+  const files = [
+    path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "chatgpt.ts"),
+    path.join(root, "integrations", "Mezhs.Integrations.Grok", "browser", "grok.ts"),
+    path.join(root, "integrations", "Mezhs.Integrations.Gemini", "browser", "gemini.ts")
+  ];
+
+  for (const file of files) {
+    const source = fs.readFileSync(file, "utf8");
+    assert.doesNotMatch(source, /response timed out/i, file);
+    assert.doesNotMatch(source, /CONVERSATION_POLL_ATTEMPTS/, file);
+    assert.doesNotMatch(source, /responseDeadline\s*=|const deadline = Date\.now\(\) \+ 180000/, file);
+  }
 });
 
 test("ChatGPT getProjects uses the private API and follows pagination", async () => {
@@ -264,7 +296,7 @@ test("ChatGPT getModels follows the native picker instead of the raw catalog", a
   ]);
 });
 
-test("ChatGPT o3 newChat follows the native protocol and reports the assistant model", async () => {
+test("ChatGPT o3 newChat follows the semantic web API protocol and reports the assistant model", async () => {
   const chatgpt = loadChatGptModule();
   const seed = "0.559779845730002";
   const difficulty = "ffffff";
@@ -332,8 +364,19 @@ test("ChatGPT o3 newChat follows the native protocol and reports the assistant m
 
   const result = await chatgpt.operations.newChat({
     window: {
+      loadURL: async () => {
+        throw new Error("ChatGPT account send must not navigate the UI.");
+      },
       getBounds: () => ({ width: 1200, height: 850 }),
-      webContents: { getUserAgent: () => "TestBrowser/1.0" }
+      webContents: {
+        getUserAgent: () => "TestBrowser/1.0",
+        debugger: {}
+      }
+    },
+    page: {
+      invoke: async () => {
+        throw new Error("ChatGPT account send must not invoke page operations.");
+      }
     },
     session,
     args: {

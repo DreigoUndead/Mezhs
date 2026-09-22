@@ -31,8 +31,9 @@ const PROMPT_EDITOR_SELECTOR = [
 ].join(', ');
 
 const CONVERSATION_POLL_INTERVAL_MS = 2000;
-const CONVERSATION_POLL_ATTEMPTS = 120;
 const CONVERSATION_RATE_LIMIT_MAX_FALLBACK_MS = 30000;
+const TURN_START_WATCHDOG_MS = 20000;
+const TURN_START_RETRY_LIMIT = 1;
 
 module.exports = {
   name: "ChatGPT",
@@ -114,7 +115,7 @@ module.exports = {
           send.click();
           let last = '';
           let stable = 0;
-          for (let i = 0; i < 480; i++) {
+          while (true) {
             const messages = document.querySelectorAll(selector);
             const text = messages[messages.length - 1]?.innerText?.trim() || '';
             const stop = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"]');
@@ -124,14 +125,9 @@ module.exports = {
               return { ok: true, text };
             await sleep(500);
           }
-          return { ok: false, text: last, error: 'ChatGPT response timed out.' };
         })()
       `, true);
     }
-  },
-
-  pageOperations: {
-    submitPrompt
   }
 };
 
@@ -227,74 +223,9 @@ function parseModelSelection(value) {
   };
 }
 
-function setPromptEditorValue(editor, prompt) {
-  editor.focus();
-  const tagName = String(editor.tagName || "").toUpperCase();
-  if (tagName === "TEXTAREA" || tagName === "INPUT") {
-    const view = editor.ownerDocument?.defaultView || globalThis;
-    const prototype = tagName === "TEXTAREA"
-      ? view.HTMLTextAreaElement?.prototype
-      : view.HTMLInputElement?.prototype;
-    const setter = prototype
-      ? Object.getOwnPropertyDescriptor(prototype, "value")?.set
-      : null;
-    if (setter) setter.call(editor, prompt);
-    else editor.value = prompt;
-    editor.dispatchEvent(new (view.Event || Event)("input", { bubbles: true }));
-    return;
-  }
-
-  document.execCommand("selectAll", false, null);
-  document.execCommand("insertText", false, prompt);
-  editor.dispatchEvent(new InputEvent("input", {
-    bubbles: true,
-    inputType: "insertText",
-    data: prompt
-  }));
-}
-
-async function submitPrompt({ args, sleep }) {
-  const prompt = String(args.prompt || "");
-  let editor = null;
-  for (let i = 0; i < 120 && !editor; i++) {
-    editor = document.querySelector(PROMPT_EDITOR_SELECTOR);
-    if (!editor) await sleep(250);
-  }
-  if (!editor) {
-    const page = typeof location === "undefined" ? "unknown page" : location.href;
-    throw new Error(`ChatGPT prompt editor was not found on ${page}.`);
-  }
-
-  setPromptEditorValue(editor, prompt);
-
-  let send = null;
-  for (let i = 0; i < 360 && (!send || send.disabled); i++) {
-    send = document.querySelector(
-      'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
-    );
-    if (!send || send.disabled) await sleep(250);
-  }
-  if (!send || send.disabled)
-    throw new Error("ChatGPT send button did not become available.");
-  send.click();
-  return true;
-}
-
-function canUseNativeSend({ window, page, args }, isNew) {
-  return Boolean(
-    window?.webContents?.debugger &&
-    typeof page?.invoke === "function" &&
-    !(args.files || []).length &&
-    (isNew || args.conversationId)
-  );
-}
-
 async function sendAccountMessage(context, isNew) {
   const token = await requireToken(context.session);
   const selection = parseModelSelection(context.args.model);
-
-  if (canUseNativeSend(context, isNew))
-    return sendNativeAccountMessage(context, isNew, token, selection);
 
   await setModelPreference(context.session, token, selection);
   return sendApiAccountMessage(context, isNew, token, selection);
@@ -309,139 +240,8 @@ async function setModelPreference(session, token, selection) {
   await apiFetch(session, token, url.pathname + url.search, { method: "PATCH" });
 }
 
-async function sendNativeAccountMessage({ window, session, page, args, sleep }, isNew, token, selection) {
-  const targetUrl = isNew
-    ? args.projectId
-      ? `${ORIGIN}/g/${encodeURIComponent(args.projectId)}/project`
-      : module.exports.homeUrl
-    : `${ORIGIN}/c/${encodeURIComponent(args.conversationId)}`;
-  await window.loadURL(targetUrl);
-  await setModelPreference(session, token, selection);
-
-  const messageId = await observeNativeConversationRequest(
-    window.webContents.debugger,
-    selection,
-    () => page.invoke("submitPrompt", { prompt: args.prompt })
-  );
-  const conversationId = isNew
-    ? await waitForNativeConversationId(window, sleep)
-    : args.conversationId;
-
-  return completeAccountMessage(
-    session,
-    token,
-    conversationId,
-    messageId,
-    sleep,
-    isNew
-  );
-}
-
-async function observeNativeConversationRequest(debuggerClient, selection, trigger) {
-  let attachedHere = false;
-  if (!debuggerClient.isAttached()) {
-    debuggerClient.attach("1.3");
-    attachedHere = true;
-  }
-
-  let resolveRequest;
-  let rejectRequest;
-  const request = new Promise((resolve, reject) => {
-    resolveRequest = resolve;
-    rejectRequest = reject;
-  });
-
-  const onMessage = async (_event, method, params) => {
-    if (method !== "Fetch.requestPaused") return;
-    if (!String(params?.request?.url || "").endsWith(API.conversation)) {
-      await debuggerClient.sendCommand("Fetch.continueRequest", {
-        requestId: params.requestId
-      });
-      return;
-    }
-
-    try {
-      if (!params.request.postData) {
-        await debuggerClient.sendCommand("Fetch.failRequest", {
-          requestId: params.requestId,
-          errorReason: "Aborted"
-        });
-        throw new Error("ChatGPT native conversation request did not expose its body.");
-      }
-
-      const body = JSON.parse(params.request.postData);
-      const messages = Array.isArray(body.messages) ? body.messages : [];
-      const messageId = String(messages.at(-1)?.id || "").trim();
-      if (!messageId) {
-        await debuggerClient.sendCommand("Fetch.failRequest", {
-          requestId: params.requestId,
-          errorReason: "Aborted"
-        });
-        throw new Error("ChatGPT native conversation request has no message id.");
-      }
-
-      const nativeModel = String(body.model || "").trim() || null;
-      if (selection.model && selection.model !== "auto")
-        body.model = selection.model;
-      if (selection.thinkingEffort)
-        body.thinking_effort = selection.thinkingEffort;
-      else
-        delete body.thinking_effort;
-
-      console.error(
-        `ChatGPT native model: requested=${selection.model}` +
-        `${selection.thinkingEffort ? `/${selection.thinkingEffort}` : ""}, ` +
-        `composer=${nativeModel || "<none>"}` +
-        `${body.thinking_effort ? `/${body.thinking_effort}` : ""}`
-      );
-
-      await debuggerClient.sendCommand("Fetch.continueRequest", {
-        requestId: params.requestId,
-        postData: Buffer.from(JSON.stringify(body)).toString("base64")
-      });
-      resolveRequest(messageId);
-    } catch (error) {
-      rejectRequest(error);
-    }
-  };
-
-  debuggerClient.on("message", onMessage);
-  try {
-    await debuggerClient.sendCommand("Fetch.enable", {
-      patterns: [{
-        urlPattern: `*${API.conversation}`,
-        requestStage: "Request"
-      }]
-    });
-    await trigger();
-    const timeout = setTimeout(
-      () => rejectRequest(new Error("ChatGPT native send request was not observed.")),
-      60000
-    );
-    try {
-      return await request;
-    } finally {
-      clearTimeout(timeout);
-    }
-  } finally {
-    debuggerClient.removeListener("message", onMessage);
-    await debuggerClient.sendCommand("Fetch.disable").catch(() => {});
-    if (attachedHere && debuggerClient.isAttached()) debuggerClient.detach();
-  }
-}
-
-async function waitForNativeConversationId(window, sleep) {
-  for (let i = 0; i < 120; i++) {
-    const match = /\/c\/([^/?#]+)/.exec(String(window.webContents.getURL?.() || ""));
-    if (match) return decodeURIComponent(match[1]);
-    await sleep(500);
-  }
-  throw new Error("ChatGPT native send did not open a conversation.");
-}
-
-async function sendApiAccountMessage({ window, session, args, sleep }, isNew, token, selection) {
+async function sendApiAccountMessage({ window, session, args, sleep, reportProgress }, isNew, token, selection) {
   const uploaded = await uploadFiles(session, token, args.files || []);
-  const messageId = randomUUID();
   const imageParts = uploaded
     .filter(file => file.contentType.startsWith("image/"))
     .map(file => ({
@@ -455,48 +255,103 @@ async function sendApiAccountMessage({ window, session, args, sleep }, isNew, to
     mimeType: file.contentType,
     size: file.size
   }));
-
-  const projectMode = isNew && args.projectId;
-  const model = selection.model;
   const metadata = {
     selected_sources: [],
     serialization_metadata: { custom_symbol_offsets: [] },
     ...(attachments.length ? { attachments } : {})
   };
-  const payload = {
-    action: "next",
-    conversation_id: isNew ? undefined : args.conversationId,
-    messages: [{
-      id: messageId,
-      author: { role: "user" },
-      create_time: Date.now() / 1000,
-      content: {
-        content_type: imageParts.length ? "multimodal_text" : "text",
-        parts: [...imageParts, String(args.prompt || "")]
-      },
-      metadata
-    }],
-    model,
-    parent_message_id: isNew ? "client-created-root" : args.parentMessageId,
-    client_prepare_state: "success",
-    timezone_offset_min: new Date().getTimezoneOffset(),
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-    conversation_mode: isNew
-      ? projectMode
-        ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
-        : { kind: "primary_assistant" }
-      : undefined,
-    system_hints: [],
-    supports_buffering: true,
-    supported_encodings: ["v1"],
-    client_contextual_info: clientContext(window),
-    paragen_cot_summary_display_override: "allow",
-    force_parallel_switch: "auto",
-    local_function_names: ["local.continue_in_work"]
-  };
-  if (selection.thinkingEffort)
-    payload.thinking_effort = selection.thinkingEffort;
+  const projectMode = isNew && args.projectId
+    ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
+    : isNew
+      ? { kind: "primary_assistant" }
+      : undefined;
+  const parentMessageId = isNew ? "client-created-root" : args.parentMessageId;
 
+  function buildPayload(messageId, conversationId) {
+    const payload = {
+      action: "next",
+      conversation_id: conversationId,
+      messages: [{
+        id: messageId,
+        author: { role: "user" },
+        create_time: Date.now() / 1000,
+        content: {
+          content_type: imageParts.length ? "multimodal_text" : "text",
+          parts: [...imageParts, String(args.prompt || "")]
+        },
+        metadata
+      }],
+      model: selection.model,
+      parent_message_id: parentMessageId,
+      client_prepare_state: "success",
+      timezone_offset_min: new Date().getTimezoneOffset(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+      conversation_mode: projectMode,
+      system_hints: [],
+      supports_buffering: true,
+      supported_encodings: ["v1"],
+      client_contextual_info: clientContext(window),
+      paragen_cot_summary_display_override: "allow",
+      force_parallel_switch: "auto",
+      local_function_names: ["local.continue_in_work"]
+    };
+    if (selection.thinkingEffort)
+      payload.thinking_effort = selection.thinkingEffort;
+    return payload;
+  }
+
+  reportProgress?.({
+    state: "submitting",
+    detail: "Submitting prompt to ChatGPT."
+  });
+
+  let requestMessageId = randomUUID();
+  let conversationId = await postConversationTurn(
+    window,
+    session,
+    token,
+    buildPayload(requestMessageId, isNew ? undefined : args.conversationId),
+    args.conversationId
+  );
+  if (!conversationId)
+    throw new Error("ChatGPT did not return a conversation id.");
+
+  reportProgress?.({
+    state: "waiting",
+    detail: "Prompt accepted; waiting for model activity."
+  });
+
+  return completeAccountMessage(
+    session,
+    token,
+    conversationId,
+    requestMessageId,
+    sleep,
+    isNew,
+    reportProgress,
+    async () => {
+      const retryMessageId = randomUUID();
+      reportProgress?.({
+        state: "retrying",
+        detail: "No model activity was detected; reposting the prompt once."
+      });
+      const retryConversationId = await postConversationTurn(
+        window,
+        session,
+        token,
+        buildPayload(retryMessageId, conversationId),
+        conversationId
+      );
+      if (retryConversationId !== conversationId)
+        throw new Error(
+          `ChatGPT retry switched conversation from '${conversationId}' to '${retryConversationId}'.`
+        );
+      return retryMessageId;
+    }
+  );
+}
+
+async function postConversationTurn(window, session, token, payload, fallbackConversationId = null) {
   const config = sentinelConfig(window);
   const turnTraceId = randomUUID();
   const conduitToken = await getConduitToken(
@@ -528,23 +383,30 @@ async function sendApiAccountMessage({ window, session, args, sleep }, isNew, to
     headers,
     body: JSON.stringify(payload)
   });
-  const conversationId = findConversationId(await response.text()) || args.conversationId;
-  if (!conversationId) throw new Error("ChatGPT did not return a conversation id.");
-
-  return completeAccountMessage(
-    session,
-    token,
-    conversationId,
-    messageId,
-    sleep,
-    isNew
-  );
+  return findConversationId(await response.text()) || fallbackConversationId;
 }
 
-async function completeAccountMessage(session, token, conversationId, messageId, sleep, isNew) {
+async function completeAccountMessage(
+  session,
+  token,
+  conversationId,
+  requestMessageId,
+  sleep,
+  isNew,
+  reportProgress,
+  retryTurn
+) {
   let result;
   try {
-    result = await waitForConversation(session, token, conversationId, messageId, sleep);
+    result = await waitForConversation(
+      session,
+      token,
+      conversationId,
+      requestMessageId,
+      sleep,
+      reportProgress,
+      retryTurn
+    );
   } catch (error) {
     if (!isNew && isConversationUnavailable(error, conversationId))
       return { conversationUnavailable: true };
@@ -922,10 +784,22 @@ function findConversationId(text) {
   return null;
 }
 
-async function waitForConversation(session, token, conversationId, requestMessageId, sleep) {
+async function waitForConversation(
+  session,
+  token,
+  conversationId,
+  requestMessageId,
+  sleep,
+  reportProgress,
+  retryTurn
+) {
   const endpoint = API.conversationById(conversationId);
   let consecutiveRateLimits = 0;
-  for (let i = 0; i < CONVERSATION_POLL_ATTEMPTS; i++) {
+  let startupWaitMs = 0;
+  let activityObserved = false;
+  let retries = 0;
+
+  while (true) {
     let conversation;
     try {
       conversation = await apiJson(session, token, endpoint);
@@ -943,49 +817,216 @@ async function waitForConversation(session, token, conversationId, requestMessag
         error.retryAfterMs ?? fallbackDelay
       );
       consecutiveRateLimits++;
+      reportProgress?.({
+        state: "rate-limited",
+        detail: `ChatGPT rate limited state checks; retrying in ${Math.ceil(delay / 1000)}s.`
+      });
       console.error(`ChatGPT conversation poll rate-limited; retrying in ${delay} ms.`);
       await sleep(delay);
       continue;
     }
 
-    const current = conversation?.mapping?.[conversation.current_node];
-    const message = current?.message;
-    if (message?.author?.role === "assistant" && message.status !== "in_progress") {
-      const files = new Map();
+    const turn = inspectConversationTurn(conversation, requestMessageId);
+    if (turn.reply) {
+      reportProgress?.({
+        state: "completed",
+        detail: "Model response received.",
+        analysis: turn.analysis
+      });
+      return turn.reply;
+    }
+
+    if (turn.started)
+      activityObserved = true;
+
+    reportProgress?.({
+      state: turn.state,
+      detail: turn.detail,
+      analysis: turn.analysis
+    });
+
+    if (!activityObserved && startupWaitMs >= TURN_START_WATCHDOG_MS) {
+      if (retries >= TURN_START_RETRY_LIMIT)
+        throw new Error(
+          `ChatGPT did not start responding within ${TURN_START_WATCHDOG_MS / 1000}s after the automatic retry.`
+        );
+
+      requestMessageId = await retryTurn();
+      retries++;
+      startupWaitMs = 0;
+      reportProgress?.({
+        state: "waiting",
+        detail: "Prompt reposted; waiting for model activity."
+      });
+      continue;
+    }
+
+    await sleep(CONVERSATION_POLL_INTERVAL_MS);
+    if (!activityObserved)
+      startupWaitMs += CONVERSATION_POLL_INTERVAL_MS;
+  }
+}
+
+function inspectConversationTurn(conversation, requestMessageId) {
+  const reply = findVisibleAssistantReply(conversation, requestMessageId);
+  if (reply)
+    return {
+      reply,
+      started: true,
+      state: "responding",
+      detail: "Model response completed.",
+      analysis: collectTurnAnalysis(conversation, requestMessageId)
+    };
+
+  const mapping = conversation?.mapping || {};
+  let node = mapping[conversation?.current_node];
+  let reachedRequest = false;
+  let assistantObserved = false;
+  let inProgress = null;
+  const analysis = [];
+
+  while (node) {
+    const message = node.message;
+    if (message?.id === requestMessageId) {
+      reachedRequest = true;
+      break;
+    }
+
+    if (message?.author?.role === "assistant") {
+      assistantObserved = true;
+      const channel = String(message.channel || "").trim().toLowerCase();
+      if (channel === "analysis") {
+        const text = visibleAssistantText(message);
+        if (text) analysis.push(text);
+      }
+      if (!inProgress && message.status === "in_progress")
+        inProgress = { channel };
+    }
+
+    node = mapping[node.parent];
+  }
+
+  const analysisText = analysis.reverse().join("\n\n").trim() || null;
+  if (!reachedRequest) {
+    return {
+      reply: null,
+      started: false,
+      state: "waiting",
+      detail: "Waiting for the submitted prompt to become the active ChatGPT turn.",
+      analysis: null
+    };
+  }
+
+  if (inProgress) {
+    const thinking = inProgress.channel === "analysis";
+    return {
+      reply: null,
+      started: true,
+      state: thinking ? "thinking" : "responding",
+      detail: thinking ? "Model is thinking." : "Model is generating a response.",
+      analysis: analysisText
+    };
+  }
+
+  if (assistantObserved) {
+    return {
+      reply: null,
+      started: true,
+      state: "active",
+      detail: "Model activity was observed; ChatGPT does not expose an active generation marker for the current node.",
+      analysis: analysisText
+    };
+  }
+
+  return {
+    reply: null,
+    started: false,
+    state: "waiting",
+    detail: "Prompt is present, but no model activity has started yet.",
+    analysis: null
+  };
+}
+
+function collectTurnAnalysis(conversation, requestMessageId) {
+  const mapping = conversation?.mapping || {};
+  let node = mapping[conversation?.current_node];
+  const values = [];
+  while (node) {
+    const message = node.message;
+    if (message?.id === requestMessageId)
+      return values.reverse().join("\n\n").trim() || null;
+    if (message?.author?.role === "assistant" &&
+        String(message.channel || "").trim().toLowerCase() === "analysis") {
+      const text = visibleAssistantText(message);
+      if (text) values.push(text);
+    }
+    node = mapping[node.parent];
+  }
+  return null;
+}
+
+function findVisibleAssistantReply(conversation, requestMessageId) {
+  const mapping = conversation?.mapping || {};
+  let node = mapping[conversation?.current_node];
+  let assistant = null;
+  const files = new Map();
+
+  while (node) {
+    const message = node.message;
+    if (message?.id === requestMessageId) {
+      if (!assistant) return null;
       const assistantModel = String(
-        message?.metadata?.resolved_model_slug ||
-        message?.metadata?.model_slug ||
+        assistant.metadata?.resolved_model_slug ||
+        assistant.metadata?.model_slug ||
         ""
       ).trim() || null;
-      let requestResolvedModel = null;
-      let requestFound = false;
-      let node = current;
-      while (node) {
-        if (node.message?.id === requestMessageId) {
-          requestFound = true;
-          requestResolvedModel = String(
-            node.message?.metadata?.resolved_model_slug || ""
-          ).trim() || null;
-          break;
-        }
-        collectFileRefs(node.message, files);
-        node = conversation.mapping[node.parent];
-      }
-      if (!requestFound) {
-        await sleep(CONVERSATION_POLL_INTERVAL_MS);
-        continue;
-      }
+      const requestResolvedModel = String(
+        message.metadata?.resolved_model_slug || ""
+      ).trim() || null;
       return {
-        text: (message.content?.parts || []).filter(x => typeof x === "string").join("\n").trim(),
-        parentMessageId: message.id,
+        text: visibleAssistantText(assistant),
+        parentMessageId: assistant.id,
         projectId: conversation.gizmo_id || null,
         model: assistantModel || requestResolvedModel,
         files
       };
     }
-    await sleep(CONVERSATION_POLL_INTERVAL_MS);
+
+    collectFileRefs(message, files);
+    if (!assistant && isVisibleAssistantMessage(message))
+      assistant = message;
+    node = mapping[node.parent];
   }
-  throw new Error("ChatGPT response timed out.");
+
+  return null;
+}
+
+function isVisibleAssistantMessage(message) {
+  if (message?.author?.role !== "assistant" || message.status === "in_progress")
+    return false;
+  if (message.metadata?.is_visually_hidden_from_conversation === true || message.weight === 0)
+    return false;
+
+  const channel = String(message.channel || "").trim().toLowerCase();
+  if (channel && channel !== "final")
+    return false;
+
+  const recipient = String(message.recipient || "").trim().toLowerCase();
+  if (recipient && recipient !== "all")
+    return false;
+
+  const contentType = String(message.content?.content_type || "text").trim().toLowerCase();
+  if (contentType !== "text" && contentType !== "multimodal_text")
+    return false;
+
+  return Boolean(visibleAssistantText(message));
+}
+
+function visibleAssistantText(message) {
+  return (message?.content?.parts || [])
+    .filter(part => typeof part === "string")
+    .join("\n")
+    .trim();
 }
 
 function collectFileRefs(value, refs) {
