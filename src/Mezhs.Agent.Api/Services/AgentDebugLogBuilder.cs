@@ -95,6 +95,17 @@ public sealed class AgentDebugLogBuilder(
                 log.AppendLine($"activityDetail: {message.ActivityDetail}");
             if (message.ActivityAt is { } activityAt)
                 log.AppendLine($"activityAt: {Format(activityAt)}");
+            if (message.ActivityHistory is { Count: > 0 })
+            {
+                log.AppendLine("activityTimeline:");
+                foreach (var activity in message.ActivityHistory)
+                {
+                    var detail = string.IsNullOrWhiteSpace(activity.Detail)
+                        ? string.Empty
+                        : $" - {activity.Detail}";
+                    log.AppendLine($"  [{Format(activity.At)}] {activity.State}{detail}");
+                }
+            }
             AppendBlock(log, "analysis", message.Analysis);
             AppendBlock(log, "content", message.Content);
             AppendBlock(log, "error", message.Error);
