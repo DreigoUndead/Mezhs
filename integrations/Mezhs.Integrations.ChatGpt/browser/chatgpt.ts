@@ -31,7 +31,6 @@ const PROMPT_EDITOR_SELECTOR = [
 ].join(', ');
 
 const CONVERSATION_POLL_INTERVAL_MS = 2000;
-const CONVERSATION_POLL_ATTEMPTS = 120;
 const CONVERSATION_RATE_LIMIT_MAX_FALLBACK_MS = 30000;
 
 module.exports = {
@@ -114,7 +113,7 @@ module.exports = {
           send.click();
           let last = '';
           let stable = 0;
-          for (let i = 0; i < 480; i++) {
+          while (true) {
             const messages = document.querySelectorAll(selector);
             const text = messages[messages.length - 1]?.innerText?.trim() || '';
             const stop = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"]');
@@ -124,7 +123,6 @@ module.exports = {
               return { ok: true, text };
             await sleep(500);
           }
-          return { ok: false, text: last, error: 'ChatGPT response timed out.' };
         })()
       `, true);
     }
@@ -726,7 +724,7 @@ function findConversationId(text) {
 async function waitForConversation(session, token, conversationId, requestMessageId, sleep) {
   const endpoint = API.conversationById(conversationId);
   let consecutiveRateLimits = 0;
-  for (let i = 0; i < CONVERSATION_POLL_ATTEMPTS; i++) {
+  while (true) {
     let conversation;
     try {
       conversation = await apiJson(session, token, endpoint);
@@ -786,7 +784,6 @@ async function waitForConversation(session, token, conversationId, requestMessag
     }
     await sleep(CONVERSATION_POLL_INTERVAL_MS);
   }
-  throw new Error("ChatGPT response timed out.");
 }
 
 function collectFileRefs(value, refs) {
