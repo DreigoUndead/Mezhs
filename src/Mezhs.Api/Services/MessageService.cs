@@ -340,16 +340,20 @@ public sealed class MessageService(
         if (!stateChanged && !analysisChanged)
             return;
 
+        var activityAt = DateTimeOffset.UtcNow;
         message.Activity = state;
         message.ActivityDetail = detail;
         message.Analysis = analysis;
-        message.ActivityAt = DateTimeOffset.UtcNow;
+        message.ActivityAt = activityAt;
 
         // StoredMessage is the live in-memory source used by API reads. Persist state
         // transitions, but do not append the entire growing analysis on every poll.
         // The normal terminal SaveMessage persists the latest analysis once more.
         if (stateChanged)
+        {
+            message.ActivityHistory.Add(new MessageActivity(state, detail, activityAt));
             store.SaveMessage(message);
+        }
     }
 
     private IReadOnlyList<StoredMessage> BuildHistory(StoredMessage current)
@@ -463,7 +467,8 @@ public sealed class MessageService(
             message.Activity,
             message.ActivityDetail,
             message.Analysis,
-            message.ActivityAt);
+            message.ActivityAt,
+            message.ActivityHistory);
     }
 
     private static string NormalizeStoredOrigin(StoredMessage message)
