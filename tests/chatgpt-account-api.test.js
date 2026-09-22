@@ -303,15 +303,14 @@ test("ChatGPT reposts once when a submitted turn never shows model activity", as
   assert.equal(result.text, "retry worked");
 });
 
-test("first model activity permanently disarms the turn-start watchdog", async () => {
+test("ChatGPT reposts when model activity stops without a final reply", async () => {
   const chatgpt = loadChatGptModule();
-  let requestMessageId;
-  let posts = 0;
+  const requestIds = [];
   let reads = 0;
   const progress = [];
 
-  const analysisConversation = () => ({
-    conversation_id: "conv-long-thinking",
+  const stalledConversation = requestMessageId => ({
+    conversation_id: "conv-stalled-activity",
     current_node: "assistant-analysis",
     mapping: {
       "assistant-analysis": {
@@ -323,7 +322,7 @@ test("first model activity permanently disarms the turn-start watchdog", async (
           channel: "analysis",
           content: {
             content_type: "text",
-            parts: ["Still working through the task."]
+            parts: ["Command finished; deciding what to do next."]
           }
         }
       },
@@ -340,17 +339,17 @@ test("first model activity permanently disarms the turn-start watchdog", async (
   });
 
   const session = protocolSession({
-    conversationId: "conv-long-thinking",
+    conversationId: "conv-stalled-activity",
     onConversationPost: body => {
-      posts++;
-      requestMessageId = body.messages[0].id;
+      requestIds.push(body.messages[0].id);
     },
     onConversationRead: () => {
       reads++;
+      const activeRequestId = requestIds.at(-1);
       return jsonResponse(
-        reads <= 15
-          ? analysisConversation()
-          : completedConversation("conv-long-thinking", requestMessageId, "finally done")
+        requestIds.length === 1
+          ? stalledConversation(activeRequestId)
+          : completedConversation("conv-stalled-activity", activeRequestId, "retry recovered")
       );
     }
   });
@@ -358,32 +357,104 @@ test("first model activity permanently disarms the turn-start watchdog", async (
   const result = await chatgpt.operations.newChat({
     ...hostileBrowserSurface(),
     session,
-    args: { prompt: "think for a long time", files: [] },
+    args: { prompt: "recover stalled turn", files: [] },
     sleep: async () => {},
     reportProgress: value => progress.push(value)
   });
 
-  assert.equal(posts, 1);
-  assert.equal(reads, 16);
-  assert.equal(result.text, "finally done");
+  assert.equal(requestIds.length, 2);
+  assert.notEqual(requestIds[0], requestIds[1]);
+  assert.ok(reads >= 12);
+  assert.equal(result.text, "retry recovered");
   assert.ok(progress.some(value =>
-    value.state === "active" &&
-    value.analysis === "Still working through the task."
+    value.state === "waiting" &&
+    value.detail === "Model activity was observed, but no active generation is currently detected." &&
+    value.analysis === "Command finished; deciding what to do next."
   ));
+  assert.ok(progress.some(value => value.state === "retrying"));
 });
 
-test("ChatGPT reports explicit in-progress analysis as thinking", async () => {
+test("ChatGPT inactivity watchdog resets when the conversation advances", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
+  let posts = 0;
+  let reads = 0;
+
+  const progressConversation = (nodeId, text) => ({
+    conversation_id: "conv-progress-reset",
+    current_node: nodeId,
+    mapping: {
+      [nodeId]: {
+        parent: "request-new",
+        message: {
+          id: nodeId,
+          author: { role: "assistant" },
+          status: "finished_successfully",
+          channel: "analysis",
+          content: {
+            content_type: "text",
+            parts: [text]
+          }
+        }
+      },
+      "request-new": {
+        parent: null,
+        message: {
+          id: requestMessageId,
+          author: { role: "user" },
+          status: "finished_successfully",
+          content: { content_type: "text", parts: ["prompt"] }
+        }
+      }
+    }
+  });
+
+  const session = protocolSession({
+    conversationId: "conv-progress-reset",
+    onConversationPost: body => {
+      posts++;
+      requestMessageId = body.messages[0].id;
+    },
+    onConversationRead: () => {
+      reads++;
+      if (reads <= 6)
+        return jsonResponse(progressConversation("assistant-analysis-1", "First progress marker."));
+      if (reads <= 12)
+        return jsonResponse(progressConversation("assistant-analysis-2", "Second progress marker."));
+      return jsonResponse(
+        completedConversation("conv-progress-reset", requestMessageId, "done")
+      );
+    }
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...hostileBrowserSurface(),
+    session,
+    args: { prompt: "keep progressing", files: [] },
+    sleep: async () => {}
+  });
+
+  assert.equal(posts, 1);
+  assert.equal(reads, 13);
+  assert.equal(result.text, "done");
+});
+
+test("ChatGPT keeps waiting while explicit in-progress analysis remains active", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  let posts = 0;
   let reads = 0;
   const progress = [];
 
   const session = protocolSession({
     conversationId: "conv-thinking-state",
-    onConversationPost: body => { requestMessageId = body.messages[0].id; },
+    onConversationPost: body => {
+      posts++;
+      requestMessageId = body.messages[0].id;
+    },
     onConversationRead: () => {
       reads++;
-      if (reads > 1)
+      if (reads > 15)
         return jsonResponse(completedConversation("conv-thinking-state", requestMessageId, "done"));
       return jsonResponse({
         conversation_id: "conv-thinking-state",
@@ -424,6 +495,8 @@ test("ChatGPT reports explicit in-progress analysis as thinking", async () => {
     reportProgress: value => progress.push(value)
   });
 
+  assert.equal(posts, 1);
+  assert.equal(reads, 16);
   assert.equal(result.text, "done");
   assert.ok(progress.some(value =>
     value.state === "thinking" &&
@@ -504,7 +577,7 @@ test("ChatGPT fails after one automatic repost if model activity still never sta
       args: { prompt: "never starts", files: [] },
       sleep: async () => {}
     }),
-    /did not start responding within 20s after the automatic retry/
+    /showed no active generation for 20s after the automatic retry/
   );
   assert.equal(posts, 2);
 });
