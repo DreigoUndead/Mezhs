@@ -197,6 +197,11 @@ const providerOperations = new Map();
 let operationQueue = Promise.resolve();
 
 function queueProviderOperation(request) {
+  for (const [operationId, state] of providerOperations) {
+    if (state.status === "completed" || state.status === "failed")
+      providerOperations.delete(operationId);
+  }
+
   const operationId = randomUUID();
   const state = {
     status: "queued",
@@ -213,8 +218,6 @@ function queueProviderOperation(request) {
     } catch (error) {
       state.error = String(error?.stack ?? error);
       state.status = "failed";
-    } finally {
-      setTimeout(() => providerOperations.delete(operationId), 60000).unref();
     }
   });
 
