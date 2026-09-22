@@ -6,18 +6,25 @@ using Mezhs.Api.Contracts;
 
 namespace Mezhs.Api.Client;
 
-public sealed class MezhsApiClient(HttpClient client)
+public class MezhsApiClient
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    protected static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }
     };
+
+    protected HttpClient Client { get; }
+
+    public MezhsApiClient(HttpClient client)
+    {
+        Client = client;
+    }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            using var response = await client.GetAsync("/health", cancellationToken);
+            using var response = await Client.GetAsync("/health", cancellationToken);
             return response.IsSuccessStatusCode;
         }
         catch (HttpRequestException)
@@ -30,22 +37,19 @@ public sealed class MezhsApiClient(HttpClient client)
         string connectionId,
         CancellationToken cancellationToken = default)
     {
-        using var response = await client.PostAsJsonAsync(
+        using var response = await Client.PostAsJsonAsync(
             "/v1/chats",
             new CreateChatRequest(connectionId),
             Json,
             cancellationToken);
-        await EnsureSuccessAsync(response, cancellationToken);
-        var chat = await response.Content.ReadFromJsonAsync<ApiChat>(Json, cancellationToken)
-            ?? throw new InvalidOperationException("MEŽS returned an empty chat response.");
-        return chat.ChatId;
+        return (await ReadAsync<ApiChat>(response, cancellationToken)).ChatId;
     }
 
     public async Task<bool> ChatExistsAsync(
         string chatId,
         CancellationToken cancellationToken = default)
     {
-        using var response = await client.GetAsync(
+        using var response = await Client.GetAsync(
             $"/v1/chats/{Uri.EscapeDataString(chatId)}",
             cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound)
@@ -60,7 +64,7 @@ public sealed class MezhsApiClient(HttpClient client)
     {
         try
         {
-            using var response = await client.GetAsync(
+            using var response = await Client.GetAsync(
                 $"/v1/chats/{Uri.EscapeDataString(chatId)}",
                 cancellationToken);
             if (!response.IsSuccessStatusCode)
@@ -77,12 +81,10 @@ public sealed class MezhsApiClient(HttpClient client)
         string chatId,
         CancellationToken cancellationToken = default)
     {
-        using var response = await client.GetAsync(
+        using var response = await Client.GetAsync(
             $"/v1/chats/{Uri.EscapeDataString(chatId)}/messages",
             cancellationToken);
-        await EnsureSuccessAsync(response, cancellationToken);
-        return await response.Content.ReadFromJsonAsync<ApiChatHistoryMessage[]>(Json, cancellationToken)
-            ?? [];
+        return await ReadAsync<ApiChatHistoryMessage[]>(response, cancellationToken);
     }
 
     public async Task<string> SendMessageAsync(
@@ -100,7 +102,7 @@ public sealed class MezhsApiClient(HttpClient client)
         string origin,
         CancellationToken cancellationToken = default)
     {
-        using var response = await client.PostAsJsonAsync(
+        using var response = await Client.PostAsJsonAsync(
             "/v1/messages",
             new PostMessageRequest(
                 Content: content,
@@ -109,24 +111,20 @@ public sealed class MezhsApiClient(HttpClient client)
                 Origin: origin),
             Json,
             cancellationToken);
-        await EnsureSuccessAsync(response, cancellationToken);
-        var created = await response.Content.ReadFromJsonAsync<ApiMessage>(Json, cancellationToken)
-            ?? throw new InvalidOperationException("MEŽS returned an empty message response.");
+        var created = await ReadAsync<ApiMessage>(response, cancellationToken);
         return await WaitForReplyAsync(created.MessageId, cancellationToken);
     }
 
-    private async Task<ApiMessage> WaitForReplyAsync(
+    public async Task<ApiMessage> WaitForReplyAsync(
         string messageId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
         while (true)
         {
-            using var response = await client.GetAsync(
+            using var response = await Client.GetAsync(
                 $"/v1/messages/{Uri.EscapeDataString(messageId)}",
                 cancellationToken);
-            await EnsureSuccessAsync(response, cancellationToken);
-            var message = await response.Content.ReadFromJsonAsync<ApiMessage>(Json, cancellationToken)
-                ?? throw new InvalidOperationException("MEŽS returned an empty message response.");
+            var message = await ReadAsync<ApiMessage>(response, cancellationToken);
 
             switch (message.Status)
             {
@@ -144,7 +142,16 @@ public sealed class MezhsApiClient(HttpClient client)
         }
     }
 
-    private static async Task EnsureSuccessAsync(
+    protected async Task<T> ReadAsync<T>(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        await EnsureSuccessAsync(response, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<T>(Json, cancellationToken)
+            ?? throw new InvalidOperationException("MEŽS API returned an empty response.");
+    }
+
+    protected static async Task EnsureSuccessAsync(
         HttpResponseMessage response,
         CancellationToken cancellationToken)
     {

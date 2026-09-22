@@ -1,7 +1,35 @@
 version: 1
-listen: http://127.0.0.1:5060
-mezhsApi: http://127.0.0.1:5050
-storage: data/agent.sqlite
+
+server:
+  listen: http://127.0.0.1:5060
+
+transport:
+  type: electron
+  idleMinutes: 15
+  electronDirectory: electron
+
+storage:
+  root: data
+
+connections:
+  - id: chatgpt-sub
+    name: ChatGPT Account
+    integration: chatgpt-web-account
+    workspace: Mezhs
+
+  - id: chatgpt-guest
+    name: ChatGPT Guest
+    integration: chatgpt-web
+
+  - id: gemini-guest
+    name: Gemini Guest
+    integration: gemini-web
+
+  - id: grok-account
+    name: Grok Account
+    integration: grok-web-account
+
+agentStorage: data/agent.sqlite
 workspace: .
 
 runtime:

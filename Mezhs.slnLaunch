@@ -1,11 +1,7 @@
 [
   {
-    "Name": "API + Web + Agent",
+    "Name": "Agent",
     "Projects": [
-      {
-        "Path": "src\\Mezhs.Api\\Mezhs.Api.csproj",
-        "Action": "Start"
-      },
       {
         "Path": "src\\Mezhs.Agent.Api\\Mezhs.Agent.Api.csproj",
         "Action": "Start"
@@ -30,18 +26,10 @@
     ]
   },
   {
-    "Name": "API + Agent",
+    "Name": "Agent API only",
     "Projects": [
       {
-        "Path": "src\\Mezhs.Api\\Mezhs.Api.csproj",
-        "Action": "Start"
-      },
-      {
         "Path": "src\\Mezhs.Agent.Api\\Mezhs.Agent.Api.csproj",
-        "Action": "Start"
-      },
-      {
-        "Path": "src\\Mezhs.Agent.Web\\Mezhs.Agent.Web.csproj",
         "Action": "Start"
       }
     ]

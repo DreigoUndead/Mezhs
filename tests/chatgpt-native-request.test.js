@@ -321,6 +321,108 @@ test("ChatGPT follow-up ignores the previous finished assistant while waiting fo
   assert.equal(continuedBody.thinking_effort, "standard");
 });
 
+
+test("ChatGPT conversation polling backs off on 429 without resending the turn", async () => {
+  const chatgpt = loadChatGptModule();
+  const browserDebugger = new FakeDebugger();
+  let currentUrl = "https://chatgpt.com/c/native-conversation";
+  let conversationReads = 0;
+  let pageInvocations = 0;
+  const sleeps = [];
+
+  const session = {
+    fetch: async url => {
+      const target = new URL(String(url));
+      if (target.pathname === "/api/auth/session")
+        return jsonResponse({ accessToken: "token", user: { id: "account-1" } });
+      if (target.pathname === "/backend-api/settings/user_last_used_model_config")
+        return new Response("", { status: 200 });
+      if (target.pathname === "/backend-api/conversation/native-conversation") {
+        conversationReads++;
+        if (conversationReads === 1) {
+          return new Response('{"detail":"Too many requests"}', {
+            status: 429,
+            headers: { "Retry-After": "2" }
+          });
+        }
+        return jsonResponse({
+          conversation_id: "native-conversation",
+          current_node: "assistant-new",
+          mapping: {
+            "assistant-new": {
+              parent: "request-new",
+              message: {
+                id: "assistant-new",
+                author: { role: "assistant" },
+                status: "finished_successfully",
+                content: { parts: ["survived rate limit"] },
+                metadata: { model_slug: "gpt-5-6-thinking" }
+              }
+            },
+            "request-new": {
+              parent: null,
+              message: {
+                id: "native-message-rate-limit",
+                author: { role: "user" },
+                status: "finished_successfully",
+                content: { parts: ["test"] },
+                metadata: { resolved_model_slug: "gpt-5-6-thinking" }
+              }
+            }
+          }
+        });
+      }
+      throw new Error(`Unexpected session request ${target}`);
+    }
+  };
+
+  const window = {
+    loadURL: async url => { currentUrl = url; },
+    webContents: {
+      debugger: browserDebugger,
+      getURL: () => currentUrl
+    }
+  };
+
+  const page = {
+    invoke: async () => {
+      pageInvocations++;
+      browserDebugger.emit("message", {}, "Fetch.requestPaused", {
+        requestId: "request-rate-limit",
+        request: {
+          url: "https://chatgpt.com/backend-api/f/conversation",
+          postData: JSON.stringify({
+            action: "next",
+            conversation_id: "native-conversation",
+            messages: [{ id: "native-message-rate-limit", author: { role: "user" } }],
+            model: "gpt-5-6-thinking"
+          })
+        }
+      });
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  };
+
+  const result = await chatgpt.operations.send({
+    window,
+    session,
+    page,
+    args: {
+      prompt: "test",
+      conversationId: "native-conversation",
+      parentMessageId: "assistant-old",
+      model: "gpt-5-6-thinking",
+      files: []
+    },
+    sleep: async ms => { sleeps.push(ms); }
+  });
+
+  assert.equal(pageInvocations, 1);
+  assert.equal(conversationReads, 2);
+  assert.deepEqual(sleeps, [2000]);
+  assert.equal(result.text, "survived rate limit");
+});
+
 async function runNativeOverrideCase({ selectedModel, nativeBody, resolvedModel }) {
   const chatgpt = loadChatGptModule();
   const browserDebugger = new FakeDebugger();

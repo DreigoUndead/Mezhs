@@ -1,5 +1,6 @@
+using System.Globalization;
 using System.Text;
-using System.Text.Json.Serialization;
+using Mezhs;
 using Mezhs.Agent;
 using Mezhs.Agent.Commands;
 using Mezhs.Agent.Configuration;
@@ -7,26 +8,34 @@ using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
 using Mezhs.Agent.Services;
-using Mezhs.Api.Client;
+using Mezhs.Configuration;
+using Mezhs.Executor;
+using Mezhs.Services;
 
-var configPath = FindConfigPath(GetOption(args, "--config"));
+var configPath = ConfigPath.Find(args, "agent.yaml");
 var options = AgentConfigLoader.Load(configPath);
+var executorStorage = Path.Combine(
+    Path.GetDirectoryName(options.AgentStorage) ?? Environment.CurrentDirectory,
+    "executor.sqlite");
+
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls(options.Listen.ToString());
-builder.Services.ConfigureHttpJsonOptions(json =>
-    json.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
-builder.Services.AddExceptionHandler<ApiExceptionHandler>();
-builder.Services.AddProblemDetails();
+builder.AddMezhsApi(options);
+builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
+    policy.SetIsOriginAllowed(origin =>
+            Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.IsLoopback)
+        .AllowAnyHeader()
+        .AllowAnyMethod()));
+builder.Services.AddExceptionHandler<AgentApiExceptionHandler>();
 builder.Services.AddSingleton(options);
+builder.Services.AddSingleton(_ => new ExecutorService(executorStorage));
 builder.Services.AddSingleton<AgentStore>();
+builder.Services.AddSingleton<AgentRecoveryState>();
 builder.Services.AddSingleton<PolicyRegistry>();
 builder.Services.AddSingleton<PolicyEvaluationService>();
 builder.Services.AddSingleton<AgentPromptBuilder>();
 builder.Services.AddSingleton<Parser>();
 builder.Services.AddSingleton<Shell>();
 builder.Services.AddSingleton<Interpreter>();
-builder.Services.AddHttpClient<MezhsApiClient>(client =>
-    client.BaseAddress = options.MezhsApi);
 builder.Services.AddSingleton<AgentDebugLogBuilder>();
 builder.Services.AddSingleton<AgentWorker>();
 builder.Services.AddHostedService<AgentWorker>(
@@ -34,10 +43,12 @@ builder.Services.AddHostedService<AgentWorker>(
 builder.Services.AddSingleton<AgentService>();
 
 var app = builder.Build();
-app.UseExceptionHandler();
+app.UseMezhsApi();
+app.UseCors();
 
 var store = app.Services.GetRequiredService<AgentStore>();
 store.Initialize();
+app.Services.GetRequiredService<AgentRecoveryState>().Prepare();
 
 app.MapGet("/", () => Results.Ok(new
 {
@@ -45,26 +56,17 @@ app.MapGet("/", () => Results.Ok(new
     version = 1,
     endpoints = new[]
     {
-        "/v1/runtime",
+        "/v1/connections",
+        "/v1/messages",
+        "/v1/chats",
+        "/v1/categories",
+        "/v1/files",
         "/v1/policies",
         "/v1/agent-chats",
         "/v1/executions"
     }
 }));
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
-
-app.MapGet("/v1/runtime", async (
-    MezhsApiClient mezhs,
-    CancellationToken cancellationToken) =>
-{
-    var mezhsApiHealthy = await mezhs.IsHealthyAsync(cancellationToken);
-    return Results.Ok(new
-    {
-        status = "ok",
-        mezhsApi = options.MezhsApi.ToString(),
-        mezhsApiHealthy
-    });
-});
+app.MapMezhsApi();
 
 app.MapGet("/v1/policies", (PolicyRegistry policies) =>
     Results.Ok(policies.GetViews()));
@@ -74,68 +76,62 @@ app.MapGet("/v1/policies/{policyId}", (
     PolicyRegistry policies) =>
     Results.Ok(policies.GetView(policyId)));
 
-app.MapGet("/v1/agent-chats", async (
+app.MapGet("/v1/agent-chats", (
     AgentStore agentStore,
-    MezhsApiClient mezhs,
-    CancellationToken cancellationToken) =>
-{
-    var views = await Task.WhenAll(agentStore.GetAgentChats()
-        .Select(record => ToViewAsync(record, agentStore, mezhs, cancellationToken)));
-    return Results.Ok(views);
-});
+    ChatService chats) =>
+    Results.Ok(agentStore.GetAgentChats()
+        .Select(record => ToView(record, agentStore, chats))
+        .ToArray()));
 
-app.MapGet("/v1/agent-chats/{chatId}", async (
+app.MapGet("/v1/agent-chats/{chatId}", (
     string chatId,
     AgentStore agentStore,
-    MezhsApiClient mezhs,
-    CancellationToken cancellationToken) =>
+    ChatService chats) =>
 {
     var chat = agentStore.GetAgentChat(chatId);
     return chat is null
         ? Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." })
-        : Results.Ok(await ToViewAsync(chat, agentStore, mezhs, cancellationToken));
+        : Results.Ok(ToView(chat, agentStore, chats));
 });
 
-app.MapPatch("/v1/agent-chats/{chatId}", async (
+app.MapPatch("/v1/agent-chats/{chatId}", (
     string chatId,
     UpdateAgentChatRequest request,
     AgentService agents,
     AgentStore agentStore,
-    MezhsApiClient mezhs,
-    CancellationToken cancellationToken) =>
+    ChatService chats) =>
 {
     var chat = agents.SetPaused(chatId, request.Paused);
-    return Results.Ok(await ToViewAsync(chat, agentStore, mezhs, cancellationToken));
+    return Results.Ok(ToView(chat, agentStore, chats));
 });
 
-app.MapGet("/v1/agent-chats/{chatId}/messages", async (
+app.MapGet("/v1/agent-chats/{chatId}/messages", (
     string chatId,
     AgentStore agentStore,
-    MezhsApiClient mezhs,
-    Parser parser,
-    CancellationToken cancellationToken) =>
+    ChatService chats,
+    Parser parser) =>
 {
     if (agentStore.GetAgentChat(chatId) is null)
         return Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." });
-    var messages = await mezhs.GetMessagesAsync(chatId, cancellationToken);
-    return Results.Ok(messages.Select(message => AgentApiMapper.ToView(message, parser)));
+    return Results.Ok(chats.GetMessages(chatId)
+        .Select(message => AgentApiMapper.ToView(message, parser)));
 });
 
 app.MapGet("/v1/agent-chats/{chatId}/executions", (
     string chatId,
-    AgentStore agentStore) =>
+    AgentStore agentStore,
+    ExecutorService executorService) =>
 {
     if (agentStore.GetAgentChat(chatId) is null)
         return Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." });
-    return Results.Ok(agentStore.GetExecutions(chatId).Select(AgentApiMapper.ToView));
+    return Results.Ok(GetExecutionViews(agentStore, executorService, chatId));
 });
 
-app.MapGet("/v1/agent-chats/{chatId}/debug-log", async (
+app.MapGet("/v1/agent-chats/{chatId}/debug-log", (
     string chatId,
-    AgentDebugLogBuilder logs,
-    CancellationToken cancellationToken) =>
+    AgentDebugLogBuilder logs) =>
 {
-    var content = await logs.BuildAsync(chatId, cancellationToken);
+    var content = logs.Build(chatId);
     var fileName = $"mezhs-agent-{SafeFilePart(chatId)}-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.log";
     return Results.File(
         Encoding.UTF8.GetBytes(content),
@@ -155,15 +151,20 @@ app.MapPost("/v1/executions", (
 
 app.MapGet("/v1/executions", (
     string? chatId,
-    AgentStore agentStore) =>
-    Results.Ok(agentStore.GetExecutions(chatId).Select(AgentApiMapper.ToView)));
+    AgentStore agentStore,
+    ExecutorService executorService) =>
+    Results.Ok(GetExecutionViews(agentStore, executorService, chatId)));
 
 app.MapGet("/v1/executions/{executionId}", (
     string executionId,
-    AgentStore agentStore) =>
+    AgentStore agentStore,
+    ExecutorService executorService) =>
 {
+    if (int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out var executorId))
+        return Results.Ok(AgentApiMapper.ToView(executorService.Get(executorId)));
+
     var execution = agentStore.GetExecution(executionId);
-    return execution is null
+    return execution is null || execution.Kind != AgentExecutionKind.Agent
         ? Results.NotFound(new { error = $"Execution '{executionId}' was not found." })
         : Results.Ok(AgentApiMapper.ToView(execution));
 });
@@ -171,21 +172,61 @@ app.MapGet("/v1/executions/{executionId}", (
 app.MapPost("/v1/executions/{executionId}/cancel", (
     string executionId,
     AgentWorker worker) =>
-    Results.Ok(AgentApiMapper.ToView(worker.Cancel(executionId))));
+{
+    if (int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out _))
+        return Results.BadRequest(new { error = "Shell Executor executions use /kill; only root Agent executions use /cancel." });
+    return Results.Ok(AgentApiMapper.ToView(worker.Cancel(executionId)));
+});
+
+app.MapPost("/v1/executions/{executionId}/kill", (
+    string executionId,
+    ExecutorService executorService) =>
+{
+    if (!int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+        return Results.BadRequest(new { error = "Only shell Executor executions can be killed through this endpoint." });
+    return Results.Ok(AgentApiMapper.ToView(executorService.Kill(id)));
+});
+
+app.MapPost("/v1/executions/{executionId}/restart", (
+    string executionId,
+    ExecutorService executorService) =>
+{
+    if (!int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+        return Results.BadRequest(new { error = "Only shell Executor executions can be restarted through this endpoint." });
+    var replacementId = executorService.Restart(id);
+    return Results.Accepted(
+        $"/v1/executions/{replacementId}",
+        AgentApiMapper.ToView(executorService.Get(replacementId)));
+});
 
 Console.WriteLine($"MEŽS Agent config: {configPath}");
-Console.WriteLine($"MEŽS Agent listening: {options.Listen}");
-Console.WriteLine($"MEŽS API: {options.MezhsApi}");
+Console.WriteLine($"MEŽS Agent listening: {options.Server.Listen}");
 Console.WriteLine($"MEŽS Agent workspace: {options.Workspace}");
+Console.WriteLine($"MEŽS Executor storage: {executorStorage}");
 await app.RunAsync();
 
-static async Task<AgentChatView> ToViewAsync(
+static IReadOnlyList<AgentExecutionView> GetExecutionViews(
+    AgentStore store,
+    ExecutorService executor,
+    string? chatId)
+{
+    var agents = store.GetExecutions(chatId)
+        .Where(execution => execution.Kind == AgentExecutionKind.Agent)
+        .Select(AgentApiMapper.ToView);
+    var shells = executor.List(chatId)
+        .Select(AgentApiMapper.ToView);
+    return agents.Concat(shells)
+        .OrderByDescending(execution => execution.CreatedAt)
+        .ThenByDescending(execution => execution.ExecutionId, StringComparer.Ordinal)
+        .ToArray();
+}
+
+static AgentChatView ToView(
     AgentChatRecord record,
     AgentStore store,
-    MezhsApiClient mezhs,
-    CancellationToken cancellationToken)
+    ChatService chats)
 {
-    var chat = await mezhs.TryGetChatAsync(record.ChatId, cancellationToken);
+    var chat = chats.TryGet(record.ChatId);
     var firstTask = store.GetExecutions(record.ChatId)
         .Where(execution => execution.Kind == AgentExecutionKind.Agent && execution.ParentExecutionId is null)
         .OrderBy(execution => execution.CreatedAt)
@@ -208,43 +249,4 @@ static string SafeFilePart(string value)
     var invalid = Path.GetInvalidFileNameChars().ToHashSet();
     var result = new string(value.Select(character => invalid.Contains(character) ? '_' : character).ToArray());
     return string.IsNullOrWhiteSpace(result) ? "chat" : result;
-}
-
-static string? GetOption(string[] args, string name)
-{
-    for (var i = 0; i < args.Length - 1; i++)
-    {
-        if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase))
-            return args[i + 1];
-    }
-    return null;
-}
-
-
-static string FindConfigPath(string? configuredPath)
-{
-    if (!string.IsNullOrWhiteSpace(configuredPath))
-        return Path.GetFullPath(configuredPath);
-
-    var currentCandidate = Path.GetFullPath("agent.yaml");
-    if (File.Exists(currentCandidate))
-        return currentCandidate;
-
-    var directory = new DirectoryInfo(AppContext.BaseDirectory);
-    while (directory is not null)
-    {
-        if (File.Exists(Path.Combine(directory.FullName, "Mezhs.sln")))
-        {
-            var repositoryCandidate = Path.Combine(directory.FullName, "agent.yaml");
-            if (File.Exists(repositoryCandidate))
-                return repositoryCandidate;
-        }
-        directory = directory.Parent;
-    }
-
-    var outputCandidate = Path.Combine(AppContext.BaseDirectory, "agent.yaml");
-    if (File.Exists(outputCandidate))
-        return outputCandidate;
-
-    return currentCandidate;
 }

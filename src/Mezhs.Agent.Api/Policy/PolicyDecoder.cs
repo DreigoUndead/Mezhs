@@ -143,7 +143,9 @@ public sealed class PolicyDecoder
         if (settings.Completion.RequireDone)
         {
             var done = Registry.Get(CommandBehavior.Complete);
-            rules.Add($"Signal completion by returning <{done.Name}> on a line by itself.");
+            rules.Add(
+                $"Signal completion by returning <{done.Name}> on a line by itself. " +
+                $"If <{done.Name}> follows executable commands in the same reply, MEŽS may finish immediately after those commands succeed and completion policy is satisfied; omit <{done.Name}> when you need to inspect their results first.");
         }
 
         if (settings.Completion.RequiredSuccessfulCommands.Count > 0)

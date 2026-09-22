@@ -1,7 +1,27 @@
 version: 1
-listen: http://127.0.0.1:5199
-mezhsApi: http://127.0.0.1:5198
-storage: data-agent-test/agent.sqlite
+
+server:
+  listen: http://127.0.0.1:5199
+
+transport:
+  type: electron
+  idleMinutes: 1
+  electronDirectory: ../electron
+
+storage:
+  root: data-agent-test/core
+
+connections:
+  - id: test
+    name: Deterministic test integration
+    integration: mock
+    defaultModel: mock-fast
+
+  - id: test-login
+    name: Deterministic login integration
+    integration: mock-login
+
+agentStorage: data-agent-test/agent.sqlite
 workspace: ..
 
 runtime:
@@ -88,6 +108,20 @@ policies:
       allow: []
     completion:
       requireDone: true
+      requiredSuccessfulCommands: [SH]
+    limits:
+      maxTurns: 3
+      commandTimeoutSeconds: 2
+
+  test-evidence-auto:
+    connectionId: test
+    instructions: Completion is automatic after successful shell evidence exists.
+    commands:
+      allow: [SH]
+    environment:
+      allow: []
+    completion:
+      requireDone: false
       requiredSuccessfulCommands: [SH]
     limits:
       maxTurns: 3
