@@ -69,10 +69,24 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         _http.BaseAddress = baseAddress;
     }
 
-    public async Task<TResult> InvokeAsync<TResult>(
+    public Task<TResult> InvokeAsync<TResult>(
         string operation,
         object? arguments = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        InvokeCoreAsync<TResult>(operation, arguments, reportProgress: null, cancellationToken);
+
+    public Task<TResult> InvokeWithProgressAsync<TResult>(
+        string operation,
+        object? arguments,
+        Action<BrowserOperationProgress>? reportProgress,
+        CancellationToken cancellationToken = default) =>
+        InvokeCoreAsync<TResult>(operation, arguments, reportProgress, cancellationToken);
+
+    private async Task<TResult> InvokeCoreAsync<TResult>(
+        string operation,
+        object? arguments,
+        Action<BrowserOperationProgress>? reportProgress,
+        CancellationToken cancellationToken)
     {
         EnsureRunning();
         using var startResponse = await _http.PostAsJsonAsync(
@@ -93,6 +107,7 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
             throw new InvalidOperationException(
                 $"Electron provider operation '{operation}' returned an empty operation id.");
 
+        BrowserOperationProgress? lastProgress = null;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -108,6 +123,12 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
                 cancellationToken)
                 ?? throw new InvalidOperationException(
                     $"Electron provider operation '{operation}' returned no status.");
+
+            if (state.Progress is { } progress && progress != lastProgress)
+            {
+                lastProgress = progress;
+                reportProgress?.Invoke(progress);
+            }
 
             switch (state.Status)
             {
@@ -249,7 +270,8 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
     private sealed record ProviderOperationState(
         string Status,
         JsonElement? Result,
-        string? Error);
+        string? Error,
+        BrowserOperationProgress? Progress);
 
     private static async Task IgnoreFailureAsync(Task task)
     {
