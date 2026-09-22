@@ -2,7 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import QRCode from 'qrcode';
-import { MessageStore } from './message-store.js';
+import { MessageAnchorNotFoundError, MessageStore } from './message-store.js';
 import {
   WhatsAppAccount,
   WhatsAppAccountNotConnectedError,
@@ -82,7 +82,7 @@ async function route(request, response, { account, store }) {
     if (typeof body.chatId !== 'string' || !body.chatId.trim()) {
       throw new HttpError(400, 'chatId is required.');
     }
-    if (typeof body.text !== 'string' || !body.text.length) {
+    if (typeof body.text !== 'string' || !body.text.trim()) {
       throw new HttpError(400, 'text is required.');
     }
 
@@ -143,6 +143,7 @@ function decodePathSegment(value) {
 
 function errorStatus(error) {
   if (error instanceof HttpError) return error.status;
+  if (error instanceof MessageAnchorNotFoundError) return 404;
   if (error instanceof WhatsAppAccountNotConnectedError) return 409;
   return 500;
 }

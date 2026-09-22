@@ -59,6 +59,8 @@ public abstract class ConsoleApplication
             foreach (var validationError in command.ValidationErrors)
                 global::System.Console.WriteLine($"  - {validationError}");
         }
+
+        throw new InvalidOperationException($"{invalid.Length} invalid command signature(s).");
     }
 
     [Command(Description = "Run application self-tests.")]

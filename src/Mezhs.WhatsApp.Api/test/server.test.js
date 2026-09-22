@@ -87,6 +87,37 @@ test('oversized request body is a 413', async () => {
   });
 });
 
+test('unknown message anchors are 404 instead of silently returning newest messages', async () => {
+  const store = new MessageStore();
+  store.upsertMessages([{
+    key: { id: 'known', remoteJid: 'chat@s.whatsapp.net', fromMe: false },
+    messageTimestamp: 10,
+    message: { conversation: 'known' },
+  }]);
+
+  await withServer(async ({ baseUrl }) => {
+    const before = await fetch(`${baseUrl}/messages?chatId=${encodeURIComponent('chat@s.whatsapp.net')}&beforeId=missing`);
+    assert.equal(before.status, 404);
+    assert.deepEqual(await before.json(), { error: "beforeId message 'missing' was not found." });
+
+    const after = await fetch(`${baseUrl}/messages?chatId=${encodeURIComponent('chat@s.whatsapp.net')}&afterId=missing`);
+    assert.equal(after.status, 404);
+    assert.deepEqual(await after.json(), { error: "afterId message 'missing' was not found." });
+  }, fakeAccount(), store);
+});
+
+test('whitespace-only message text is rejected before sending', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const response = await fetch(`${baseUrl}/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chatId: 'chat@s.whatsapp.net', text: '   ' }),
+    });
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: 'text is required.' });
+  });
+});
+
 test('sending while disconnected is a 409', async () => {
   await withServer(async ({ baseUrl }) => {
     const response = await fetch(`${baseUrl}/messages`, {

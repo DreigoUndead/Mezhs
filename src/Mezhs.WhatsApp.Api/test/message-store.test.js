@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MessageStore } from '../src/message-store.js';
+import { MessageAnchorNotFoundError, MessageStore } from '../src/message-store.js';
 
 const message = (id, timestamp, text, chatId = 'chat@s.whatsapp.net', fromMe = false) => ({
   key: { id, remoteJid: chatId, fromMe },
@@ -19,6 +19,23 @@ test('messages are ordered and can be paged around anchors', () => {
   assert.deepEqual(store.list({ limit: 2 }).map(x => x.id), ['b', 'c']);
   assert.deepEqual(store.list({ beforeId: 'c', limit: 10 }).map(x => x.id), ['a', 'b']);
   assert.deepEqual(store.list({ afterId: 'a', limit: 10 }).map(x => x.id), ['b', 'c']);
+});
+
+test('unknown paging anchors fail instead of falling back to unanchored history', () => {
+  const store = new MessageStore();
+  store.upsertMessages([
+    message('a', 10, 'first'),
+    message('b', 20, 'second'),
+  ]);
+
+  assert.throws(
+    () => store.list({ beforeId: 'missing', limit: 10 }),
+    error => error instanceof MessageAnchorNotFoundError && /beforeId/.test(error.message),
+  );
+  assert.throws(
+    () => store.list({ afterId: 'missing', limit: 10 }),
+    error => error instanceof MessageAnchorNotFoundError && /afterId/.test(error.message),
+  );
 });
 
 test('messages can be filtered by chat and text', () => {
