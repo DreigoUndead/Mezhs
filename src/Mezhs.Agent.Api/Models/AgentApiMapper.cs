@@ -113,6 +113,10 @@ public static class AgentApiMapper
             message.CreatedAt,
             message.StartedAt,
             message.CompletedAt,
+            message.Activity,
+            message.ActivityDetail,
+            message.Analysis,
+            message.ActivityAt,
             protocolCommands,
             completionClaimed);
     }
