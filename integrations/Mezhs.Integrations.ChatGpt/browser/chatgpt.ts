@@ -21,20 +21,13 @@ const API = Object.freeze({
   fileDownload: id => `/backend-api/files/${encodeURIComponent(id)}/download`
 });
 
-const PROMPT_EDITOR_SELECTORS = [
+const PROMPT_EDITOR_SELECTOR = [
   '#prompt-textarea',
+  'textarea[name="prompt-textarea"]',
   '[data-testid="prompt-textarea"]',
   '.ProseMirror[contenteditable="true"]',
   '[contenteditable="true"][role="textbox"]',
-  '[contenteditable="true"][data-virtualkeyboard="true"]',
-  'textarea[name="prompt-textarea"]'
-];
-
-const SEND_BUTTON_SELECTOR = [
-  '#composer-submit-button',
-  'button[data-testid="send-button"]',
-  'button[aria-label="Send prompt"]',
-  'button[aria-label="Send message"]'
+  '[contenteditable="true"][data-virtualkeyboard="true"]'
 ].join(', ');
 
 const CONVERSATION_POLL_INTERVAL_MS = 2000;
@@ -88,31 +81,15 @@ module.exports = {
     async sendPrompt({ window, args }) {
       if (args.newChat) await window.loadURL(module.exports.homeUrl);
       const prompt = JSON.stringify(String(args.prompt || ""));
-      const promptEditorSelectors = JSON.stringify(PROMPT_EDITOR_SELECTORS);
-      const sendButtonSelector = JSON.stringify(SEND_BUTTON_SELECTOR);
+      const promptEditorSelector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
       return window.webContents.executeJavaScript(`
         (async () => {
           const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
           const selector = '[data-message-author-role="assistant"]';
           const before = document.querySelectorAll(selector).length;
-          const isUsable = element => {
-            if (!element || element.disabled || element.isConnected === false) return false;
-            if (element.getAttribute?.('aria-hidden') === 'true') return false;
-            const style = getComputedStyle(element);
-            if (style.display === 'none' || style.visibility === 'hidden') return false;
-            const rect = element.getBoundingClientRect();
-            return rect.width > 0 || rect.height > 0;
-          };
-          const findEditor = () => {
-            for (const selector of ${promptEditorSelectors}) {
-              for (const candidate of document.querySelectorAll(selector))
-                if (isUsable(candidate)) return candidate;
-            }
-            return null;
-          };
           let editor = null;
           for (let i = 0; i < 120 && !editor; i++) {
-            editor = findEditor();
+            editor = document.querySelector(${promptEditorSelector});
             if (!editor) await sleep(250);
           }
           if (!editor) return { ok: false, error: 'ChatGPT prompt editor was not found.' };
@@ -128,24 +105,12 @@ module.exports = {
             document.execCommand('insertText', false, ${prompt});
             editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
           }
-          const findSend = () => {
-            const local = editor.closest?.('form');
-            const scopes = local ? [local, document] : [document];
-            for (const scope of scopes) {
-              for (const candidate of scope.querySelectorAll(${sendButtonSelector})) {
-                if (!isUsable(candidate)) continue;
-                if (candidate.disabled || candidate.getAttribute?.('aria-disabled') === 'true') continue;
-                return candidate;
-              }
-            }
-            return null;
-          };
           let send = null;
-          for (let i = 0; i < 360 && !send; i++) {
-            send = findSend();
-            if (!send) await sleep(250);
+          for (let i = 0; i < 360 && (!send || send.disabled); i++) {
+            send = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
+            if (!send || send.disabled) await sleep(250);
           }
-          if (!send) return { ok: false, error: 'ChatGPT send button did not become available.' };
+          if (!send || send.disabled) return { ok: false, error: 'ChatGPT send button did not become available.' };
           send.click();
           let last = '';
           let stable = 0;
@@ -163,10 +128,6 @@ module.exports = {
         })()
       `, true);
     }
-  },
-
-  pageOperations: {
-    submitPrompt
   }
 };
 
@@ -262,115 +223,9 @@ function parseModelSelection(value) {
   };
 }
 
-function isUsablePromptEditor(editor) {
-  if (!editor || editor.disabled || editor.isConnected === false) return false;
-  if (editor.getAttribute?.("aria-hidden") === "true") return false;
-
-  const view = editor.ownerDocument?.defaultView;
-  const style = view?.getComputedStyle?.(editor);
-  if (style && (style.display === "none" || style.visibility === "hidden"))
-    return false;
-
-  if (typeof editor.getBoundingClientRect === "function") {
-    const rect = editor.getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) return false;
-  }
-  return true;
-}
-
-function findPromptEditor(root = document) {
-  for (const selector of PROMPT_EDITOR_SELECTORS) {
-    const candidates = typeof root.querySelectorAll === "function"
-      ? root.querySelectorAll(selector)
-      : [root.querySelector?.(selector)].filter(Boolean);
-    for (const candidate of candidates)
-      if (isUsablePromptEditor(candidate)) return candidate;
-  }
-  return null;
-}
-
-function findSendButton(editor, root = document) {
-  const form = editor?.closest?.("form");
-  const scopes = form ? [form, root] : [root];
-  for (const scope of scopes) {
-    const candidates = typeof scope.querySelectorAll === "function"
-      ? scope.querySelectorAll(SEND_BUTTON_SELECTOR)
-      : [scope.querySelector?.(SEND_BUTTON_SELECTOR)].filter(Boolean);
-    for (const candidate of candidates) {
-      if (!isUsablePromptEditor(candidate)) continue;
-      if (candidate.disabled || candidate.getAttribute?.("aria-disabled") === "true") continue;
-      return candidate;
-    }
-  }
-  return null;
-}
-
-function setPromptEditorValue(editor, prompt) {
-  editor.focus();
-  const tagName = String(editor.tagName || "").toUpperCase();
-  if (tagName === "TEXTAREA" || tagName === "INPUT") {
-    const view = editor.ownerDocument?.defaultView || globalThis;
-    const prototype = tagName === "TEXTAREA"
-      ? view.HTMLTextAreaElement?.prototype
-      : view.HTMLInputElement?.prototype;
-    const setter = prototype
-      ? Object.getOwnPropertyDescriptor(prototype, "value")?.set
-      : null;
-    if (setter) setter.call(editor, prompt);
-    else editor.value = prompt;
-    editor.dispatchEvent(new (view.Event || Event)("input", { bubbles: true }));
-    return;
-  }
-
-  document.execCommand("selectAll", false, null);
-  document.execCommand("insertText", false, prompt);
-  editor.dispatchEvent(new InputEvent("input", {
-    bubbles: true,
-    inputType: "insertText",
-    data: prompt
-  }));
-}
-
-async function submitPrompt({ args, sleep }) {
-  const prompt = String(args.prompt || "");
-  let editor = null;
-  for (let i = 0; i < 120 && !editor; i++) {
-    editor = findPromptEditor();
-    if (!editor) await sleep(250);
-  }
-  if (!editor) {
-    const page = typeof location === "undefined" ? "unknown page" : location.href;
-    throw new Error(`ChatGPT prompt editor was not found on ${page}.`);
-  }
-
-  setPromptEditorValue(editor, prompt);
-
-  let send = null;
-  for (let i = 0; i < 360 && !send; i++) {
-    send = findSendButton(editor);
-    if (!send) await sleep(250);
-  }
-  if (!send)
-    throw new Error("ChatGPT send button did not become available.");
-  send.click();
-  return true;
-}
-
-function canUseNativeSend({ window, page, args }, isNew) {
-  return Boolean(
-    window?.webContents?.debugger &&
-    typeof page?.invoke === "function" &&
-    !(args.files || []).length &&
-    (isNew || args.conversationId)
-  );
-}
-
 async function sendAccountMessage(context, isNew) {
   const token = await requireToken(context.session);
   const selection = parseModelSelection(context.args.model);
-
-  if (canUseNativeSend(context, isNew))
-    return sendNativeAccountMessage(context, isNew, token, selection);
 
   await setModelPreference(context.session, token, selection);
   return sendApiAccountMessage(context, isNew, token, selection);
@@ -383,136 +238,6 @@ async function setModelPreference(session, token, selection) {
   if (selection.thinkingEffort)
     url.searchParams.set("thinking_effort", selection.thinkingEffort);
   await apiFetch(session, token, url.pathname + url.search, { method: "PATCH" });
-}
-
-async function sendNativeAccountMessage({ window, session, page, args, sleep }, isNew, token, selection) {
-  const targetUrl = isNew
-    ? args.projectId
-      ? `${ORIGIN}/g/${encodeURIComponent(args.projectId)}/project`
-      : module.exports.homeUrl
-    : `${ORIGIN}/c/${encodeURIComponent(args.conversationId)}`;
-  await window.loadURL(targetUrl);
-  await setModelPreference(session, token, selection);
-
-  const messageId = await observeNativeConversationRequest(
-    window.webContents.debugger,
-    selection,
-    () => page.invoke("submitPrompt", { prompt: args.prompt })
-  );
-  const conversationId = isNew
-    ? await waitForNativeConversationId(window, sleep)
-    : args.conversationId;
-
-  return completeAccountMessage(
-    session,
-    token,
-    conversationId,
-    messageId,
-    sleep,
-    isNew
-  );
-}
-
-async function observeNativeConversationRequest(debuggerClient, selection, trigger) {
-  let attachedHere = false;
-  if (!debuggerClient.isAttached()) {
-    debuggerClient.attach("1.3");
-    attachedHere = true;
-  }
-
-  let resolveRequest;
-  let rejectRequest;
-  const request = new Promise((resolve, reject) => {
-    resolveRequest = resolve;
-    rejectRequest = reject;
-  });
-
-  const onMessage = async (_event, method, params) => {
-    if (method !== "Fetch.requestPaused") return;
-    if (!String(params?.request?.url || "").endsWith(API.conversation)) {
-      await debuggerClient.sendCommand("Fetch.continueRequest", {
-        requestId: params.requestId
-      });
-      return;
-    }
-
-    try {
-      if (!params.request.postData) {
-        await debuggerClient.sendCommand("Fetch.failRequest", {
-          requestId: params.requestId,
-          errorReason: "Aborted"
-        });
-        throw new Error("ChatGPT native conversation request did not expose its body.");
-      }
-
-      const body = JSON.parse(params.request.postData);
-      const messages = Array.isArray(body.messages) ? body.messages : [];
-      const messageId = String(messages.at(-1)?.id || "").trim();
-      if (!messageId) {
-        await debuggerClient.sendCommand("Fetch.failRequest", {
-          requestId: params.requestId,
-          errorReason: "Aborted"
-        });
-        throw new Error("ChatGPT native conversation request has no message id.");
-      }
-
-      const nativeModel = String(body.model || "").trim() || null;
-      if (selection.model && selection.model !== "auto")
-        body.model = selection.model;
-      if (selection.thinkingEffort)
-        body.thinking_effort = selection.thinkingEffort;
-      else
-        delete body.thinking_effort;
-
-      console.error(
-        `ChatGPT native model: requested=${selection.model}` +
-        `${selection.thinkingEffort ? `/${selection.thinkingEffort}` : ""}, ` +
-        `composer=${nativeModel || "<none>"}` +
-        `${body.thinking_effort ? `/${body.thinking_effort}` : ""}`
-      );
-
-      await debuggerClient.sendCommand("Fetch.continueRequest", {
-        requestId: params.requestId,
-        postData: Buffer.from(JSON.stringify(body)).toString("base64")
-      });
-      resolveRequest(messageId);
-    } catch (error) {
-      rejectRequest(error);
-    }
-  };
-
-  debuggerClient.on("message", onMessage);
-  try {
-    await debuggerClient.sendCommand("Fetch.enable", {
-      patterns: [{
-        urlPattern: `*${API.conversation}`,
-        requestStage: "Request"
-      }]
-    });
-    await trigger();
-    const timeout = setTimeout(
-      () => rejectRequest(new Error("ChatGPT native send request was not observed.")),
-      60000
-    );
-    try {
-      return await request;
-    } finally {
-      clearTimeout(timeout);
-    }
-  } finally {
-    debuggerClient.removeListener("message", onMessage);
-    await debuggerClient.sendCommand("Fetch.disable").catch(() => {});
-    if (attachedHere && debuggerClient.isAttached()) debuggerClient.detach();
-  }
-}
-
-async function waitForNativeConversationId(window, sleep) {
-  for (let i = 0; i < 120; i++) {
-    const match = /\/c\/([^/?#]+)/.exec(String(window.webContents.getURL?.() || ""));
-    if (match) return decodeURIComponent(match[1]);
-    await sleep(500);
-  }
-  throw new Error("ChatGPT native send did not open a conversation.");
 }
 
 async function sendApiAccountMessage({ window, session, args, sleep }, isNew, token, selection) {
