@@ -55,32 +55,16 @@ public sealed class PolicyDecoder
                 NormalizeCommandNames(
                     completion.RequiredSuccessfulCommands,
                     $"policies.{id}.completion.requiredSuccessfulCommands")),
-            new PolicyLimitsSettings(
-                limits.MaxTurns,
-                limits.CommandTimeoutSeconds,
-                limits.TurnTimeoutSeconds));
+            new PolicyLimitsSettings(limits.CommandTimeoutSeconds));
 
         return new PolicyContext(
             id,
             settings,
             CompileModelInstructions(settings),
             _serializer.Serialize(settings),
-            CompileTurnValidators(settings),
             CompileCompletionClaim(settings),
             CompileCompletionValidators(settings),
             CompileActionRules(settings));
-    }
-
-    private static IReadOnlyList<Func<PolicyTurnContext, string?>> CompileTurnValidators(
-        PolicySettings settings)
-    {
-        var maxTurns = settings.Limits.MaxTurns;
-        return
-        [
-            context => context.TurnIndex < maxTurns
-                ? null
-                : $"Agent exceeded the configured limit of {maxTurns} turns."
-        ];
     }
 
     private static Func<PolicyCompletionContext, bool> CompileCompletionClaim(
