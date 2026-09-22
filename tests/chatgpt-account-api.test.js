@@ -374,6 +374,71 @@ test("ChatGPT reposts when model activity stops without a final reply", async ()
   assert.ok(progress.some(value => value.state === "retrying"));
 });
 
+test("ChatGPT inactivity watchdog resets when the conversation advances", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  let posts = 0;
+  let reads = 0;
+
+  const progressConversation = (nodeId, text) => ({
+    conversation_id: "conv-progress-reset",
+    current_node: nodeId,
+    mapping: {
+      [nodeId]: {
+        parent: "request-new",
+        message: {
+          id: nodeId,
+          author: { role: "assistant" },
+          status: "finished_successfully",
+          channel: "analysis",
+          content: {
+            content_type: "text",
+            parts: [text]
+          }
+        }
+      },
+      "request-new": {
+        parent: null,
+        message: {
+          id: requestMessageId,
+          author: { role: "user" },
+          status: "finished_successfully",
+          content: { content_type: "text", parts: ["prompt"] }
+        }
+      }
+    }
+  });
+
+  const session = protocolSession({
+    conversationId: "conv-progress-reset",
+    onConversationPost: body => {
+      posts++;
+      requestMessageId = body.messages[0].id;
+    },
+    onConversationRead: () => {
+      reads++;
+      if (reads <= 6)
+        return jsonResponse(progressConversation("assistant-analysis-1", "First progress marker."));
+      if (reads <= 12)
+        return jsonResponse(progressConversation("assistant-analysis-2", "Second progress marker."));
+      return jsonResponse(
+        completedConversation("conv-progress-reset", requestMessageId, "done")
+      );
+    }
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...hostileBrowserSurface(),
+    session,
+    args: { prompt: "keep progressing", files: [] },
+    sleep: async () => {}
+  });
+
+  assert.equal(posts, 1);
+  assert.equal(reads, 13);
+  assert.equal(result.text, "done");
+});
+
 test("ChatGPT keeps waiting while explicit in-progress analysis remains active", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
