@@ -827,7 +827,14 @@ async function waitForConversation(
     }
 
     const turn = inspectConversationTurn(conversation, requestMessageId);
-    if (turn.reply) return turn.reply;
+    if (turn.reply) {
+      reportProgress?.({
+        state: "completed",
+        detail: "Model response received.",
+        analysis: turn.analysis
+      });
+      return turn.reply;
+    }
 
     if (turn.started)
       activityObserved = true;
