@@ -7,10 +7,14 @@ function Read-Source([string] $relativePath) {
 }
 
 $chatGpt = Read-Source 'integrations\Mezhs.Integrations.ChatGpt\browser\chatgpt.ts'
-$triggerIndex = $chatGpt.IndexOf('await trigger();', [StringComparison]::Ordinal)
-$timeoutIndex = $chatGpt.IndexOf('const timeout = setTimeout(', [StringComparison]::Ordinal)
-if ($triggerIndex -lt 0 -or $timeoutIndex -lt 0 -or $timeoutIndex -lt $triggerIndex) {
-    throw 'ChatGPT native request timeout must start only after submitPrompt has returned.'
+if ($chatGpt.Contains('canUseNativeSend') -or
+    $chatGpt.Contains('sendNativeAccountMessage') -or
+    $chatGpt.Contains('observeNativeConversationRequest') -or
+    $chatGpt.Contains('waitForNativeConversationId')) {
+    throw 'ChatGPT account sending must not depend on the browser UI/debugger path.'
+}
+if (-not $chatGpt.Contains('return sendApiAccountMessage(context, isNew, token, selection);')) {
+    throw 'ChatGPT account sending must use the semantic API path.'
 }
 
 $messageService = Read-Source 'src\Mezhs.Api\Services\MessageService.cs'
