@@ -33,6 +33,7 @@ public static class AgentConfigLoader
 
         options.Policies = new PolicyDecoder().DecodePolicies(
             RequiredMapping(root, "policies", "policies"));
+        options.ManualChats = NormalizeManualChats(options.ManualChats, options.Policies);
         return options;
     }
 
@@ -57,6 +58,29 @@ public static class AgentConfigLoader
             throw new InvalidOperationException($"{path} configuration is required.");
         return node as YamlMappingNode
             ?? throw new InvalidOperationException($"{path} must be a YAML mapping.");
+    }
+
+    private static Dictionary<string, AgentManualChatOptions> NormalizeManualChats(
+        IReadOnlyDictionary<string, AgentManualChatOptions> configured,
+        IReadOnlyDictionary<string, PolicyContext> policies)
+    {
+        var result = new Dictionary<string, AgentManualChatOptions>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (rawId, preset) in configured)
+        {
+            var id = rawId?.Trim() ?? string.Empty;
+            if (id.Length == 0)
+                throw new InvalidOperationException("manualChats contains an empty id.");
+            if (!result.TryAdd(id, preset))
+                throw new InvalidOperationException($"Duplicate manual chat id '{id}'.");
+
+            Validate(preset, $"manualChats.{id}");
+            preset.PolicyId = preset.PolicyId!.Trim();
+            preset.Model = string.IsNullOrWhiteSpace(preset.Model) ? null : preset.Model.Trim();
+            if (!policies.ContainsKey(preset.PolicyId))
+                throw new InvalidOperationException(
+                    $"manualChats.{id}.policyId references unknown policy '{preset.PolicyId}'.");
+        }
+        return result;
     }
 
     private static string Resolve(string baseDirectory, string path) =>
