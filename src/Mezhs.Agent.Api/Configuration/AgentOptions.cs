@@ -60,5 +60,6 @@ public sealed class AgentManualChatOptions
     [Required]
     public string? PolicyId { get; set; }
 
+    public string? ConnectionId { get; set; }
     public string? Model { get; set; }
 }
