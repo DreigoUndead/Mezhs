@@ -1,0 +1,58 @@
+name: Temporary Agent polling validation
+
+on:
+  push:
+    branches:
+      - fix-agent-ui-polling-memory
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix-agent-ui-polling-memory
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run validation and record evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $result = Join-Path $env:GITHUB_WORKSPACE "temp-agent-polling-validation-result.txt"
+          Remove-Item $result -Force -ErrorAction SilentlyContinue
+          $overall = $true
+
+          function Run-Check([string]$name, [scriptblock]$command) {
+            "===== $name =====" | Tee-Object -FilePath $result -Append
+            & $command 2>&1 | Tee-Object -FilePath $result -Append
+            $code = $LASTEXITCODE
+            "EXIT_CODE=$code" | Tee-Object -FilePath $result -Append
+            "" | Tee-Object -FilePath $result -Append
+            if ($code -ne 0) { $script:overall = $false }
+          }
+
+          Run-Check "dotnet build Mezhs.sln -c Release" { dotnet build Mezhs.sln -c Release }
+          Run-Check "tests/agent-architecture.ps1" { pwsh -NoProfile -File tests/agent-architecture.ps1 }
+          Run-Check "tests/agent-api-smoke.ps1" { pwsh -NoProfile -File tests/agent-api-smoke.ps1 }
+
+          $overallText = if ($overall) { "OVERALL=PASS" } else { "OVERALL=FAIL" }
+          $overallText | Tee-Object -FilePath $result -Append
+          exit 0
+      - name: Commit validation evidence
+        if: always()
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add temp-agent-polling-validation-result.txt
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "Record Agent polling memory validation [skip ci]"
+            git push origin HEAD:fix-agent-ui-polling-memory
+          }
