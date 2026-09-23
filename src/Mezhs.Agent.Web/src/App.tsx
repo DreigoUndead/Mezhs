@@ -336,6 +336,15 @@ function isStartPolicyPrompt(message: AgentChatMessage) {
     message.content.includes("Agent command protocol:");
 }
 
+function policyOrder(id: string) {
+  switch (id.toLocaleLowerCase()) {
+    case "low": return 0;
+    case "mid": return 1;
+    case "high": return 2;
+    default: return 3;
+  }
+}
+
 function policyPromptPreview(content: string) {
   const marker = "Policy instructions:";
   const markerIndex = content.indexOf(marker);
@@ -379,6 +388,11 @@ export default function App() {
   const selectedPolicy = policies.find((policy) =>
     policy.id === (selectedChat?.policyId ?? policyId));
   const selectedConnection = connections.find((connection) => connection.id === connectionId);
+  const orderedPolicies = useMemo(
+    () => [...policies].sort((left, right) =>
+      policyOrder(left.id) - policyOrder(right.id) || left.id.localeCompare(right.id)),
+    [policies],
+  );
   const activeExecution = executions.find((execution) =>
     execution.kind === "Agent" && !execution.isTerminal);
   const activeShellExecution = executions.find((execution) =>
@@ -775,7 +789,7 @@ useEffect(() => {
                 onChange={(event) => selectPolicy(event.target.value)}
                 disabled={sending}
               >
-                {policies.map((policy) => (
+                {orderedPolicies.map((policy) => (
                   <option key={policy.id} value={policy.id}>{policy.id}</option>
                 ))}
               </select>
