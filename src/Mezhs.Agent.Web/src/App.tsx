@@ -86,6 +86,31 @@ type Execution = {
   restartedAsId?: string;
 };
 
+type AgentMessageRuntime = {
+  messageId: string;
+  status: ChatSurfaceMessage["status"];
+  activity?: string;
+  activityDetail?: string;
+  activityAt?: string;
+};
+
+type AgentExecutionRuntime = {
+  executionId: string;
+  kind: string;
+  status: string;
+  isTerminal: boolean;
+  completedAt?: string;
+  restartedAsId?: string;
+};
+
+type AgentChatRuntime = {
+  messageCount: number;
+  latestMessageId?: string;
+  latestMessageStatus?: ChatSurfaceMessage["status"];
+  activeMessage?: AgentMessageRuntime;
+  executions: AgentExecutionRuntime[];
+};
+
 type ProtocolCommand = {
   name: string;
   body?: string | null;
@@ -115,6 +140,8 @@ type CommandEvidence = CommandResultPayload & {
 };
 
 const executionEnvelope = /^\[MEŽS AGENT EXECUTION ([^\]]+)]/;
+const runtimePollIntervalMs = 1200;
+const chatListPollIntervalMs = 5000;
 
 function formatTime(value?: string) {
   if (!value) return "";
@@ -345,6 +372,15 @@ function policyOrder(id: string) {
   }
 }
 
+function findActiveUserMessage(messages: AgentChatMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.role === "user" && (message.status === "Queued" || message.status === "Running"))
+      return message;
+  }
+  return undefined;
+}
+
 function policyPromptPreview(content: string) {
   const marker = "Policy instructions:";
   const markerIndex = content.indexOf(marker);
@@ -383,6 +419,9 @@ export default function App() {
   const [shellActionExecutionId, setShellActionExecutionId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const providerRegistry = useRef(new ChatProviderRegistry());
+  const messagesRef = useRef<AgentChatMessage[]>([]);
+  const executionsRef = useRef<Execution[]>([]);
+  const selectedLoadChatRef = useRef<string | null>(null);
 
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
   const selectedPolicy = policies.find((policy) =>
@@ -398,8 +437,7 @@ export default function App() {
   const activeShellExecution = executions.find((execution) =>
     execution.kind === "Shell" && !execution.isTerminal);
   const latestAgentExecution = executions.find((execution) => execution.kind === "Agent");
-  const activeMessage = [...messages].reverse().find((message) =>
-    message.role === "user" && (message.status === "Queued" || message.status === "Running"));
+  const activeMessage = findActiveUserMessage(messages);
   const agentBusyLabel = activeShellExecution
     ? activeShellExecution.status === "KillRequested"
       ? "Stopping shell command…"
@@ -481,11 +519,27 @@ export default function App() {
 
 useEffect(() => {
   if (!selectedChatId || creating) {
+      selectedLoadChatRef.current = null;
+      messagesRef.current = [];
+      executionsRef.current = [];
       setMessages([]);
       setExecutions([]);
       return;
     }
-    void loadSelected(selectedChatId, true, true);
+
+    const chatId = selectedChatId;
+    const controller = new AbortController();
+    selectedLoadChatRef.current = chatId;
+    void loadSelected(chatId, true, true, controller.signal)
+      .finally(() => {
+        if (selectedLoadChatRef.current === chatId)
+          selectedLoadChatRef.current = null;
+      });
+    return () => {
+      controller.abort();
+      if (selectedLoadChatRef.current === chatId)
+        selectedLoadChatRef.current = null;
+    };
   }, [selectedChatId, creating]);
 
   useEffect(() => {
@@ -514,47 +568,163 @@ useEffect(() => {
   }, [selectedConnection]);
 
   useEffect(() => {
-  const timer = window.setInterval(() => {
-    if (!apiReady) return;
-    void refreshChats();
-    if (selectedChatId && !creating)
-      void loadSelected(selectedChatId, false);
-  }, 1200);
-  return () => window.clearInterval(timer);
-}, [apiReady, selectedChatId, creating]);
+    let cancelled = false;
+    let timer: number | undefined;
+    const controller = new AbortController();
+    let lastChatRefreshAt = Date.now();
 
-  async function refreshChats() {
-  try {
-    setChats(await apiJson<AgentChat[]>("", "/v1/agent-chats"));
-  } catch {
-    // Keep the last durable view during transient refresh failures.
-  }
-}
+    const poll = async () => {
+      if (cancelled)
+        return;
 
-  async function loadSelected(chatId: string, reportErrors = true, syncModel = false) {
-    const results = await Promise.allSettled([
-      apiJson<AgentChatMessage[]>("", `/v1/agent-chats/${encodeURIComponent(chatId)}/messages`)
-        .then((values) => {
-          if (syncModel) {
-            const lastUser = [...values].reverse().find((message) => message.role === "user");
-            if (lastUser) {
-              setConnectionId(lastUser.connectionId);
-              setModelId(lastUser.model ?? "");
-              setModelSpecified(true);
-            }
+      try {
+        if (apiReady) {
+          if (selectedChatId && !creating && selectedLoadChatRef.current !== selectedChatId)
+            await refreshRuntime(selectedChatId, controller.signal);
+
+          if (Date.now() - lastChatRefreshAt >= chatListPollIntervalMs) {
+            await refreshChats(controller.signal);
+            lastChatRefreshAt = Date.now();
           }
-          return values;
-        })
-        .then(setMessages),
-      apiJson<Execution[]>("", `/v1/agent-chats/${encodeURIComponent(chatId)}/executions`)
-        .then(setExecutions),
+        }
+      } catch (error) {
+        if (!controller.signal.aborted)
+          console.error("Agent runtime refresh failed.", error);
+      }
+
+      if (cancelled)
+        return;
+      timer = window.setTimeout(() => void poll(), runtimePollIntervalMs);
+    };
+
+    timer = window.setTimeout(() => void poll(), runtimePollIntervalMs);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (timer !== undefined)
+        window.clearTimeout(timer);
+    };
+  }, [apiReady, selectedChatId, creating]);
+
+  async function refreshChats(signal?: AbortSignal) {
+    try {
+      setChats(await apiJson<AgentChat[]>("", "/v1/agent-chats", { signal }));
+    } catch (error) {
+      if (signal?.aborted)
+        return;
+      // Keep the last durable view during transient refresh failures.
+    }
+  }
+
+  async function loadMessages(chatId: string, syncModel = false, signal?: AbortSignal) {
+    const values = await apiJson<AgentChatMessage[]>(
+      "",
+      `/v1/agent-chats/${encodeURIComponent(chatId)}/messages`,
+      { signal },
+    );
+    if (signal?.aborted)
+      return;
+    if (syncModel) {
+      const lastUser = [...values].reverse().find((message) => message.role === "user");
+      if (lastUser) {
+        setConnectionId(lastUser.connectionId);
+        setModelId(lastUser.model ?? "");
+        setModelSpecified(true);
+      }
+    }
+    messagesRef.current = values;
+    setMessages(values);
+  }
+
+  async function loadExecutions(chatId: string, signal?: AbortSignal) {
+    const values = await apiJson<Execution[]>(
+      "",
+      `/v1/agent-chats/${encodeURIComponent(chatId)}/executions`,
+      { signal },
+    );
+    if (signal?.aborted)
+      return;
+    executionsRef.current = values;
+    setExecutions(values);
+  }
+
+  async function loadSelected(
+    chatId: string,
+    reportErrors = true,
+    syncModel = false,
+    signal?: AbortSignal,
+  ) {
+    const results = await Promise.allSettled([
+      loadMessages(chatId, syncModel, signal),
+      loadExecutions(chatId, signal),
     ]);
-    if (!reportErrors)
+    if (!reportErrors || signal?.aborted)
       return;
 
     const failure = results.find((result) => result.status === "rejected");
     if (failure?.status === "rejected")
       setNotice(failure.reason instanceof Error ? failure.reason.message : "Could not fully refresh this agent chat.");
+  }
+
+  async function refreshRuntime(chatId: string, signal?: AbortSignal) {
+    const runtime = await apiJson<AgentChatRuntime>(
+      "",
+      `/v1/agent-chats/${encodeURIComponent(chatId)}/runtime`,
+      { signal },
+    );
+    if (signal?.aborted)
+      return;
+
+    const currentMessages = messagesRef.current;
+    const latestMessage = currentMessages[currentMessages.length - 1];
+    const currentActive = findActiveUserMessage(currentMessages);
+    const messageStructureChanged =
+      runtime.messageCount !== currentMessages.length ||
+      (runtime.latestMessageId ?? null) !== (latestMessage?.messageId ?? null) ||
+      (runtime.latestMessageStatus ?? null) !== (latestMessage?.status ?? null) ||
+      (runtime.activeMessage?.messageId ?? null) !== (currentActive?.messageId ?? null);
+
+    if (messageStructureChanged) {
+      await loadMessages(chatId, false, signal);
+    } else if (runtime.activeMessage && currentActive) {
+      const activity = runtime.activeMessage;
+      const activityChanged =
+        currentActive.status !== activity.status ||
+        (currentActive.activity ?? null) !== (activity.activity ?? null) ||
+        (currentActive.activityDetail ?? null) !== (activity.activityDetail ?? null);
+      if (activityChanged) {
+        const index = currentMessages.findIndex((message) => message.messageId === activity.messageId);
+        if (index >= 0) {
+          const next = [...currentMessages];
+          next[index] = {
+            ...currentActive,
+            status: activity.status,
+            activity: activity.activity,
+            activityDetail: activity.activityDetail,
+            activityAt: activity.activityAt,
+          };
+          messagesRef.current = next;
+          setMessages(next);
+        }
+      }
+    }
+
+    const currentExecutions = executionsRef.current;
+    const byId = new Map(currentExecutions.map((execution) => [execution.executionId, execution]));
+    const executionStateChanged =
+      runtime.executions.length !== currentExecutions.length ||
+      runtime.executions.some((state) => {
+        const current = byId.get(state.executionId);
+        return !current ||
+          current.kind !== state.kind ||
+          current.status !== state.status ||
+          current.isTerminal !== state.isTerminal ||
+          (current.completedAt ?? null) !== (state.completedAt ?? null) ||
+          (current.restartedAsId ?? null) !== (state.restartedAsId ?? null);
+      });
+
+    if (executionStateChanged)
+      await loadExecutions(chatId, signal);
   }
 
   function defaultModelFor(targetConnectionId: string) {
@@ -600,6 +770,8 @@ useEffect(() => {
   function beginNewChat() {
     setCreating(true);
     setSelectedChatId(null);
+    messagesRef.current = [];
+    executionsRef.current = [];
     setMessages([]);
     setExecutions([]);
     setDraft("");
@@ -633,7 +805,9 @@ useEffect(() => {
       setDraft("");
 
       if (selectedChat) {
-        setExecutions((current) => [execution, ...current]);
+        const next = [execution, ...executionsRef.current];
+        executionsRef.current = next;
+        setExecutions(next);
         return;
       }
 
