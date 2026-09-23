@@ -30,6 +30,10 @@ type PendingFile = {
 
 const terminalStatuses = new Set(["Completed", "Failed", "Cancelled"]);
 
+function makeInitials(name: string) {
+  return name.split(/\s+/).map((word) => word[0]).join("").slice(0, 2).toUpperCase();
+}
+
 function formatBytes(value: number) {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
