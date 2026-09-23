@@ -198,7 +198,8 @@ public sealed class AgentWorker : BackgroundService
                         Content: nextPrompt.Content,
                         ConnectionId: execution.ConnectionId,
                         ChatId: chatId,
-                        Origin: nextPrompt.Origin),
+                        Origin: nextPrompt.Origin,
+                        Model: execution.Model),
                     cancellation.Token);
 
                 var processed = await ProcessReplyAsync(
