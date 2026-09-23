@@ -475,7 +475,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
           modelId={modelId}
           onConnectionChange={changeConnection}
           onModelChange={setModelId}
-          connectionDisabled={loading}
+          connectionDisabled={loading || sending}
           modelDisabled={sending}
           modelsLoading={modelsLoading}
         />
