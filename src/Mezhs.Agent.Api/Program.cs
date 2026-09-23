@@ -270,7 +270,7 @@ static AgentChatView ToView(
     AgentStore store,
     ChatStore chats)
 {
-    var chat = chats.GetListState(record.ChatId);
+    var chat = chats.TryGetListState(record.ChatId);
     var firstTask = store.GetFirstRootExecutionRequest(record.ChatId);
     return new AgentChatView(
         record.ChatId,
@@ -278,8 +278,8 @@ static AgentChatView ToView(
         record.OriginSource,
         record.OriginReference,
         record.Paused,
-        string.IsNullOrWhiteSpace(firstTask) ? chat.Title : firstTask,
-        chat.ConnectionId,
+        string.IsNullOrWhiteSpace(firstTask) ? chat?.Title : firstTask,
+        chat?.ConnectionId,
         record.CreatedAt,
         record.UpdatedAt);
 }
