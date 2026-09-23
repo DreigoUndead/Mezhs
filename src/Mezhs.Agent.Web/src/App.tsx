@@ -84,7 +84,6 @@ type AgentMessageRuntime = {
   status: ChatSurfaceMessage["status"];
   activity?: string;
   activityDetail?: string;
-  analysis?: string;
   activityAt?: string;
 };
 
@@ -399,6 +398,7 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const messagesRef = useRef<AgentChatMessage[]>([]);
   const executionsRef = useRef<Execution[]>([]);
+  const selectedLoadChatRef = useRef<string | null>(null);
 
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
   const selectedPolicy = policies.find((policy) =>
@@ -476,6 +476,7 @@ export default function App() {
 
 useEffect(() => {
   if (!selectedChatId || creating) {
+      selectedLoadChatRef.current = null;
       messagesRef.current = [];
       executionsRef.current = [];
       setMessages([]);
@@ -483,9 +484,19 @@ useEffect(() => {
       return;
     }
 
+    const chatId = selectedChatId;
     const controller = new AbortController();
-    void loadSelected(selectedChatId, true, controller.signal);
-    return () => controller.abort();
+    selectedLoadChatRef.current = chatId;
+    void loadSelected(chatId, true, controller.signal)
+      .finally(() => {
+        if (selectedLoadChatRef.current === chatId)
+          selectedLoadChatRef.current = null;
+      });
+    return () => {
+      controller.abort();
+      if (selectedLoadChatRef.current === chatId)
+        selectedLoadChatRef.current = null;
+    };
   }, [selectedChatId, creating]);
 
   useEffect(() => {
@@ -500,7 +511,7 @@ useEffect(() => {
 
       try {
         if (apiReady) {
-          if (selectedChatId && !creating)
+          if (selectedChatId && !creating && selectedLoadChatRef.current !== selectedChatId)
             await refreshRuntime(selectedChatId, controller.signal);
 
           if (Date.now() - lastChatRefreshAt >= chatListPollIntervalMs) {
@@ -543,6 +554,8 @@ useEffect(() => {
       `/v1/agent-chats/${encodeURIComponent(chatId)}/messages`,
       { signal },
     );
+    if (signal?.aborted)
+      return;
     messagesRef.current = values;
     setMessages(values);
   }
@@ -553,6 +566,8 @@ useEffect(() => {
       `/v1/agent-chats/${encodeURIComponent(chatId)}/executions`,
       { signal },
     );
+    if (signal?.aborted)
+      return;
     executionsRef.current = values;
     setExecutions(values);
   }
@@ -596,7 +611,6 @@ useEffect(() => {
         currentActive.status !== activity.status ||
         (currentActive.activity ?? null) !== (activity.activity ?? null) ||
         (currentActive.activityDetail ?? null) !== (activity.activityDetail ?? null) ||
-        (currentActive.analysis ?? null) !== (activity.analysis ?? null) ||
         (currentActive.activityAt ?? null) !== (activity.activityAt ?? null);
       if (activityChanged) {
         const index = currentMessages.findIndex((message) => message.messageId === activity.messageId);
@@ -607,7 +621,6 @@ useEffect(() => {
             status: activity.status,
             activity: activity.activity,
             activityDetail: activity.activityDetail,
-            analysis: activity.analysis,
             activityAt: activity.activityAt,
           };
           messagesRef.current = next;
