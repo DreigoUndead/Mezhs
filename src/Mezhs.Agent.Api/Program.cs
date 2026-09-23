@@ -78,20 +78,20 @@ app.MapGet("/v1/policies/{policyId}", (
 
 app.MapGet("/v1/agent-chats", (
     AgentStore agentStore,
-    ChatService chats) =>
+    ChatStore chatStore) =>
     Results.Ok(agentStore.GetAgentChats()
-        .Select(record => ToView(record, agentStore, chats))
+        .Select(record => ToView(record, agentStore, chatStore))
         .ToArray()));
 
 app.MapGet("/v1/agent-chats/{chatId}", (
     string chatId,
     AgentStore agentStore,
-    ChatService chats) =>
+    ChatStore chatStore) =>
 {
     var chat = agentStore.GetAgentChat(chatId);
     return chat is null
         ? Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." })
-        : Results.Ok(ToView(chat, agentStore, chats));
+        : Results.Ok(ToView(chat, agentStore, chatStore));
 });
 
 app.MapPatch("/v1/agent-chats/{chatId}", (
@@ -99,10 +99,10 @@ app.MapPatch("/v1/agent-chats/{chatId}", (
     UpdateAgentChatRequest request,
     AgentService agents,
     AgentStore agentStore,
-    ChatService chats) =>
+    ChatStore chatStore) =>
 {
     var chat = agents.SetPaused(chatId, request.Paused);
-    return Results.Ok(ToView(chat, agentStore, chats));
+    return Results.Ok(ToView(chat, agentStore, chatStore));
 });
 
 app.MapGet("/v1/agent-chats/{chatId}/messages", (
@@ -268,9 +268,9 @@ static IReadOnlyList<AgentExecutionView> GetExecutionViews(
 static AgentChatView ToView(
     AgentChatRecord record,
     AgentStore store,
-    ChatService chats)
+    ChatStore chats)
 {
-    var chat = chats.TryGet(record.ChatId);
+    var chat = chats.GetListState(record.ChatId);
     var firstTask = store.GetFirstRootExecutionRequest(record.ChatId);
     return new AgentChatView(
         record.ChatId,
@@ -278,8 +278,8 @@ static AgentChatView ToView(
         record.OriginSource,
         record.OriginReference,
         record.Paused,
-        string.IsNullOrWhiteSpace(firstTask) ? chat?.Title : firstTask,
-        chat?.ConnectionId,
+        string.IsNullOrWhiteSpace(firstTask) ? chat.Title : firstTask,
+        chat.ConnectionId,
         record.CreatedAt,
         record.UpdatedAt);
 }
