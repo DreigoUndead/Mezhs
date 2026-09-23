@@ -386,7 +386,6 @@ export default function App() {
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
   const selectedPolicy = policies.find((policy) =>
     policy.id === (selectedChat?.policyId ?? policyId));
-  const selectedManualConfig = manualConfigs.find((config) => config.id === manualConfigId);
   const selectedConnection = connections.find((connection) => connection.id === connectionId);
   const activeExecution = executions.find((execution) =>
     execution.kind === "Agent" && !execution.isTerminal);
@@ -791,7 +790,7 @@ useEffect(() => {
             </header>
 
             <section className="agent-new-chat">
-              <p>Choose a manual preset or customize the policy and model. Policy is fixed after the chat starts; model and effort can change between turns.</p>
+              <p>Choose a manual preset or customize the policy, connection and model. Policy stays fixed for the chat; connection and model can change between turns.</p>
               {manualConfigs.length > 0 && (
                 <>
                   <span className="agent-field-label">Manual config</span>
@@ -818,25 +817,28 @@ useEffect(() => {
                 disabled={sending}
               >
                 {policies.map((policy) => (
-                  <option key={policy.id} value={policy.id}>{policy.id} · {policy.connectionId}</option>
+                  <option key={policy.id} value={policy.id}>{policy.id}</option>
                 ))}
               </select>
-              <label className="agent-field-label agent-model-label" htmlFor="model">Model / effort</label>
-              <select
-                id="model"
-                value={modelId}
-                onChange={(event) => selectModel(event.target.value)}
-                disabled={sending || modelsLoading}
-              >
-                {selectableModels.map((model) => (
-                  <option key={model.id ?? "default"} value={model.id ?? ""}>{model.name}</option>
-                ))}
-              </select>
+              <ConnectionModelPicker
+                className="agent-target-picker agent-target-picker-new"
+                connections={connections}
+                connectionId={connectionId}
+                models={models}
+                modelId={modelId}
+                onConnectionChange={selectTargetConnection}
+                onModelChange={selectModel}
+                connectionLabel="Run with"
+                modelLabel="Model / effort"
+                connectionDisabled={sending}
+                modelDisabled={sending}
+                modelsLoading={modelsLoading}
+              />
               {selectedPolicy && (
                 <div className="agent-policy-summary">
                   <strong>{selectedPolicy.id}</strong>
-                  <span>Connection: {selectedPolicy.connectionId}</span>
-                  <span>Model: {(selectableModels.find((model) => (model.id ?? "") === modelId)?.name ?? modelId) || "Default"}</span>
+                  <span>Default connection: {selectedPolicy.connectionId}</span>
+                  <span>Selected connection: {selectedConnection?.name ?? connectionId}</span>
                   {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
                 </div>
               )}
@@ -847,7 +849,7 @@ useEffect(() => {
               onChange={setDraft}
               onSubmit={submit}
               placeholder={composerPlaceholder}
-              disabled={!policyId}
+              disabled={!policyId || !connectionId}
               busy={sending}
               notice={notice}
               onDismissNotice={() => setNotice(null)}
@@ -877,18 +879,20 @@ useEffect(() => {
                 </div>
               </div>
               <div className="agent-header-actions">
-                <label className="agent-header-model">
-                  <span>Model / effort</span>
-                  <select
-                    value={modelId}
-                    onChange={(event) => selectModel(event.target.value)}
-                    disabled={sending || !!activeExecution || modelsLoading}
-                  >
-                    {selectableModels.map((model) => (
-                      <option key={model.id ?? "default"} value={model.id ?? ""}>{model.name}</option>
-                    ))}
-                  </select>
-                </label>
+                <ConnectionModelPicker
+                  className="agent-target-picker agent-target-picker-header"
+                  connections={connections}
+                  connectionId={connectionId}
+                  models={models}
+                  modelId={modelId}
+                  onConnectionChange={selectTargetConnection}
+                  onModelChange={selectModel}
+                  connectionLabel="Next turn"
+                  modelLabel="Model / effort"
+                  connectionDisabled={sending || !!activeExecution}
+                  modelDisabled={sending || !!activeExecution}
+                  modelsLoading={modelsLoading}
+                />
                 <a
                   className="agent-secondary agent-download"
                   href={`/v1/agent-chats/${encodeURIComponent(selectedChat.chatId)}/debug-log`}
