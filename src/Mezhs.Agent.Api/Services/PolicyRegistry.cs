@@ -20,13 +20,13 @@ public sealed class PolicyRegistry(AgentOptions options)
         return new AgentPolicyView(
             policy.Id,
             policy.ConnectionId,
+            policy.DefaultModel,
             policy.ModelInstructions,
             policy.Snapshot);
     }
 
     public IReadOnlyList<AgentPolicyView> GetViews() =>
         options.Policies.Keys
-            .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
             .Select(GetView)
             .ToArray();
 

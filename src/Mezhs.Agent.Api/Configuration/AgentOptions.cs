@@ -53,3 +53,4 @@ public sealed class AgentRuntimeMessages
     [Required]
     public string? ShellContext { get; set; }
 }
+

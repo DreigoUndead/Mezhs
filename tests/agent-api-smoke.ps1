@@ -39,9 +39,18 @@ function Wait-Health([string]$uri) {
     } while ($true)
 }
 
-function Start-AgentExecution([string]$policyId, [string]$taskInput, [hashtable]$environment = $null) {
+function Start-AgentExecution(
+    [string]$policyId,
+    [string]$taskInput,
+    [hashtable]$environment = $null,
+    [string]$chatId = $null,
+    [string]$connectionId = $null,
+    $model = $null) {
     $body = @{ policyId = $policyId; input = $taskInput }
     if ($null -ne $environment) { $body.environment = $environment }
+    if (-not [string]::IsNullOrWhiteSpace($chatId)) { $body.chatId = $chatId }
+    if (-not [string]::IsNullOrWhiteSpace($connectionId)) { $body.connectionId = $connectionId }
+    if ($null -ne $model) { $body.model = $model }
     return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions" `
         -ContentType "application/json" -Body (ConvertTo-Json $body -Depth 5)
 }
@@ -114,6 +123,23 @@ try {
         throw "Agent API does not expose the shared MEŽS API surface."
     }
 
+    if ((Get-Status "http://127.0.0.1:5199/v1/manual-chat-configs") -ne 404) {
+        throw "Obsolete manual Agent chat config endpoint still exists."
+    }
+
+    $agentPolicies = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies"
+    if ($null -eq $agentPolicies) {
+        throw "Agent policy list endpoint returned no policies."
+    }
+    $lowPolicy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/low"
+    $midPolicy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/mid"
+    $highPolicy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/high"
+    if ($null -eq $lowPolicy -or $lowPolicy.connectionId -ne 'test' -or $lowPolicy.defaultModel -ne 'mock-fast' -or
+        $null -eq $midPolicy -or $midPolicy.connectionId -ne 'test' -or $midPolicy.defaultModel -ne 'mock-deep' -or
+        $null -eq $highPolicy -or $highPolicy.connectionId -ne 'test-alt' -or $highPolicy.defaultModel -ne 'mock-deep') {
+        throw "Low/mid/high Agent policy defaults were not exposed correctly."
+    }
+
     $originClient = [Net.Http.HttpClient]::new()
     try {
         $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
@@ -135,13 +161,94 @@ try {
         } finally { $loopbackResponse.Dispose(); $loopbackRequest.Dispose() }
     } finally { $originClient.Dispose() }
 
-    $created = Start-AgentExecution "test" "hello agent"
+    $created = Start-AgentExecution "low" "hello agent"
     $completed = Wait-AgentExecution $created.executionId
     if ($completed.status -ne "Completed" -or -not $completed.chatId) {
         throw "Execution did not preserve chat/completion state."
     }
     if ($completed.PSObject.Properties.Name -contains "requester") {
         throw "Execution API still exposes unauthenticated requester provenance."
+    }
+
+    $initialMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
+    $initialUserMessage = @($initialMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($completed.connectionId -ne "test" -or
+        $completed.model -ne "mock-fast" -or
+        $initialUserMessage.connectionId -ne "test" -or
+        $initialUserMessage.model -ne "mock-fast") {
+        throw "Fresh Agent chat did not materialize the low policy default connection/model."
+    }
+
+    $midDefault = Start-AgentExecution "mid" "mid policy default"
+    $midDefaultCompleted = Wait-AgentExecution $midDefault.executionId
+    if ($midDefaultCompleted.status -ne "Completed" -or
+        $midDefaultCompleted.connectionId -ne "test" -or
+        $midDefaultCompleted.model -ne "mock-deep") {
+        throw "Mid policy did not materialize its configured model default."
+    }
+
+    $highDefault = Start-AgentExecution "high" "high policy default"
+    $highDefaultCompleted = Wait-AgentExecution $highDefault.executionId
+    if ($highDefaultCompleted.status -ne "Completed" -or
+        $highDefaultCompleted.connectionId -ne "test-alt" -or
+        $highDefaultCompleted.model -ne "mock-deep") {
+        throw "High policy did not materialize its configured integration/model default."
+    }
+
+    $changedModel = Start-AgentExecution "low" "switch model" $null $completed.chatId "test" "mock-deep"
+    $changedModelCompleted = Wait-AgentExecution $changedModel.executionId
+    if ($changedModelCompleted.status -ne "Completed" -or
+        $changedModelCompleted.connectionId -ne "test" -or
+        $changedModelCompleted.model -ne "mock-deep") {
+        throw "Agent execution did not persist an explicit model change on the selected connection."
+    }
+    $changedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
+    $changedUserMessage = @($changedMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($changedUserMessage.connectionId -ne "test" -or $changedUserMessage.model -ne "mock-deep") {
+        throw "Agent model change did not reach the shared message/integration path."
+    }
+
+    $switchedConnection = Start-AgentExecution "low" "switch connection" $null $completed.chatId "test-alt"
+    $switchedConnectionCompleted = Wait-AgentExecution $switchedConnection.executionId
+    $switchedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
+    $switchedUserMessage = @($switchedMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($switchedConnectionCompleted.status -ne "Completed" -or
+        $switchedConnectionCompleted.connectionId -ne "test-alt" -or
+        $null -ne $switchedConnectionCompleted.model -or
+        $switchedUserMessage.connectionId -ne "test-alt" -or
+        $switchedUserMessage.model -ne "mock-deep") {
+        throw "Agent chat did not switch integration and inherit that connection's default model."
+    }
+
+    $changedAlternateModel = Start-AgentExecution "low" "change alternate model" $null $completed.chatId "test-alt" "mock-fast"
+    $changedAlternateCompleted = Wait-AgentExecution $changedAlternateModel.executionId
+    if ($changedAlternateCompleted.status -ne "Completed" -or
+        $changedAlternateCompleted.connectionId -ne "test-alt" -or
+        $changedAlternateCompleted.model -ne "mock-fast") {
+        throw "Agent model change on the alternate integration was not persisted."
+    }
+
+    $inheritedTarget = Start-AgentExecution "low" "inherit connection and model" $null $completed.chatId
+    $inheritedTargetCompleted = Wait-AgentExecution $inheritedTarget.executionId
+    $inheritedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
+    $inheritedUserMessage = @($inheritedMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($inheritedTargetCompleted.status -ne "Completed" -or
+        $inheritedTargetCompleted.connectionId -ne "test-alt" -or
+        $null -ne $inheritedTargetCompleted.model -or
+        $inheritedUserMessage.connectionId -ne "test-alt" -or
+        $inheritedUserMessage.model -ne "mock-fast") {
+        throw "Agent chat did not carry the selected integration/model forward when the next execution omitted both."
+    }
+
+    $returnedConnection = Start-AgentExecution "low" "return connection" $null $completed.chatId "test"
+    $returnedCompleted = Wait-AgentExecution $returnedConnection.executionId
+    $returnedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
+    $returnedUserMessage = @($returnedMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($returnedCompleted.status -ne "Completed" -or
+        $returnedCompleted.connectionId -ne "test" -or
+        $returnedUserMessage.connectionId -ne "test" -or
+        $returnedUserMessage.model -ne "mock-deep") {
+        throw "Returning to a prior integration did not restore that connection's last selected model."
     }
 
     $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/runtime"

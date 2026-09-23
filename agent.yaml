@@ -16,6 +16,7 @@ connections:
     name: ChatGPT Account
     integration: chatgpt-web-account
     workspace: Mezhs
+    defaultModel: gpt-5-6-thinking::thinking-effort=extended
 
   - id: chatgpt-guest
     name: ChatGPT Guest
@@ -70,8 +71,41 @@ messages:
     Each executable agent command has a timeout of {timeout} seconds. A timed-out command is stopped and returned as failed evidence; do not assume it completed.
 
 policies:
-  default:
+  low:
     connectionId: chatgpt-sub
+    defaultModel: gpt-5-6-instant
+    instructions: |
+      Complete the assigned task and keep actions auditable.
+    commands:
+      allow:
+        - SH
+    environment:
+      allow: []
+    completion:
+      requireDone: true
+      requiredSuccessfulCommands: []
+    limits:
+      commandTimeoutSeconds: 120
+
+  mid:
+    connectionId: chatgpt-sub
+    defaultModel: gpt-5-6-thinking::thinking-effort=standard
+    instructions: |
+      Complete the assigned task and keep actions auditable.
+    commands:
+      allow:
+        - SH
+    environment:
+      allow: []
+    completion:
+      requireDone: true
+      requiredSuccessfulCommands: []
+    limits:
+      commandTimeoutSeconds: 120
+
+  high:
+    connectionId: chatgpt-sub
+    defaultModel: gpt-5-6-thinking::thinking-effort=extended
     instructions: |
       Complete the assigned task and keep actions auditable.
     commands:

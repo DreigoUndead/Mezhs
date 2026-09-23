@@ -263,6 +263,58 @@
   background: #fffefa;
 }
 
+.agent-target-picker {
+  min-width: 0;
+}
+
+.agent-target-picker .target-picker-field {
+  border-color: #d7d2c7;
+  color: #888279;
+  background: #fffefa;
+}
+
+.agent-target-picker .target-picker-field select {
+  border-color: #d7d2c7;
+  color: #464139;
+  background: #fff;
+}
+
+.agent-target-picker .target-picker-field select:focus {
+  border-color: #9aab64;
+  box-shadow: 0 0 0 2px rgba(154,171,100,.12);
+}
+
+.agent-target-picker .target-picker-field option {
+  color: #464139;
+  background: #fffefa;
+}
+
+.agent-target-picker-composer {
+  width: 260px;
+  align-content: start;
+  gap: 6px;
+}
+
+.agent-target-picker-composer .target-picker-field {
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 7px;
+  min-height: 34px;
+  padding: 4px 6px;
+  border-color: #dfdad0;
+  background: #fbfaf7;
+}
+
+.agent-target-picker-composer .target-picker-field > span {
+  font-size: 7px;
+}
+
+.agent-target-picker-composer .target-picker-field select {
+  height: 26px;
+  padding: 0 6px;
+  font-size: 9px;
+  background: #fffefa;
+}
+
 .agent-policy-summary {
   margin-top: 12px;
   padding: 12px 13px;
@@ -606,4 +658,8 @@
   .agent-header { padding-inline: 18px; align-items: flex-start; }
   .agent-header-actions { flex-wrap: wrap; justify-content: flex-end; }
   .agent-new-chat { width: calc(100% - 36px); margin: 24px auto; }
+}
+
+@media (max-width: 760px) {
+  .agent-target-picker-composer { width: 100%; }
 }

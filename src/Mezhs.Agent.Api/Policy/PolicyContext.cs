@@ -30,6 +30,7 @@ public sealed class PolicyContext
     public string Id { get; }
     public PolicySettings Settings { get; }
     public string ConnectionId => Settings.ConnectionId;
+    public string? DefaultModel => Settings.DefaultModel;
     public string ModelInstructions { get; }
     public string Snapshot { get; }
 
