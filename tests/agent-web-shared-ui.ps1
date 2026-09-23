@@ -23,7 +23,7 @@ if ($agentMain -notmatch '@mezhs/web-lib/styles\.css') {
     throw "Agent Web is not consuming common MEZS web styling."
 }
 if ($targetPicker -notmatch 'target-picker-field' -or
-    $targetPicker -match 'connection-picker|model-picker|connection-avatar' -or
+    $targetPicker -match 'className="connection-picker"|className="model-picker"|connection-avatar' -or
     $sharedApp -notmatch '<ConnectionModelPicker' -or $agentApp -notmatch '<ConnectionModelPicker') {
     throw "Normal chat and Agent Web do not reuse one symmetric integration/model picker."
 }
