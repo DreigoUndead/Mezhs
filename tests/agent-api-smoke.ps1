@@ -163,7 +163,7 @@ try {
         throw "Execution API still exposes unauthenticated requester provenance."
     }
 
-    $initialMessages = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages")
+    $initialMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
     $initialUserMessage = @($initialMessages | Where-Object { $_.role -eq "user" })[-1]
     if ($initialUserMessage.model -ne "mock-fast") {
         throw "Fresh Agent chat did not inherit the connection defaultModel."
@@ -174,7 +174,7 @@ try {
     if ($changedModelCompleted.status -ne "Completed" -or $changedModelCompleted.model -ne "mock-deep") {
         throw "Agent execution did not persist an explicit mid-conversation model change."
     }
-    $changedMessages = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages")
+    $changedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
     $changedUserMessage = @($changedMessages | Where-Object { $_.role -eq "user" })[-1]
     if ($changedUserMessage.model -ne "mock-deep") {
         throw "Agent model change did not reach the shared message/integration path."
@@ -182,7 +182,7 @@ try {
 
     $inheritedModel = Start-AgentExecution "test" "inherit changed model" $null $completed.chatId
     $inheritedModelCompleted = Wait-AgentExecution $inheritedModel.executionId
-    $inheritedMessages = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages")
+    $inheritedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
     $inheritedUserMessage = @($inheritedMessages | Where-Object { $_.role -eq "user" })[-1]
     if ($inheritedModelCompleted.status -ne "Completed" -or $null -ne $inheritedModelCompleted.model -or
         $inheritedUserMessage.model -ne "mock-deep") {
