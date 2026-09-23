@@ -39,9 +39,16 @@ function Wait-Health([string]$uri) {
     } while ($true)
 }
 
-function Start-AgentExecution([string]$policyId, [string]$taskInput, [hashtable]$environment = $null) {
+function Start-AgentExecution(
+    [string]$policyId,
+    [string]$taskInput,
+    [hashtable]$environment = $null,
+    [string]$chatId = $null,
+    [string]$model = $null) {
     $body = @{ policyId = $policyId; input = $taskInput }
     if ($null -ne $environment) { $body.environment = $environment }
+    if (-not [string]::IsNullOrWhiteSpace($chatId)) { $body.chatId = $chatId }
+    if ($null -ne $model) { $body.model = $model }
     return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions" `
         -ContentType "application/json" -Body (ConvertTo-Json $body -Depth 5)
 }
@@ -114,6 +121,18 @@ try {
         throw "Agent API does not expose the shared MEŽS API surface."
     }
 
+    $manualConfigs = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/manual-chat-configs")
+    if ((@($manualConfigs.id) -join ',') -ne 'low,mid,high') {
+        throw "Agent manual chat configs were not exposed in configured order."
+    }
+    $lowConfig = $manualConfigs | Where-Object { $_.id -eq 'low' } | Select-Object -First 1
+    $midConfig = $manualConfigs | Where-Object { $_.id -eq 'mid' } | Select-Object -First 1
+    $highConfig = $manualConfigs | Where-Object { $_.id -eq 'high' } | Select-Object -First 1
+    if ($lowConfig.policyId -ne 'test' -or $lowConfig.model -ne 'mock-fast' -or
+        $midConfig.model -ne 'mock-deep' -or $null -ne $highConfig.model) {
+        throw "Agent manual chat config policy/model mappings were invalid."
+    }
+
     $originClient = [Net.Http.HttpClient]::new()
     try {
         $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
@@ -142,6 +161,32 @@ try {
     }
     if ($completed.PSObject.Properties.Name -contains "requester") {
         throw "Execution API still exposes unauthenticated requester provenance."
+    }
+
+    $initialMessages = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages")
+    $initialUserMessage = @($initialMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($initialUserMessage.model -ne "mock-fast") {
+        throw "Fresh Agent chat did not inherit the connection defaultModel."
+    }
+
+    $changedModel = Start-AgentExecution "test" "switch model" $null $completed.chatId "mock-deep"
+    $changedModelCompleted = Wait-AgentExecution $changedModel.executionId
+    if ($changedModelCompleted.status -ne "Completed" -or $changedModelCompleted.model -ne "mock-deep") {
+        throw "Agent execution did not persist an explicit mid-conversation model change."
+    }
+    $changedMessages = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages")
+    $changedUserMessage = @($changedMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($changedUserMessage.model -ne "mock-deep") {
+        throw "Agent model change did not reach the shared message/integration path."
+    }
+
+    $inheritedModel = Start-AgentExecution "test" "inherit changed model" $null $completed.chatId
+    $inheritedModelCompleted = Wait-AgentExecution $inheritedModel.executionId
+    $inheritedMessages = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages")
+    $inheritedUserMessage = @($inheritedMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($inheritedModelCompleted.status -ne "Completed" -or $null -ne $inheritedModelCompleted.model -or
+        $inheritedUserMessage.model -ne "mock-deep") {
+        throw "Agent chat did not carry the selected model forward when the next execution omitted it."
     }
 
     $environmentTask = @"
