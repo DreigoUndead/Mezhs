@@ -232,6 +232,27 @@ public sealed class ChatStore(MezhsOptions options)
             .ThenBy(message => message.MessageId, StringComparer.Ordinal)
             .ToArray();
 
+    public ChatListState GetListState(string chatId)
+    {
+        if (!_chats.ContainsKey(chatId))
+            throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
+
+        StoredMessage? latest = null;
+        StoredMessage? firstUser = null;
+        foreach (var message in _messages.Values)
+        {
+            if (!string.Equals(message.ChatId, chatId, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (IsLater(message, latest))
+                latest = message;
+            if (message.Role == "user" && IsEarlier(message, firstUser))
+                firstUser = message;
+        }
+
+        return new ChatListState(latest?.ConnectionId, firstUser?.Content);
+    }
+
     public ChatRuntimeState GetRuntimeState(string chatId)
     {
         if (!_chats.ContainsKey(chatId))
@@ -438,6 +459,15 @@ public sealed class ChatStore(MezhsOptions options)
             File.WriteAllText(temporary, json);
             File.Move(temporary, target, overwrite: true);
         }
+    }
+
+    private static bool IsEarlier(StoredMessage candidate, StoredMessage? current)
+    {
+        if (current is null)
+            return true;
+        var time = candidate.CreatedAt.CompareTo(current.CreatedAt);
+        return time < 0 ||
+               (time == 0 && string.CompareOrdinal(candidate.MessageId, current.MessageId) < 0);
     }
 
     private static bool IsLater(StoredMessage candidate, StoredMessage? current)
