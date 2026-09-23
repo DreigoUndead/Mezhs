@@ -146,6 +146,40 @@ internal sealed class ExecutorStore
         return result;
     }
 
+    public IReadOnlyList<ExecutionState> ListStates(string? chatId, int limit)
+    {
+        using var connection = _log.Open(_file);
+        using var command = connection.CreateCommand();
+        command.CommandText = chatId is null
+            ? """
+                SELECT Id, Status, CompletedAt, RestartedAsId
+                FROM ExecutorExecutions
+                ORDER BY Id DESC
+                LIMIT $limit;
+                """
+            : """
+                SELECT Id, Status, CompletedAt, RestartedAsId
+                FROM ExecutorExecutions
+                WHERE ChatId = $chatId
+                ORDER BY Id DESC
+                LIMIT $limit;
+                """;
+        command.Parameters.AddWithValue("$limit", limit);
+        if (chatId is not null)
+            command.Parameters.AddWithValue("$chatId", chatId);
+        using var reader = command.ExecuteReader();
+        var result = new List<ExecutionState>();
+        while (reader.Read())
+        {
+            result.Add(new ExecutionState(
+                reader.GetInt32(0),
+                Enum.Parse<ExecutionStatus>(reader.GetString(1)),
+                reader.IsDBNull(2) ? null : Parse(reader.GetString(2)),
+                reader.IsDBNull(3) ? null : reader.GetInt32(3)));
+        }
+        return result;
+    }
+
     public StoredExecution? Claim(int id, int ownerProcessId)
     {
         var now = DateTimeOffset.UtcNow;

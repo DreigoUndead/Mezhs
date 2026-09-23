@@ -232,6 +232,68 @@ public sealed class ChatStore(MezhsOptions options)
             .ThenBy(message => message.MessageId, StringComparer.Ordinal)
             .ToArray();
 
+    public ChatListState? TryGetListState(string chatId)
+    {
+        if (!_chats.ContainsKey(chatId))
+            return null;
+
+        StoredMessage? latest = null;
+        StoredMessage? firstUser = null;
+        foreach (var message in _messages.Values)
+        {
+            if (!string.Equals(message.ChatId, chatId, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (IsLater(message, latest))
+                latest = message;
+            if (message.Role == "user" && IsEarlier(message, firstUser))
+                firstUser = message;
+        }
+
+        var title = firstUser?.Content;
+        return new ChatListState(
+            latest?.ConnectionId,
+            title is { Length: > 200 } ? title[..200] : title);
+    }
+
+    public ChatRuntimeState GetRuntimeState(string chatId)
+    {
+        if (!_chats.ContainsKey(chatId))
+            throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
+
+        var count = 0;
+        StoredMessage? latest = null;
+        StoredMessage? active = null;
+        foreach (var message in _messages.Values)
+        {
+            if (!string.Equals(message.ChatId, chatId, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            count++;
+            if (IsLater(message, latest))
+                latest = message;
+            if (message.Role == "user" &&
+                message.Status is MessageStatus.Queued or MessageStatus.Running &&
+                IsLater(message, active))
+            {
+                active = message;
+            }
+        }
+
+        return new ChatRuntimeState(
+            count,
+            latest?.MessageId,
+            latest?.Status,
+            active is null
+                ? null
+                : new MessageRuntimeState(
+                    active.MessageId,
+                    active.Status,
+                    active.Activity,
+                    active.ActivityDetail,
+                    active.ActivityAt));
+    }
+
     public void SaveChat(ChatRecord chat)
     {
         lock (_writeLock)
@@ -399,6 +461,24 @@ public sealed class ChatStore(MezhsOptions options)
             File.WriteAllText(temporary, json);
             File.Move(temporary, target, overwrite: true);
         }
+    }
+
+    private static bool IsEarlier(StoredMessage candidate, StoredMessage? current)
+    {
+        if (current is null)
+            return true;
+        var time = candidate.CreatedAt.CompareTo(current.CreatedAt);
+        return time < 0 ||
+               (time == 0 && string.CompareOrdinal(candidate.MessageId, current.MessageId) < 0);
+    }
+
+    private static bool IsLater(StoredMessage candidate, StoredMessage? current)
+    {
+        if (current is null)
+            return true;
+        var time = candidate.CreatedAt.CompareTo(current.CreatedAt);
+        return time > 0 ||
+               (time == 0 && string.CompareOrdinal(candidate.MessageId, current.MessageId) > 0);
     }
 
     private string GetChatDirectory(string chatId) =>
