@@ -15,7 +15,6 @@ public sealed class AgentOptions : MezhsOptions
 
     public AgentRuntimeOptions Runtime { get; set; } = new();
     public AgentRuntimeMessages Messages { get; set; } = new();
-    public Dictionary<string, AgentManualChatOptions> ManualChats { get; set; } = [];
 
     [YamlMember(Alias = "policies")]
     public Dictionary<string, object?> PolicyDefinitions { get; set; } = [];
@@ -55,11 +54,3 @@ public sealed class AgentRuntimeMessages
     public string? ShellContext { get; set; }
 }
 
-public sealed class AgentManualChatOptions
-{
-    [Required]
-    public string? PolicyId { get; set; }
-
-    public string? ConnectionId { get; set; }
-    public string? Model { get; set; }
-}
