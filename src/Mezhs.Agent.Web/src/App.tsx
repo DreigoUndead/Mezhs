@@ -15,6 +15,18 @@ type AgentPolicy = {
   snapshot: string;
 };
 
+type ManualChatConfig = {
+  id: string;
+  policyId: string;
+  connectionId: string;
+  model?: string | null;
+};
+
+type ConnectionModel = {
+  id?: string | null;
+  name: string;
+};
+
 type AgentChat = {
   chatId: string;
   policyId: string;
@@ -31,6 +43,7 @@ type AgentChatMessage = {
   messageId: string;
   chatId: string;
   connectionId: string;
+  model?: string | null;
   role: ChatSurfaceMessage["role"];
   origin: string;
   content: string;
@@ -63,6 +76,7 @@ type Execution = {
   chatId?: string;
   policyId: string;
   connectionId: string;
+  model?: string | null;
   source: string;
   sourceReference?: string;
   status: string;
@@ -348,6 +362,12 @@ export default function App() {
   const apiAvailability = useApiAvailability("");
   const apiReady = apiAvailability === "online";
   const [policies, setPolicies] = useState<AgentPolicy[]>([]);
+  const [manualConfigs, setManualConfigs] = useState<ManualChatConfig[]>([]);
+  const [models, setModels] = useState<ConnectionModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [manualConfigId, setManualConfigId] = useState("");
+  const [modelId, setModelId] = useState("");
+  const [modelSpecified, setModelSpecified] = useState(false);
   const [chats, setChats] = useState<AgentChat[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
@@ -364,6 +384,19 @@ export default function App() {
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
   const selectedPolicy = policies.find((policy) =>
     policy.id === (selectedChat?.policyId ?? policyId));
+  const selectedManualConfig = manualConfigs.find((config) => config.id === manualConfigId);
+  const activeConnectionId = selectedChat?.connectionId ??
+    selectedPolicy?.connectionId ??
+    selectedManualConfig?.connectionId ??
+    "";
+  const selectableModels = useMemo(() => {
+    const available = [...models];
+    if (modelId && !available.some((model) => model.id === modelId))
+      available.push({ id: modelId, name: modelId });
+    if (!available.some((model) => !model.id))
+      available.unshift({ id: null, name: "Default" });
+    return available;
+  }, [models, modelId]);
   const activeExecution = executions.find((execution) =>
     execution.kind === "Agent" && !execution.isTerminal);
   const activeShellExecution = executions.find((execution) =>
@@ -415,26 +448,33 @@ export default function App() {
   );
 
   useEffect(() => {
-  let cancelled = false;
-  void Promise.all([
-    apiJson<AgentPolicy[]>("", "/v1/policies"),
-    apiJson<AgentChat[]>("", "/v1/agent-chats"),
-  ])
-    .then(([policyValues, chatValues]) => {
-      if (cancelled) return;
-      setPolicies(policyValues);
-      setChats(chatValues);
-      setPolicyId(policyValues[0]?.id ?? "");
-      setNotice(null);
-      if (chatValues.length > 0)
-        setSelectedChatId(chatValues[0].chatId);
-    })
-    .catch((error) => {
-      if (!cancelled)
-        setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
-    });
-  return () => { cancelled = true; };
-}, []);
+    let cancelled = false;
+    void Promise.all([
+      apiJson<AgentPolicy[]>("", "/v1/policies"),
+      apiJson<ManualChatConfig[]>("", "/v1/manual-chat-configs"),
+      apiJson<AgentChat[]>("", "/v1/agent-chats"),
+    ])
+      .then(([policyValues, manualValues, chatValues]) => {
+        if (cancelled) return;
+        setPolicies(policyValues);
+        setManualConfigs(manualValues);
+        setChats(chatValues);
+        const preferred = manualValues.find((config) => config.id.toLocaleLowerCase() === "high") ??
+          manualValues[0];
+        setManualConfigId(preferred?.id ?? "");
+        setPolicyId(preferred?.policyId ?? policyValues[0]?.id ?? "");
+        setModelId(preferred?.model ?? "");
+        setModelSpecified(preferred?.model != null);
+        setNotice(null);
+        if (chatValues.length > 0)
+          setSelectedChatId(chatValues[0].chatId);
+      })
+      .catch((error) => {
+        if (!cancelled)
+          setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
+      });
+    return () => { cancelled = true; };
+  }, []);
 
 useEffect(() => {
   if (!selectedChatId || creating) {
@@ -442,8 +482,32 @@ useEffect(() => {
       setExecutions([]);
       return;
     }
-    void loadSelected(selectedChatId);
+    void loadSelected(selectedChatId, true, true);
   }, [selectedChatId, creating]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeConnectionId) {
+      setModels([]);
+      return;
+    }
+
+    setModelsLoading(true);
+    void apiJson<ConnectionModel[]>("", `/v1/connections/${encodeURIComponent(activeConnectionId)}/models`)
+      .then((available) => {
+        if (!cancelled)
+          setModels(available);
+      })
+      .catch(() => {
+        if (!cancelled)
+          setModels([]);
+      })
+      .finally(() => {
+        if (!cancelled)
+          setModelsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [activeConnectionId]);
 
   useEffect(() => {
   const timer = window.setInterval(() => {
@@ -463,17 +527,51 @@ useEffect(() => {
   }
 }
 
-async function loadSelected(chatId: string, reportErrors = true) {
+  async function loadSelected(chatId: string, reportErrors = true, syncModel = false) {
     const results = await Promise.allSettled([
-      apiJson<AgentChatMessage[]>("", `/v1/agent-chats/${encodeURIComponent(chatId)}/messages`).then(setMessages),
-      apiJson<Execution[]>("", `/v1/agent-chats/${encodeURIComponent(chatId)}/executions`).then(setExecutions),
+      apiJson<AgentChatMessage[]>("", `/v1/agent-chats/${encodeURIComponent(chatId)}/messages`),
+      apiJson<Execution[]>("", `/v1/agent-chats/${encodeURIComponent(chatId)}/executions`),
     ]);
+    const [messageResult, executionResult] = results;
+    if (messageResult.status === "fulfilled") {
+      setMessages(messageResult.value);
+      if (syncModel) {
+        const lastUser = [...messageResult.value].reverse().find((message) => message.role === "user");
+        setModelId(lastUser?.model ?? "");
+        setModelSpecified(lastUser != null);
+      }
+    }
+    if (executionResult.status === "fulfilled")
+      setExecutions(executionResult.value);
     if (!reportErrors)
       return;
 
     const failure = results.find((result) => result.status === "rejected");
     if (failure?.status === "rejected")
       setNotice(failure.reason instanceof Error ? failure.reason.message : "Could not fully refresh this agent chat.");
+  }
+
+  function applyManualConfig(configId: string) {
+    const config = manualConfigs.find((candidate) => candidate.id === configId);
+    if (!config) return;
+    setManualConfigId(config.id);
+    setPolicyId(config.policyId);
+    setModelId(config.model ?? "");
+    setModelSpecified(config.model != null);
+  }
+
+  function selectPolicy(nextPolicyId: string) {
+    setManualConfigId("");
+    setPolicyId(nextPolicyId);
+    setModelId("");
+    setModelSpecified(false);
+  }
+
+  function selectModel(value: string) {
+    setModelId(value);
+    setModelSpecified(true);
+    if (creating)
+      setManualConfigId("");
   }
 
   function beginNewChat() {
@@ -483,7 +581,11 @@ async function loadSelected(chatId: string, reportErrors = true) {
     setExecutions([]);
     setDraft("");
     setNotice(null);
-    if (!policyId && policies.length > 0)
+    const preferred = manualConfigs.find((config) => config.id.toLocaleLowerCase() === "high") ??
+      manualConfigs[0];
+    if (preferred)
+      applyManualConfig(preferred.id);
+    else if (!policyId && policies.length > 0)
       setPolicyId(policies[0].id);
   }
 
@@ -503,6 +605,7 @@ async function loadSelected(chatId: string, reportErrors = true) {
           policyId: effectivePolicyId,
           input,
           ...(selectedChat ? { chatId: selectedChat.chatId } : {}),
+          ...(modelSpecified ? { model: modelId } : {}),
         }),
       });
       setDraft("");
@@ -516,7 +619,7 @@ async function loadSelected(chatId: string, reportErrors = true) {
       setCreating(false);
       setSelectedChatId(attachedChatId);
       await refreshChats();
-      await loadSelected(attachedChatId);
+      await loadSelected(attachedChatId, true, true);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Agent execution could not be started.");
     } finally {
@@ -656,22 +759,52 @@ async function loadSelected(chatId: string, reportErrors = true) {
             </header>
 
             <section className="agent-new-chat">
-              <p>Choose a policy for this chat. The policy fixes its rules, connection and executable capabilities.</p>
+              <p>Choose a manual preset or customize the policy and model. Policy is fixed after the chat starts; model and effort can change between turns.</p>
+              {manualConfigs.length > 0 && (
+                <>
+                  <span className="agent-field-label">Manual config</span>
+                  <div className="agent-preset-row">
+                    {manualConfigs.map((config) => (
+                      <button
+                        type="button"
+                        key={config.id}
+                        className={manualConfigId === config.id ? "selected" : ""}
+                        onClick={() => applyManualConfig(config.id)}
+                        disabled={sending}
+                      >
+                        {config.id}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
               <label className="agent-field-label" htmlFor="policy">Policy</label>
               <select
                 id="policy"
                 value={policyId}
-                onChange={(event) => setPolicyId(event.target.value)}
+                onChange={(event) => selectPolicy(event.target.value)}
                 disabled={sending}
               >
                 {policies.map((policy) => (
                   <option key={policy.id} value={policy.id}>{policy.id} · {policy.connectionId}</option>
                 ))}
               </select>
+              <label className="agent-field-label agent-model-label" htmlFor="model">Model / effort</label>
+              <select
+                id="model"
+                value={modelId}
+                onChange={(event) => selectModel(event.target.value)}
+                disabled={sending || modelsLoading}
+              >
+                {selectableModels.map((model) => (
+                  <option key={model.id ?? "default"} value={model.id ?? ""}>{model.name}</option>
+                ))}
+              </select>
               {selectedPolicy && (
                 <div className="agent-policy-summary">
                   <strong>{selectedPolicy.id}</strong>
                   <span>Connection: {selectedPolicy.connectionId}</span>
+                  <span>Model: {selectableModels.find((model) => (model.id ?? "") === modelId)?.name ?? modelId || "Default"}</span>
                   {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
                 </div>
               )}
@@ -712,6 +845,18 @@ async function loadSelected(chatId: string, reportErrors = true) {
                 </div>
               </div>
               <div className="agent-header-actions">
+                <label className="agent-header-model">
+                  <span>Model / effort</span>
+                  <select
+                    value={modelId}
+                    onChange={(event) => selectModel(event.target.value)}
+                    disabled={sending || !!activeExecution || modelsLoading}
+                  >
+                    {selectableModels.map((model) => (
+                      <option key={model.id ?? "default"} value={model.id ?? ""}>{model.name}</option>
+                    ))}
+                  </select>
+                </label>
                 <a
                   className="agent-secondary agent-download"
                   href={`/v1/agent-chats/${encodeURIComponent(selectedChat.chatId)}/debug-log`}
