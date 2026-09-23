@@ -59,6 +59,7 @@ public sealed record AgentChatMessageView(
     string MessageId,
     string ChatId,
     string ConnectionId,
+    string? Model,
     string Role,
     string Origin,
     string Content,
@@ -91,6 +92,7 @@ public sealed class ExecutionRecord
     public string? ChatId { get; set; }
     public required string PolicyId { get; init; }
     public required string ConnectionId { get; init; }
+    public string? Model { get; init; }
     public required string Source { get; init; }
     public string? SourceReference { get; init; }
     public required AgentExecutionStatus Status { get; set; }
@@ -110,9 +112,16 @@ public sealed record CreateExecutionRequest(
     string PolicyId,
     string Input,
     string? ChatId = null,
-    IReadOnlyDictionary<string, string>? Environment = null);
+    IReadOnlyDictionary<string, string>? Environment = null,
+    string? Model = null);
 
 public sealed record UpdateAgentChatRequest(bool Paused);
+
+public sealed record AgentManualChatView(
+    string Id,
+    string PolicyId,
+    string ConnectionId,
+    string? Model);
 
 public sealed record AgentPolicyView(
     string Id,
