@@ -109,7 +109,10 @@ Assert ($sharedChat -match 'MarkdownContent' -and $markdown -match 'safeLink') "
 Assert ($targetPicker -match 'ConnectionModelPicker' -and
         $targetPicker -match 'target-picker-field' -and
         $targetPicker -notmatch 'className="connection-picker"|className="model-picker"|connection-avatar' -and
-        $agentWebApp -match 'ConnectionModelPicker') "Integration/model target selection is not symmetric or owned by the shared web library."
+        $sharedChat -match 'sideControls\?: ReactNode' -and
+        $sharedChat -match 'composer-side-controls' -and
+        $agentWebApp -match 'sideControls=\{\(' -and
+        $agentWebApp -notmatch 'agent-target-picker-header|agent-target-picker-new') "Integration/model target selection is not symmetric and prompt-adjacent through shared UI."
 Assert ($agentWebHost -match 'HttpCompletionOption\.ResponseHeadersRead' -and
         $agentWebHost -match 'CopyToAsync' -and
         $agentWebHost -match 'catch \(HttpRequestException\)' -and
