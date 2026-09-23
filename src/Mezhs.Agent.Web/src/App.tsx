@@ -474,7 +474,10 @@ useEffect(() => {
       setExecutions([]);
       return;
     }
-    void loadSelected(selectedChatId);
+
+    const controller = new AbortController();
+    void loadSelected(selectedChatId, true, controller.signal);
+    return () => controller.abort();
   }, [selectedChatId, creating]);
 
   useEffect(() => {
