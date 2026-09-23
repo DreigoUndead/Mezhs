@@ -610,8 +610,7 @@ useEffect(() => {
       const activityChanged =
         currentActive.status !== activity.status ||
         (currentActive.activity ?? null) !== (activity.activity ?? null) ||
-        (currentActive.activityDetail ?? null) !== (activity.activityDetail ?? null) ||
-        (currentActive.activityAt ?? null) !== (activity.activityAt ?? null);
+        (currentActive.activityDetail ?? null) !== (activity.activityDetail ?? null);
       if (activityChanged) {
         const index = currentMessages.findIndex((message) => message.messageId === activity.messageId);
         if (index >= 0) {
