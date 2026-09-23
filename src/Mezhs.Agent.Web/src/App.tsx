@@ -570,7 +570,7 @@ useEffect(() => {
   function selectModel(value: string) {
     setModelId(value);
     setModelSpecified(true);
-    if (creating)
+    if (!selectedChat)
       setManualConfigId("");
   }
 
@@ -804,7 +804,7 @@ useEffect(() => {
                 <div className="agent-policy-summary">
                   <strong>{selectedPolicy.id}</strong>
                   <span>Connection: {selectedPolicy.connectionId}</span>
-                  <span>Model: {selectableModels.find((model) => (model.id ?? "") === modelId)?.name ?? modelId || "Default"}</span>
+                  <span>Model: {(selectableModels.find((model) => (model.id ?? "") === modelId)?.name ?? modelId) || "Default"}</span>
                   {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
                 </div>
               )}
