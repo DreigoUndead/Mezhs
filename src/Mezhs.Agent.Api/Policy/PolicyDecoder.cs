@@ -40,10 +40,14 @@ public sealed class PolicyDecoder
         var completion = definition.Completion!;
         var limits = definition.Limits!;
         var connectionId = definition.ConnectionId!.Trim();
+        var defaultModel = string.IsNullOrWhiteSpace(definition.DefaultModel)
+            ? null
+            : definition.DefaultModel.Trim();
         var instructions = definition.Instructions?.Trim() ?? string.Empty;
 
         var settings = new PolicySettings(
             connectionId,
+            defaultModel,
             instructions,
             new PolicyCommandSettings(
                 NormalizeCommandNames(commands.Allow, $"policies.{id}.commands.allow"),
