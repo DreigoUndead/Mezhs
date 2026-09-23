@@ -58,7 +58,6 @@ public sealed record MessageRuntimeState(
     MessageStatus Status,
     string? Activity,
     string? ActivityDetail,
-    string? Analysis,
     DateTimeOffset? ActivityAt);
 
 public sealed record ChatRuntimeState(
