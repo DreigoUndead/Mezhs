@@ -1,6 +1,7 @@
 using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
+using Mezhs.Services;
 
 namespace Mezhs.Agent.Services;
 
@@ -8,6 +9,7 @@ public sealed class AgentService(
     AgentStore store,
     PolicyRegistry policies,
     AgentWorker worker,
+    IntegrationRegistry integrations,
     AgentOptions options)
 {
     public ExecutionRecord Start(CreateExecutionRequest request)
@@ -20,8 +22,13 @@ public sealed class AgentService(
 
         var policy = policies.Get(policyId);
         var chatId = string.IsNullOrWhiteSpace(request.ChatId) ? null : request.ChatId.Trim();
-        // null means inherit the chat/connection default; an empty string is an explicit provider Default selection.
+        var connectionId = ResolveConnectionId(request.ConnectionId, chatId, policy.ConnectionId);
+        var integration = integrations.Get(connectionId);
+        // null means inherit the last/default model for this connection; empty means explicit provider Default.
         var model = request.Model is null ? null : request.Model.Trim();
+        if (!string.IsNullOrWhiteSpace(model) && integration.Models is null)
+            throw new RequestValidationException(
+                $"Connection '{connectionId}' does not support model selection.");
         var requestedEnvironment = request.Environment is null
             ? null
             : NormalizeEnvironment(request.Environment, policy.Settings.Environment.Allow);
@@ -44,7 +51,7 @@ public sealed class AgentService(
             (long)options.Runtime.QueueCapacity + options.Runtime.MaxConcurrentExecutions;
         var execution = store.TryCreateRootExecution(
             policyId,
-            policy.ConnectionId,
+            connectionId,
             chatId,
             source: "manual",
             sourceReference: null,
@@ -77,6 +84,28 @@ public sealed class AgentService(
             worker.Cancel(execution.ExecutionId);
         }
         return store.GetAgentChat(chatId)!;
+    }
+
+    private string ResolveConnectionId(
+        string? requestedConnectionId,
+        string? chatId,
+        string policyDefaultConnectionId)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedConnectionId))
+            return requestedConnectionId.Trim();
+
+        if (chatId is not null)
+        {
+            var previous = store.GetExecutions(chatId)
+                .Where(record => record.Kind == AgentExecutionKind.Agent && record.ParentExecutionId is null)
+                .OrderByDescending(record => record.CreatedAt)
+                .ThenByDescending(record => record.ExecutionId, StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (previous is not null)
+                return previous.ConnectionId;
+        }
+
+        return policyDefaultConnectionId;
     }
 
     private static IReadOnlyDictionary<string, string> NormalizeEnvironment(
