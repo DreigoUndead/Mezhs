@@ -118,15 +118,10 @@ public sealed record CreateExecutionRequest(
 
 public sealed record UpdateAgentChatRequest(bool Paused);
 
-public sealed record AgentManualChatView(
-    string Id,
-    string PolicyId,
-    string ConnectionId,
-    string? Model);
-
 public sealed record AgentPolicyView(
     string Id,
     string ConnectionId,
+    string? DefaultModel,
     string ModelInstructions,
     string Snapshot);
 
