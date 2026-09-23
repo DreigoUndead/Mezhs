@@ -60,7 +60,6 @@ public sealed record AgentMessageRuntimeView(
     string Status,
     string? Activity,
     string? ActivityDetail,
-    string? Analysis,
     DateTimeOffset? ActivityAt);
 
 public sealed record AgentExecutionRuntimeView(
