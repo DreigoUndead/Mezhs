@@ -33,19 +33,6 @@ runtime:
   queueCapacity: 1
   maxConcurrentExecutions: 1
 
-manualChats:
-  low:
-    policyId: test
-    connectionId: test
-    model: mock-fast
-  mid:
-    policyId: test
-    connectionId: test-alt
-    model: mock-deep
-  high:
-    policyId: test
-    connectionId: test
-
 messages:
   continue: |
     Continue the assigned deterministic test task.
@@ -77,6 +64,48 @@ messages:
     Each executable agent command has a timeout of {timeout} seconds.
 
 policies:
+  low:
+    connectionId: test
+    defaultModel: mock-fast
+    instructions: Complete the assigned deterministic test task.
+    commands:
+      allow: [SH]
+    environment:
+      allow: [TEST_AGENT_VALUE]
+    completion:
+      requireDone: false
+      requiredSuccessfulCommands: []
+    limits:
+      commandTimeoutSeconds: 2
+
+  mid:
+    connectionId: test
+    defaultModel: mock-deep
+    instructions: Complete the assigned deterministic test task.
+    commands:
+      allow: [SH]
+    environment:
+      allow: [TEST_AGENT_VALUE]
+    completion:
+      requireDone: false
+      requiredSuccessfulCommands: []
+    limits:
+      commandTimeoutSeconds: 2
+
+  high:
+    connectionId: test-alt
+    defaultModel: mock-deep
+    instructions: Complete the assigned deterministic test task.
+    commands:
+      allow: [SH]
+    environment:
+      allow: [TEST_AGENT_VALUE]
+    completion:
+      requireDone: false
+      requiredSuccessfulCommands: []
+    limits:
+      commandTimeoutSeconds: 2
+
   test:
     connectionId: test
     instructions: Complete the assigned deterministic test task.
