@@ -67,6 +67,10 @@ public sealed record ChatRuntimeState(
     MessageStatus? LatestMessageStatus,
     MessageRuntimeState? ActiveMessage);
 
+public sealed record ChatListState(
+    string? ConnectionId,
+    string? Title);
+
 public sealed class StoredFile
 {
     public required string FileId { get; init; }
