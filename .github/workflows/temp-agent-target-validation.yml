@@ -44,6 +44,9 @@ jobs:
       - name: Agent shared UI
         shell: pwsh
         run: ./tests/agent-web-shared-ui.ps1
+      - name: Agent Web proxy resilience
+        shell: pwsh
+        run: ./tests/agent-web-proxy-resilience.ps1
       - name: Agent API smoke
         shell: pwsh
         run: ./tests/agent-api-smoke.ps1
