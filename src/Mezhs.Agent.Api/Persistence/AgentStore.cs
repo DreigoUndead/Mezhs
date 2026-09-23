@@ -91,9 +91,9 @@ public sealed class AgentStore(AgentOptions options)
         string? sourceReference,
         string request,
         IReadOnlyDictionary<string, string> environment,
-        string? model,
         string policySnapshot,
-        long maxOutstandingExecutions)
+        long maxOutstandingExecutions,
+        string? model = null)
     {
         if (maxOutstandingExecutions <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxOutstandingExecutions));
