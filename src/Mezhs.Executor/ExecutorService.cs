@@ -67,7 +67,10 @@ public sealed class ExecutorService
             throw new ArgumentOutOfRangeException(nameof(limit), "Limit must be between 1 and 1000.");
         var normalizedChatId = string.IsNullOrWhiteSpace(chatId) ? null : chatId;
         var initial = _store.ListStates(normalizedChatId, limit);
-        foreach (var execution in initial.Where(execution => !execution.IsTerminal))
+        var active = initial.Where(execution => !execution.IsTerminal).ToArray();
+        if (active.Length == 0)
+            return initial;
+        foreach (var execution in active)
             Reconcile(execution.Id);
         return _store.ListStates(normalizedChatId, limit);
     }
