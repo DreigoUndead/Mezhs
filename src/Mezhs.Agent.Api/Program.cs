@@ -134,7 +134,6 @@ app.MapGet("/v1/agent-chats/{chatId}/runtime", (
             messages.ActiveMessage.Status.ToString(),
             messages.ActiveMessage.Activity,
             messages.ActiveMessage.ActivityDetail,
-            messages.ActiveMessage.Analysis,
             messages.ActiveMessage.ActivityAt);
     var agentExecutions = agentStore.GetExecutionStates(chatId)
         .Select(state => new AgentExecutionRuntimeView(
