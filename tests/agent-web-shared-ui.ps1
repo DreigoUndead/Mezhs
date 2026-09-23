@@ -22,9 +22,10 @@ if ($agentApp -notmatch 'ChatTranscript' -or $agentApp -notmatch 'ChatComposer')
 if ($agentMain -notmatch '@mezhs/web-lib/styles\.css') {
     throw "Agent Web is not consuming common MEZS web styling."
 }
-if ($targetPicker -notmatch 'connection-picker' -or $targetPicker -notmatch 'model-picker' -or
+if ($targetPicker -notmatch 'target-picker-field' -or
+    $targetPicker -match 'connection-picker|model-picker|connection-avatar' -or
     $sharedApp -notmatch '<ConnectionModelPicker' -or $agentApp -notmatch '<ConnectionModelPicker') {
-    throw "Normal chat and Agent Web do not reuse the shared connection/model picker."
+    throw "Normal chat and Agent Web do not reuse one symmetric integration/model picker."
 }
 if ($agentApp -notmatch 'ChatProviderRegistry' -or
     $agentApp -match '/v1/connections/\$\{encodeURIComponent\([^)]*\)\}/models') {
@@ -33,6 +34,10 @@ if ($agentApp -notmatch 'ChatProviderRegistry' -or
 if ($agentApp -notmatch 'connectionId,' -or
     $agentApp -notmatch 'onConnectionChange=\{selectTargetConnection\}') {
     throw "Agent Web does not expose per-turn generic connection selection."
+}
+if ($agentApp -match 'manual-chat-configs|ManualChatConfig|manualConfig' -or
+    $agentApp -notmatch 'defaultModel') {
+    throw "Agent Web still has a manual preset layer instead of using policy-owned defaults."
 }
 if ($agentApp -match '<textarea' -or $agentApp -match '<form[^>]+className="composer"') {
     throw "Agent Web reimplemented the shared composer."
