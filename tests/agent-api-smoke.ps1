@@ -121,7 +121,7 @@ try {
         throw "Agent API does not expose the shared MEŽS API surface."
     }
 
-    $manualConfigs = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/manual-chat-configs")
+    $manualConfigs = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/manual-chat-configs"
     if ((@($manualConfigs.id) -join ',') -ne 'low,mid,high') {
         throw "Agent manual chat configs were not exposed in configured order."
     }
@@ -130,7 +130,7 @@ try {
     $highConfig = $manualConfigs | Where-Object { $_.id -eq 'high' } | Select-Object -First 1
     if ($lowConfig.policyId -ne 'test' -or $lowConfig.model -ne 'mock-fast' -or
         $midConfig.model -ne 'mock-deep' -or $null -ne $highConfig.model) {
-        throw "Agent manual chat config policy/model mappings were invalid. low=$($lowConfig | ConvertTo-Json -Compress) mid=$($midConfig | ConvertTo-Json -Compress) high=$($highConfig | ConvertTo-Json -Compress)"
+        throw "Agent manual chat config policy/model mappings were invalid."
     }
 
     $originClient = [Net.Http.HttpClient]::new()
