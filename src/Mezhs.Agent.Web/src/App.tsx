@@ -357,6 +357,15 @@ function isStartPolicyPrompt(message: AgentChatMessage) {
     message.content.includes("Agent command protocol:");
 }
 
+function findActiveUserMessage(messages: AgentChatMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.role === "user" && (message.status === "Queued" || message.status === "Running"))
+      return message;
+  }
+  return undefined;
+}
+
 function policyPromptPreview(content: string) {
   const marker = "Policy instructions:";
   const markerIndex = content.indexOf(marker);
@@ -399,8 +408,7 @@ export default function App() {
   const activeShellExecution = executions.find((execution) =>
     execution.kind === "Shell" && !execution.isTerminal);
   const latestAgentExecution = executions.find((execution) => execution.kind === "Agent");
-  const activeMessage = [...messages].reverse().find((message) =>
-    message.role === "user" && (message.status === "Queued" || message.status === "Running"));
+  const activeMessage = findActiveUserMessage(messages);
   const agentBusyLabel = activeShellExecution
     ? activeShellExecution.status === "KillRequested"
       ? "Stopping shell command…"
@@ -490,7 +498,6 @@ useEffect(() => {
       if (cancelled)
         return;
 
-      const startedAt = Date.now();
       try {
         if (apiReady) {
           if (selectedChatId && !creating)
@@ -508,8 +515,7 @@ useEffect(() => {
 
       if (cancelled)
         return;
-      const elapsed = Date.now() - startedAt;
-      timer = window.setTimeout(() => void poll(), Math.max(0, runtimePollIntervalMs - elapsed));
+      timer = window.setTimeout(() => void poll(), runtimePollIntervalMs);
     };
 
     timer = window.setTimeout(() => void poll(), runtimePollIntervalMs);
@@ -575,8 +581,7 @@ useEffect(() => {
 
     const currentMessages = messagesRef.current;
     const latestMessage = currentMessages[currentMessages.length - 1];
-    const currentActive = [...currentMessages].reverse().find((message) =>
-      message.role === "user" && (message.status === "Queued" || message.status === "Running"));
+    const currentActive = findActiveUserMessage(currentMessages);
     const messageStructureChanged =
       runtime.messageCount !== currentMessages.length ||
       (runtime.latestMessageId ?? null) !== (latestMessage?.messageId ?? null) ||
@@ -585,21 +590,30 @@ useEffect(() => {
 
     if (messageStructureChanged) {
       await loadMessages(chatId, signal);
-    } else if (runtime.activeMessage) {
+    } else if (runtime.activeMessage && currentActive) {
       const activity = runtime.activeMessage;
-      const next = currentMessages.map((message) =>
-        message.messageId === activity.messageId
-          ? {
-              ...message,
-              status: activity.status,
-              activity: activity.activity,
-              activityDetail: activity.activityDetail,
-              analysis: activity.analysis,
-              activityAt: activity.activityAt,
-            }
-          : message);
-      messagesRef.current = next;
-      setMessages(next);
+      const activityChanged =
+        currentActive.status !== activity.status ||
+        (currentActive.activity ?? null) !== (activity.activity ?? null) ||
+        (currentActive.activityDetail ?? null) !== (activity.activityDetail ?? null) ||
+        (currentActive.analysis ?? null) !== (activity.analysis ?? null) ||
+        (currentActive.activityAt ?? null) !== (activity.activityAt ?? null);
+      if (activityChanged) {
+        const index = currentMessages.findIndex((message) => message.messageId === activity.messageId);
+        if (index >= 0) {
+          const next = [...currentMessages];
+          next[index] = {
+            ...currentActive,
+            status: activity.status,
+            activity: activity.activity,
+            activityDetail: activity.activityDetail,
+            analysis: activity.analysis,
+            activityAt: activity.activityAt,
+          };
+          messagesRef.current = next;
+          setMessages(next);
+        }
+      }
     }
 
     const currentExecutions = executionsRef.current;
