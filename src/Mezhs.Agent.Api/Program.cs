@@ -117,6 +117,50 @@ app.MapGet("/v1/agent-chats/{chatId}/messages", (
         .Select(message => AgentApiMapper.ToView(message, parser)));
 });
 
+app.MapGet("/v1/agent-chats/{chatId}/runtime", (
+    string chatId,
+    AgentStore agentStore,
+    ChatStore chatStore,
+    ExecutorService executorService) =>
+{
+    if (agentStore.GetAgentChat(chatId) is null)
+        return Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." });
+
+    var messages = chatStore.GetRuntimeState(chatId);
+    var active = messages.ActiveMessage is null
+        ? null
+        : new AgentMessageRuntimeView(
+            messages.ActiveMessage.MessageId,
+            messages.ActiveMessage.Status.ToString(),
+            messages.ActiveMessage.Activity,
+            messages.ActiveMessage.ActivityDetail,
+            messages.ActiveMessage.Analysis,
+            messages.ActiveMessage.ActivityAt);
+    var agentExecutions = agentStore.GetExecutionStates(chatId)
+        .Select(state => new AgentExecutionRuntimeView(
+            state.ExecutionId,
+            AgentExecutionKind.Agent.ToString(),
+            state.Status.ToString(),
+            state.Status.IsTerminal(),
+            state.CompletedAt,
+            RestartedAsId: null));
+    var shellExecutions = executorService.ListStates(chatId)
+        .Select(state => new AgentExecutionRuntimeView(
+            state.Id.ToString(CultureInfo.InvariantCulture),
+            AgentExecutionKind.Shell.ToString(),
+            state.Status.ToString(),
+            state.IsTerminal,
+            state.CompletedAt,
+            state.RestartedAsId?.ToString(CultureInfo.InvariantCulture)));
+
+    return Results.Ok(new AgentChatRuntimeView(
+        messages.MessageCount,
+        messages.LatestMessageId,
+        messages.LatestMessageStatus?.ToString(),
+        active,
+        agentExecutions.Concat(shellExecutions).ToArray()));
+});
+
 app.MapGet("/v1/agent-chats/{chatId}/executions", (
     string chatId,
     AgentStore agentStore,
@@ -227,11 +271,7 @@ static AgentChatView ToView(
     ChatService chats)
 {
     var chat = chats.TryGet(record.ChatId);
-    var firstTask = store.GetExecutions(record.ChatId)
-        .Where(execution => execution.Kind == AgentExecutionKind.Agent && execution.ParentExecutionId is null)
-        .OrderBy(execution => execution.CreatedAt)
-        .ThenBy(execution => execution.ExecutionId, StringComparer.Ordinal)
-        .FirstOrDefault()?.Request;
+    var firstTask = store.GetFirstRootExecutionRequest(record.ChatId);
     return new AgentChatView(
         record.ChatId,
         record.PolicyId,
