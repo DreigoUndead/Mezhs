@@ -128,6 +128,9 @@ try {
     }
 
     $agentPolicies = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies")
+    if ((@($agentPolicies | Select-Object -First 3 | ForEach-Object { $_.id }) -join ',') -ne 'low,mid,high') {
+        throw "Agent policy API did not preserve configured low/mid/high order."
+    }
     $lowPolicy = $agentPolicies | Where-Object { $_.id -eq 'low' } | Select-Object -First 1
     $midPolicy = $agentPolicies | Where-Object { $_.id -eq 'mid' } | Select-Object -First 1
     $highPolicy = $agentPolicies | Where-Object { $_.id -eq 'high' } | Select-Object -First 1
