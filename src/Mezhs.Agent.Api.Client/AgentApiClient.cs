@@ -141,6 +141,7 @@ public sealed record CreateAgentExecutionRequest(
     string Input,
     string? ChatId = null,
     IReadOnlyDictionary<string, string>? Environment = null,
+    string? ConnectionId = null,
     string? Model = null);
 
 public sealed record AgentExecutionView(
