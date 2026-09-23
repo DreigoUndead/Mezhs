@@ -20,6 +20,7 @@ public sealed class PolicyRegistry(AgentOptions options)
         return new AgentPolicyView(
             policy.Id,
             policy.ConnectionId,
+            policy.DefaultModel,
             policy.ModelInstructions,
             policy.Snapshot);
     }
