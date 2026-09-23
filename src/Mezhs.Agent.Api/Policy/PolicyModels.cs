@@ -7,6 +7,7 @@ public sealed class PolicyDefinition
     [Required]
     public string? ConnectionId { get; set; }
 
+    public string? DefaultModel { get; set; }
     public string Instructions { get; set; } = "";
 
     [Required]
@@ -46,6 +47,7 @@ public sealed class PolicyLimitsDefinition
 
 public sealed record PolicySettings(
     string ConnectionId,
+    string? DefaultModel,
     string Instructions,
     PolicyCommandSettings Commands,
     PolicyEnvironmentSettings Environment,
