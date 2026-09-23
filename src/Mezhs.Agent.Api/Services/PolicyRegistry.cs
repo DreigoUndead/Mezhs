@@ -27,7 +27,6 @@ public sealed class PolicyRegistry(AgentOptions options)
 
     public IReadOnlyList<AgentPolicyView> GetViews() =>
         options.Policies.Keys
-            .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
             .Select(GetView)
             .ToArray();
 
