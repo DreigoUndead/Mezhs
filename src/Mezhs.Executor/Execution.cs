@@ -17,6 +17,20 @@ public enum ExecutionStatus
 public sealed class ExecutionNotFoundException(int id)
     : Exception($"Execution '{id}' was not found.");
 
+public sealed record ExecutionState(
+    int Id,
+    ExecutionStatus Status,
+    DateTimeOffset? CompletedAt,
+    int? RestartedAsId)
+{
+    public bool IsTerminal => Status is ExecutionStatus.Completed
+        or ExecutionStatus.Failed
+        or ExecutionStatus.Killed
+        or ExecutionStatus.TimedOut
+        or ExecutionStatus.Dead;
+}
+
+
 public sealed class Execution : ReturnObjectBase
 {
     public int Id { get; set; }
