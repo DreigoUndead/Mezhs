@@ -42,7 +42,8 @@ jobs:
           Run-Check "tests/agent-architecture.ps1" { pwsh -NoProfile -File tests/agent-architecture.ps1 }
           Run-Check "tests/agent-api-smoke.ps1" { pwsh -NoProfile -File tests/agent-api-smoke.ps1 }
 
-          if ($overall) { "OVERALL=PASS" } else { "OVERALL=FAIL" } | Tee-Object -FilePath $result -Append
+          $overallText = if ($overall) { "OVERALL=PASS" } else { "OVERALL=FAIL" }
+          $overallText | Tee-Object -FilePath $result -Append
           exit 0
       - name: Commit validation evidence
         if: always()
