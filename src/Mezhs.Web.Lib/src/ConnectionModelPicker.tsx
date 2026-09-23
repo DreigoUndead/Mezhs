@@ -16,15 +16,6 @@ export type ConnectionModelPickerProps = {
   className?: string;
 };
 
-function initials(name: string) {
-  return name.split(/\s+/)
-    .filter(Boolean)
-    .map((word) => word[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
-
 export function ConnectionModelPicker({
   connections,
   connectionId,
@@ -32,8 +23,8 @@ export function ConnectionModelPicker({
   modelId,
   onConnectionChange,
   onModelChange,
-  connectionLabel = "New messages use",
-  modelLabel = "Model",
+  connectionLabel = "Integration",
+  modelLabel = "Model / effort",
   connectionDisabled = false,
   modelDisabled = false,
   modelsLoading = false,
@@ -51,44 +42,47 @@ export function ConnectionModelPicker({
     return result;
   }, [models, modelId]);
 
+  const modelUnavailable = !selectedConnection?.supportsModels;
+  const resolvedModelDisabled = modelDisabled || modelsLoading || modelUnavailable || !connectionId;
+
   return (
     <div className={["connection-model-picker", className].filter(Boolean).join(" ")}>
-      <label className="section-label" htmlFor={connectionSelectId}>{connectionLabel}</label>
-      <div className="connection-picker">
-        <div className="connection-avatar">
-          {selectedConnection ? initials(selectedConnection.name) : "AI"}
-        </div>
+      <label className="target-picker-field" htmlFor={connectionSelectId}>
+        <span>{connectionLabel}</span>
         <select
           id={connectionSelectId}
           value={connectionId}
           onChange={(event) => onConnectionChange(event.target.value)}
           disabled={connectionDisabled}
         >
+          {connections.length === 0 && <option value="">No integrations available</option>}
           {connections.map((connection) => (
             <option key={connection.id} value={connection.id}>{connection.name}</option>
           ))}
         </select>
-      </div>
+      </label>
 
-      {selectedConnection?.supportsModels && (
-        <label className="model-picker" htmlFor={modelSelectId}>
-          <span>{modelLabel}</span>
-          <select
-            id={modelSelectId}
-            value={modelId}
-            onChange={(event) => onModelChange(event.target.value)}
-            disabled={modelsLoading || modelDisabled}
-          >
-            {availableModels.length > 0
-              ? availableModels.map((model, index) => (
-                  <option key={model.id || `default-${index}`} value={model.id || ""}>
-                    {model.name}
-                  </option>
-                ))
-              : <option value="">{modelsLoading ? "Loading models..." : "Default"}</option>}
-          </select>
-        </label>
-      )}
+      <label className="target-picker-field" htmlFor={modelSelectId}>
+        <span>{modelLabel}</span>
+        <select
+          id={modelSelectId}
+          value={modelUnavailable ? "" : modelId}
+          onChange={(event) => onModelChange(event.target.value)}
+          disabled={resolvedModelDisabled}
+        >
+          {modelUnavailable
+            ? <option value="">Not supported</option>
+            : modelsLoading
+              ? <option value={modelId}>{modelId || "Loading models..."}</option>
+              : availableModels.length > 0
+                ? availableModels.map((model, index) => (
+                    <option key={model.id || `default-${index}`} value={model.id || ""}>
+                      {model.name}
+                    </option>
+                  ))
+                : <option value="">Default</option>}
+        </select>
+      </label>
     </div>
   );
 }
