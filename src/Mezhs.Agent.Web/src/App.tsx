@@ -15,15 +15,9 @@ import {
 type AgentPolicy = {
   id: string;
   connectionId: string;
+  defaultModel?: string | null;
   modelInstructions: string;
   snapshot: string;
-};
-
-type ManualChatConfig = {
-  id: string;
-  policyId: string;
-  connectionId: string;
-  model?: string | null;
 };
 
 type AgentChat = {
@@ -361,12 +355,10 @@ export default function App() {
   const apiAvailability = useApiAvailability("");
   const apiReady = apiAvailability === "online";
   const [policies, setPolicies] = useState<AgentPolicy[]>([]);
-  const [manualConfigs, setManualConfigs] = useState<ManualChatConfig[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [models, setModels] = useState<ConnectionModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
-  const [manualConfigId, setManualConfigId] = useState("");
   const [modelId, setModelId] = useState("");
   const [modelSpecified, setModelSpecified] = useState(false);
   const [chats, setChats] = useState<AgentChat[]>([]);
@@ -441,31 +433,25 @@ export default function App() {
     let cancelled = false;
     void Promise.all([
       apiJson<AgentPolicy[]>("", "/v1/policies"),
-      apiJson<ManualChatConfig[]>("", "/v1/manual-chat-configs"),
       apiJson<Connection[]>("", "/v1/connections"),
       apiJson<AgentChat[]>("", "/v1/agent-chats"),
     ])
-      .then(([policyValues, manualValues, connectionValues, chatValues]) => {
+      .then(([policyValues, connectionValues, chatValues]) => {
         if (cancelled) return;
         providerRegistry.current.configure("", connectionValues);
         setPolicies(policyValues);
-        setManualConfigs(manualValues);
         setConnections(connectionValues);
         setChats(chatValues);
-        const preferred = manualValues.find((config) => config.id.toLocaleLowerCase() === "high") ??
-          manualValues[0];
-        const preferredPolicy = policyValues.find((policy) => policy.id === preferred?.policyId) ??
+        const preferredPolicy = policyValues.find((policy) => policy.id.toLocaleLowerCase() === "high") ??
           policyValues[0];
-        const preferredConnectionId = preferred?.connectionId ??
-          preferredPolicy?.connectionId ??
+        const preferredConnectionId = preferredPolicy?.connectionId ??
           connectionValues[0]?.id ??
           "";
         const preferredConnection = connectionValues.find((connection) => connection.id === preferredConnectionId);
-        setManualConfigId(preferred?.id ?? "");
         setPolicyId(preferredPolicy?.id ?? "");
         setConnectionId(preferredConnectionId);
-        setModelId(preferred?.model ?? preferredConnection?.defaultModel ?? "");
-        setModelSpecified(preferred?.model != null);
+        setModelId(preferredPolicy?.defaultModel ?? preferredConnection?.defaultModel ?? "");
+        setModelSpecified(preferredPolicy?.defaultModel != null);
         setNotice(null);
         if (chatValues.length > 0)
           setSelectedChatId(chatValues[0].chatId);
@@ -563,45 +549,38 @@ useEffect(() => {
 
   function selectTargetConnection(targetConnectionId: string) {
     setConnectionId(targetConnectionId);
-    const previous = selectedChat
-      ? [...messages].reverse().find((message) =>
-          message.role === "user" && message.connectionId === targetConnectionId)
-      : undefined;
-    setModelId(previous?.model ?? defaultModelFor(targetConnectionId));
-    setModelSpecified(previous != null);
-    if (!selectedChat)
-      setManualConfigId("");
-  }
+    if (selectedChat) {
+      const previous = [...messages].reverse().find((message) =>
+        message.role === "user" && message.connectionId === targetConnectionId);
+      setModelId(previous?.model ?? defaultModelFor(targetConnectionId));
+      setModelSpecified(previous != null);
+      return;
+    }
 
-  function applyManualConfig(configId: string) {
-    const config = manualConfigs.find((candidate) => candidate.id === configId);
-    if (!config) return;
-    setManualConfigId(config.id);
-    setPolicyId(config.policyId);
-    setConnectionId(config.connectionId);
-    setModelId(config.model ?? defaultModelFor(config.connectionId));
-    setModelSpecified(config.model != null);
+    const policyDefault = selectedPolicy?.connectionId === targetConnectionId
+      ? selectedPolicy.defaultModel
+      : null;
+    setModelId(policyDefault ?? defaultModelFor(targetConnectionId));
+    setModelSpecified(policyDefault != null);
   }
 
   function selectPolicy(nextPolicyId: string) {
     const policy = policies.find((candidate) => candidate.id === nextPolicyId);
-    setManualConfigId("");
     setPolicyId(nextPolicyId);
     if (policy) {
       setConnectionId(policy.connectionId);
-      setModelId(defaultModelFor(policy.connectionId));
+      setModelId(policy.defaultModel ?? defaultModelFor(policy.connectionId));
+      setModelSpecified(policy.defaultModel != null);
     } else {
       setConnectionId("");
       setModelId("");
+      setModelSpecified(false);
     }
-    setModelSpecified(false);
   }
 
   function selectModel(value: string) {
     setModelId(value);
     setModelSpecified(true);
-    if (!selectedChat)
-      setManualConfigId("");
   }
 
   function beginNewChat() {
@@ -611,12 +590,10 @@ useEffect(() => {
     setExecutions([]);
     setDraft("");
     setNotice(null);
-    const preferred = manualConfigs.find((config) => config.id.toLocaleLowerCase() === "high") ??
-      manualConfigs[0];
+    const preferred = policies.find((policy) => policy.id.toLocaleLowerCase() === "high") ??
+      policies[0];
     if (preferred)
-      applyManualConfig(preferred.id);
-    else if (policies.length > 0)
-      selectPolicy(policies[0].id);
+      selectPolicy(preferred.id);
   }
 
   async function submit() {
@@ -790,25 +767,7 @@ useEffect(() => {
             </header>
 
             <section className="agent-new-chat">
-              <p>Choose a manual preset or customize the policy, connection and model. Policy stays fixed for the chat; connection and model can change between turns.</p>
-              {manualConfigs.length > 0 && (
-                <>
-                  <span className="agent-field-label">Manual config</span>
-                  <div className="agent-preset-row">
-                    {manualConfigs.map((config) => (
-                      <button
-                        type="button"
-                        key={config.id}
-                        className={manualConfigId === config.id ? "selected" : ""}
-                        onClick={() => applyManualConfig(config.id)}
-                        disabled={sending}
-                      >
-                        {config.id}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
+              <p>Select a policy. It supplies the default integration and model / effort; you can override either target before the first turn.</p>
               <label className="agent-field-label" htmlFor="policy">Policy</label>
               <select
                 id="policy"
@@ -828,7 +787,7 @@ useEffect(() => {
                 modelId={modelId}
                 onConnectionChange={selectTargetConnection}
                 onModelChange={selectModel}
-                connectionLabel="Run with"
+                connectionLabel="Integration"
                 modelLabel="Model / effort"
                 connectionDisabled={sending}
                 modelDisabled={sending}
@@ -837,8 +796,9 @@ useEffect(() => {
               {selectedPolicy && (
                 <div className="agent-policy-summary">
                   <strong>{selectedPolicy.id}</strong>
-                  <span>Default connection: {selectedPolicy.connectionId}</span>
-                  <span>Selected connection: {selectedConnection?.name ?? connectionId}</span>
+                  <span>Default integration: {selectedPolicy.connectionId}</span>
+                  <span>Default model / effort: {selectedPolicy.defaultModel || "Integration default"}</span>
+                  <span>Selected integration: {selectedConnection?.name ?? connectionId}</span>
                   {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
                 </div>
               )}
@@ -887,7 +847,7 @@ useEffect(() => {
                   modelId={modelId}
                   onConnectionChange={selectTargetConnection}
                   onModelChange={selectModel}
-                  connectionLabel="Next turn"
+                  connectionLabel="Integration"
                   modelLabel="Model / effort"
                   connectionDisabled={sending || !!activeExecution}
                   modelDisabled={sending || !!activeExecution}
