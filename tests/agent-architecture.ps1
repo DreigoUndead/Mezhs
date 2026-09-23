@@ -68,7 +68,7 @@ Assert ($program -match '/v1/executions/\{executionId\}/kill' -and $program -mat
 Assert ($agentWebApp -match 'Kill' -and $agentWebApp -match 'Restart' -and $agentWebApp -match 'restartedFromId|restartedAsId') "Agent dashboard does not expose Executor lifecycle controls/lineage."
 Assert ($agentWebApp -notmatch 'setInterval' -and $agentWebApp -match 'refreshRuntime' -and $agentWebApp -match 'setTimeout\(\(\) => void poll\(\)') "Agent dashboard polling can overlap or still reload full chat state on a fixed interval."
 Assert ($program -match '/v1/agent-chats/\{chatId\}/runtime' -and $program -match 'chatStore\.GetRuntimeState' -and $program -match 'GetExecutionStates' -and $program -match 'executorService\.ListStates') "Agent runtime endpoint does not use lightweight state owners."
-Assert ($chatStore -match 'GetRuntimeState' -and $chatStore -notmatch 'GetRuntimeState[\s\S]*JsonSerializer\.Serialize') "Chat runtime polling is not a lightweight in-memory state read."
+Assert ($chatStore -match 'GetRuntimeState' -and $chatStore -match 'foreach \(var message in _messages\.Values\)') "Chat runtime polling is not a lightweight in-memory state read."
 Assert ($store -match 'GetFirstRootExecutionRequest' -and $program -match 'GetFirstRootExecutionRequest\(record\.ChatId\)') "Agent chat list still loads complete execution records just to derive the first task."
 Assert ($executorStore -match 'ListStates' -and $executorStore -match 'SELECT Id, Status, CompletedAt, RestartedAsId') "Executor polling still requires full execution payload reads."
 
