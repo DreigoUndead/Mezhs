@@ -43,10 +43,13 @@ Assert(options.Runtime.QueueCapacity == 1 && options.Runtime.MaxConcurrentExecut
 Assert(Directory.Exists(options.Workspace), "Configured Agent workspace was not resolved to an existing directory.");
 Assert(options.ManualChats.Count == 3 &&
        options.ManualChats["low"].PolicyId == "test" &&
+       options.ManualChats["low"].ConnectionId == "test" &&
        options.ManualChats["low"].Model == "mock-fast" &&
+       options.ManualChats["mid"].ConnectionId == "test-alt" &&
        options.ManualChats["mid"].Model == "mock-deep" &&
+       options.ManualChats["high"].ConnectionId == "test" &&
        options.ManualChats["high"].Model is null,
-    "Manual Agent chat presets were not loaded and normalized.");
+    "Manual Agent chat connection/model presets were not loaded and normalized.");
 Assert(normal.Settings.Commands.Allow.SequenceEqual(new[] { "SH" }), "Command allow-list was not compiled.");
 Assert(normal.Settings.Environment.Allow.SequenceEqual(new[] { "TEST_AGENT_VALUE" }), "Environment allow-list was not compiled.");
 Assert(!normal.Settings.Completion.RequireDone, "requireDone=false was not compiled.");
