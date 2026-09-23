@@ -33,7 +33,11 @@ public static class AgentConfigLoader
 
         options.Policies = new PolicyDecoder().DecodePolicies(
             RequiredMapping(root, "policies", "policies"));
-        options.ManualChats = NormalizeManualChats(options.ManualChats, options.Policies);
+        ValidatePolicyConnections(options.Policies, options.Connections);
+        options.ManualChats = NormalizeManualChats(
+            options.ManualChats,
+            options.Policies,
+            options.Connections);
         return options;
     }
 
@@ -62,7 +66,8 @@ public static class AgentConfigLoader
 
     private static Dictionary<string, AgentManualChatOptions> NormalizeManualChats(
         IReadOnlyDictionary<string, AgentManualChatOptions> configured,
-        IReadOnlyDictionary<string, PolicyContext> policies)
+        IReadOnlyDictionary<string, PolicyContext> policies,
+        IReadOnlyList<ConnectionOptions> connections)
     {
         var result = new Dictionary<string, AgentManualChatOptions>(StringComparer.OrdinalIgnoreCase);
         foreach (var (rawId, preset) in configured)
@@ -75,12 +80,39 @@ public static class AgentConfigLoader
 
             Validate(preset, $"manualChats.{id}");
             preset.PolicyId = preset.PolicyId!.Trim();
+            preset.ConnectionId = string.IsNullOrWhiteSpace(preset.ConnectionId)
+                ? null
+                : preset.ConnectionId.Trim();
             preset.Model = string.IsNullOrWhiteSpace(preset.Model) ? null : preset.Model.Trim();
-            if (!policies.ContainsKey(preset.PolicyId))
+            if (!policies.TryGetValue(preset.PolicyId, out var policy))
                 throw new InvalidOperationException(
                     $"manualChats.{id}.policyId references unknown policy '{preset.PolicyId}'.");
+            ValidateConnection(
+                preset.ConnectionId ?? policy.ConnectionId,
+                connections,
+                $"manualChats.{id}.connectionId");
         }
         return result;
+    }
+
+    private static void ValidatePolicyConnections(
+        IReadOnlyDictionary<string, PolicyContext> policies,
+        IReadOnlyList<ConnectionOptions> connections)
+    {
+        foreach (var policy in policies.Values)
+            ValidateConnection(policy.ConnectionId, connections, $"policies.{policy.Id}.connectionId");
+    }
+
+    private static void ValidateConnection(
+        string connectionId,
+        IReadOnlyList<ConnectionOptions> connections,
+        string path)
+    {
+        if (connections.Any(connection =>
+                string.Equals(connection.Id, connectionId, StringComparison.OrdinalIgnoreCase)))
+            return;
+        throw new InvalidOperationException(
+            $"{path} references unknown connection '{connectionId}'.");
     }
 
     private static string Resolve(string baseDirectory, string path) =>
