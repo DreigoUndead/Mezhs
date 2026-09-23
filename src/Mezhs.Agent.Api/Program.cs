@@ -87,7 +87,7 @@ app.MapGet("/v1/manual-chat-configs", (
             return new AgentManualChatView(
                 pair.Key,
                 policy.Id,
-                policy.ConnectionId,
+                pair.Value.ConnectionId ?? policy.ConnectionId,
                 pair.Value.Model);
         })
         .ToArray()));
