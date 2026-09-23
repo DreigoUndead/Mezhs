@@ -28,6 +28,16 @@ runtime:
   queueCapacity: 1
   maxConcurrentExecutions: 1
 
+manualChats:
+  low:
+    policyId: test
+    model: mock-fast
+  mid:
+    policyId: test
+    model: mock-deep
+  high:
+    policyId: test
+
 messages:
   continue: |
     Continue the assigned deterministic test task.
