@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   apiJson,
   ChatComposer,
+  ChatProviderRegistry,
   ChatTranscript,
+  ConnectionModelPicker,
   modelActivityLabel,
   useApiAvailability,
   type ChatSurfaceMessage,
+  type Connection,
+  type ConnectionModel,
 } from "@mezhs/web-lib";
 
 type AgentPolicy = {
@@ -20,11 +24,6 @@ type ManualChatConfig = {
   policyId: string;
   connectionId: string;
   model?: string | null;
-};
-
-type ConnectionModel = {
-  id?: string | null;
-  name: string;
 };
 
 type AgentChat = {
@@ -363,6 +362,8 @@ export default function App() {
   const apiReady = apiAvailability === "online";
   const [policies, setPolicies] = useState<AgentPolicy[]>([]);
   const [manualConfigs, setManualConfigs] = useState<ManualChatConfig[]>([]);
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [connectionId, setConnectionId] = useState("");
   const [models, setModels] = useState<ConnectionModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [manualConfigId, setManualConfigId] = useState("");
@@ -380,23 +381,13 @@ export default function App() {
   const [stoppingExecutionId, setStoppingExecutionId] = useState<string | null>(null);
   const [shellActionExecutionId, setShellActionExecutionId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const providerRegistry = useRef(new ChatProviderRegistry());
 
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
   const selectedPolicy = policies.find((policy) =>
     policy.id === (selectedChat?.policyId ?? policyId));
   const selectedManualConfig = manualConfigs.find((config) => config.id === manualConfigId);
-  const activeConnectionId = selectedChat?.connectionId ??
-    selectedPolicy?.connectionId ??
-    selectedManualConfig?.connectionId ??
-    "";
-  const selectableModels = useMemo(() => {
-    const available = [...models];
-    if (modelId && !available.some((model) => model.id === modelId))
-      available.push({ id: modelId, name: modelId });
-    if (!available.some((model) => !model.id))
-      available.unshift({ id: null, name: "Default" });
-    return available;
-  }, [models, modelId]);
+  const selectedConnection = connections.find((connection) => connection.id === connectionId);
   const activeExecution = executions.find((execution) =>
     execution.kind === "Agent" && !execution.isTerminal);
   const activeShellExecution = executions.find((execution) =>
@@ -452,18 +443,29 @@ export default function App() {
     void Promise.all([
       apiJson<AgentPolicy[]>("", "/v1/policies"),
       apiJson<ManualChatConfig[]>("", "/v1/manual-chat-configs"),
+      apiJson<Connection[]>("", "/v1/connections"),
       apiJson<AgentChat[]>("", "/v1/agent-chats"),
     ])
-      .then(([policyValues, manualValues, chatValues]) => {
+      .then(([policyValues, manualValues, connectionValues, chatValues]) => {
         if (cancelled) return;
+        providerRegistry.current.configure("", connectionValues);
         setPolicies(policyValues);
         setManualConfigs(manualValues);
+        setConnections(connectionValues);
         setChats(chatValues);
         const preferred = manualValues.find((config) => config.id.toLocaleLowerCase() === "high") ??
           manualValues[0];
+        const preferredPolicy = policyValues.find((policy) => policy.id === preferred?.policyId) ??
+          policyValues[0];
+        const preferredConnectionId = preferred?.connectionId ??
+          preferredPolicy?.connectionId ??
+          connectionValues[0]?.id ??
+          "";
+        const preferredConnection = connectionValues.find((connection) => connection.id === preferredConnectionId);
         setManualConfigId(preferred?.id ?? "");
-        setPolicyId(preferred?.policyId ?? policyValues[0]?.id ?? "");
-        setModelId(preferred?.model ?? "");
+        setPolicyId(preferredPolicy?.id ?? "");
+        setConnectionId(preferredConnectionId);
+        setModelId(preferred?.model ?? preferredConnection?.defaultModel ?? "");
         setModelSpecified(preferred?.model != null);
         setNotice(null);
         if (chatValues.length > 0)
@@ -476,6 +478,8 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => () => providerRegistry.current.dispose(), []);
+
 useEffect(() => {
   if (!selectedChatId || creating) {
       setMessages([]);
@@ -487,27 +491,28 @@ useEffect(() => {
 
   useEffect(() => {
     let cancelled = false;
-    if (!activeConnectionId) {
-      setModels([]);
-      return;
+    setModels([]);
+    if (!selectedConnection?.supportsModels) {
+      setModelsLoading(false);
+      return () => { cancelled = true; };
     }
 
     setModelsLoading(true);
-    void apiJson<ConnectionModel[]>("", `/v1/connections/${encodeURIComponent(activeConnectionId)}/models`)
+    void providerRegistry.current.get(selectedConnection.id).getModels()
       .then((available) => {
         if (!cancelled)
           setModels(available);
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled)
-          setModels([]);
+          setNotice(error instanceof Error ? error.message : "Could not load models.");
       })
       .finally(() => {
         if (!cancelled)
           setModelsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [activeConnectionId]);
+  }, [selectedConnection]);
 
   useEffect(() => {
   const timer = window.setInterval(() => {
@@ -533,8 +538,11 @@ useEffect(() => {
         .then((values) => {
           if (syncModel) {
             const lastUser = [...values].reverse().find((message) => message.role === "user");
-            setModelId(lastUser?.model ?? "");
-            setModelSpecified(lastUser != null);
+            if (lastUser) {
+              setConnectionId(lastUser.connectionId);
+              setModelId(lastUser.model ?? "");
+              setModelSpecified(true);
+            }
           }
           return values;
         })
@@ -550,19 +558,43 @@ useEffect(() => {
       setNotice(failure.reason instanceof Error ? failure.reason.message : "Could not fully refresh this agent chat.");
   }
 
+  function defaultModelFor(targetConnectionId: string) {
+    return connections.find((connection) => connection.id === targetConnectionId)?.defaultModel ?? "";
+  }
+
+  function selectTargetConnection(targetConnectionId: string) {
+    setConnectionId(targetConnectionId);
+    const previous = selectedChat
+      ? [...messages].reverse().find((message) =>
+          message.role === "user" && message.connectionId === targetConnectionId)
+      : undefined;
+    setModelId(previous?.model ?? defaultModelFor(targetConnectionId));
+    setModelSpecified(previous != null);
+    if (!selectedChat)
+      setManualConfigId("");
+  }
+
   function applyManualConfig(configId: string) {
     const config = manualConfigs.find((candidate) => candidate.id === configId);
     if (!config) return;
     setManualConfigId(config.id);
     setPolicyId(config.policyId);
-    setModelId(config.model ?? "");
+    setConnectionId(config.connectionId);
+    setModelId(config.model ?? defaultModelFor(config.connectionId));
     setModelSpecified(config.model != null);
   }
 
   function selectPolicy(nextPolicyId: string) {
+    const policy = policies.find((candidate) => candidate.id === nextPolicyId);
     setManualConfigId("");
     setPolicyId(nextPolicyId);
-    setModelId("");
+    if (policy) {
+      setConnectionId(policy.connectionId);
+      setModelId(defaultModelFor(policy.connectionId));
+    } else {
+      setConnectionId("");
+      setModelId("");
+    }
     setModelSpecified(false);
   }
 
@@ -584,14 +616,14 @@ useEffect(() => {
       manualConfigs[0];
     if (preferred)
       applyManualConfig(preferred.id);
-    else if (!policyId && policies.length > 0)
-      setPolicyId(policies[0].id);
+    else if (policies.length > 0)
+      selectPolicy(policies[0].id);
   }
 
   async function submit() {
     const input = draft.trim();
     const effectivePolicyId = selectedChat?.policyId ?? policyId;
-    if (!input || !effectivePolicyId || sending || activeExecution || selectedChat?.paused)
+    if (!input || !effectivePolicyId || !connectionId || sending || activeExecution || selectedChat?.paused)
       return;
 
     setSending(true);
@@ -603,6 +635,7 @@ useEffect(() => {
         body: JSON.stringify({
           policyId: effectivePolicyId,
           input,
+          connectionId,
           ...(selectedChat ? { chatId: selectedChat.chatId } : {}),
           ...(modelSpecified ? { model: modelId } : {}),
         }),
