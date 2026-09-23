@@ -32,6 +32,7 @@ $logSql = Read "src/Mezhs.Log.Sql/LogSql.cs"
 $solution = Read "Mezhs.sln"
 $sqlite = Read "src/Mezhs.Sqlite/SqliteDatabase.cs"
 $sharedChat = Read "src/Mezhs.Web.Lib/src/ChatSurface.tsx"
+$targetPicker = Read "src/Mezhs.Web.Lib/src/ConnectionModelPicker.tsx"
 $resize = Read "src/Mezhs.Web.Lib/src/useAutoResizeTextArea.ts"
 $markdown = Read "src/Mezhs.Web.Lib/src/MarkdownContent.tsx"
 
@@ -54,6 +55,10 @@ Assert ($store -match 'TryCreateRootExecution' -and $store -match 'TryClaimNextQ
 Assert ($store -match 'ClaimAgentChat\(\s*string executionId' -and $store -match 'attach\.Transaction = transaction' -and $store -notmatch 'public void AttachChat') "Agent chat ownership and execution chat attachment are not published atomically."
 Assert ($store -match 'NOT EXISTS \(' -and $store -match 'active\.ChatId = queued\.ChatId') "Queued same-chat work is not serialized before becoming Running."
 Assert ($agentService -match 'QueueCapacity.*MaxConcurrentExecutions' -and $agentService -match 'TryCreateRootExecution' -and $agentService -match 'SignalWork') "Admission is not coupled to durable queue capacity and worker wake-up."
+Assert ($models -match 'string\? ConnectionId' -and
+        $agentService -match 'ResolveConnectionId' -and
+        $agentService -match 'request\.ConnectionId' -and
+        $agentWebApp -match 'ConnectionModelPicker') "Agent execution targets are still fixed to the policy connection instead of being per-turn generic connection/model selections."
 Assert ($models -match 'CancelRequested' -and $store -match 'RequestCancel' -and $store -match 'CompleteCancellation') "Cancellation acknowledgement state is not represented durably."
 Assert ($worker -match 'Only root Agent executions can be cancelled directly' -and $worker -match '_executor\.Kill') "Root Agent cancellation does not own cancellation of its active Executor children."
 
@@ -87,6 +92,12 @@ Assert ($program -notmatch '/v1/metrics|AgentMetrics' -and $evaluation -notmatch
 Assert ($program -notmatch 'X-MEZHS-Requester|GetRequester|Requester' -and $agentWebHost -notmatch 'X-MEZHS-Requester|Requester' -and $agentClient -notmatch 'X-MEZHS-Requester|Requester') "Unauthenticated requester provenance still exists at API boundaries."
 Assert ($models -notmatch '\bRequester\b' -and $store -notmatch 'Requester TEXT|\$requester|record\.Requester|GetOrdinal\("Requester"\)' -and $shell -notmatch 'MEZHS_REQUESTER|\.Requester' -and $agentWebApp -notmatch '\brequester\b') "Requester residue remains in persistence, shell context, or dashboard."
 Assert ($sharedChat -match 'MarkdownContent' -and $markdown -match 'safeLink') "Shared chat rendering does not own safe Markdown presentation."
+Assert ($targetPicker -match 'ConnectionModelPicker' -and $agentWebApp -match 'ConnectionModelPicker') "Connection/model target selection is not owned by the shared web library."
+Assert ($agentWebHost -match 'HttpCompletionOption\.ResponseHeadersRead' -and
+        $agentWebHost -match 'CopyToAsync' -and
+        $agentWebHost -match 'catch \(HttpRequestException\)' -and
+        $agentWebHost -match 'Response\.HasStarted' -and
+        $agentWebHost -match 'Timeout\.InfiniteTimeSpan') "Agent Web proxy does not own streamed upstream response failures for the full response lifetime."
 Assert ($resize -match 'useLayoutEffect' -and $resize -notmatch 'useEffect') "Composer resize still occurs after paint."
 
-Write-Host "PASS: Agent owns reasoning/admission/cancel/recovery persistence, Executor exclusively owns shell/process lifecycle and shell evidence, SQLite mechanics are shared, and UI/API expose one combined execution view."
+Write-Host "PASS: Agent owns generic per-turn targets and reasoning/admission/cancel/recovery state, Executor owns shell lifecycle/evidence, shared UI owns connection/model selection, and the Agent Web proxy owns streamed transport failures."
