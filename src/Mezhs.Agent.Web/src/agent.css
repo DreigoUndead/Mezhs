@@ -170,31 +170,6 @@
   gap: 8px;
 }
 
-.agent-header-model {
-  display: grid;
-  gap: 3px;
-  min-width: 190px;
-}
-
-.agent-header-model > span {
-  color: #918b82;
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-}
-
-.agent-header-model select {
-  max-width: 260px;
-  padding: 7px 9px;
-  border: 1px solid #d4cfc5;
-  border-radius: 9px;
-  outline: 0;
-  color: #645f57;
-  background: #fff;
-  font-size: 10px;
-}
-
 .agent-primary,
 .agent-secondary,
 .agent-danger {
@@ -319,8 +294,84 @@
   cursor: default;
 }
 
-.agent-model-label {
+.agent-target-picker {
+  min-width: 0;
+}
+
+.agent-target-picker .section-label {
+  margin: 0 0 7px;
+  color: #888279;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.agent-target-picker .connection-picker {
+  border-color: #d7d2c7;
+  background: #fffefa;
+}
+
+.agent-target-picker .connection-avatar {
+  color: #f6f4ef;
+  background: #4a463f;
+}
+
+.agent-target-picker .connection-picker select,
+.agent-target-picker .model-picker select {
+  border: 0;
+  color: #464139;
+  background: transparent;
+}
+
+.agent-target-picker .connection-picker option,
+.agent-target-picker .model-picker option {
+  color: #464139;
+  background: #fffefa;
+}
+
+.agent-target-picker .model-picker {
+  border-color: #ddd8ce;
+  color: #888279;
+  background: #fbfaf7;
+}
+
+.agent-target-picker-new {
   margin-top: 16px;
+}
+
+.agent-target-picker-header {
+  width: 230px;
+}
+
+.agent-target-picker-header .section-label {
+  margin-bottom: 3px;
+  font-size: 8px;
+}
+
+.agent-target-picker-header .connection-picker {
+  grid-template-columns: 1fr;
+  padding: 4px 7px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.agent-target-picker-header .connection-avatar {
+  display: none;
+}
+
+.agent-target-picker-header .connection-picker select {
+  padding: 2px 0;
+  font-size: 10px;
+}
+
+.agent-target-picker-header .model-picker {
+  margin: 4px 0 0;
+  padding: 4px 7px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.agent-target-picker-header .model-picker select {
+  font-size: 9px;
 }
 
 .agent-policy-summary {
