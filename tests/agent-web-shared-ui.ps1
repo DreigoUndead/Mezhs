@@ -19,6 +19,12 @@ foreach ($component in @("ChatTranscript", "ChatComposer", "MarkdownContent", "C
 if ($agentApp -notmatch 'ChatTranscript' -or $agentApp -notmatch 'ChatComposer') {
     throw "Agent Web does not consume the shared chat surface."
 }
+if ($shared -notmatch 'sideControls\?: ReactNode' -or
+    $shared -notmatch 'composer-side-controls' -or
+    $agentApp -notmatch 'sideControls=\{\(' -or
+    $agentApp -match 'agent-target-picker-header|agent-target-picker-new') {
+    throw "Agent target controls are not consistently owned by the prompt composer."
+}
 if ($agentMain -notmatch '@mezhs/web-lib/styles\.css') {
     throw "Agent Web is not consuming common MEZS web styling."
 }
