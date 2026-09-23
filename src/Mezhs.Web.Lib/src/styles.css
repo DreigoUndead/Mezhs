@@ -157,6 +157,10 @@ button { color: inherit; }
 .notice { margin-bottom: 8px; padding: 9px 12px; display: flex; justify-content: space-between; gap: 15px; border: 1px solid #dbd6cb; border-radius: 10px; color: #686259; background: #fffefa; font-size: 10px; }
 .notice button { border: 0; background: transparent; cursor: pointer; }
 .composer { padding: 13px 13px 10px; border: 1px solid #d7d2c7; border-radius: 17px; background: #fffefa; box-shadow: 0 13px 35px rgba(48,43,34,.08); transition: border-color .15s ease, box-shadow .15s ease; }
+.composer-with-side-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: stretch; }
+.composer-with-side-controls > textarea { grid-column: 1; grid-row: 1; align-self: stretch; }
+.composer-side-controls { grid-column: 2; grid-row: 1; min-width: 0; }
+.composer-with-side-controls > .composer-actions { grid-column: 1 / -1; grid-row: 2; margin-top: 8px; }
 .file-input { display: none; }
 .pending-files { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 9px; }
 .pending-file { min-width: 190px; max-width: 250px; display: grid; grid-template-columns: 34px minmax(0, 1fr) 20px; align-items: center; gap: 8px; padding: 7px; border: 1px solid #e0dbd1; border-radius: 10px; background: #f8f6f1; }
@@ -178,6 +182,13 @@ button { color: inherit; }
 .send:disabled { color: #a4a097; background: #e5e2db; box-shadow: none; cursor: default; }
 .disclaimer { display: block; margin-top: 7px; color: #aaa49b; text-align: center; font-size: 8px; }
 .mobile-menu, .scrim { display: none; }
+
+@media (max-width: 760px) {
+  .composer-with-side-controls { grid-template-columns: 1fr; }
+  .composer-with-side-controls > textarea { grid-column: 1; grid-row: 1; }
+  .composer-side-controls { grid-column: 1; grid-row: 2; margin-top: 8px; }
+  .composer-with-side-controls > .composer-actions { grid-column: 1; grid-row: 3; }
+}
 
 .dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(18,17,15,.55); backdrop-filter: blur(5px); }
 .conversation-manager { width: min(640px, 100%); max-height: min(720px, calc(100vh - 48px)); display: grid; grid-template-rows: auto auto auto minmax(100px, 1fr) auto; overflow: hidden; border: 1px solid #d7d2c7; border-radius: 18px; background: #fbfaf7; box-shadow: 0 24px 80px rgba(20,18,15,.28); }
