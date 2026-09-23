@@ -34,10 +34,6 @@ public static class AgentConfigLoader
         options.Policies = new PolicyDecoder().DecodePolicies(
             RequiredMapping(root, "policies", "policies"));
         ValidatePolicyConnections(options.Policies, options.Connections);
-        options.ManualChats = NormalizeManualChats(
-            options.ManualChats,
-            options.Policies,
-            options.Connections);
         return options;
     }
 
@@ -62,37 +58,6 @@ public static class AgentConfigLoader
             throw new InvalidOperationException($"{path} configuration is required.");
         return node as YamlMappingNode
             ?? throw new InvalidOperationException($"{path} must be a YAML mapping.");
-    }
-
-    private static Dictionary<string, AgentManualChatOptions> NormalizeManualChats(
-        IReadOnlyDictionary<string, AgentManualChatOptions> configured,
-        IReadOnlyDictionary<string, PolicyContext> policies,
-        IReadOnlyList<ConnectionOptions> connections)
-    {
-        var result = new Dictionary<string, AgentManualChatOptions>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (rawId, preset) in configured)
-        {
-            var id = rawId?.Trim() ?? string.Empty;
-            if (id.Length == 0)
-                throw new InvalidOperationException("manualChats contains an empty id.");
-            if (!result.TryAdd(id, preset))
-                throw new InvalidOperationException($"Duplicate manual chat id '{id}'.");
-
-            Validate(preset, $"manualChats.{id}");
-            preset.PolicyId = preset.PolicyId!.Trim();
-            preset.ConnectionId = string.IsNullOrWhiteSpace(preset.ConnectionId)
-                ? null
-                : preset.ConnectionId.Trim();
-            preset.Model = string.IsNullOrWhiteSpace(preset.Model) ? null : preset.Model.Trim();
-            if (!policies.TryGetValue(preset.PolicyId, out var policy))
-                throw new InvalidOperationException(
-                    $"manualChats.{id}.policyId references unknown policy '{preset.PolicyId}'.");
-            ValidateConnection(
-                preset.ConnectionId ?? policy.ConnectionId,
-                connections,
-                $"manualChats.{id}.connectionId");
-        }
-        return result;
     }
 
     private static void ValidatePolicyConnections(
