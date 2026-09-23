@@ -44,10 +44,12 @@ function Start-AgentExecution(
     [string]$taskInput,
     [hashtable]$environment = $null,
     [string]$chatId = $null,
+    [string]$connectionId = $null,
     $model = $null) {
     $body = @{ policyId = $policyId; input = $taskInput }
     if ($null -ne $environment) { $body.environment = $environment }
     if (-not [string]::IsNullOrWhiteSpace($chatId)) { $body.chatId = $chatId }
+    if (-not [string]::IsNullOrWhiteSpace($connectionId)) { $body.connectionId = $connectionId }
     if ($null -ne $model) { $body.model = $model }
     return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions" `
         -ContentType "application/json" -Body (ConvertTo-Json $body -Depth 5)
@@ -128,9 +130,10 @@ try {
     $lowConfig = $manualConfigs | Where-Object { $_.id -eq 'low' } | Select-Object -First 1
     $midConfig = $manualConfigs | Where-Object { $_.id -eq 'mid' } | Select-Object -First 1
     $highConfig = $manualConfigs | Where-Object { $_.id -eq 'high' } | Select-Object -First 1
-    if ($lowConfig.policyId -ne 'test' -or $lowConfig.model -ne 'mock-fast' -or
-        $midConfig.model -ne 'mock-deep' -or $null -ne $highConfig.model) {
-        throw "Agent manual chat config policy/model mappings were invalid."
+    if ($lowConfig.policyId -ne 'test' -or $lowConfig.connectionId -ne 'test' -or $lowConfig.model -ne 'mock-fast' -or
+        $midConfig.connectionId -ne 'test-alt' -or $midConfig.model -ne 'mock-deep' -or
+        $highConfig.connectionId -ne 'test' -or $null -ne $highConfig.model) {
+        throw "Agent manual chat config connection/model mappings were invalid."
     }
 
     $originClient = [Net.Http.HttpClient]::new()
@@ -165,28 +168,66 @@ try {
 
     $initialMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
     $initialUserMessage = @($initialMessages | Where-Object { $_.role -eq "user" })[-1]
-    if ($initialUserMessage.model -ne "mock-fast") {
-        throw "Fresh Agent chat did not inherit the connection defaultModel."
+    if ($completed.connectionId -ne "test" -or
+        $initialUserMessage.connectionId -ne "test" -or
+        $initialUserMessage.model -ne "mock-fast") {
+        throw "Fresh Agent chat did not use the policy default connection/model."
     }
 
-    $changedModel = Start-AgentExecution "test" "switch model" $null $completed.chatId "mock-deep"
+    $changedModel = Start-AgentExecution "test" "switch model" $null $completed.chatId "test" "mock-deep"
     $changedModelCompleted = Wait-AgentExecution $changedModel.executionId
-    if ($changedModelCompleted.status -ne "Completed" -or $changedModelCompleted.model -ne "mock-deep") {
-        throw "Agent execution did not persist an explicit mid-conversation model change."
+    if ($changedModelCompleted.status -ne "Completed" -or
+        $changedModelCompleted.connectionId -ne "test" -or
+        $changedModelCompleted.model -ne "mock-deep") {
+        throw "Agent execution did not persist an explicit model change on the selected connection."
     }
     $changedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
     $changedUserMessage = @($changedMessages | Where-Object { $_.role -eq "user" })[-1]
-    if ($changedUserMessage.model -ne "mock-deep") {
+    if ($changedUserMessage.connectionId -ne "test" -or $changedUserMessage.model -ne "mock-deep") {
         throw "Agent model change did not reach the shared message/integration path."
     }
 
-    $inheritedModel = Start-AgentExecution "test" "inherit changed model" $null $completed.chatId
-    $inheritedModelCompleted = Wait-AgentExecution $inheritedModel.executionId
+    $switchedConnection = Start-AgentExecution "test" "switch connection" $null $completed.chatId "test-alt"
+    $switchedConnectionCompleted = Wait-AgentExecution $switchedConnection.executionId
+    $switchedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
+    $switchedUserMessage = @($switchedMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($switchedConnectionCompleted.status -ne "Completed" -or
+        $switchedConnectionCompleted.connectionId -ne "test-alt" -or
+        $null -ne $switchedConnectionCompleted.model -or
+        $switchedUserMessage.connectionId -ne "test-alt" -or
+        $switchedUserMessage.model -ne "mock-deep") {
+        throw "Agent chat did not switch integration and inherit that connection's default model."
+    }
+
+    $changedAlternateModel = Start-AgentExecution "test" "change alternate model" $null $completed.chatId "test-alt" "mock-fast"
+    $changedAlternateCompleted = Wait-AgentExecution $changedAlternateModel.executionId
+    if ($changedAlternateCompleted.status -ne "Completed" -or
+        $changedAlternateCompleted.connectionId -ne "test-alt" -or
+        $changedAlternateCompleted.model -ne "mock-fast") {
+        throw "Agent model change on the alternate integration was not persisted."
+    }
+
+    $inheritedTarget = Start-AgentExecution "test" "inherit connection and model" $null $completed.chatId
+    $inheritedTargetCompleted = Wait-AgentExecution $inheritedTarget.executionId
     $inheritedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
     $inheritedUserMessage = @($inheritedMessages | Where-Object { $_.role -eq "user" })[-1]
-    if ($inheritedModelCompleted.status -ne "Completed" -or $null -ne $inheritedModelCompleted.model -or
-        $inheritedUserMessage.model -ne "mock-deep") {
-        throw "Agent chat did not carry the selected model forward when the next execution omitted it."
+    if ($inheritedTargetCompleted.status -ne "Completed" -or
+        $inheritedTargetCompleted.connectionId -ne "test-alt" -or
+        $null -ne $inheritedTargetCompleted.model -or
+        $inheritedUserMessage.connectionId -ne "test-alt" -or
+        $inheritedUserMessage.model -ne "mock-fast") {
+        throw "Agent chat did not carry the selected integration/model forward when the next execution omitted both."
+    }
+
+    $returnedConnection = Start-AgentExecution "test" "return connection" $null $completed.chatId "test"
+    $returnedCompleted = Wait-AgentExecution $returnedConnection.executionId
+    $returnedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
+    $returnedUserMessage = @($returnedMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($returnedCompleted.status -ne "Completed" -or
+        $returnedCompleted.connectionId -ne "test" -or
+        $returnedUserMessage.connectionId -ne "test" -or
+        $returnedUserMessage.model -ne "mock-deep") {
+        throw "Returning to a prior integration did not restore that connection's last selected model."
     }
 
     $environmentTask = @"
