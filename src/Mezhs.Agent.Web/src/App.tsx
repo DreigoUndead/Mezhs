@@ -955,7 +955,7 @@ useEffect(() => {
             </header>
 
             <section className="agent-new-chat">
-              <p>Select a policy. It supplies the default integration and model / effort; you can override either target before the first turn.</p>
+              <p>Select a policy. Its integration and model / effort defaults appear beside the prompt and can be overridden before the first turn.</p>
               <label className="agent-field-label" htmlFor="policy">Policy</label>
               <select
                 id="policy"
@@ -967,26 +967,11 @@ useEffect(() => {
                   <option key={policy.id} value={policy.id}>{policy.id}</option>
                 ))}
               </select>
-              <ConnectionModelPicker
-                className="agent-target-picker agent-target-picker-new"
-                connections={connections}
-                connectionId={connectionId}
-                models={models}
-                modelId={modelId}
-                onConnectionChange={selectTargetConnection}
-                onModelChange={selectModel}
-                connectionLabel="Integration"
-                modelLabel="Model / effort"
-                connectionDisabled={sending}
-                modelDisabled={sending}
-                modelsLoading={modelsLoading}
-              />
               {selectedPolicy && (
                 <div className="agent-policy-summary">
                   <strong>{selectedPolicy.id}</strong>
                   <span>Default integration: {selectedPolicy.connectionId}</span>
                   <span>Default model / effort: {selectedPolicy.defaultModel || "Integration default"}</span>
-                  <span>Selected integration: {selectedConnection?.name ?? connectionId}</span>
                   {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
                 </div>
               )}
@@ -1001,6 +986,22 @@ useEffect(() => {
               busy={sending}
               notice={notice}
               onDismissNotice={() => setNotice(null)}
+              sideControls={(
+                <ConnectionModelPicker
+                  className="agent-target-picker agent-target-picker-composer"
+                  connections={connections}
+                  connectionId={connectionId}
+                  models={models}
+                  modelId={modelId}
+                  onConnectionChange={selectTargetConnection}
+                  onModelChange={selectModel}
+                  connectionLabel="Integration"
+                  modelLabel="Model / effort"
+                  connectionDisabled={sending}
+                  modelDisabled={sending}
+                  modelsLoading={modelsLoading}
+                />
+              )}
               disclaimer="Agent actions are governed by the selected policy and recorded in execution history."
             />
           </>
@@ -1027,20 +1028,6 @@ useEffect(() => {
                 </div>
               </div>
               <div className="agent-header-actions">
-                <ConnectionModelPicker
-                  className="agent-target-picker agent-target-picker-header"
-                  connections={connections}
-                  connectionId={connectionId}
-                  models={models}
-                  modelId={modelId}
-                  onConnectionChange={selectTargetConnection}
-                  onModelChange={selectModel}
-                  connectionLabel="Integration"
-                  modelLabel="Model / effort"
-                  connectionDisabled={sending || !!activeExecution}
-                  modelDisabled={sending || !!activeExecution}
-                  modelsLoading={modelsLoading}
-                />
                 <a
                   className="agent-secondary agent-download"
                   href={`/v1/agent-chats/${encodeURIComponent(selectedChat.chatId)}/debug-log`}
@@ -1250,6 +1237,22 @@ useEffect(() => {
               busy={sending}
               notice={notice}
               onDismissNotice={() => setNotice(null)}
+              sideControls={(
+                <ConnectionModelPicker
+                  className="agent-target-picker agent-target-picker-composer"
+                  connections={connections}
+                  connectionId={connectionId}
+                  models={models}
+                  modelId={modelId}
+                  onConnectionChange={selectTargetConnection}
+                  onModelChange={selectModel}
+                  connectionLabel="Integration"
+                  modelLabel="Model / effort"
+                  connectionDisabled={sending || !!activeExecution}
+                  modelDisabled={sending || !!activeExecution}
+                  modelsLoading={modelsLoading}
+                />
+              )}
               disclaimer="Agent actions are governed by policy and recorded in execution history."
             />
 
