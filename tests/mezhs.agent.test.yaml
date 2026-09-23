@@ -17,6 +17,11 @@ connections:
     integration: mock
     defaultModel: mock-fast
 
+  - id: test-alt
+    name: Alternate deterministic integration
+    integration: mock
+    defaultModel: mock-deep
+
   - id: test-login
     name: Deterministic login integration
     integration: mock-login
@@ -31,12 +36,15 @@ runtime:
 manualChats:
   low:
     policyId: test
+    connectionId: test
     model: mock-fast
   mid:
     policyId: test
+    connectionId: test-alt
     model: mock-deep
   high:
     policyId: test
+    connectionId: test
 
 messages:
   continue: |
