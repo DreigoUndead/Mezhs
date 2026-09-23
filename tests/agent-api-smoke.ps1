@@ -44,7 +44,7 @@ function Start-AgentExecution(
     [string]$taskInput,
     [hashtable]$environment = $null,
     [string]$chatId = $null,
-    [string]$model = $null) {
+    $model = $null) {
     $body = @{ policyId = $policyId; input = $taskInput }
     if ($null -ne $environment) { $body.environment = $environment }
     if (-not [string]::IsNullOrWhiteSpace($chatId)) { $body.chatId = $chatId }
@@ -130,7 +130,7 @@ try {
     $highConfig = $manualConfigs | Where-Object { $_.id -eq 'high' } | Select-Object -First 1
     if ($lowConfig.policyId -ne 'test' -or $lowConfig.model -ne 'mock-fast' -or
         $midConfig.model -ne 'mock-deep' -or $null -ne $highConfig.model) {
-        throw "Agent manual chat config policy/model mappings were invalid."
+        throw "Agent manual chat config policy/model mappings were invalid. low=$($lowConfig | ConvertTo-Json -Compress) mid=$($midConfig | ConvertTo-Json -Compress) high=$($highConfig | ConvertTo-Json -Compress)"
     }
 
     $originClient = [Net.Http.HttpClient]::new()
