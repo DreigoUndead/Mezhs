@@ -16,6 +16,7 @@ connections:
     name: ChatGPT Account
     integration: chatgpt-web-account
     workspace: Mezhs
+    defaultModel: gpt-5-6-thinking::thinking-effort=extended
 
   - id: chatgpt-guest
     name: ChatGPT Guest
@@ -35,6 +36,17 @@ workspace: .
 runtime:
   queueCapacity: 32
   maxConcurrentExecutions: 4
+
+manualChats:
+  low:
+    policyId: default
+    model: gpt-5-6-instant
+  mid:
+    policyId: default
+    model: gpt-5-6-thinking::thinking-effort=standard
+  high:
+    policyId: default
+    model: gpt-5-6-thinking::thinking-effort=extended
 
 messages:
   continue: |
