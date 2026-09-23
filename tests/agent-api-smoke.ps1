@@ -127,15 +127,13 @@ try {
         throw "Obsolete manual Agent chat config endpoint still exists."
     }
 
-    $agentPolicies = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies")
-    $lowPolicy = $null
-    $midPolicy = $null
-    $highPolicy = $null
-    foreach ($policy in $agentPolicies) {
-        if ($policy.id -eq 'low') { $lowPolicy = $policy }
-        elseif ($policy.id -eq 'mid') { $midPolicy = $policy }
-        elseif ($policy.id -eq 'high') { $highPolicy = $policy }
+    $agentPolicies = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies"
+    if ($null -eq $agentPolicies) {
+        throw "Agent policy list endpoint returned no policies."
     }
+    $lowPolicy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/low"
+    $midPolicy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/mid"
+    $highPolicy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/high"
     if ($null -eq $lowPolicy -or $lowPolicy.connectionId -ne 'test' -or $lowPolicy.defaultModel -ne 'mock-fast' -or
         $null -eq $midPolicy -or $midPolicy.connectionId -ne 'test' -or $midPolicy.defaultModel -ne 'mock-deep' -or
         $null -eq $highPolicy -or $highPolicy.connectionId -ne 'test-alt' -or $highPolicy.defaultModel -ne 'mock-deep') {
