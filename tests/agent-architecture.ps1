@@ -48,6 +48,12 @@ Assert ($options -match ': MezhsOptions' -and $config -match 'MezhsConfigLoader\
 Assert ($agentWebHost -match 'RequireLoopbackUrls' -and $agentWebHost -match 'RequireLoopbackUri' -and $agentWebHost -match 'builder\.WebHost\.UseUrls') "Agent Web does not enforce its loopback listener boundary."
 Assert ($agentWebHost -notmatch 'Authorization|Bearer|MEZHS_AGENT_API_KEY') "Agent Web still carries redundant bearer authentication machinery."
 Assert ($options -match 'QueueCapacity' -and $options -match 'MaxConcurrentExecutions' -and $options -match 'Workspace') "Agent runtime capacity/workspace settings are not typed configuration."
+Assert ($options -notmatch 'ManualChats|AgentManualChatOptions' -and
+        $program -notmatch 'manual-chat-configs' -and
+        $agentClient -notmatch 'ManualChat') "Redundant manual Agent chat configuration/API still exists."
+Assert ($policyContext -match 'DefaultModel' -and
+        $policyDecoder -match 'definition\.DefaultModel' -and
+        $agentService -match 'policy\.DefaultModel') "Policy-owned model/effort defaults are not compiled and applied by Agent."
 
 Assert ($worker -match 'Channel\.CreateBounded<bool>' -and $worker -match 'SignalWork' -and $worker -notmatch 'Channel\.CreateBounded<string>|_queuedCount|_activeCount') "Agent worker still owns execution IDs/state instead of using a wake-only channel."
 Assert ($worker -match 'Enumerable\.Range\(0, _maxConcurrentExecutions\)' -and $worker -notmatch 'HashSet<Task>|_chatGates|SemaphoreSlim') "Agent worker concurrency or per-chat serialization remains in transient task/gate state."
@@ -92,7 +98,10 @@ Assert ($program -notmatch '/v1/metrics|AgentMetrics' -and $evaluation -notmatch
 Assert ($program -notmatch 'X-MEZHS-Requester|GetRequester|Requester' -and $agentWebHost -notmatch 'X-MEZHS-Requester|Requester' -and $agentClient -notmatch 'X-MEZHS-Requester|Requester') "Unauthenticated requester provenance still exists at API boundaries."
 Assert ($models -notmatch '\bRequester\b' -and $store -notmatch 'Requester TEXT|\$requester|record\.Requester|GetOrdinal\("Requester"\)' -and $shell -notmatch 'MEZHS_REQUESTER|\.Requester' -and $agentWebApp -notmatch '\brequester\b') "Requester residue remains in persistence, shell context, or dashboard."
 Assert ($sharedChat -match 'MarkdownContent' -and $markdown -match 'safeLink') "Shared chat rendering does not own safe Markdown presentation."
-Assert ($targetPicker -match 'ConnectionModelPicker' -and $agentWebApp -match 'ConnectionModelPicker') "Connection/model target selection is not owned by the shared web library."
+Assert ($targetPicker -match 'ConnectionModelPicker' -and
+        $targetPicker -match 'target-picker-field' -and
+        $targetPicker -notmatch 'connection-picker|model-picker|connection-avatar' -and
+        $agentWebApp -match 'ConnectionModelPicker') "Integration/model target selection is not symmetric or owned by the shared web library."
 Assert ($agentWebHost -match 'HttpCompletionOption\.ResponseHeadersRead' -and
         $agentWebHost -match 'CopyToAsync' -and
         $agentWebHost -match 'catch \(HttpRequestException\)' -and
