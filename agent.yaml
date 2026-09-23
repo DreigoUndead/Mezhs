@@ -40,12 +40,15 @@ runtime:
 manualChats:
   low:
     policyId: default
+    connectionId: chatgpt-sub
     model: gpt-5-6-instant
   mid:
     policyId: default
+    connectionId: chatgpt-sub
     model: gpt-5-6-thinking::thinking-effort=standard
   high:
     policyId: default
+    connectionId: chatgpt-sub
     model: gpt-5-6-thinking::thinking-effort=extended
 
 messages:
