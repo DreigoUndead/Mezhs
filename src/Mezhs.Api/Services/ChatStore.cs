@@ -232,10 +232,10 @@ public sealed class ChatStore(MezhsOptions options)
             .ThenBy(message => message.MessageId, StringComparer.Ordinal)
             .ToArray();
 
-    public ChatListState GetListState(string chatId)
+    public ChatListState? TryGetListState(string chatId)
     {
         if (!_chats.ContainsKey(chatId))
-            throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
+            return null;
 
         StoredMessage? latest = null;
         StoredMessage? firstUser = null;
