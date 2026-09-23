@@ -128,13 +128,18 @@ try {
     }
 
     $agentPolicies = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies")
-    $lowPolicy = $agentPolicies | Where-Object { $_.id -eq 'low' } | Select-Object -First 1
-    $midPolicy = $agentPolicies | Where-Object { $_.id -eq 'mid' } | Select-Object -First 1
-    $highPolicy = $agentPolicies | Where-Object { $_.id -eq 'high' } | Select-Object -First 1
+    $lowPolicy = $null
+    $midPolicy = $null
+    $highPolicy = $null
+    foreach ($policy in $agentPolicies) {
+        if ($policy.id -eq 'low') { $lowPolicy = $policy }
+        elseif ($policy.id -eq 'mid') { $midPolicy = $policy }
+        elseif ($policy.id -eq 'high') { $highPolicy = $policy }
+    }
     if ($null -eq $lowPolicy -or $lowPolicy.connectionId -ne 'test' -or $lowPolicy.defaultModel -ne 'mock-fast' -or
         $null -eq $midPolicy -or $midPolicy.connectionId -ne 'test' -or $midPolicy.defaultModel -ne 'mock-deep' -or
         $null -eq $highPolicy -or $highPolicy.connectionId -ne 'test-alt' -or $highPolicy.defaultModel -ne 'mock-deep') {
-        throw "Low/mid/high Agent policy defaults were not exposed correctly: $($agentPolicies | ConvertTo-Json -Depth 4 -Compress)"
+        throw "Low/mid/high Agent policy defaults were not exposed correctly."
     }
 
     $originClient = [Net.Http.HttpClient]::new()
