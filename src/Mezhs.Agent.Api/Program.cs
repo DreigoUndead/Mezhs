@@ -62,7 +62,6 @@ app.MapGet("/", () => Results.Ok(new
         "/v1/categories",
         "/v1/files",
         "/v1/policies",
-        "/v1/manual-chat-configs",
         "/v1/agent-chats",
         "/v1/executions"
     }
@@ -76,21 +75,6 @@ app.MapGet("/v1/policies/{policyId}", (
     string policyId,
     PolicyRegistry policies) =>
     Results.Ok(policies.GetView(policyId)));
-
-app.MapGet("/v1/manual-chat-configs", (
-    AgentOptions agentOptions,
-    PolicyRegistry policies) =>
-    Results.Ok(agentOptions.ManualChats
-        .Select(pair =>
-        {
-            var policy = policies.Get(pair.Value.PolicyId!);
-            return new AgentManualChatView(
-                pair.Key,
-                policy.Id,
-                pair.Value.ConnectionId ?? policy.ConnectionId,
-                pair.Value.Model);
-        })
-        .ToArray()));
 
 app.MapGet("/v1/agent-chats", (
     AgentStore agentStore,
