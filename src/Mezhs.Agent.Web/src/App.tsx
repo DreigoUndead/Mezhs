@@ -529,20 +529,19 @@ useEffect(() => {
 
   async function loadSelected(chatId: string, reportErrors = true, syncModel = false) {
     const results = await Promise.allSettled([
-      apiJson<AgentChatMessage[]>("", `/v1/agent-chats/${encodeURIComponent(chatId)}/messages`),
-      apiJson<Execution[]>("", `/v1/agent-chats/${encodeURIComponent(chatId)}/executions`),
+      apiJson<AgentChatMessage[]>("", `/v1/agent-chats/${encodeURIComponent(chatId)}/messages`)
+        .then((values) => {
+          if (syncModel) {
+            const lastUser = [...values].reverse().find((message) => message.role === "user");
+            setModelId(lastUser?.model ?? "");
+            setModelSpecified(lastUser != null);
+          }
+          return values;
+        })
+        .then(setMessages),
+      apiJson<Execution[]>("", `/v1/agent-chats/${encodeURIComponent(chatId)}/executions`)
+        .then(setExecutions),
     ]);
-    const [messageResult, executionResult] = results;
-    if (messageResult.status === "fulfilled") {
-      setMessages(messageResult.value);
-      if (syncModel) {
-        const lastUser = [...messageResult.value].reverse().find((message) => message.role === "user");
-        setModelId(lastUser?.model ?? "");
-        setModelSpecified(lastUser != null);
-      }
-    }
-    if (executionResult.status === "fulfilled")
-      setExecutions(executionResult.value);
     if (!reportErrors)
       return;
 
