@@ -53,6 +53,20 @@ public sealed class StoredMessage
     public DateTimeOffset? CompletedAt { get; set; }
 }
 
+public sealed record MessageRuntimeState(
+    string MessageId,
+    MessageStatus Status,
+    string? Activity,
+    string? ActivityDetail,
+    string? Analysis,
+    DateTimeOffset? ActivityAt);
+
+public sealed record ChatRuntimeState(
+    int MessageCount,
+    string? LatestMessageId,
+    MessageStatus? LatestMessageStatus,
+    MessageRuntimeState? ActiveMessage);
+
 public sealed class StoredFile
 {
     public required string FileId { get; init; }
