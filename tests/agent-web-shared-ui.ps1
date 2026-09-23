@@ -4,6 +4,8 @@ $root = Split-Path -Parent $PSScriptRoot
 $shared = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/ChatSurface.tsx") -Raw
 $markdown = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/MarkdownContent.tsx") -Raw
 $resize = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/useAutoResizeTextArea.ts") -Raw
+$targetPicker = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/ConnectionModelPicker.tsx") -Raw
+$sharedApp = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/MezhsChatApp.tsx") -Raw
 $exports = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/index.ts") -Raw
 $agentApp = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/App.tsx") -Raw
 $agentProgram = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Program.cs") -Raw
@@ -11,7 +13,7 @@ $agentMapper = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Models/AgentApi
 $agentMain = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/main.tsx") -Raw
 $agentCss = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/agent.css") -Raw
 
-foreach ($component in @("ChatTranscript", "ChatComposer", "MarkdownContent")) {
+foreach ($component in @("ChatTranscript", "ChatComposer", "MarkdownContent", "ConnectionModelPicker")) {
     if ($exports -notmatch $component) { throw "Shared MEZS web library does not export $component." }
 }
 if ($agentApp -notmatch 'ChatTranscript' -or $agentApp -notmatch 'ChatComposer') {
@@ -19,6 +21,18 @@ if ($agentApp -notmatch 'ChatTranscript' -or $agentApp -notmatch 'ChatComposer')
 }
 if ($agentMain -notmatch '@mezhs/web-lib/styles\.css') {
     throw "Agent Web is not consuming common MEZS web styling."
+}
+if ($targetPicker -notmatch 'connection-picker' -or $targetPicker -notmatch 'model-picker' -or
+    $sharedApp -notmatch '<ConnectionModelPicker' -or $agentApp -notmatch '<ConnectionModelPicker') {
+    throw "Normal chat and Agent Web do not reuse the shared connection/model picker."
+}
+if ($agentApp -notmatch 'ChatProviderRegistry' -or
+    $agentApp -match '/v1/connections/\$\{encodeURIComponent\([^)]*\)\}/models') {
+    throw "Agent Web bypasses the generic chat-provider model discovery abstraction."
+}
+if ($agentApp -notmatch 'connectionId,' -or
+    $agentApp -notmatch 'onConnectionChange=\{selectTargetConnection\}') {
+    throw "Agent Web does not expose per-turn generic connection selection."
 }
 if ($agentApp -match '<textarea' -or $agentApp -match '<form[^>]+className="composer"') {
     throw "Agent Web reimplemented the shared composer."
@@ -61,4 +75,4 @@ if ($agentApp -notmatch 'Promise\.allSettled' -or
     throw "Agent Web couples durable execution refresh to the remote chat-message request."
 }
 
-Write-Host "PASS: shared Markdown/composer behavior, independent Agent execution refresh, and canonical Agent API protocol/evidence rendering are wired through their owning components."
+Write-Host "PASS: shared chat/target controls, generic provider model discovery, independent Agent execution refresh, and canonical Agent protocol/evidence rendering are wired through their owning components."
