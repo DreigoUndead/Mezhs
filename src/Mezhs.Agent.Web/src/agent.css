@@ -263,75 +263,30 @@
   background: #fffefa;
 }
 
-.agent-preset-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 18px;
-}
-
-.agent-preset-row button {
-  padding: 9px 11px;
-  border: 1px solid #d7d2c7;
-  border-radius: 9px;
-  color: #686259;
-  background: #fffefa;
-  font-size: 10px;
-  font-weight: 750;
-  text-transform: capitalize;
-  cursor: pointer;
-}
-
-.agent-preset-row button.selected {
-  border-color: #9aab64;
-  color: #33372b;
-  background: #eef8d5;
-  box-shadow: inset 0 0 0 1px #cadc91;
-}
-
-.agent-preset-row button:disabled {
-  opacity: .55;
-  cursor: default;
-}
-
 .agent-target-picker {
   min-width: 0;
 }
 
-.agent-target-picker .section-label {
-  margin: 0 0 7px;
-  color: #888279;
-  font-size: 9px;
-  font-weight: 800;
-}
-
-.agent-target-picker .connection-picker {
+.agent-target-picker .target-picker-field {
   border-color: #d7d2c7;
-  background: #fffefa;
-}
-
-.agent-target-picker .connection-avatar {
-  color: #f6f4ef;
-  background: #4a463f;
-}
-
-.agent-target-picker .connection-picker select,
-.agent-target-picker .model-picker select {
-  border: 0;
-  color: #464139;
-  background: transparent;
-}
-
-.agent-target-picker .connection-picker option,
-.agent-target-picker .model-picker option {
-  color: #464139;
-  background: #fffefa;
-}
-
-.agent-target-picker .model-picker {
-  border-color: #ddd8ce;
   color: #888279;
-  background: #fbfaf7;
+  background: #fffefa;
+}
+
+.agent-target-picker .target-picker-field select {
+  border-color: #d7d2c7;
+  color: #464139;
+  background: #fff;
+}
+
+.agent-target-picker .target-picker-field select:focus {
+  border-color: #9aab64;
+  box-shadow: 0 0 0 2px rgba(154,171,100,.12);
+}
+
+.agent-target-picker .target-picker-field option {
+  color: #464139;
+  background: #fffefa;
 }
 
 .agent-target-picker-new {
@@ -339,38 +294,26 @@
 }
 
 .agent-target-picker-header {
-  width: 230px;
+  width: 250px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
 
-.agent-target-picker-header .section-label {
-  margin-bottom: 3px;
-  font-size: 8px;
-}
-
-.agent-target-picker-header .connection-picker {
+.agent-target-picker-header .target-picker-field {
   grid-template-columns: 1fr;
-  padding: 4px 7px;
-  border-radius: 8px;
+  gap: 3px;
+  min-height: 0;
+  padding: 5px 7px;
   background: #fff;
 }
 
-.agent-target-picker-header .connection-avatar {
-  display: none;
+.agent-target-picker-header .target-picker-field > span {
+  font-size: 7px;
 }
 
-.agent-target-picker-header .connection-picker select {
-  padding: 2px 0;
-  font-size: 10px;
-}
-
-.agent-target-picker-header .model-picker {
-  margin: 4px 0 0;
-  padding: 4px 7px;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.agent-target-picker-header .model-picker select {
+.agent-target-picker-header .target-picker-field select {
+  height: 25px;
+  padding: 0 6px;
   font-size: 9px;
 }
 
