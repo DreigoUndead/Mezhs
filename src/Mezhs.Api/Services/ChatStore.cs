@@ -288,7 +288,6 @@ public sealed class ChatStore(MezhsOptions options)
                     active.Status,
                     active.Activity,
                     active.ActivityDetail,
-                    active.Analysis,
                     active.ActivityAt));
     }
 
