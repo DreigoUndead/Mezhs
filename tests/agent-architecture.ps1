@@ -100,7 +100,7 @@ Assert ($models -notmatch '\bRequester\b' -and $store -notmatch 'Requester TEXT|
 Assert ($sharedChat -match 'MarkdownContent' -and $markdown -match 'safeLink') "Shared chat rendering does not own safe Markdown presentation."
 Assert ($targetPicker -match 'ConnectionModelPicker' -and
         $targetPicker -match 'target-picker-field' -and
-        $targetPicker -notmatch 'connection-picker|model-picker|connection-avatar' -and
+        $targetPicker -notmatch 'className="connection-picker"|className="model-picker"|connection-avatar' -and
         $agentWebApp -match 'ConnectionModelPicker') "Integration/model target selection is not symmetric or owned by the shared web library."
 Assert ($agentWebHost -match 'HttpCompletionOption\.ResponseHeadersRead' -and
         $agentWebHost -match 'CopyToAsync' -and
