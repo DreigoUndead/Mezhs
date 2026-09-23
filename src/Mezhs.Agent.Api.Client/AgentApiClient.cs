@@ -17,12 +17,6 @@ public sealed class AgentApiClient : MezhsApiClient
         return await ReadAsync<AgentPolicyView[]>(response, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<AgentManualChatView>> GetManualChatConfigsAsync(CancellationToken cancellationToken = default)
-    {
-        using var response = await Client.GetAsync("/v1/manual-chat-configs", cancellationToken);
-        return await ReadAsync<AgentManualChatView[]>(response, cancellationToken);
-    }
-
     public async Task<IReadOnlyList<AgentChatView>> GetAgentChatsAsync(CancellationToken cancellationToken = default)
     {
         using var response = await Client.GetAsync("/v1/agent-chats", cancellationToken);
@@ -116,6 +110,7 @@ public sealed class AgentApiClient : MezhsApiClient
 public sealed record AgentPolicyView(
     string Id,
     string ConnectionId,
+    string? DefaultModel,
     string ModelInstructions,
     string Snapshot);
 
@@ -129,12 +124,6 @@ public sealed record AgentChatView(
     string? ConnectionId,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
-
-public sealed record AgentManualChatView(
-    string Id,
-    string PolicyId,
-    string ConnectionId,
-    string? Model);
 
 public sealed record CreateAgentExecutionRequest(
     string PolicyId,
