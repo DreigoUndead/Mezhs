@@ -70,7 +70,7 @@ Assert ($agentWebApp -notmatch 'setInterval' -and $agentWebApp -match 'refreshRu
 Assert ($program -match '/v1/agent-chats/\{chatId\}/runtime' -and $program -match 'chatStore\.GetRuntimeState' -and $program -match 'GetExecutionStates' -and $program -match 'executorService\.ListStates') "Agent runtime endpoint does not use lightweight state owners."
 Assert ($chatStore -match 'GetRuntimeState' -and $chatStore -match 'foreach \(var message in _messages\.Values\)') "Chat runtime polling is not a lightweight in-memory state read."
 Assert ($store -match 'GetFirstRootExecutionRequest' -and $program -match 'GetFirstRootExecutionRequest\(record\.ChatId\)') "Agent chat list still loads complete execution records just to derive the first task."
-Assert ($chatStore -match 'GetListState' -and $program -match 'chats\.GetListState\(record\.ChatId\)') "Agent chat list still materializes complete chat transcripts for sidebar metadata."
+Assert ($chatStore -match 'TryGetListState' -and $program -match 'chats\.TryGetListState\(record\.ChatId\)') "Agent chat list still materializes complete chat transcripts for sidebar metadata."
 Assert ($executorStore -match 'ListStates' -and $executorStore -match 'SELECT Id, Status, CompletedAt, RestartedAsId') "Executor polling still requires full execution payload reads."
 
 Assert ($sqlite -match 'class SqliteDatabase' -and $sqlite -match 'journal_mode\s*=\s*WAL' -and $sqlite -match 'busy_timeout\s*=' -and $sqlite -match 'Pooling\s*=\s*true' -and $sqlite -match 'EnsureColumn' -and $sqlite -match 'DropColumnIfExists') "Shared SQLite foundation does not own common path/connection/migration mechanics."
