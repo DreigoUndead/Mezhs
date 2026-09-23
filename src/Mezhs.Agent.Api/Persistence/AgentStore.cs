@@ -37,6 +37,7 @@ public sealed class AgentStore(AgentOptions options)
                 ChatId TEXT NULL,
                 PolicyId TEXT NOT NULL,
                 ConnectionId TEXT NOT NULL,
+                Model TEXT NULL,
                 Source TEXT NOT NULL,
                 SourceReference TEXT NULL,
                 Status TEXT NOT NULL,
@@ -66,6 +67,7 @@ public sealed class AgentStore(AgentOptions options)
         SqliteDatabase.EnsureColumn(connection, "Executions", "CommandName", "TEXT NULL");
         SqliteDatabase.EnsureColumn(connection, "Executions", "TriggerMessageId", "TEXT NULL");
         SqliteDatabase.EnsureColumn(connection, "Executions", "CommandIndex", "INTEGER NULL");
+        SqliteDatabase.EnsureColumn(connection, "Executions", "Model", "TEXT NULL");
         SqliteDatabase.DropColumnIfExists(connection, "Executions", "Requester");
 
         // Interrupted was a terminal Agent status before restart recovery became resumable.
@@ -89,6 +91,7 @@ public sealed class AgentStore(AgentOptions options)
         string? sourceReference,
         string request,
         IReadOnlyDictionary<string, string> environment,
+        string? model,
         string policySnapshot,
         long maxOutstandingExecutions)
     {
@@ -104,6 +107,7 @@ public sealed class AgentStore(AgentOptions options)
             ChatId = chatId,
             PolicyId = policyId,
             ConnectionId = connectionId,
+            Model = model,
             Source = source,
             SourceReference = sourceReference,
             Status = AgentExecutionStatus.Queued,
@@ -480,12 +484,12 @@ public sealed class AgentStore(AgentOptions options)
         command.CommandText = """
             INSERT INTO Executions (
                 ExecutionId, ParentExecutionId, CorrelationId, Kind, ChatId,
-                PolicyId, ConnectionId, Source, SourceReference, Status,
+                PolicyId, ConnectionId, Model, Source, SourceReference, Status,
                 Request, EnvironmentJson, Result, Error, ExitCode, PolicySnapshot,
                 CreatedAt, StartedAt, CompletedAt)
             SELECT
                 $executionId, $parentExecutionId, $correlationId, $kind, $chatId,
-                $policyId, $connectionId, $source, $sourceReference, $status,
+                $policyId, $connectionId, $model, $source, $sourceReference, $status,
                 $request, $environmentJson, NULL, NULL, NULL, $policySnapshot,
                 $createdAt, NULL, NULL
             WHERE (
@@ -552,6 +556,7 @@ public sealed class AgentStore(AgentOptions options)
         command.Parameters.AddWithValue("$chatId", Db(record.ChatId));
         command.Parameters.AddWithValue("$policyId", record.PolicyId);
         command.Parameters.AddWithValue("$connectionId", record.ConnectionId);
+        command.Parameters.AddWithValue("$model", Db(record.Model));
         command.Parameters.AddWithValue("$source", record.Source);
         command.Parameters.AddWithValue("$sourceReference", Db(record.SourceReference));
         command.Parameters.AddWithValue("$status", record.Status.ToString());
@@ -573,6 +578,7 @@ public sealed class AgentStore(AgentOptions options)
         ChatId = GetNullableString(reader, "ChatId"),
         PolicyId = reader.GetString(reader.GetOrdinal("PolicyId")),
         ConnectionId = reader.GetString(reader.GetOrdinal("ConnectionId")),
+        Model = GetNullableString(reader, "Model"),
         Source = reader.GetString(reader.GetOrdinal("Source")),
         SourceReference = GetNullableString(reader, "SourceReference"),
         Status = Enum.Parse<AgentExecutionStatus>(reader.GetString(reader.GetOrdinal("Status"))),
