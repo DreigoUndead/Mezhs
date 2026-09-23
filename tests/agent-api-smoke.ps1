@@ -251,6 +251,20 @@ try {
         throw "Returning to a prior integration did not restore that connection's last selected model."
     }
 
+    $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/runtime"
+    if ($runtime.messageCount -lt 2 -or $runtime.activeMessage -ne $null) {
+        throw "Agent runtime endpoint did not expose completed chat state."
+    }
+    $runtimeExecution = @($runtime.executions | Where-Object { $_.executionId -eq $completed.executionId })[0]
+    if ($null -eq $runtimeExecution -or $runtimeExecution.status -ne "Completed" -or -not $runtimeExecution.isTerminal) {
+        throw "Agent runtime endpoint did not expose lightweight execution state."
+    }
+    if ($runtimeExecution.PSObject.Properties.Name -contains "request" -or
+        $runtimeExecution.PSObject.Properties.Name -contains "result" -or
+        $runtimeExecution.PSObject.Properties.Name -contains "policySnapshot") {
+        throw "Agent runtime polling endpoint leaked heavyweight execution payloads."
+    }
+
     $environmentTask = @"
 <SH>
 echo %TEST_AGENT_VALUE%
