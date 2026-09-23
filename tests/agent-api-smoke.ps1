@@ -134,7 +134,7 @@ try {
     if ($null -eq $lowPolicy -or $lowPolicy.connectionId -ne 'test' -or $lowPolicy.defaultModel -ne 'mock-fast' -or
         $null -eq $midPolicy -or $midPolicy.connectionId -ne 'test' -or $midPolicy.defaultModel -ne 'mock-deep' -or
         $null -eq $highPolicy -or $highPolicy.connectionId -ne 'test-alt' -or $highPolicy.defaultModel -ne 'mock-deep') {
-        throw "Low/mid/high Agent policy defaults were not exposed correctly."
+        throw "Low/mid/high Agent policy defaults were not exposed correctly: $($agentPolicies | ConvertTo-Json -Depth 4 -Compress)"
     }
 
     $originClient = [Net.Http.HttpClient]::new()
