@@ -140,6 +140,7 @@ public sealed record AgentExecutionView(
     string? ChatId,
     string PolicyId,
     string ConnectionId,
+    string? Model,
     string Source,
     string? SourceReference,
     string Status,
