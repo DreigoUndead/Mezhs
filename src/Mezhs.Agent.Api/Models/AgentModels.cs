@@ -50,6 +50,33 @@ public sealed record AgentChatView(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
+public sealed record AgentExecutionState(
+    string ExecutionId,
+    AgentExecutionStatus Status,
+    DateTimeOffset? CompletedAt);
+
+public sealed record AgentMessageRuntimeView(
+    string MessageId,
+    string Status,
+    string? Activity,
+    string? ActivityDetail,
+    DateTimeOffset? ActivityAt);
+
+public sealed record AgentExecutionRuntimeView(
+    string ExecutionId,
+    string Kind,
+    string Status,
+    bool IsTerminal,
+    DateTimeOffset? CompletedAt,
+    string? RestartedAsId);
+
+public sealed record AgentChatRuntimeView(
+    int MessageCount,
+    string? LatestMessageId,
+    string? LatestMessageStatus,
+    AgentMessageRuntimeView? ActiveMessage,
+    IReadOnlyList<AgentExecutionRuntimeView> Executions);
+
 public sealed record AgentProtocolCommandView(
     string Name,
     string? Body,

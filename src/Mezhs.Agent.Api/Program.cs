@@ -78,20 +78,20 @@ app.MapGet("/v1/policies/{policyId}", (
 
 app.MapGet("/v1/agent-chats", (
     AgentStore agentStore,
-    ChatService chats) =>
+    ChatStore chatStore) =>
     Results.Ok(agentStore.GetAgentChats()
-        .Select(record => ToView(record, agentStore, chats))
+        .Select(record => ToView(record, agentStore, chatStore))
         .ToArray()));
 
 app.MapGet("/v1/agent-chats/{chatId}", (
     string chatId,
     AgentStore agentStore,
-    ChatService chats) =>
+    ChatStore chatStore) =>
 {
     var chat = agentStore.GetAgentChat(chatId);
     return chat is null
         ? Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." })
-        : Results.Ok(ToView(chat, agentStore, chats));
+        : Results.Ok(ToView(chat, agentStore, chatStore));
 });
 
 app.MapPatch("/v1/agent-chats/{chatId}", (
@@ -99,10 +99,10 @@ app.MapPatch("/v1/agent-chats/{chatId}", (
     UpdateAgentChatRequest request,
     AgentService agents,
     AgentStore agentStore,
-    ChatService chats) =>
+    ChatStore chatStore) =>
 {
     var chat = agents.SetPaused(chatId, request.Paused);
-    return Results.Ok(ToView(chat, agentStore, chats));
+    return Results.Ok(ToView(chat, agentStore, chatStore));
 });
 
 app.MapGet("/v1/agent-chats/{chatId}/messages", (
@@ -115,6 +115,49 @@ app.MapGet("/v1/agent-chats/{chatId}/messages", (
         return Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." });
     return Results.Ok(chats.GetMessages(chatId)
         .Select(message => AgentApiMapper.ToView(message, parser)));
+});
+
+app.MapGet("/v1/agent-chats/{chatId}/runtime", (
+    string chatId,
+    AgentStore agentStore,
+    ChatStore chatStore,
+    ExecutorService executorService) =>
+{
+    if (agentStore.GetAgentChat(chatId) is null)
+        return Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." });
+
+    var messages = chatStore.GetRuntimeState(chatId);
+    var active = messages.ActiveMessage is null
+        ? null
+        : new AgentMessageRuntimeView(
+            messages.ActiveMessage.MessageId,
+            messages.ActiveMessage.Status.ToString(),
+            messages.ActiveMessage.Activity,
+            messages.ActiveMessage.ActivityDetail,
+            messages.ActiveMessage.ActivityAt);
+    var agentExecutions = agentStore.GetExecutionStates(chatId)
+        .Select(state => new AgentExecutionRuntimeView(
+            state.ExecutionId,
+            AgentExecutionKind.Agent.ToString(),
+            state.Status.ToString(),
+            state.Status.IsTerminal(),
+            state.CompletedAt,
+            RestartedAsId: null));
+    var shellExecutions = executorService.ListStates(chatId)
+        .Select(state => new AgentExecutionRuntimeView(
+            state.Id.ToString(CultureInfo.InvariantCulture),
+            AgentExecutionKind.Shell.ToString(),
+            state.Status.ToString(),
+            state.IsTerminal,
+            state.CompletedAt,
+            state.RestartedAsId?.ToString(CultureInfo.InvariantCulture)));
+
+    return Results.Ok(new AgentChatRuntimeView(
+        messages.MessageCount,
+        messages.LatestMessageId,
+        messages.LatestMessageStatus?.ToString(),
+        active,
+        agentExecutions.Concat(shellExecutions).ToArray()));
 });
 
 app.MapGet("/v1/agent-chats/{chatId}/executions", (
@@ -224,14 +267,10 @@ static IReadOnlyList<AgentExecutionView> GetExecutionViews(
 static AgentChatView ToView(
     AgentChatRecord record,
     AgentStore store,
-    ChatService chats)
+    ChatStore chats)
 {
-    var chat = chats.TryGet(record.ChatId);
-    var firstTask = store.GetExecutions(record.ChatId)
-        .Where(execution => execution.Kind == AgentExecutionKind.Agent && execution.ParentExecutionId is null)
-        .OrderBy(execution => execution.CreatedAt)
-        .ThenBy(execution => execution.ExecutionId, StringComparer.Ordinal)
-        .FirstOrDefault()?.Request;
+    var chat = chats.TryGetListState(record.ChatId);
+    var firstTask = store.GetFirstRootExecutionRequest(record.ChatId);
     return new AgentChatView(
         record.ChatId,
         record.PolicyId,

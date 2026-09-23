@@ -151,6 +151,49 @@ public sealed class AgentStore(AgentOptions options)
         return records;
     }
 
+    public IReadOnlyList<AgentExecutionState> GetExecutionStates(string chatId)
+    {
+        using var connection = _database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT ExecutionId, Status, CompletedAt
+            FROM Executions
+            WHERE Kind = $agentKind
+              AND ChatId = $chatId
+            ORDER BY CreatedAt DESC, ExecutionId DESC;
+            """;
+        command.Parameters.AddWithValue("$agentKind", AgentExecutionKind.Agent.ToString());
+        command.Parameters.AddWithValue("$chatId", chatId);
+        using var reader = command.ExecuteReader();
+        var records = new List<AgentExecutionState>();
+        while (reader.Read())
+        {
+            records.Add(new AgentExecutionState(
+                reader.GetString(0),
+                Enum.Parse<AgentExecutionStatus>(reader.GetString(1)),
+                reader.IsDBNull(2) ? null : Parse(reader.GetString(2))));
+        }
+        return records;
+    }
+
+    public string? GetFirstRootExecutionRequest(string chatId)
+    {
+        using var connection = _database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT substr(Request, 1, 200)
+            FROM Executions
+            WHERE Kind = $agentKind
+              AND ChatId = $chatId
+              AND ParentExecutionId IS NULL
+            ORDER BY CreatedAt, ExecutionId
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$agentKind", AgentExecutionKind.Agent.ToString());
+        command.Parameters.AddWithValue("$chatId", chatId);
+        return command.ExecuteScalar() as string;
+    }
+
     public AgentChatRecord? GetAgentChat(string chatId)
     {
         using var connection = _database.Open();
