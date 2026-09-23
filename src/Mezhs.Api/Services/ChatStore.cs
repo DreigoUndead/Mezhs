@@ -250,7 +250,10 @@ public sealed class ChatStore(MezhsOptions options)
                 firstUser = message;
         }
 
-        return new ChatListState(latest?.ConnectionId, firstUser?.Content);
+        var title = firstUser?.Content;
+        return new ChatListState(
+            latest?.ConnectionId,
+            title is { Length: > 200 } ? title[..200] : title);
     }
 
     public ChatRuntimeState GetRuntimeState(string chatId)
