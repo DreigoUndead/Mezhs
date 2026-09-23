@@ -20,6 +20,7 @@ public sealed class AgentService(
 
         var policy = policies.Get(policyId);
         var chatId = string.IsNullOrWhiteSpace(request.ChatId) ? null : request.ChatId.Trim();
+        var model = string.IsNullOrWhiteSpace(request.Model) ? null : request.Model.Trim();
         var requestedEnvironment = request.Environment is null
             ? null
             : NormalizeEnvironment(request.Environment, policy.Settings.Environment.Allow);
@@ -49,7 +50,8 @@ public sealed class AgentService(
             request.Input.Trim(),
             environment,
             policies.Snapshot(policyId),
-            maxOutstandingExecutions);
+            maxOutstandingExecutions,
+            model);
         if (execution is null)
             throw new AgentCapacityExceededException("MEŽS Agent execution queue is full. Try again after queued work starts.");
 
