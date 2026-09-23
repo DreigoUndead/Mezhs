@@ -177,7 +177,7 @@ public sealed class AgentStore(AgentOptions options)
         using var connection = _database.Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Request
+            SELECT substr(Request, 1, 200)
             FROM Executions
             WHERE Kind = $agentKind
               AND ChatId = $chatId
