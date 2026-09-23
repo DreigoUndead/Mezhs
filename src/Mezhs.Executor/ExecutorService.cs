@@ -61,6 +61,17 @@ public sealed class ExecutorService
         return _store.List(normalizedChatId, limit);
     }
 
+    public IReadOnlyList<ExecutionState> ListStates(string? chatId = null, int limit = 200)
+    {
+        if (limit is < 1 or > 1000)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Limit must be between 1 and 1000.");
+        var normalizedChatId = string.IsNullOrWhiteSpace(chatId) ? null : chatId;
+        var initial = _store.ListStates(normalizedChatId, limit);
+        foreach (var execution in initial.Where(execution => !execution.IsTerminal))
+            Reconcile(execution.Id);
+        return _store.ListStates(normalizedChatId, limit);
+    }
+
     public Execution Wait(int id, int timeoutSeconds = 60)
     {
         if (timeoutSeconds < 0)
