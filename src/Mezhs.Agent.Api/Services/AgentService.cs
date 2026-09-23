@@ -20,7 +20,8 @@ public sealed class AgentService(
 
         var policy = policies.Get(policyId);
         var chatId = string.IsNullOrWhiteSpace(request.ChatId) ? null : request.ChatId.Trim();
-        var model = string.IsNullOrWhiteSpace(request.Model) ? null : request.Model.Trim();
+        // null means inherit the chat/connection default; an empty string is an explicit provider Default selection.
+        var model = request.Model is null ? null : request.Model.Trim();
         var requestedEnvironment = request.Environment is null
             ? null
             : NormalizeEnvironment(request.Environment, policy.Settings.Environment.Allow);
