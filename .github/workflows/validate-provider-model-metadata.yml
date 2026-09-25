@@ -1,0 +1,70 @@
+name: Temporary provider model validation
+
+on:
+  push:
+    branches:
+      - fix-provider-model-metadata
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Validate
+        id: validate
+        shell: bash
+        run: |
+          set +e
+          mkdir -p .validation
+          {
+            echo "branch=fix-provider-model-metadata"
+            echo "commit=$(git rev-parse HEAD)"
+            echo
+            echo "=== node tests ==="
+            node --test tests/browser-provider-operations.test.js tests/chatgpt-account-api.test.js
+            node_exit=$?
+            echo "node_exit=$node_exit"
+            echo
+            echo "=== dotnet build ==="
+            dotnet build Mezhs.sln -c Release --nologo
+            dotnet_exit=$?
+            echo "dotnet_exit=$dotnet_exit"
+            echo
+            if [ "$node_exit" -eq 0 ] && [ "$dotnet_exit" -eq 0 ]; then
+              echo "OVERALL=PASS"
+              overall=0
+            else
+              echo "OVERALL=FAIL"
+              overall=1
+            fi
+          } > .validation/provider-model-metadata.txt 2>&1
+          cat .validation/provider-model-metadata.txt
+          echo "overall=$overall" >> "$GITHUB_OUTPUT"
+
+      - name: Commit validation result
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .validation/provider-model-metadata.txt
+          git commit -m "Record provider model validation [skip ci]" || true
+          git push
+
+      - name: Fail validation
+        if: steps.validate.outputs.overall != '0'
+        run: exit 1
