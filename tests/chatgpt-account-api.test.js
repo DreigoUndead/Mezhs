@@ -504,6 +504,151 @@ test("ChatGPT keeps waiting while explicit in-progress analysis remains active",
   ));
 });
 
+test("ChatGPT recognizes provider reasoning metadata without relying on an analysis channel", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  let reads = 0;
+  const progress = [];
+
+  const session = protocolSession({
+    conversationId: "conv-reasoning-metadata",
+    onConversationPost: body => {
+      requestMessageId = body.messages[0].id;
+    },
+    onConversationRead: () => {
+      reads++;
+      if (reads > 2)
+        return jsonResponse(completedConversation(
+          "conv-reasoning-metadata",
+          requestMessageId,
+          "done"
+        ));
+      return jsonResponse({
+        conversation_id: "conv-reasoning-metadata",
+        current_node: "assistant-reasoning",
+        mapping: {
+          "assistant-reasoning": {
+            parent: "request-new",
+            message: {
+              id: "assistant-reasoning",
+              author: { role: "assistant" },
+              status: "in_progress",
+              channel: null,
+              content: { content_type: "reasoning_recap", parts: [] },
+              metadata: {
+                reasoning_status: "reasoning_in_progress",
+                reasoning_start_time: 100,
+                model_slug: "provider-thinking-model",
+                thinking_effort: "provider-high"
+              }
+            }
+          },
+          "request-new": {
+            parent: null,
+            message: {
+              id: requestMessageId,
+              author: { role: "user" },
+              status: "finished_successfully",
+              content: { content_type: "text", parts: ["prompt"] }
+            }
+          }
+        }
+      });
+    }
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...hostileBrowserSurface(),
+    session,
+    args: { prompt: "reason", files: [] },
+    sleep: async () => {},
+    reportProgress: value => progress.push(value)
+  });
+
+  assert.equal(result.text, "done");
+  assert.ok(progress.some(value =>
+    value.state === "thinking" &&
+    value.detail === "Model is thinking."
+  ));
+});
+
+test("ChatGPT reports server-confirmed model, effort, and reasoning duration", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  const progress = [];
+
+  const session = protocolSession({
+    conversationId: "conv-execution-metadata",
+    onConversationPost: body => {
+      requestMessageId = body.messages[0].id;
+    },
+    onConversationRead: () => jsonResponse({
+      conversation_id: "conv-execution-metadata",
+      current_node: "assistant-final",
+      mapping: {
+        "assistant-final": {
+          parent: "assistant-reasoning",
+          message: {
+            id: "assistant-final",
+            author: { role: "assistant" },
+            status: "finished_successfully",
+            channel: "final",
+            content: { content_type: "text", parts: ["done"] },
+            metadata: {
+              resolved_model_slug: "provider-thinking-model",
+              thinking_effort: "provider-high"
+            }
+          }
+        },
+        "assistant-reasoning": {
+          parent: "request-new",
+          message: {
+            id: "assistant-reasoning",
+            author: { role: "assistant" },
+            status: "finished_successfully",
+            channel: null,
+            content: { content_type: "reasoning_recap", parts: [] },
+            metadata: {
+              reasoning_status: "reasoning_ended",
+              reasoning_start_time: 100.25,
+              reasoning_end_time: 103.75,
+              resolved_model_slug: "provider-thinking-model",
+              thinking_effort: "provider-high"
+            }
+          }
+        },
+        "request-new": {
+          parent: null,
+          message: {
+            id: requestMessageId,
+            author: { role: "user" },
+            status: "finished_successfully",
+            content: { content_type: "text", parts: ["prompt"] }
+          }
+        }
+      }
+    })
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...hostileBrowserSurface(),
+    session,
+    args: { prompt: "metadata", files: [] },
+    sleep: async () => {},
+    reportProgress: value => progress.push(value)
+  });
+
+  assert.equal(
+    result.model,
+    "provider-thinking-model::thinking-effort=provider-high"
+  );
+  assert.ok(progress.some(value =>
+    value.state === "completed" &&
+    value.detail ===
+      "Model response received (model provider-thinking-model, effort provider-high, reasoning 3.5s)."
+  ));
+});
+
 test("rate-limited state checks do not consume the turn-start watchdog", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
