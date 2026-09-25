@@ -46,7 +46,8 @@ function completedConversation(
   projectId = null,
   model = "served-test",
   requestMessageId = null,
-  resolvedModel = null
+  resolvedModel = null,
+  thinkingEffort = null
 ) {
   const conversation = {
     conversation_id: conversationId,
@@ -60,7 +61,10 @@ function completedConversation(
           author: { role: "assistant" },
           status: "finished_successfully",
           content: { parts: ["answer"] },
-          metadata: { model_slug: model }
+          metadata: {
+            model_slug: model,
+            ...(thinkingEffort ? { thinking_effort: thinkingEffort } : {})
+          }
         }
       }
     }
@@ -454,11 +458,20 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
   assert.equal(result.model, "o3");
 });
 
-test("ChatGPT picker selections send their current wire model and thinking effort", async () => {
+test("ChatGPT browser module does not hardcode provider model-id rewrites", () => {
+  const source = fs.readFileSync(
+    path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "chatgpt.ts"),
+    "utf8"
+  );
+  assert.doesNotMatch(source, /CHATGPT_WIRE_MODEL/);
+  assert.doesNotMatch(source, /"gpt-[^"]+":\s*"gpt-[^"]+"/);
+});
+
+test("ChatGPT picker selections are sent without model-specific rewrites", async () => {
   const chatgpt = loadChatGptModule();
   const selections = [
     { selected: undefined, model: "auto", effort: null },
-    { selected: "gpt-5-6-instant", model: "gpt-5-5", effort: null },
+    { selected: "gpt-5-6-instant", model: "gpt-5-6-instant", effort: null },
     {
       selected: "gpt-5-6-thinking::thinking-effort=standard",
       model: "gpt-5-6-thinking",
@@ -469,7 +482,7 @@ test("ChatGPT picker selections send their current wire model and thinking effor
       model: "gpt-5-6-thinking",
       effort: "extended"
     },
-    { selected: "gpt-5-5-instant", model: "gpt-5-5", effort: null },
+    { selected: "gpt-5-5-instant", model: "gpt-5-5-instant", effort: null },
     {
       selected: "gpt-5-5-thinking::thinking-effort=standard",
       model: "gpt-5-5-thinking",
@@ -513,18 +526,26 @@ test("ChatGPT picker selections send their current wire model and thinking effor
           null,
           selection.model,
           conversationPayload.messages[0].id,
-          selection.model
+          selection.model,
+          selection.effort
         ));
       throw new Error(`Unexpected request ${target}`);
     });
 
-    await chatgpt.operations.newChat({
+    const result = await chatgpt.operations.newChat({
       window: { webContents: { getUserAgent: () => "TestBrowser/1.0" } },
       session,
       args: { prompt: "test selection", model: selection.selected, files: [] },
       sleep: async () => {}
     });
 
+    assert.equal(
+      result.model,
+      selection.effort
+        ? `${selection.model}::thinking-effort=${selection.effort}`
+        : selection.model,
+      selection.selected
+    );
     assert.equal(preparePayload.model, selection.model, selection.selected);
     assert.equal(conversationPayload.model, selection.model, selection.selected);
     assert.equal(preparePayload.thinking_effort ?? null, selection.effort, selection.selected);
