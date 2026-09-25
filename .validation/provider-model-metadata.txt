@@ -1,0 +1,276 @@
+branch=fix-provider-model-metadata
+commit=b3776f095f7b4057da404d50b9bc19f54e2efd79
+
+=== node tests ===
+TAP version 13
+# Subtest: browser transport polls long provider operations through short HTTP requests
+ok 1 - browser transport polls long provider operations through short HTTP requests
+  ---
+  duration_ms: 2.132224
+  type: 'test'
+  ...
+# Subtest: provider response lifetime is not capped by wall-clock deadlines
+ok 2 - provider response lifetime is not capped by wall-clock deadlines
+  ---
+  duration_ms: 0.720649
+  type: 'test'
+  ...
+# Subtest: ChatGPT getProjects uses the private API and follows pagination
+ok 3 - ChatGPT getProjects uses the private API and follows pagination
+  ---
+  duration_ms: 30.21231
+  type: 'test'
+  ...
+# Subtest: ChatGPT getModels follows the native picker instead of the raw catalog
+ok 4 - ChatGPT getModels follows the native picker instead of the raw catalog
+  ---
+  duration_ms: 2.895616
+  type: 'test'
+  ...
+# Subtest: ChatGPT o3 newChat follows the semantic web API protocol and reports the assistant model
+ok 5 - ChatGPT o3 newChat follows the semantic web API protocol and reports the assistant model
+  ---
+  duration_ms: 60.316957
+  type: 'test'
+  ...
+# Subtest: ChatGPT browser module does not hardcode provider model-id rewrites
+ok 6 - ChatGPT browser module does not hardcode provider model-id rewrites
+  ---
+  duration_ms: 0.471574
+  type: 'test'
+  ...
+# Subtest: ChatGPT picker selections are sent without model-specific rewrites
+ok 7 - ChatGPT picker selections are sent without model-specific rewrites
+  ---
+  duration_ms: 202.986346
+  type: 'test'
+  ...
+# Subtest: ChatGPT send continues the existing conversation through the current transport
+ok 8 - ChatGPT send continues the existing conversation through the current transport
+  ---
+  duration_ms: 8.890809
+  type: 'test'
+  ...
+# Subtest: ChatGPT rejects an invalid proof-of-work challenge before finalize/send
+ok 9 - ChatGPT rejects an invalid proof-of-work challenge before finalize/send
+  ---
+  duration_ms: 39.329201
+  type: 'test'
+  ...
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# Subtest: ChatGPT account newChat uses the semantic API even when browser UI hooks exist
+ok 10 - ChatGPT account newChat uses the semantic API even when browser UI hooks exist
+  ---
+  duration_ms: 67.562973
+  type: 'test'
+  ...
+# Subtest: ChatGPT follow-up ignores a stale assistant until the sent API message appears in ancestry
+ok 11 - ChatGPT follow-up ignores a stale assistant until the sent API message appears in ancestry
+  ---
+  duration_ms: 37.812682
+  type: 'test'
+  ...
+# Subtest: ChatGPT API polling backs off on 429 without resending the turn
+ok 12 - ChatGPT API polling backs off on 429 without resending the turn
+  ---
+  duration_ms: 41.187813
+  type: 'test'
+  ...
+# Subtest: ChatGPT reposts once when a submitted turn never shows model activity
+ok 13 - ChatGPT reposts once when a submitted turn never shows model activity
+  ---
+  duration_ms: 27.725414
+  type: 'test'
+  ...
+# Subtest: ChatGPT reposts when model activity stops without a final reply
+ok 14 - ChatGPT reposts when model activity stops without a final reply
+  ---
+  duration_ms: 43.58032
+  type: 'test'
+  ...
+# Subtest: ChatGPT inactivity watchdog resets when the conversation advances
+ok 15 - ChatGPT inactivity watchdog resets when the conversation advances
+  ---
+  duration_ms: 36.331134
+  type: 'test'
+  ...
+# Subtest: ChatGPT keeps waiting while explicit in-progress analysis remains active
+ok 16 - ChatGPT keeps waiting while explicit in-progress analysis remains active
+  ---
+  duration_ms: 68.483811
+  type: 'test'
+  ...
+# Subtest: ChatGPT recognizes provider reasoning metadata without relying on an analysis channel
+ok 17 - ChatGPT recognizes provider reasoning metadata without relying on an analysis channel
+  ---
+  duration_ms: 26.992001
+  type: 'test'
+  ...
+# Subtest: ChatGPT reports server-confirmed model, effort, and reasoning duration
+ok 18 - ChatGPT reports server-confirmed model, effort, and reasoning duration
+  ---
+  duration_ms: 33.435948
+  type: 'test'
+  ...
+# Subtest: rate-limited state checks do not consume the turn-start watchdog
+ok 19 - rate-limited state checks do not consume the turn-start watchdog
+  ---
+  duration_ms: 20.428588
+  type: 'test'
+  ...
+# Subtest: ChatGPT fails after one automatic repost if model activity still never starts
+ok 20 - ChatGPT fails after one automatic repost if model activity still never starts
+  ---
+  duration_ms: 20.264778
+  type: 'test'
+  ...
+# Subtest: ChatGPT account does not surface analysis-channel control text as the reply
+ok 21 - ChatGPT account does not surface analysis-channel control text as the reply
+  ---
+  duration_ms: 41.786894
+  type: 'test'
+  ...
+# Subtest: ChatGPT account walks past hidden current nodes to the visible final reply
+ok 22 - ChatGPT account walks past hidden current nodes to the visible final reply
+  ---
+  duration_ms: 28.201324
+  type: 'test'
+  ...
+1..22
+# tests 22
+# suites 0
+# pass 22
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 570.137541
+node_exit=0
+
+=== dotnet build ===
+  Determining projects to restore...
+  Restored /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.ChatGpt/Mezhs.Integrations.ChatGpt.csproj (in 175 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Log.Data/Mezhs.Log.Data.csproj (in 175 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Api.Contracts/Mezhs.Api.Contracts.csproj (in 5 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Api.Client/Mezhs.Api.Client.csproj (in 2 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Agent.Web/Mezhs.Agent.Web.csproj (in 2 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Agent.Api.Client/Mezhs.Agent.Api.Client.csproj (in 6 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.Mock/Mezhs.Integrations.Mock.csproj (in 5 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.Grok/Mezhs.Integrations.Grok.csproj (in 5 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.Gemini/Mezhs.Integrations.Gemini.csproj (in 7 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/transports/Mezhs.Browser.Abstractions/Mezhs.Browser.Abstractions.csproj (in 1 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/transports/Mezhs.Browser.Electron/Mezhs.Browser.Electron.csproj (in 5 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Web/Mezhs.Web.csproj (in 2 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.WhatsApp/Mezhs.WhatsApp.csproj (in 3 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Api/Mezhs.Api.csproj (in 1.05 sec).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Log.Shared/Mezhs.Log.Shared.csproj (in 2 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Integration.Browser/Mezhs.Integration.Browser.csproj (in 3 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Integration.Abstractions/Mezhs.Integration.Abstractions.csproj (in 3 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Sqlite/Mezhs.Sqlite.csproj (in 1.58 sec).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Log.Sql/Mezhs.Log.Sql.csproj (in 1.57 sec).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Executor/Mezhs.Executor.csproj (in 739 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Common/Mezhs.Common.csproj (in 1 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Console/Mezhs.Console.csproj (in 2 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Agent.Api/Mezhs.Agent.Api.csproj (in 1.85 sec).
+  Mezhs.Browser.Abstractions -> /home/runner/work/Mezhs/Mezhs/transports/Mezhs.Browser.Abstractions/bin/Release/net10.0/Mezhs.Browser.Abstractions.dll
+  Mezhs.Api.Contracts -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Api.Contracts/bin/Release/net10.0/Mezhs.Api.Contracts.dll
+  Mezhs.Integration.Abstractions -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Integration.Abstractions/bin/Release/net10.0/Mezhs.Integration.Abstractions.dll
+  Mezhs.Web -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Web/bin/Release/net10.0/Mezhs.Web.dll
+  Mezhs.Agent.Web -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Agent.Web/bin/Release/net10.0/Mezhs.Agent.Web.dll
+  Mezhs.Browser.Electron -> /home/runner/work/Mezhs/Mezhs/transports/Mezhs.Browser.Electron/bin/Release/net10.0/Mezhs.Browser.Electron.dll
+  npm warn old lockfile
+  npm warn old lockfile The package-lock.json file was created with an old version of npm,
+  npm warn old lockfile so supplemental metadata must be fetched from the registry.
+  npm warn old lockfile
+  npm warn old lockfile This is a one-time fix-up, please be patient...
+  npm warn old lockfile
+  
+  added 75 packages, and audited 77 packages in 6s
+  
+  11 packages are looking for funding
+    run `npm fund` for details
+  
+  4 vulnerabilities (1 moderate, 3 high)
+  
+  To address issues that do not require attention, run:
+    npm audit fix
+  
+  To address all issues (including breaking changes), run:
+    npm audit fix --force
+  
+  Run `npm audit` for details.
+  
+  > mezhs-web@0.1.0 build
+  > tsc --noEmit && vite build
+  
+  [36mvite v2.9.16 [32mbuilding for production...[36m[39m
+  transforming...
+  
+  added 75 packages, and audited 77 packages in 10s
+  
+  11 packages are looking for funding
+    run `npm fund` for details
+  
+  3 vulnerabilities (1 moderate, 2 high)
+  
+  To address all issues (including breaking changes), run:
+    npm audit fix --force
+  
+  Run `npm audit` for details.
+  [32m✓[39m 42 modules transformed.
+  rendering chunks...
+  [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.50 KiB[22m
+  [90m[37m[2mdist/[22m[90m[39m[35massets/index.08329713.css  [39m [2m22.54 KiB / gzip: 5.71 KiB[22m
+  [90m[37m[2mdist/[22m[90m[39m[36massets/index.c0b2353d.js   [39m [2m164.58 KiB / gzip: 52.58 KiB[22m
+  
+  > mezhs-agent-web@0.1.0 build
+  > tsc --noEmit && vite build
+  
+  Mezhs.Common -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Common/bin/Release/net10.0/Mezhs.Common.dll
+  Mezhs.Integration.Browser -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Integration.Browser/bin/Release/net10.0/Mezhs.Integration.Browser.dll
+  Mezhs.Integrations.Grok -> /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.Grok/bin/Release/net10.0/Mezhs.Integrations.Grok.dll
+  [36mvite v2.9.16 [32mbuilding for production...[36m[39m
+  transforming...
+  [32m✓[39m 43 modules transformed.
+  rendering chunks...
+  [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.43 KiB[22m
+  [90m[37m[2mdist/[22m[90m[39m[35massets/index.27547c8e.css  [39m [2m32.11 KiB / gzip: 7.19 KiB[22m
+  [90m[37m[2mdist/[22m[90m[39m[36massets/index.b1caeb74.js   [39m [2m169.51 KiB / gzip: 54.16 KiB[22m
+  Mezhs.Console -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Console/bin/Release/net10.0/Mezhs.Console.dll
+  Mezhs.Api.Client -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Api.Client/bin/Release/net10.0/Mezhs.Api.Client.dll
+  Mezhs.Agent.Api.Client -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Agent.Api.Client/bin/Release/net10.0/Mezhs.Agent.Api.Client.dll
+  Mezhs.Log.Shared -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Log.Shared/bin/Release/net10.0/Mezhs.Log.Shared.dll
+/home/runner/work/Mezhs/Mezhs/src/Mezhs.WhatsApp/WhatsAppApplication.Tests.cs(11,19): warning CS0114: 'WhatsAppApplication.Test()' hides inherited member 'ConsoleApplication.Test()'. To make the current member override that implementation, add the override keyword. Otherwise add the new keyword. [/home/runner/work/Mezhs/Mezhs/src/Mezhs.WhatsApp/Mezhs.WhatsApp.csproj]
+  Mezhs.Sqlite -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Sqlite/bin/Release/net10.0/Mezhs.Sqlite.dll
+  Mezhs.Integrations.ChatGpt -> /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.ChatGpt/bin/Release/net10.0/Mezhs.Integrations.ChatGpt.dll
+  Mezhs.WhatsApp -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.WhatsApp/bin/Release/net10.0/Mezhs.WhatsApp.dll
+  Mezhs.Log.Data -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Log.Data/bin/Release/net10.0/Mezhs.Log.Data.dll
+  Mezhs.Log.Sql -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Log.Sql/bin/Release/net10.0/Mezhs.Log.Sql.dll
+  Mezhs.Integrations.Gemini -> /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.Gemini/bin/Release/net10.0/Mezhs.Integrations.Gemini.dll
+  Mezhs.Integrations.Mock -> /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.Mock/bin/Release/net10.0/Mezhs.Integrations.Mock.dll
+  Mezhs.Executor -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Executor/bin/Release/net10.0/Mezhs.Executor.dll
+  Mezhs.Api -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Api/bin/Release/net10.0/Mezhs.Api.dll
+  Mezhs.Agent.Api -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Agent.Api/bin/Release/net10.0/Mezhs.Agent.Api.dll
+
+Build succeeded.
+
+/home/runner/work/Mezhs/Mezhs/src/Mezhs.WhatsApp/WhatsAppApplication.Tests.cs(11,19): warning CS0114: 'WhatsAppApplication.Test()' hides inherited member 'ConsoleApplication.Test()'. To make the current member override that implementation, add the override keyword. Otherwise add the new keyword. [/home/runner/work/Mezhs/Mezhs/src/Mezhs.WhatsApp/Mezhs.WhatsApp.csproj]
+    1 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:28.61
+dotnet_exit=0
+
+OVERALL=PASS
