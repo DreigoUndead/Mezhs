@@ -132,25 +132,24 @@ module.exports = {
 };
 
 function nativePickerModels(catalog) {
-  const models = new Map(
-    (catalog?.models || []).map(model => [
-      String(model?.slug || model?.id || "").trim().toLowerCase(),
-      model
-    ])
-  );
   const result = [];
   const seen = new Set();
-  for (const version of catalog?.versions || []) {
+  const versions = Array.isArray(catalog?.versions) ? catalog.versions : [];
+
+  for (const version of versions) {
     if (version?.enabled === false) continue;
-    const versionId = String(version?.id || "").trim();
     const versionName = String(
       version?.display_text_for_intelligence ||
       version?.display_text ||
-      versionId
+      ""
     ).trim();
-    const nativePresets = version?.intelligence_presets || [];
-    const presets = nativePresets
-      .filter(preset => preset?.preset_type === "available" && preset?.enabled !== false);
+    const nativePresets = Array.isArray(version?.intelligence_presets)
+      ? version.intelligence_presets
+      : [];
+    const presets = nativePresets.filter(preset =>
+      preset?.preset_type === "available" &&
+      preset?.enabled !== false
+    );
 
     if (nativePresets.length) {
       for (const preset of presets) {
@@ -161,48 +160,48 @@ function nativePickerModels(catalog) {
           preset?.title ||
           ""
         ).trim();
-        const id = modelSelectionId(model, effort);
-        const name = [versionName, presetName].filter(Boolean).join(" · ");
-        const key = id.toLowerCase();
-        if (!model || !name || seen.has(key)) continue;
-        seen.add(key);
-        result.push({ id, name });
+        addModelOption(
+          result,
+          seen,
+          modelSelectionId(model, effort),
+          [versionName, presetName].filter(Boolean).join(" · ")
+        );
       }
       continue;
     }
 
-    const canonicalId = versionId.toLowerCase() === "o3"
-      ? "o3"
-      : `gpt-${versionId.replace(/\./g, "-")}`;
-    const candidates = (version?.slugs || [])
+    const model = (Array.isArray(version?.slugs) ? version.slugs : [])
       .map(value => String(value || "").trim())
-      .filter(Boolean);
-    const id = candidates.find(candidate => candidate.toLowerCase() === canonicalId.toLowerCase()) ||
-      (models.has(canonicalId.toLowerCase()) ? canonicalId : null) ||
-      candidates.find(candidate => models.has(candidate.toLowerCase())) ||
-      candidates[0];
-    const model = id ? models.get(id.toLowerCase()) : null;
+      .find(Boolean);
+    addModelOption(result, seen, model, versionName || model);
+  }
+
+  if (result.length)
+    return result;
+
+  for (const model of catalog?.models || []) {
+    const id = String(model?.slug || model?.id || "").trim();
     const name = String(
-      versionName ||
       model?.title ||
       model?.display_name ||
       model?.name ||
-      id ||
-      ""
+      id
     ).trim();
-    const key = String(id || "").toLowerCase();
-    if (!id || !name || seen.has(key)) continue;
-    seen.add(key);
-    result.push({ id, name });
+    addModelOption(result, seen, id, name);
   }
   return result;
 }
 
+function addModelOption(result, seen, id, name) {
+  const normalizedId = String(id || "").trim();
+  const normalizedName = String(name || "").trim();
+  const key = normalizedId.toLowerCase();
+  if (!normalizedId || !normalizedName || seen.has(key)) return;
+  seen.add(key);
+  result.push({ id: normalizedId, name: normalizedName });
+}
+
 const MODEL_SELECTION_SEPARATOR = "::thinking-effort=";
-const CHATGPT_WIRE_MODEL = Object.freeze({
-  "gpt-5-6-instant": "gpt-5-5",
-  "gpt-5-5-instant": "gpt-5-5"
-});
 
 function modelSelectionId(model, thinkingEffort) {
   return thinkingEffort
@@ -213,13 +212,11 @@ function modelSelectionId(model, thinkingEffort) {
 function parseModelSelection(value) {
   const selected = String(value || "auto").trim() || "auto";
   const separator = selected.lastIndexOf(MODEL_SELECTION_SEPARATOR);
-  const model = separator > 0 ? selected.slice(0, separator) : selected;
-  const thinkingEffort = separator > 0
-    ? selected.slice(separator + MODEL_SELECTION_SEPARATOR.length).trim() || null
-    : null;
   return {
-    model: CHATGPT_WIRE_MODEL[model.toLowerCase()] || model,
-    thinkingEffort
+    model: separator > 0 ? selected.slice(0, separator) : selected,
+    thinkingEffort: separator > 0
+      ? selected.slice(separator + MODEL_SELECTION_SEPARATOR.length).trim() || null
+      : null
   };
 }
 
@@ -830,7 +827,7 @@ async function waitForConversation(
     if (turn.reply) {
       reportProgress?.({
         state: "completed",
-        detail: "Model response received.",
+        detail: completionDetail(turn.reply.execution),
         analysis: turn.analysis
       });
       return turn.reply;
@@ -908,7 +905,7 @@ function inspectConversationTurn(conversation, requestMessageId) {
         if (text) analysis.push(text);
       }
       if (!inProgress && message.status === "in_progress")
-        inProgress = { channel };
+        inProgress = { channel, reasoning: hasReasoningMetadata(message) };
     }
 
     node = mapping[node.parent];
@@ -927,7 +924,7 @@ function inspectConversationTurn(conversation, requestMessageId) {
   }
 
   if (inProgress) {
-    const thinking = inProgress.channel === "analysis";
+    const thinking = inProgress.channel === "analysis" || inProgress.reasoning;
     return {
       reply: null,
       active: true,
@@ -982,24 +979,26 @@ function findVisibleAssistantReply(conversation, requestMessageId) {
   let node = mapping[conversation?.current_node];
   let assistant = null;
   const files = new Map();
+  const execution = {};
 
   while (node) {
     const message = node.message;
+    collectExecutionMetadata(message, execution);
+
     if (message?.id === requestMessageId) {
       if (!assistant) return null;
-      const assistantModel = String(
-        assistant.metadata?.resolved_model_slug ||
-        assistant.metadata?.model_slug ||
-        ""
-      ).trim() || null;
       const requestResolvedModel = String(
         message.metadata?.resolved_model_slug || ""
       ).trim() || null;
+      const resolvedModel = execution.model || requestResolvedModel;
       return {
         text: visibleAssistantText(assistant),
         parentMessageId: assistant.id,
         projectId: conversation.gizmo_id || null,
-        model: assistantModel || requestResolvedModel,
+        model: resolvedModel
+          ? modelSelectionId(resolvedModel, execution.thinkingEffort)
+          : null,
+        execution,
         files
       };
     }
@@ -1011,6 +1010,62 @@ function findVisibleAssistantReply(conversation, requestMessageId) {
   }
 
   return null;
+}
+
+function collectExecutionMetadata(message, execution) {
+  if (message?.author?.role !== "assistant") return;
+  const metadata = message.metadata || {};
+  const model = String(
+    metadata.resolved_model_slug ||
+    metadata.model_slug ||
+    ""
+  ).trim();
+  const thinkingEffort = String(metadata.thinking_effort || "").trim();
+  const reasoningStatus = String(metadata.reasoning_status || "").trim();
+  const reasoningStart = finiteNumber(metadata.reasoning_start_time);
+  const reasoningEnd = finiteNumber(metadata.reasoning_end_time);
+
+  if (model) execution.model ??= model;
+  if (thinkingEffort) execution.thinkingEffort ??= thinkingEffort;
+  if (reasoningStatus) execution.reasoningStatus ??= reasoningStatus;
+  if (reasoningStart !== null)
+    execution.reasoningStart = execution.reasoningStart === undefined
+      ? reasoningStart
+      : Math.min(execution.reasoningStart, reasoningStart);
+  if (reasoningEnd !== null)
+    execution.reasoningEnd = execution.reasoningEnd === undefined
+      ? reasoningEnd
+      : Math.max(execution.reasoningEnd, reasoningEnd);
+}
+
+function hasReasoningMetadata(message) {
+  const metadata = message?.metadata || {};
+  return Boolean(
+    String(metadata.reasoning_status || "").trim() ||
+    finiteNumber(metadata.reasoning_start_time) !== null ||
+    finiteNumber(metadata.reasoning_end_time) !== null
+  );
+}
+
+function finiteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function completionDetail(execution) {
+  const facts = [];
+  if (execution?.model) facts.push(`model ${execution.model}`);
+  if (execution?.thinkingEffort)
+    facts.push(`effort ${execution.thinkingEffort}`);
+
+  const start = finiteNumber(execution?.reasoningStart);
+  const end = finiteNumber(execution?.reasoningEnd);
+  if (start !== null && end !== null && end >= start)
+    facts.push(`reasoning ${(end - start).toFixed(1)}s`);
+
+  return facts.length
+    ? `Model response received (${facts.join(", ")}).`
+    : "Model response received.";
 }
 
 function isVisibleAssistantMessage(message) {
