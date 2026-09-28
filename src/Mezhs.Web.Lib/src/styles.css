@@ -158,9 +158,9 @@ button { color: inherit; }
 .notice button { border: 0; background: transparent; cursor: pointer; }
 .composer { padding: 13px 13px 10px; border: 1px solid #d7d2c7; border-radius: 17px; background: #fffefa; box-shadow: 0 13px 35px rgba(48,43,34,.08); transition: border-color .15s ease, box-shadow .15s ease; }
 .composer-with-side-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: stretch; }
-.composer-with-side-controls > textarea { grid-column: 1; grid-row: 1; align-self: stretch; }
+.composer-with-side-controls > textarea { grid-column: 1; grid-row: 1; min-height: 74px; align-self: stretch; }
 .composer-side-controls { grid-column: 2; grid-row: 1; min-width: 0; }
-.composer-with-side-controls > .composer-actions { grid-column: 1 / -1; grid-row: 2; margin-top: 8px; }
+.composer-with-side-controls > .composer-actions { grid-column: 1; grid-row: 2; margin-top: 8px; }
 .file-input { display: none; }
 .pending-files { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 9px; }
 .pending-file { min-width: 190px; max-width: 250px; display: grid; grid-template-columns: 34px minmax(0, 1fr) 20px; align-items: center; gap: 8px; padding: 7px; border: 1px solid #e0dbd1; border-radius: 10px; background: #f8f6f1; }
