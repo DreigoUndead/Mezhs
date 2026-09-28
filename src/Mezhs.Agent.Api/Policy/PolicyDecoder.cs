@@ -39,6 +39,7 @@ public sealed class PolicyDecoder
         var commands = definition.Commands!;
         var completion = definition.Completion!;
         var limits = definition.Limits!;
+        var name = string.IsNullOrWhiteSpace(definition.Name) ? id : definition.Name.Trim();
         var connectionId = definition.ConnectionId!.Trim();
         var defaultModel = string.IsNullOrWhiteSpace(definition.DefaultModel)
             ? null
@@ -46,6 +47,7 @@ public sealed class PolicyDecoder
         var instructions = definition.Instructions?.Trim() ?? string.Empty;
 
         var settings = new PolicySettings(
+            name,
             connectionId,
             defaultModel,
             instructions,
