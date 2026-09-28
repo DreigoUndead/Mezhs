@@ -63,6 +63,12 @@ if ($shared -match '>\^</button>' -or
     $shared -notmatch 'aria-label="Send message"') {
     throw "Shared composer still uses a text glyph instead of the send icon."
 }
+if ($agentCss -match 'min-height:\s*108px' -or
+    $agentCss -notmatch 'color-scheme:\s*light' -or
+    $agentCss -notmatch 'option:checked' -or
+    $agentCss -notmatch 'background:\s*#fffefa') {
+    throw "Agent composer is not compact or its native target dropdown options can fall back to the dark shared theme."
+}
 if ($shared -notmatch '<MarkdownContent content=\{message\.content\}' -or
     $markdown -notmatch '```' -or $markdown -notmatch 'safeLink') {
     throw "Shared chat content is not rendered through the safe Markdown owner."
