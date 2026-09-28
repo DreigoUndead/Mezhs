@@ -270,6 +270,20 @@
   box-shadow: 0 0 0 2px rgba(154,171,100,.12);
 }
 
+.agent-composer-settings .target-picker-field select {
+  color-scheme: light;
+}
+
+.agent-composer-settings .target-picker-field option {
+  color: #464139;
+  background: #fffefa;
+}
+
+.agent-composer-settings .target-picker-field option:checked {
+  color: #403b35;
+  background: #ebe7df;
+}
+
 .agent-composer-settings .connection-model-picker,
 .agent-target-picker-composer {
   display: grid;
@@ -375,10 +389,6 @@
   color: #686259;
   background: #fbfaf7;
   font: 9px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
-}
-
-.agent-main-panel .composer-with-side-controls > textarea {
-  min-height: 108px;
 }
 
 .agent-execution-status {
@@ -703,5 +713,4 @@
 
 @media (max-width: 760px) {
   .agent-composer-settings { width: 100%; }
-  .agent-main-panel .composer-with-side-controls > textarea { min-height: 78px; }
 }
