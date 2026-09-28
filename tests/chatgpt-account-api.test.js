@@ -90,12 +90,20 @@ function hostileBrowserSurface() {
   };
 }
 
-function protocolSession({ conversationId, onConversationRead, onConversationPost }) {
+function protocolSession({
+  conversationId,
+  onConversationRead,
+  onConversationPost,
+  conversationStream
+}) {
   return apiSession(async (url, options = {}) => {
     const target = new URL(String(url));
 
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token", user: { id: "account-1" } });
+
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config")
+      return textResponse("");
 
     if (target.pathname === "/backend-api/f/conversation/prepare")
       return jsonResponse({ conduit_token: "conduit" });
@@ -110,7 +118,8 @@ function protocolSession({ conversationId, onConversationRead, onConversationPos
       const body = JSON.parse(options.body);
       onConversationPost?.(body);
       return textResponse(
-        `data: {"conversation_id":"${conversationId}"}\n\ndata: [DONE]\n\n`,
+        conversationStream?.(body) ??
+          `data: {"conversation_id":"${conversationId}"}\n\ndata: [DONE]\n\n`,
         200,
         "text/event-stream"
       );
@@ -501,6 +510,100 @@ test("ChatGPT keeps waiting while explicit in-progress analysis remains active",
   assert.ok(progress.some(value =>
     value.state === "thinking" &&
     value.analysis === "Inspecting the failure state."
+  ));
+});
+
+test("ChatGPT captures transient provider reasoning metadata from the response stream", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  let postedPayload;
+  const progress = [];
+
+  const session = protocolSession({
+    conversationId: "conv-stream-reasoning",
+    onConversationPost: body => {
+      postedPayload = body;
+      requestMessageId = body.messages[0].id;
+    },
+    conversationStream: () => [
+      'data: {"type":"message_marker","conversation_id":"conv-stream-reasoning","message_id":"reasoning-1","marker":"cot_token","event":"first"}',
+      "",
+      'event: delta',
+      'data: {"v":{"message":{"id":"reasoning-1","author":{"role":"assistant"},"content":{"content_type":"reasoning_recap","content":"Worked"},"status":"finished_successfully","metadata":{"reasoning_status":"reasoning_ended","reasoning_start_time":100.25,"reasoning_end_time":103.75,"resolved_model_slug":"provider-thinking-model","model_slug":"provider-thinking-model","thinking_effort":"provider-high","can_save":false}},"conversation_id":"conv-stream-reasoning"}}',
+      "",
+      'data: {"type":"message_marker","conversation_id":"conv-stream-reasoning","message_id":"assistant-new","marker":"final_channel_token","event":"first"}',
+      "",
+      "data: [DONE]",
+      ""
+    ].join("\n"),
+    onConversationRead: () =>
+      jsonResponse(completedConversation("conv-stream-reasoning", requestMessageId, "done"))
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...hostileBrowserSurface(),
+    session,
+    args: {
+      prompt: "reason",
+      model: "provider-thinking-model::thinking-effort=provider-high",
+      files: []
+    },
+    sleep: async () => {},
+    reportProgress: value => progress.push(value)
+  });
+
+  assert.equal(postedPayload.model, "provider-thinking-model");
+  assert.equal(postedPayload.thinking_effort, "provider-high");
+  assert.equal(
+    result.model,
+    "provider-thinking-model::thinking-effort=provider-high"
+  );
+  assert.ok(progress.some(value =>
+    value.state === "thinking" &&
+    value.detail === "ChatGPT reported reasoning activity."
+  ));
+  assert.ok(progress.some(value =>
+    value.state === "responding" &&
+    value.detail === "ChatGPT is generating the visible response."
+  ));
+  assert.ok(progress.some(value =>
+    value.state === "completed" &&
+    value.detail ===
+      "Model response received (model provider-thinking-model, effort provider-high, reasoning 3.5s)."
+  ));
+});
+
+test("ChatGPT distinguishes requested thinking effort from provider-confirmed effort", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  const progress = [];
+
+  const session = protocolSession({
+    conversationId: "conv-effort-unconfirmed",
+    onConversationPost: body => {
+      requestMessageId = body.messages[0].id;
+    },
+    onConversationRead: () =>
+      jsonResponse(completedConversation("conv-effort-unconfirmed", requestMessageId, "done"))
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...hostileBrowserSurface(),
+    session,
+    args: {
+      prompt: "reason",
+      model: "gpt-5-6-thinking::thinking-effort=extended",
+      files: []
+    },
+    sleep: async () => {},
+    reportProgress: value => progress.push(value)
+  });
+
+  assert.equal(result.model, "gpt-5-6-thinking");
+  assert.ok(progress.some(value =>
+    value.state === "completed" &&
+    value.detail ===
+      "Model response received (model gpt-5-6-thinking, requested effort extended, not confirmed by provider)."
   ));
 });
 
