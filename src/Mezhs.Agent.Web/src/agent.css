@@ -227,405 +227,158 @@
   font-size: 10px;
 }
 
-.agent-new-chat-controls {
+.agent-main-panel > .composer-wrap {
   margin-top: auto;
-  padding: 0 max(25px, calc((100% - 820px) / 2)) 4px;
 }
 
-.agent-policy-row {
-  position: relative;
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 2px;
-}
-
-.agent-policy-row > label {
-  color: #8b857c;
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-}
-
-.agent-policy-row > select {
-  width: 150px;
-  height: 31px;
-  padding: 0 30px 0 9px;
-  border: 1px solid #d9d4ca;
-  border-radius: 8px;
-  outline: 0;
-  color: #4d4841;
-  background: #fffefa;
-  font-size: 10px;
-  font-weight: 650;
-}
-
-.agent-policy-row > select:focus {
-  border-color: #9aab64;
-  box-shadow: 0 0 0 2px rgba(154,171,100,.12);
-}
-
-.agent-policy-details {
-  position: relative;
-}
-
-.agent-policy-details > summary {
-  padding: 6px 7px;
-  list-style: none;
-  color: #7c766d;
-  font-size: 9px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.agent-policy-details > summary::-webkit-details-marker {
-  display: none;
-}
-
-.agent-policy-details > summary::after {
-  content: "›";
-  display: inline-block;
-  margin-left: 5px;
-  transition: transform .12s ease;
-}
-
-.agent-policy-details[open] > summary::after {
-  transform: rotate(90deg);
-}
-
-.agent-target-picker {
-  min-width: 0;
-}
-
-.agent-target-picker .target-picker-field {
-  border-color: #d7d2c7;
-  color: #888279;
-  background: #fffefa;
-}
-
-.agent-target-picker .target-picker-field select {
-  border-color: #d7d2c7;
-  color: #464139;
-  background: #fff;
-}
-
-.agent-target-picker .target-picker-field select:focus {
-  border-color: #9aab64;
-  box-shadow: 0 0 0 2px rgba(154,171,100,.12);
-}
-
-.agent-target-picker .target-picker-field option {
-  color: #464139;
-  background: #fffefa;
-}
-
-.agent-target-picker-composer {
-  width: 260px;
-  align-content: start;
+.agent-composer-settings {
+  width: 252px;
+  display: grid;
   gap: 6px;
+  align-content: start;
 }
 
+.agent-composer-settings > .target-picker-field,
 .agent-target-picker-composer .target-picker-field {
   grid-template-columns: 72px minmax(0, 1fr);
   gap: 7px;
   min-height: 34px;
   padding: 4px 6px;
   border-color: #dfdad0;
+  color: #888279;
   background: #fbfaf7;
 }
 
+.agent-composer-settings > .target-picker-field > span,
 .agent-target-picker-composer .target-picker-field > span {
   font-size: 7px;
 }
 
+.agent-composer-settings > .target-picker-field select,
 .agent-target-picker-composer .target-picker-field select {
   height: 26px;
   padding: 0 6px;
+  border-color: #d7d2c7;
+  color: #464139;
+  background: #fffefa;
   font-size: 9px;
-  background: #fffefa;
 }
 
-.agent-policy-summary {
-  position: absolute;
-  z-index: 8;
-  right: 0;
-  bottom: calc(100% + 7px);
-  width: min(520px, calc(100vw - 48px));
-  max-height: min(360px, 45vh);
-  overflow: auto;
-  padding: 12px 13px;
+.agent-composer-settings > .target-picker-field select:focus,
+.agent-target-picker-composer .target-picker-field select:focus {
+  border-color: #9aab64;
+  box-shadow: 0 0 0 2px rgba(154,171,100,.12);
+}
+
+.agent-composer-settings .connection-model-picker,
+.agent-target-picker-composer {
   display: grid;
-  gap: 4px;
-  border: 1px solid #ddd8ce;
-  border-radius: 10px;
-  color: #817b72;
-  background: #fffefa;
-  box-shadow: 0 14px 36px rgba(48,43,34,.14);
-  font-size: 10px;
+  gap: 6px;
 }
 
-.agent-policy-summary strong {
-  color: #403b35;
-  font-size: 11px;
+.agent-target-picker {
+  min-width: 0;
 }
 
-.agent-policy-summary pre {
-  margin: 6px 0 0;
-  white-space: pre-wrap;
-  color: #686259;
-  font: 10px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
-}
-
-.agent-execution-status {
-  display: inline-flex;
+.agent-policy-readonly {
+  min-width: 0;
+  height: 26px;
+  padding: 0 7px;
+  display: flex;
   align-items: center;
-  padding: 2px 6px;
-  border-radius: 99px;
-  color: #7d786f;
-  background: #e8e4dc;
-  font-size: 8px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .04em;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #ddd8ce;
+  border-radius: 7px;
+  color: #5f5a52;
+  background: #f3f0e9;
+  font-size: 9px;
+  font-weight: 650;
 }
 
-.agent-execution-status.good { color: #637d1f; background: #e8f6c5; }
-.agent-execution-status.bad { color: #a63f38; background: #f6dedb; }
-.agent-execution-status.active { color: #6d743d; background: #edf4d7; }
-.agent-execution-status.muted { color: #7d786f; background: #e8e4dc; }
-
-.agent-empty-chat {
-  color: #918b82;
-  font-size: 11px;
-}
-
-.agent-start-prompt,
-.agent-command-result,
-.agent-command-request {
-  margin-top: 12px;
+.agent-policy-readonly > span {
+  min-width: 0;
   overflow: hidden;
-  border: 1px solid #d8d2c8;
-  border-radius: 11px;
-  background: #f7f4ee;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.agent-start-prompt summary,
-.agent-command-result summary,
-.agent-command-request summary {
-  position: relative;
-  padding: 10px 34px 10px 11px;
-  display: grid;
-  gap: 5px;
+.agent-policy-readonly svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: #918a80;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.agent-policy-overview {
+  overflow: hidden;
+  border: 1px solid #ddd8ce;
+  border-radius: 11px;
+  color: #6f6960;
+  background: rgba(255,254,250,.96);
+}
+
+.agent-policy-overview > summary {
+  min-height: 38px;
+  padding: 7px 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
   list-style: none;
   cursor: pointer;
 }
 
-.agent-start-prompt summary::-webkit-details-marker,
-.agent-command-result summary::-webkit-details-marker,
-.agent-command-request summary::-webkit-details-marker {
+.agent-policy-overview > summary::-webkit-details-marker {
   display: none;
 }
 
-.agent-start-prompt summary::after,
-.agent-command-result summary::after,
-.agent-command-request summary::after {
-  content: "+";
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #8e887f;
-  font-size: 15px;
-  font-weight: 400;
-}
-
-.agent-start-prompt[open] summary::after,
-.agent-command-result[open] summary::after,
-.agent-command-request[open] summary::after {
-  content: "−";
-}
-
-.agent-start-prompt summary:hover,
-.agent-command-result summary:hover,
-.agent-command-request summary:hover {
-  background: #f1eee7;
-}
-
-.agent-start-prompt summary > div,
-.agent-command-result-heading,
-.agent-command-request-heading {
+.agent-policy-overview > summary > span:first-child {
+  min-width: 0;
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
-  gap: 7px;
+  gap: 10px;
 }
 
-.agent-start-prompt summary strong,
-.agent-command-result-heading strong,
-.agent-command-request-heading strong {
-  color: #4b463f;
+.agent-policy-overview > summary strong {
+  color: #403b35;
   font-size: 10px;
 }
 
-.agent-start-prompt summary span,
-.agent-command-result-heading span,
-.agent-command-request-heading > span:not(.agent-execution-status) {
-  color: #918b82;
-  font-size: 9px;
-}
-
-.agent-start-prompt summary code,
-.agent-command-result summary > code,
-.agent-command-request summary > code {
+.agent-policy-overview > summary small {
   min-width: 0;
   overflow: hidden;
-  color: #756f66;
-  font: 9px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: #918b82;
+  font-size: 8px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.agent-start-prompt-body,
-.agent-command-result-body,
-.agent-command-request-body {
-  padding: 10px 11px 11px;
-  border-top: 1px solid #ded8ce;
-  background: #fffefa;
-}
-
-.agent-start-prompt-body > span,
-.agent-command-result-body section > span,
-.agent-command-request-body section > span {
-  display: block;
-  margin-bottom: 5px;
-  color: #999289;
+.agent-policy-overview > summary > span:last-child {
+  flex: 0 0 auto;
+  color: #7d776f;
   font-size: 8px;
-  font-weight: 800;
-  letter-spacing: .09em;
-  text-transform: uppercase;
+  font-weight: 700;
 }
 
-.agent-start-prompt-body pre,
-.agent-command-result-body pre,
-.agent-command-request-body pre {
-  max-height: 360px;
-  margin: 0;
+.agent-policy-overview > pre {
+  max-height: 118px;
   overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: #514b44;
-  font: 10px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
-}
-
-.agent-command-results {
-  display: grid;
-  gap: 7px;
-}
-
-.agent-command-result + .agent-command-result,
-.agent-command-request + .agent-command-request {
-  margin-top: 0;
-}
-
-.agent-command-result-body,
-.agent-command-request-body {
-  display: grid;
-  gap: 11px;
-}
-
-.agent-command-result-body section,
-.agent-command-request-body section {
-  min-width: 0;
-}
-
-.agent-command-result-body p {
   margin: 0;
-  color: #918b82;
-  font-size: 10px;
-}
-
-.agent-command-result-meta,
-.agent-command-request-meta {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 7px;
-  align-items: baseline;
-  color: #999289;
-  font-size: 8px;
-  text-transform: uppercase;
-  letter-spacing: .07em;
-}
-
-.agent-command-result-meta code,
-.agent-command-request-meta code {
-  min-width: 0;
-  overflow: hidden;
-  color: #6d675f;
-  font: 9px ui-monospace, SFMono-Regular, Consolas, monospace;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agent-command-result-error pre {
-  color: #a63f38;
-}
-
-.agent-command-stop {
-  justify-self: start;
-}
-
-.agent-protocol-events {
-  margin-top: 12px;
-  display: grid;
-  gap: 7px;
-}
-
-.agent-protocol-card {
-  padding: 9px 10px;
-  border: 1px solid #d8d2c8;
-  border-radius: 10px;
-  background: #f4f1ea;
-}
-
-.agent-command-request {
-  padding: 0;
-}
-
-.agent-protocol-card > div {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.agent-protocol-card strong {
-  color: #4e552e;
-  font: 700 10px ui-monospace, SFMono-Regular, Consolas, monospace;
-}
-
-.agent-protocol-card span,
-.agent-protocol-card small {
-  color: #918b82;
-  font-size: 9px;
-}
-
-.agent-protocol-card pre {
-  margin: 7px 0;
+  padding: 9px 11px 10px;
+  border-top: 1px solid #ebe6dd;
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: #575149;
-  font: 10px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: #686259;
+  background: #fbfaf7;
+  font: 9px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
-.agent-command-request-body > small {
-  color: #918b82;
-  font-size: 9px;
-}
-
-.agent-done-card {
-  border-color: #c8dda0;
-  background: #f1f7e3;
+.agent-main-panel .composer-with-side-controls > textarea {
+  min-height: 108px;
 }
 
 .agent-execution-details {
@@ -696,9 +449,9 @@
   .agent-main-panel { height: auto; min-height: 58vh; }
   .agent-header { padding-inline: 18px; align-items: flex-start; }
   .agent-header-actions { flex-wrap: wrap; justify-content: flex-end; }
-  .agent-new-chat-controls { padding-left: 18px; padding-right: 18px; }
 }
 
 @media (max-width: 760px) {
-  .agent-target-picker-composer { width: 100%; }
+  .agent-composer-settings { width: 100%; }
+  .agent-main-panel .composer-with-side-controls > textarea { min-height: 78px; }
 }
