@@ -484,6 +484,102 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
   assert.equal(result.model, "o3");
 });
 
+test("ChatGPT carries native integrity-state observations across account API requests", async () => {
+  const chatgpt = loadChatGptModule();
+  const stateA = "ois1.header.1234567890abcdef.payloadA";
+  const stateB = "ois1.header.abcdef1234567890.payloadB";
+  const stateC = "ois1.header.fedcba0987654321.payloadC";
+  let integrityState = stateA;
+  let preferenceObservation;
+  let prepareObservation;
+  let conversationObservation;
+  let requestMessageId;
+
+  const session = {
+    cookies: {
+      async get({ name }) {
+        if (name === "__Secure-oai-is")
+          return integrityState ? [{ value: integrityState }] : [];
+        if (name === "oai-did")
+          return [{ value: "device-1" }];
+        return [];
+      },
+      async set(cookie) {
+        if (cookie.name === "__Secure-oai-is")
+          integrityState = cookie.value;
+      }
+    },
+    async fetch(url, options = {}) {
+      const target = new URL(String(url));
+
+      if (target.pathname === "/api/auth/session")
+        return jsonResponse({ accessToken: "token" });
+
+      if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
+        preferenceObservation = options.headers["X-OAI-IS-Client-Observation"];
+        return new Response("", {
+          status: 200,
+          headers: { "x-oai-is-update": stateB }
+        });
+      }
+
+      if (target.pathname === "/backend-api/f/conversation/prepare") {
+        prepareObservation = options.headers["X-OAI-IS-Client-Observation"];
+        return jsonResponse({ conduit_token: "conduit" });
+      }
+
+      if (target.pathname === "/backend-api/sentinel/chat-requirements/prepare")
+        return jsonResponse({ prepare_token: "prepared" });
+
+      if (target.pathname === "/backend-api/sentinel/chat-requirements/finalize")
+        return jsonResponse({ token: "sentinel" });
+
+      if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
+        conversationObservation = options.headers["X-OAI-IS-Client-Observation"];
+        const body = JSON.parse(options.body);
+        requestMessageId = body.messages[0].id;
+        return new Response(
+          'data: {"conversation_id":"conv-integrity"}\n\ndata: [DONE]\n\n',
+          {
+            status: 200,
+            headers: {
+              "content-type": "text/event-stream",
+              "x-oai-is-update": stateC
+            }
+          }
+        );
+      }
+
+      if (target.pathname === "/backend-api/conversation/conv-integrity")
+        return jsonResponse(completedConversation(
+          "conv-integrity",
+          null,
+          "o3",
+          requestMessageId,
+          "o3"
+        ));
+
+      throw new Error(`Unexpected request ${target}`);
+    }
+  };
+
+  const result = await chatgpt.operations.newChat({
+    window: {
+      getBounds: () => ({ width: 1200, height: 850 }),
+      webContents: { getUserAgent: () => "TestBrowser/1.0" }
+    },
+    session,
+    args: { prompt: "integrity", model: "o3", files: [] },
+    sleep: async () => {}
+  });
+
+  assert.equal(preferenceObservation, "v1.r.p.1234567890abcdef");
+  assert.equal(prepareObservation, "v1.r.p.abcdef1234567890");
+  assert.equal(conversationObservation, "v1.s.p.abcdef1234567890");
+  assert.equal(integrityState, stateC);
+  assert.equal(result.text, "answer");
+});
+
 test("ChatGPT browser module does not hardcode provider model-id rewrites or version classifiers", () => {
   const source = fs.readFileSync(
     path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "chatgpt.ts"),
