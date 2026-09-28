@@ -300,6 +300,8 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
   const chatgpt = loadChatGptModule();
   const seed = "0.559779845730002";
   const difficulty = "ffffff";
+  let initHeaders;
+  let initPayload;
   let prepareHeaders;
   let preparePayload;
   let sentinelPreparePayload;
@@ -315,6 +317,16 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
     if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
       assert.equal(target.search, "?model_slug=o3");
       return textResponse("");
+    }
+
+    if (target.pathname === "/backend-api/conversation/init") {
+      initHeaders = options.headers;
+      initPayload = JSON.parse(options.body);
+      return jsonResponse({
+        type: "conversation_detail_metadata",
+        default_model_slug: "o3",
+        intended_default_model_slug: "o3"
+      });
     }
 
     if (target.pathname === "/backend-api/f/conversation/prepare") {
@@ -390,6 +402,19 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
     sleep: async () => {}
   });
 
+  assert.deepEqual(initPayload, {
+    gizmo_id: "g-p-mezhs",
+    requested_default_model: null,
+    conversation_id: null,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    timezone_offset_min: new Date().getTimezoneOffset(),
+    conversation_origin: null
+  });
+  assert.equal(initHeaders["x-openai-web-frontend"], "core_web");
+  assert.equal(initHeaders["x-openai-target-path"], "/backend-api/conversation/init");
+  assert.equal(initHeaders["Oai-Device-Id"], "device-1");
+  assert.ok(initHeaders["Oai-Session-Id"]);
+
   assert.match(sentinelPreparePayload.p, /^gAAAAAC/);
   assert.equal(sentinelFinalizePayload.prepare_token, "prepared");
   assertProofToken(sentinelFinalizePayload.proofofwork, seed, difficulty);
@@ -405,9 +430,9 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
     kind: "gizmo_interaction",
     gizmo_id: "g-p-mezhs"
   });
-  assert.equal(preparePayload.client_prepare_state, "success");
-  assert.equal(preparePayload.client_prepare_dispatch, "immediate");
-  assert.equal(preparePayload.client_prepare_source, "context_change");
+  assert.equal(preparePayload.client_prepare_state, "none");
+  assert.equal(preparePayload.client_prepare_dispatch, "debounced");
+  assert.equal(preparePayload.client_prepare_source, "composer_editor_state");
   assert.equal(preparePayload.partial_query.id, conversationPayload.messages[0].id);
   assert.deepEqual(preparePayload.partial_query.author, { role: "user" });
   assert.deepEqual(preparePayload.partial_query.content, conversationPayload.messages[0].content);
@@ -433,7 +458,8 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
   assert.equal(conversationPayload.client_prepare_state, "success");
   assert.deepEqual(conversationPayload.supported_encodings, ["v1"]);
   assert.equal(conversationPayload.supports_buffering, true);
-  assert.equal("enable_message_followups" in conversationPayload, false);
+  assert.equal(conversationPayload.enable_message_followups, true);
+  assert.equal(conversationPayload.messages[0].metadata.submission_mode, "manual_send");
   assert.equal("history_and_training_disabled" in conversationPayload, false);
   assert.equal(conversationPayload.force_parallel_switch, "auto");
   assert.deepEqual(conversationPayload.local_function_names, ["local.continue_in_work"]);
@@ -442,6 +468,10 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
 
   assert.equal(conversationHeaders["openai-sentinel-chat-requirements-token"], "sentinel");
   assert.equal(conversationHeaders["x-conduit-token"], "conduit");
+  assert.equal(conversationHeaders["x-openai-web-frontend"], "core_web");
+  assert.equal(prepareHeaders["x-openai-web-frontend"], "core_web");
+  assert.equal(initHeaders["Oai-Session-Id"], prepareHeaders["Oai-Session-Id"]);
+  assert.equal(prepareHeaders["Oai-Session-Id"], conversationHeaders["Oai-Session-Id"]);
   assert.equal(conversationHeaders["x-oai-turn-trace-id"], prepareHeaders["x-oai-turn-trace-id"]);
   assert.equal(conversationHeaders["x-openai-target-path"], "/backend-api/f/conversation");
   assert.equal(conversationHeaders["Oai-Device-Id"], "device-1");
@@ -601,6 +631,11 @@ test("ChatGPT rejects an invalid proof-of-work challenge before finalize/send", 
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
+    if (target.pathname === "/backend-api/conversation/init")
+      return jsonResponse({
+        type: "conversation_detail_metadata",
+        default_model_slug: "gpt-5-6-thinking"
+      });
     if (target.pathname === "/backend-api/f/conversation/prepare")
       return jsonResponse({ conduit_token: "conduit" });
     if (target.pathname === "/backend-api/sentinel/chat-requirements/prepare")
