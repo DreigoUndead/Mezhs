@@ -1022,20 +1022,18 @@ const INTEGRITY_STATE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
 async function apiFetch(session, token, endpoint, options = {}) {
   const accountId = accountIds.get(session);
-  const headers = new Headers({
+  const headers = {
     Authorization: `Bearer ${token}`,
     ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
     ...(options["headers"] || {})
-  });
+  };
   const streamRequest = endpoint === API.conversation;
-  headers.set(
-    "X-OAI-IS-Client-Observation",
-    await integrityStateObservation(session, streamRequest ? "s" : "r")
-  );
+  headers["X-OAI-IS-Client-Observation"] =
+    await integrityStateObservation(session, streamRequest ? "s" : "r");
 
   const response = await session.fetch(ORIGIN + endpoint, {
     ...options,
-    headers: Object.fromEntries(headers.entries()),
+    headers,
     credentials: "include",
     cache: "no-store"
   });
