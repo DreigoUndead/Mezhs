@@ -531,6 +531,12 @@ test("ChatGPT captures transient provider reasoning metadata from the response s
       'event: delta',
       'data: {"v":{"message":{"id":"reasoning-1","author":{"role":"assistant"},"content":{"content_type":"reasoning_recap","content":"Worked"},"status":"finished_successfully","metadata":{"reasoning_status":"reasoning_ended","reasoning_start_time":100.25,"reasoning_end_time":103.75,"resolved_model_slug":"provider-thinking-model","model_slug":"provider-thinking-model","thinking_effort":"provider-high","can_save":false}},"conversation_id":"conv-stream-reasoning"}}',
       "",
+      'event: delta',
+      'data: {"v":{"message":{"id":"tool-call-1","author":{"role":"assistant"},"recipient":"web.run","content":{"content_type":"text","parts":[""]},"status":"finished_successfully","metadata":{"resolved_model_slug":"provider-thinking-model","thinking_effort":"provider-high"}},"conversation_id":"conv-stream-reasoning"}}',
+      "",
+      'event: delta',
+      'data: {"v":{"message":{"id":"tool-result-1","author":{"role":"tool","name":"web.run"},"content":{"content_type":"text","parts":[""]},"status":"finished_successfully","metadata":{}},"conversation_id":"conv-stream-reasoning"}}',
+      "",
       'data: {"type":"message_marker","conversation_id":"conv-stream-reasoning","message_id":"assistant-new","marker":"final_channel_token","event":"first"}',
       "",
       "data: [DONE]",
@@ -569,8 +575,12 @@ test("ChatGPT captures transient provider reasoning metadata from the response s
   assert.ok(progress.some(value =>
     value.state === "completed" &&
     value.detail ===
-      "Model response received (model provider-thinking-model, effort provider-high, reasoning 3.5s)."
+      "Model response received (model provider-thinking-model, effort provider-high, reasoning 3.5s, tools web.run)."
   ));
+  const states = progress.map(value => value.state);
+  assert.ok(states.indexOf("waiting") >= 0);
+  assert.ok(states.indexOf("waiting") < states.indexOf("thinking"));
+  assert.ok(states.indexOf("thinking") < states.indexOf("responding"));
 });
 
 test("ChatGPT distinguishes requested thinking effort from provider-confirmed effort", async () => {
