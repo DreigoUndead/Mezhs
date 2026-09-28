@@ -134,10 +134,10 @@ try {
     $lowPolicy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/low"
     $midPolicy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/mid"
     $highPolicy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/high"
-    if ($null -eq $lowPolicy -or $lowPolicy.connectionId -ne 'test' -or $lowPolicy.defaultModel -ne 'mock-fast' -or
-        $null -eq $midPolicy -or $midPolicy.connectionId -ne 'test' -or $midPolicy.defaultModel -ne 'mock-deep' -or
-        $null -eq $highPolicy -or $highPolicy.connectionId -ne 'test-alt' -or $highPolicy.defaultModel -ne 'mock-deep') {
-        throw "Low/mid/high Agent policy defaults were not exposed correctly."
+    if ($null -eq $lowPolicy -or $lowPolicy.name -ne 'Test Instant' -or $lowPolicy.connectionId -ne 'test' -or $lowPolicy.defaultModel -ne 'mock-fast' -or
+        $null -eq $midPolicy -or $midPolicy.name -ne 'Test Mid' -or $midPolicy.connectionId -ne 'test' -or $midPolicy.defaultModel -ne 'mock-deep' -or
+        $null -eq $highPolicy -or $highPolicy.name -ne 'Test High' -or $highPolicy.connectionId -ne 'test-alt' -or $highPolicy.defaultModel -ne 'mock-deep') {
+        throw "Low/mid/high Agent policy names/defaults were not exposed correctly."
     }
 
     $originClient = [Net.Http.HttpClient]::new()
