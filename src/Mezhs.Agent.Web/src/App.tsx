@@ -954,27 +954,31 @@ useEffect(() => {
               </div>
             </header>
 
-            <section className="agent-new-chat">
-              <p>Select a policy. Its integration and model / effort defaults appear beside the prompt and can be overridden before the first turn.</p>
-              <label className="agent-field-label" htmlFor="policy">Policy</label>
-              <select
-                id="policy"
-                value={policyId}
-                onChange={(event) => selectPolicy(event.target.value)}
-                disabled={sending}
-              >
-                {orderedPolicies.map((policy) => (
-                  <option key={policy.id} value={policy.id}>{policy.id}</option>
-                ))}
-              </select>
-              {selectedPolicy && (
-                <div className="agent-policy-summary">
-                  <strong>{selectedPolicy.id}</strong>
-                  <span>Default integration: {selectedPolicy.connectionId}</span>
-                  <span>Default model / effort: {selectedPolicy.defaultModel || "Integration default"}</span>
-                  {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
-                </div>
-              )}
+            <section className="agent-new-chat-controls">
+              <div className="agent-policy-row">
+                <label htmlFor="policy">Policy</label>
+                <select
+                  id="policy"
+                  value={policyId}
+                  onChange={(event) => selectPolicy(event.target.value)}
+                  disabled={sending}
+                >
+                  {orderedPolicies.map((policy) => (
+                    <option key={policy.id} value={policy.id}>{policy.id}</option>
+                  ))}
+                </select>
+                {selectedPolicy && (
+                  <details className="agent-policy-details">
+                    <summary>Details</summary>
+                    <div className="agent-policy-summary">
+                      <strong>{selectedPolicy.id}</strong>
+                      <span>Default integration: {selectedPolicy.connectionId}</span>
+                      <span>Default model / effort: {selectedPolicy.defaultModel || "Integration default"}</span>
+                      {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
+                    </div>
+                  </details>
+                )}
+              </div>
             </section>
 
             <ChatComposer
