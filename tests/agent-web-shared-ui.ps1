@@ -25,6 +25,12 @@ if ($shared -notmatch 'sideControls\?: ReactNode' -or
     $agentApp -match 'agent-target-picker-header|agent-target-picker-new') {
     throw "Agent target controls are not consistently owned by the prompt composer."
 }
+if ($agentApp -match 'className="agent-new-chat"' -or
+    $agentApp -notmatch 'className="agent-new-chat-controls"' -or
+    $agentApp -notmatch 'className="agent-policy-row"' -or
+    $agentApp -notmatch '<summary>Details</summary>') {
+    throw "New Agent chat still uses the old center setup card instead of compact prompt-adjacent policy controls."
+}
 if ($agentMain -notmatch '@mezhs/web-lib/styles\.css') {
     throw "Agent Web is not consuming common MEZS web styling."
 }
@@ -81,8 +87,8 @@ if ($agentApp -notmatch 'Download log' -or $agentApp -notmatch '/debug-log') {
     throw "Agent Web no longer exposes authenticated debug-log download through its proxy."
 }
 if ($agentApp -notmatch 'Promise\.allSettled' -or
-    $agentApp -notmatch '\.then\(setMessages\)' -or
-    $agentApp -notmatch '\.then\(setExecutions\)') {
+    $agentApp -notmatch 'loadMessages\(chatId, syncModel, signal\)' -or
+    $agentApp -notmatch 'loadExecutions\(chatId, signal\)') {
     throw "Agent Web couples durable execution refresh to the remote chat-message request."
 }
 
