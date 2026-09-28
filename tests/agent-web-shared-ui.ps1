@@ -20,16 +20,20 @@ if ($agentApp -notmatch 'ChatTranscript' -or $agentApp -notmatch 'ChatComposer')
     throw "Agent Web does not consume the shared chat surface."
 }
 if ($shared -notmatch 'sideControls\?: ReactNode' -or
+    $shared -notmatch 'topContent\?: ReactNode' -or
+    $shared -notmatch 'composer-top-content' -or
     $shared -notmatch 'composer-side-controls' -or
     $agentApp -notmatch 'sideControls=\{\(' -or
     $agentApp -match 'agent-target-picker-header|agent-target-picker-new') {
     throw "Agent target controls are not consistently owned by the prompt composer."
 }
-if ($agentApp -match 'className="agent-new-chat"' -or
-    $agentApp -notmatch 'className="agent-new-chat-controls"' -or
-    $agentApp -notmatch 'className="agent-policy-row"' -or
-    $agentApp -notmatch '<summary>Details</summary>') {
-    throw "New Agent chat still uses the old center setup card instead of compact prompt-adjacent policy controls."
+if ($agentApp -match 'className="agent-new-chat"|agent-new-chat-controls|agent-policy-row' -or
+    $agentApp -notmatch 'topContent=\{selectedPolicy' -or
+    $agentApp -notmatch 'className="agent-policy-overview"' -or
+    $agentApp -notmatch 'className="agent-composer-settings"' -or
+    $agentApp -notmatch 'className="agent-policy-readonly"' -or
+    $agentApp -notmatch 'policy\.name') {
+    throw "Agent policy UI is not integrated into the composer with new-chat details and existing-chat read-only state."
 }
 if ($agentMain -notmatch '@mezhs/web-lib/styles\.css') {
     throw "Agent Web is not consuming common MEZS web styling."
@@ -53,6 +57,11 @@ if ($agentApp -match 'manual-chat-configs|ManualChatConfig|manualConfig' -or
 }
 if ($agentApp -match '<textarea' -or $agentApp -match '<form[^>]+className="composer"') {
     throw "Agent Web reimplemented the shared composer."
+}
+if ($shared -match '>\^</button>' -or
+    $shared -notmatch '<svg viewBox="0 0 20 20"' -or
+    $shared -notmatch 'aria-label="Send message"') {
+    throw "Shared composer still uses a text glyph instead of the send icon."
 }
 if ($shared -notmatch '<MarkdownContent content=\{message\.content\}' -or
     $markdown -notmatch '```' -or $markdown -notmatch 'safeLink') {
