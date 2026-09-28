@@ -53,8 +53,10 @@ Assert ($options -notmatch 'ManualChats|AgentManualChatOptions' -and
         $program -notmatch 'manual-chat-configs' -and
         $agentClient -notmatch 'ManualChat') "Redundant manual Agent chat configuration/API still exists."
 Assert ($policyContext -match 'DefaultModel' -and
+        $policyContext -match 'Name => Settings\.Name' -and
         $policyDecoder -match 'definition\.DefaultModel' -and
-        $agentService -match 'policy\.DefaultModel') "Policy-owned model/effort defaults are not compiled and applied by Agent."
+        $policyDecoder -match 'definition\.Name' -and
+        $agentService -match 'policy\.DefaultModel') "Policy-owned names/model defaults are not compiled and applied by Agent."
 
 Assert ($worker -match 'Channel\.CreateBounded<bool>' -and $worker -match 'SignalWork' -and $worker -notmatch 'Channel\.CreateBounded<string>|_queuedCount|_activeCount') "Agent worker still owns execution IDs/state instead of using a wake-only channel."
 Assert ($worker -match 'Enumerable\.Range\(0, _maxConcurrentExecutions\)' -and $worker -notmatch 'HashSet<Task>|_chatGates|SemaphoreSlim') "Agent worker concurrency or per-chat serialization remains in transient task/gate state."
