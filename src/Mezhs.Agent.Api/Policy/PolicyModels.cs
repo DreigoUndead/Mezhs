@@ -4,6 +4,8 @@ namespace Mezhs.Agent.Policy;
 
 public sealed class PolicyDefinition
 {
+    public string? Name { get; set; }
+
     [Required]
     public string? ConnectionId { get; set; }
 
@@ -46,6 +48,7 @@ public sealed class PolicyLimitsDefinition
 }
 
 public sealed record PolicySettings(
+    string Name,
     string ConnectionId,
     string? DefaultModel,
     string Instructions,
