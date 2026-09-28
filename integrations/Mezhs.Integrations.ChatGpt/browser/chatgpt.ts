@@ -985,18 +985,6 @@ async function uploadFiles(session, token, files) {
   return result;
 }
 
-function findConversationId(text) {
-  for (const value of text.split(/\r?\n/)) {
-    const json = value.startsWith("data:") ? value.slice(5).trim() : value.trim();
-    if (!json || json === "[DONE]") continue;
-    try {
-      const id = JSON.parse(json)?.conversation_id;
-      if (id) return id;
-    } catch { }
-  }
-  return null;
-}
-
 async function waitForConversation(
   session,
   token,
