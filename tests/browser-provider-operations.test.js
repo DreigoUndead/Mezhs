@@ -454,11 +454,21 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
   assert.equal(result.model, "o3");
 });
 
-test("ChatGPT picker selections send their current wire model and thinking effort", async () => {
+test("ChatGPT browser module does not hardcode provider model-id rewrites or version classifiers", () => {
+  const source = fs.readFileSync(
+    path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "chatgpt.ts"),
+    "utf8"
+  );
+  assert.doesNotMatch(source, /CHATGPT_WIRE_MODEL/);
+  assert.doesNotMatch(source, /"gpt-[^"]+":\s*"gpt-[^"]+"/);
+  assert.doesNotMatch(source, /versionId\.toLowerCase\(\)/);
+});
+
+test("ChatGPT picker selections are sent without model-specific rewrites", async () => {
   const chatgpt = loadChatGptModule();
   const selections = [
     { selected: undefined, model: "auto", effort: null },
-    { selected: "gpt-5-6-instant", model: "gpt-5-5", effort: null },
+    { selected: "gpt-5-6-instant", model: "gpt-5-6-instant", effort: null },
     {
       selected: "gpt-5-6-thinking::thinking-effort=standard",
       model: "gpt-5-6-thinking",
@@ -469,7 +479,7 @@ test("ChatGPT picker selections send their current wire model and thinking effor
       model: "gpt-5-6-thinking",
       effort: "extended"
     },
-    { selected: "gpt-5-5-instant", model: "gpt-5-5", effort: null },
+    { selected: "gpt-5-5-instant", model: "gpt-5-5-instant", effort: null },
     {
       selected: "gpt-5-5-thinking::thinking-effort=standard",
       model: "gpt-5-5-thinking",
