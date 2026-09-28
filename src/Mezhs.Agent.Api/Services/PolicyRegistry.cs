@@ -19,6 +19,7 @@ public sealed class PolicyRegistry(AgentOptions options)
         var policy = Get(policyId);
         return new AgentPolicyView(
             policy.Id,
+            policy.Name,
             policy.ConnectionId,
             policy.DefaultModel,
             policy.ModelInstructions,
