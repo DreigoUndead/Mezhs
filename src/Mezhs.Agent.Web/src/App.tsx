@@ -14,6 +14,7 @@ import {
 
 type AgentPolicy = {
   id: string;
+  name: string;
   connectionId: string;
   defaultModel?: string | null;
   modelInstructions: string;
@@ -412,6 +413,7 @@ export default function App() {
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [creating, setCreating] = useState(false);
   const [policyId, setPolicyId] = useState("");
+  const [policyDetailsOpen, setPolicyDetailsOpen] = useState(true);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [togglingPause, setTogglingPause] = useState(false);
@@ -430,6 +432,10 @@ export default function App() {
   const orderedPolicies = useMemo(
     () => [...policies].sort((left, right) =>
       policyOrder(left.id) - policyOrder(right.id) || left.id.localeCompare(right.id)),
+    [policies],
+  );
+  const policyNames = useMemo(
+    () => new Map(policies.map((policy) => [policy.id, policy.name])),
     [policies],
   );
   const activeExecution = executions.find((execution) =>
@@ -776,6 +782,7 @@ useEffect(() => {
     setExecutions([]);
     setDraft("");
     setNotice(null);
+    setPolicyDetailsOpen(true);
     const preferred = policies.find((policy) => policy.id.toLocaleLowerCase() === "high") ??
       policies[0];
     if (preferred)
@@ -930,7 +937,7 @@ useEffect(() => {
               onClick={() => selectChat(chat.chatId)}
             >
               <span className="agent-chat-title">{displayTitle(chat)}</span>
-              <small>{chat.policyId} · {chat.originSource}</small>
+              <small>{policyNames.get(chat.policyId) ?? chat.policyId} · {chat.originSource}</small>
               {chat.paused && <i>paused</i>}
             </button>
           ))}
@@ -954,33 +961,6 @@ useEffect(() => {
               </div>
             </header>
 
-            <section className="agent-new-chat-controls">
-              <div className="agent-policy-row">
-                <label htmlFor="policy">Policy</label>
-                <select
-                  id="policy"
-                  value={policyId}
-                  onChange={(event) => selectPolicy(event.target.value)}
-                  disabled={sending}
-                >
-                  {orderedPolicies.map((policy) => (
-                    <option key={policy.id} value={policy.id}>{policy.id}</option>
-                  ))}
-                </select>
-                {selectedPolicy && (
-                  <details className="agent-policy-details">
-                    <summary>Details</summary>
-                    <div className="agent-policy-summary">
-                      <strong>{selectedPolicy.id}</strong>
-                      <span>Default integration: {selectedPolicy.connectionId}</span>
-                      <span>Default model / effort: {selectedPolicy.defaultModel || "Integration default"}</span>
-                      {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
-                    </div>
-                  </details>
-                )}
-              </div>
-            </section>
-
             <ChatComposer
               value={draft}
               onChange={setDraft}
@@ -990,21 +970,54 @@ useEffect(() => {
               busy={sending}
               notice={notice}
               onDismissNotice={() => setNotice(null)}
+              topContent={selectedPolicy ? (
+                <details
+                  className="agent-policy-overview"
+                  open={policyDetailsOpen}
+                  onToggle={(event) => setPolicyDetailsOpen(event.currentTarget.open)}
+                >
+                  <summary>
+                    <span>
+                      <strong>{selectedPolicy.name}</strong>
+                      <small>
+                        {selectedPolicy.connectionId} · {selectedPolicy.defaultModel || "Integration default"}
+                      </small>
+                    </span>
+                    <span>{policyDetailsOpen ? "Hide details" : "Show details"}</span>
+                  </summary>
+                  {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
+                </details>
+              ) : undefined}
               sideControls={(
-                <ConnectionModelPicker
-                  className="agent-target-picker agent-target-picker-composer"
-                  connections={connections}
-                  connectionId={connectionId}
-                  models={models}
-                  modelId={modelId}
-                  onConnectionChange={selectTargetConnection}
-                  onModelChange={selectModel}
-                  connectionLabel="Integration"
-                  modelLabel="Model / effort"
-                  connectionDisabled={sending}
-                  modelDisabled={sending}
-                  modelsLoading={modelsLoading}
-                />
+                <div className="agent-composer-settings">
+                  <label className="target-picker-field" htmlFor="agent-policy">
+                    <span>Policy</span>
+                    <select
+                      id="agent-policy"
+                      value={policyId}
+                      onChange={(event) => selectPolicy(event.target.value)}
+                      disabled={sending}
+                    >
+                      {orderedPolicies.map((policy) => (
+                        <option key={policy.id} value={policy.id}>{policy.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <ConnectionModelPicker
+                    className="agent-target-picker agent-target-picker-composer"
+                    connections={connections}
+                    connectionId={connectionId}
+                    models={models}
+                    modelId={modelId}
+                    onConnectionChange={selectTargetConnection}
+                    onModelChange={selectModel}
+                    connectionLabel="Integration"
+                    modelLabel="Model / effort"
+                    connectionDisabled={sending}
+                    modelDisabled={sending}
+                    modelsLoading={modelsLoading}
+                  />
+                </div>
               )}
               disclaimer="Agent actions are governed by the selected policy and recorded in execution history."
             />
@@ -1013,7 +1026,7 @@ useEffect(() => {
           <>
             <header className="agent-header">
               <div>
-                <span className="eyebrow">{selectedChat.originSource} · {selectedChat.policyId}</span>
+                <span className="eyebrow">{selectedChat.originSource} · {selectedPolicy?.name ?? selectedChat.policyId}</span>
                 <h1>{displayTitle(selectedChat)}</h1>
                 <div className="agent-header-meta">
                   <span>{selectedChat.connectionId || selectedPolicy?.connectionId || "connection unavailable"}</span>
@@ -1242,20 +1255,32 @@ useEffect(() => {
               notice={notice}
               onDismissNotice={() => setNotice(null)}
               sideControls={(
-                <ConnectionModelPicker
-                  className="agent-target-picker agent-target-picker-composer"
-                  connections={connections}
-                  connectionId={connectionId}
-                  models={models}
-                  modelId={modelId}
-                  onConnectionChange={selectTargetConnection}
-                  onModelChange={selectModel}
-                  connectionLabel="Integration"
-                  modelLabel="Model / effort"
-                  connectionDisabled={sending || !!activeExecution}
-                  modelDisabled={sending || !!activeExecution}
-                  modelsLoading={modelsLoading}
-                />
+                <div className="agent-composer-settings">
+                  <div className="target-picker-field">
+                    <span>Policy</span>
+                    <div className="agent-policy-readonly" title="Policy is fixed after the chat starts">
+                      <span>{selectedPolicy?.name ?? selectedChat.policyId}</span>
+                      <svg viewBox="0 0 20 20" aria-hidden="true">
+                        <rect x="5.5" y="9" width="9" height="7" rx="1.5" />
+                        <path d="M7.5 9V6.8a2.5 2.5 0 0 1 5 0V9" />
+                      </svg>
+                    </div>
+                  </div>
+                  <ConnectionModelPicker
+                    className="agent-target-picker agent-target-picker-composer"
+                    connections={connections}
+                    connectionId={connectionId}
+                    models={models}
+                    modelId={modelId}
+                    onConnectionChange={selectTargetConnection}
+                    onModelChange={selectModel}
+                    connectionLabel="Integration"
+                    modelLabel="Model / effort"
+                    connectionDisabled={sending || !!activeExecution}
+                    modelDisabled={sending || !!activeExecution}
+                    modelsLoading={modelsLoading}
+                  />
+                </div>
               )}
               disclaimer="Agent actions are governed by policy and recorded in execution history."
             />
