@@ -147,6 +147,7 @@ public sealed record UpdateAgentChatRequest(bool Paused);
 
 public sealed record AgentPolicyView(
     string Id,
+    string Name,
     string ConnectionId,
     string? DefaultModel,
     string ModelInstructions,
