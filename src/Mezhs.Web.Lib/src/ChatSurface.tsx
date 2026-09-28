@@ -173,6 +173,7 @@ export type ChatComposerProps = {
   hint?: string;
   disclaimer?: string;
   leadingActions?: ReactNode;
+  topContent?: ReactNode;
   sideControls?: ReactNode;
 };
 
@@ -188,6 +189,7 @@ export function ChatComposer({
   hint = "Enter to send / Shift + Enter for a new line",
   disclaimer,
   leadingActions,
+  topContent,
   sideControls,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -214,6 +216,7 @@ export function ChatComposer({
           {onDismissNotice && <button type="button" onClick={onDismissNotice} aria-label="Dismiss">x</button>}
         </div>
       )}
+      {topContent && <div className="composer-top-content">{topContent}</div>}
       <form className={sideControls ? "composer composer-with-side-controls" : "composer"} onSubmit={submit}>
         <textarea
           ref={textareaRef}
@@ -234,7 +237,11 @@ export function ChatComposer({
             type="submit"
             disabled={disabled || busy || !value.trim()}
             aria-label="Send message"
-          >^</button>
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M10 16V4m0 0L5.5 8.5M10 4l4.5 4.5" />
+            </svg>
+          </button>
         </div>
       </form>
       {disclaimer && <small className="disclaimer">{disclaimer}</small>}
