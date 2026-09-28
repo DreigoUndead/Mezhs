@@ -11,6 +11,7 @@ const API = Object.freeze({
   projects: "/backend-api/gizmos/snorlax/sidebar",
   models: "/backend-api/models?history_and_training_disabled=false",
   modelPreference: "/backend-api/settings/user_last_used_model_config",
+  conversationInit: "/backend-api/conversation/init",
   conversationPrepare: "/backend-api/f/conversation/prepare",
   requirementsPrepare: "/backend-api/sentinel/chat-requirements/prepare",
   requirementsFinalize: "/backend-api/sentinel/chat-requirements/finalize",
@@ -255,6 +256,7 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
   const metadata = {
     selected_sources: [],
     serialization_metadata: { custom_symbol_offsets: [] },
+    submission_mode: "manual_send",
     ...(attachments.length ? { attachments } : {})
   };
   const projectMode = isNew && args.projectId
@@ -284,6 +286,7 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
       timezone_offset_min: new Date().getTimezoneOffset(),
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
       conversation_mode: projectMode,
+      enable_message_followups: true,
       system_hints: [],
       supports_buffering: true,
       supported_encodings: ["v1"],
@@ -302,10 +305,27 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
     detail: "Submitting prompt to ChatGPT."
   });
 
+  const clientSessionId = randomUUID();
   const execution = {
     requestedModel: selection.model === "auto" ? null : selection.model,
     requestedThinkingEffort: selection.thinkingEffort
   };
+  if (isNew && args.projectId) {
+    const initialized = await initializeConversation(
+      session,
+      token,
+      args.projectId,
+      clientSessionId
+    );
+    const initializedModel = String(
+      initialized?.intended_default_model_slug ||
+      initialized?.default_model_slug ||
+      ""
+    ).trim();
+    if (initializedModel)
+      execution.initializedDefaultModel = initializedModel;
+  }
+
   let requestMessageId = randomUUID();
   const posted = await postConversationTurn(
     window,
@@ -313,17 +333,13 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
     token,
     buildPayload(requestMessageId, isNew ? undefined : args.conversationId),
     args.conversationId,
-    reportProgress
+    reportProgress,
+    clientSessionId
   );
   let conversationId = posted.conversationId;
   mergeExecutionMetadata(execution, posted.execution);
   if (!conversationId)
     throw new Error("ChatGPT did not return a conversation id.");
-
-  reportProgress?.({
-    state: "waiting",
-    detail: "Prompt accepted; waiting for model activity."
-  });
 
   return completeAccountMessage(
     session,
@@ -346,7 +362,8 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
         token,
         buildPayload(retryMessageId, conversationId),
         conversationId,
-        reportProgress
+        reportProgress,
+        clientSessionId
       );
       mergeExecutionMetadata(execution, retry.execution);
       if (retry.conversationId !== conversationId)
@@ -364,7 +381,8 @@ async function postConversationTurn(
   token,
   payload,
   fallbackConversationId = null,
-  reportProgress
+  reportProgress,
+  clientSessionId
 ) {
   const config = sentinelConfig(window);
   const turnTraceId = randomUUID();
@@ -372,23 +390,23 @@ async function postConversationTurn(
     session,
     token,
     turnTraceId,
-    conversationPreparePayload(payload)
+    conversationPreparePayload(payload),
+    clientSessionId
   );
   const requirements = await getSentinelToken(session, token, config);
 
-  const headers = {
-    "Content-Type": "application/json",
-    "Accept": "text/event-stream",
-    "Oai-Language": "en-US",
-    "Oai-Session-Id": randomUUID(),
-    "openai-sentinel-chat-requirements-token": requirements.token,
-    "x-conduit-token": conduitToken,
-    "x-oai-turn-trace-id": turnTraceId,
-    "x-openai-target-path": API.conversation,
-    "x-openai-target-route": API.conversation
-  };
-  const deviceId = (await session.cookies.get({ url: ORIGIN, name: "oai-did" }))[0]?.value;
-  if (deviceId) headers["Oai-Device-Id"] = deviceId;
+  const headers = await webApiHeaders(
+    session,
+    API.conversation,
+    clientSessionId,
+    {
+      "Content-Type": "application/json",
+      "Accept": "text/event-stream",
+      "openai-sentinel-chat-requirements-token": requirements.token,
+      "x-conduit-token": conduitToken,
+      "x-oai-turn-trace-id": turnTraceId
+    }
+  );
   if (requirements.proofToken)
     headers["openai-sentinel-proof-token"] = requirements.proofToken;
 
@@ -396,6 +414,10 @@ async function postConversationTurn(
     method: "POST",
     headers,
     body: JSON.stringify(payload)
+  });
+  reportProgress?.({
+    state: "waiting",
+    detail: "Prompt accepted; waiting for model activity."
   });
   const stream = await readConversationStream(response, reportProgress);
   return {
@@ -502,6 +524,8 @@ function collectStreamExecutionMetadata(value, execution) {
   if (value?.content?.content_type === "reasoning_recap")
     execution.reasoningObserved = true;
 
+  collectToolMetadata(value, execution);
+
   const metadata = value.metadata;
   if (metadata && typeof metadata === "object")
     collectMetadataFields(metadata, execution);
@@ -516,6 +540,30 @@ function collectStreamExecutionMetadata(value, execution) {
   for (const nested of Object.values(value))
     if (nested && typeof nested === "object")
       collectStreamExecutionMetadata(nested, execution);
+}
+
+function collectToolMetadata(value, execution) {
+  const role = String(value?.author?.role || "").trim().toLowerCase();
+  const recipient = String(value?.recipient || "").trim();
+  const authorName = String(value?.author?.name || "").trim();
+  const metadata = value?.metadata || {};
+
+  if (role === "assistant" && recipient && recipient.toLowerCase() !== "all")
+    addExecutionTool(execution, recipient);
+  if (role === "tool" && authorName)
+    addExecutionTool(execution, authorName);
+
+  const metadataTool = String(metadata.tool_name || "").trim();
+  if (metadataTool && metadata.tool_invoked !== false)
+    addExecutionTool(execution, metadataTool);
+}
+
+function addExecutionTool(execution, tool) {
+  const value = String(tool || "").trim();
+  if (!value) return;
+  execution.tools ??= [];
+  if (!execution.tools.includes(value))
+    execution.tools.push(value);
 }
 
 function collectMetadataFields(metadata, execution) {
@@ -555,6 +603,8 @@ function mergeExecutionMetadata(target, source) {
     target.serverTtfvtMs ??= source.serverTtfvtMs;
   if (source.reasoningObserved)
     target.reasoningObserved = true;
+  for (const tool of source.tools || [])
+    addExecutionTool(target, tool);
 
   const start = finiteNumber(source.reasoningStart);
   const end = finiteNumber(source.reasoningEnd);
@@ -591,6 +641,8 @@ function completionDetail(execution) {
   } else if (execution?.reasoningObserved) {
     facts.push("reasoning observed");
   }
+  if (execution?.tools?.length)
+    facts.push(`tools ${execution.tools.join(", ")}`);
 
   return facts.length
     ? `Model response received (${facts.join(", ")}).`
@@ -644,9 +696,9 @@ function conversationPreparePayload(payload) {
     conversation_id: payload.conversation_id,
     parent_message_id: payload.parent_message_id || "client-created-root",
     model: payload.model,
-    client_prepare_state: "success",
-    client_prepare_dispatch: "immediate",
-    client_prepare_source: "context_change",
+    client_prepare_state: "none",
+    client_prepare_dispatch: "debounced",
+    client_prepare_source: "composer_editor_state",
     timezone_offset_min: payload.timezone_offset_min,
     timezone: payload.timezone,
     conversation_mode: payload.conversation_mode || { kind: "primary_assistant" },
@@ -673,22 +725,78 @@ function conversationPreparePayload(payload) {
   return prepared;
 }
 
-async function getConduitToken(session, token, turnTraceId, body) {
-  const response = await apiJson(session, token, API.conversationPrepare, {
+async function initializeConversation(
+  session,
+  token,
+  projectId,
+  clientSessionId
+) {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const headers = await webApiHeaders(
+    session,
+    API.conversationInit,
+    clientSessionId,
+    {
+      "Accept": "*/*",
+      "Content-Type": "application/json"
+    }
+  );
+  return apiJson(session, token, API.conversationInit, {
     method: "POST",
-    headers: {
+    headers,
+    body: JSON.stringify({
+      gizmo_id: projectId,
+      requested_default_model: null,
+      conversation_id: null,
+      timezone,
+      timezone_offset_min: new Date().getTimezoneOffset(),
+      conversation_origin: null
+    })
+  });
+}
+
+async function getConduitToken(
+  session,
+  token,
+  turnTraceId,
+  body,
+  clientSessionId
+) {
+  const headers = await webApiHeaders(
+    session,
+    API.conversationPrepare,
+    clientSessionId,
+    {
       "Accept": "*/*",
       "Content-Type": "application/json",
-      "x-oai-turn-trace-id": turnTraceId,
-      "x-openai-target-path": API.conversationPrepare,
-      "x-openai-target-route": API.conversationPrepare
-    },
+      "x-oai-turn-trace-id": turnTraceId
+    }
+  );
+  const response = await apiJson(session, token, API.conversationPrepare, {
+    method: "POST",
+    headers,
     body: JSON.stringify(body)
   });
   const conduitToken = String(response?.conduit_token || "").trim();
   if (!conduitToken)
     throw new Error("ChatGPT conversation prepare did not return a conduit token.");
   return conduitToken;
+}
+
+async function webApiHeaders(session, endpoint, clientSessionId, extra = {}) {
+  const headers = {
+    "Oai-Language": "en-US",
+    "Oai-Session-Id": clientSessionId,
+    "x-openai-web-frontend": "core_web",
+    "x-openai-target-path": endpoint,
+    "x-openai-target-route": endpoint,
+    ...extra
+  };
+  const deviceId = (
+    await session.cookies.get({ url: ORIGIN, name: "oai-did" })
+  )[0]?.value;
+  if (deviceId) headers["Oai-Device-Id"] = deviceId;
+  return headers;
 }
 
 async function getSentinelToken(session, token, config) {
@@ -1222,6 +1330,8 @@ function findVisibleAssistantReply(conversation, requestMessageId) {
 }
 
 function collectConversationExecutionMetadata(message, execution) {
+  if (!message) return;
+  collectToolMetadata(message, execution);
   if (message?.author?.role !== "assistant") return;
   collectMetadataFields(message.metadata || {}, execution);
   if (message?.content?.content_type === "reasoning_recap")
