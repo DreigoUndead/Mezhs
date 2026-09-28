@@ -65,6 +65,7 @@ messages:
 
 policies:
   low:
+    name: Test Instant
     connectionId: test
     defaultModel: mock-fast
     instructions: Complete the assigned deterministic test task.
@@ -79,6 +80,7 @@ policies:
       commandTimeoutSeconds: 2
 
   mid:
+    name: Test Mid
     connectionId: test
     defaultModel: mock-deep
     instructions: Complete the assigned deterministic test task.
@@ -93,6 +95,7 @@ policies:
       commandTimeoutSeconds: 2
 
   high:
+    name: Test High
     connectionId: test-alt
     defaultModel: mock-deep
     instructions: Complete the assigned deterministic test task.
