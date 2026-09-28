@@ -1015,18 +1015,32 @@ async function requireToken(session) {
   return token;
 }
 
+const INTEGRITY_STATE_COOKIE = "__Secure-oai-is";
+const INTEGRITY_STATE_PATTERN =
+  /^ois1\.[A-Za-z0-9_-]+\.([A-Za-z0-9_-]{16})\.[A-Za-z0-9_-]+$/;
+const INTEGRITY_STATE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+
 async function apiFetch(session, token, endpoint, options = {}) {
   const accountId = accountIds.get(session);
+  const headers = new Headers({
+    Authorization: `Bearer ${token}`,
+    ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
+    ...(options["headers"] || {})
+  });
+  const streamRequest = endpoint === API.conversation;
+  headers.set(
+    "X-OAI-IS-Client-Observation",
+    await integrityStateObservation(session, streamRequest ? "s" : "r")
+  );
+
   const response = await session.fetch(ORIGIN + endpoint, {
     ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
-      ...(options["headers"] || {})
-    },
+    headers: Object.fromEntries(headers.entries()),
     credentials: "include",
     cache: "no-store"
   });
+  await applyIntegrityStateUpdate(session, response.headers);
+
   if (response.ok) return response;
 
   const detail = (await response.text()).slice(0, 1000);
@@ -1040,6 +1054,39 @@ async function apiFetch(session, token, endpoint, options = {}) {
     }
   );
   throw error;
+}
+
+async function integrityStateObservation(session, source) {
+  try {
+    const cookies = await session.cookies.get({
+      url: ORIGIN,
+      name: INTEGRITY_STATE_COOKIE
+    });
+    const value = String(cookies?.[0]?.value || "").trim();
+    if (!value) return `v1.${source}.m`;
+    const match = INTEGRITY_STATE_PATTERN.exec(value);
+    return match
+      ? `v1.${source}.p.${match[1]}`
+      : `v1.${source}.i`;
+  } catch {
+    return `v1.${source}.r`;
+  }
+}
+
+async function applyIntegrityStateUpdate(session, headers) {
+  const update = String(headers?.get?.("x-oai-is-update") || "").trim();
+  if (!INTEGRITY_STATE_PATTERN.test(update) || !session.cookies?.set)
+    return;
+
+  await session.cookies.set({
+    url: ORIGIN,
+    name: INTEGRITY_STATE_COOKIE,
+    value: update,
+    path: "/",
+    secure: true,
+    sameSite: "lax",
+    expirationDate: Date.now() / 1000 + INTEGRITY_STATE_MAX_AGE_SECONDS
+  });
 }
 
 function parseRetryAfterMs(value) {
