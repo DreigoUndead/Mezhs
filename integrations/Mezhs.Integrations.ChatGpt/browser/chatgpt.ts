@@ -132,25 +132,24 @@ module.exports = {
 };
 
 function nativePickerModels(catalog) {
-  const models = new Map(
-    (catalog?.models || []).map(model => [
-      String(model?.slug || model?.id || "").trim().toLowerCase(),
-      model
-    ])
-  );
   const result = [];
   const seen = new Set();
-  for (const version of catalog?.versions || []) {
+  const versions = Array.isArray(catalog?.versions) ? catalog.versions : [];
+
+  for (const version of versions) {
     if (version?.enabled === false) continue;
-    const versionId = String(version?.id || "").trim();
     const versionName = String(
       version?.display_text_for_intelligence ||
       version?.display_text ||
-      versionId
+      ""
     ).trim();
-    const nativePresets = version?.intelligence_presets || [];
-    const presets = nativePresets
-      .filter(preset => preset?.preset_type === "available" && preset?.enabled !== false);
+    const nativePresets = Array.isArray(version?.intelligence_presets)
+      ? version.intelligence_presets
+      : [];
+    const presets = nativePresets.filter(preset =>
+      preset?.preset_type === "available" &&
+      preset?.enabled !== false
+    );
 
     if (nativePresets.length) {
       for (const preset of presets) {
@@ -161,48 +160,48 @@ function nativePickerModels(catalog) {
           preset?.title ||
           ""
         ).trim();
-        const id = modelSelectionId(model, effort);
-        const name = [versionName, presetName].filter(Boolean).join(" · ");
-        const key = id.toLowerCase();
-        if (!model || !name || seen.has(key)) continue;
-        seen.add(key);
-        result.push({ id, name });
+        addModelOption(
+          result,
+          seen,
+          modelSelectionId(model, effort),
+          [versionName, presetName].filter(Boolean).join(" · ")
+        );
       }
       continue;
     }
 
-    const canonicalId = versionId.toLowerCase() === "o3"
-      ? "o3"
-      : `gpt-${versionId.replace(/\./g, "-")}`;
-    const candidates = (version?.slugs || [])
+    const model = (Array.isArray(version?.slugs) ? version.slugs : [])
       .map(value => String(value || "").trim())
-      .filter(Boolean);
-    const id = candidates.find(candidate => candidate.toLowerCase() === canonicalId.toLowerCase()) ||
-      (models.has(canonicalId.toLowerCase()) ? canonicalId : null) ||
-      candidates.find(candidate => models.has(candidate.toLowerCase())) ||
-      candidates[0];
-    const model = id ? models.get(id.toLowerCase()) : null;
+      .find(Boolean);
+    addModelOption(result, seen, model, versionName || model);
+  }
+
+  if (result.length)
+    return result;
+
+  for (const model of catalog?.models || []) {
+    const id = String(model?.slug || model?.id || "").trim();
     const name = String(
-      versionName ||
       model?.title ||
       model?.display_name ||
       model?.name ||
-      id ||
-      ""
+      id
     ).trim();
-    const key = String(id || "").toLowerCase();
-    if (!id || !name || seen.has(key)) continue;
-    seen.add(key);
-    result.push({ id, name });
+    addModelOption(result, seen, id, name);
   }
   return result;
 }
 
+function addModelOption(result, seen, id, name) {
+  const normalizedId = String(id || "").trim();
+  const normalizedName = String(name || "").trim();
+  const key = normalizedId.toLowerCase();
+  if (!normalizedId || !normalizedName || seen.has(key)) return;
+  seen.add(key);
+  result.push({ id: normalizedId, name: normalizedName });
+}
+
 const MODEL_SELECTION_SEPARATOR = "::thinking-effort=";
-const CHATGPT_WIRE_MODEL = Object.freeze({
-  "gpt-5-6-instant": "gpt-5-5",
-  "gpt-5-5-instant": "gpt-5-5"
-});
 
 function modelSelectionId(model, thinkingEffort) {
   return thinkingEffort
@@ -213,13 +212,11 @@ function modelSelectionId(model, thinkingEffort) {
 function parseModelSelection(value) {
   const selected = String(value || "auto").trim() || "auto";
   const separator = selected.lastIndexOf(MODEL_SELECTION_SEPARATOR);
-  const model = separator > 0 ? selected.slice(0, separator) : selected;
-  const thinkingEffort = separator > 0
-    ? selected.slice(separator + MODEL_SELECTION_SEPARATOR.length).trim() || null
-    : null;
   return {
-    model: CHATGPT_WIRE_MODEL[model.toLowerCase()] || model,
-    thinkingEffort
+    model: separator > 0 ? selected.slice(0, separator) : selected,
+    thinkingEffort: separator > 0
+      ? selected.slice(separator + MODEL_SELECTION_SEPARATOR.length).trim() || null
+      : null
   };
 }
 
@@ -305,14 +302,21 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
     detail: "Submitting prompt to ChatGPT."
   });
 
+  const execution = {
+    requestedModel: selection.model === "auto" ? null : selection.model,
+    requestedThinkingEffort: selection.thinkingEffort
+  };
   let requestMessageId = randomUUID();
-  let conversationId = await postConversationTurn(
+  const posted = await postConversationTurn(
     window,
     session,
     token,
     buildPayload(requestMessageId, isNew ? undefined : args.conversationId),
-    args.conversationId
+    args.conversationId,
+    reportProgress
   );
+  let conversationId = posted.conversationId;
+  mergeExecutionMetadata(execution, posted.execution);
   if (!conversationId)
     throw new Error("ChatGPT did not return a conversation id.");
 
@@ -329,29 +333,39 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
     sleep,
     isNew,
     reportProgress,
+    execution,
     async () => {
       const retryMessageId = randomUUID();
       reportProgress?.({
         state: "retrying",
         detail: `No active model generation was detected for ${TURN_INACTIVITY_WATCHDOG_MS / 1000}s; reposting the prompt once.`
       });
-      const retryConversationId = await postConversationTurn(
+      const retry = await postConversationTurn(
         window,
         session,
         token,
         buildPayload(retryMessageId, conversationId),
-        conversationId
+        conversationId,
+        reportProgress
       );
-      if (retryConversationId !== conversationId)
+      mergeExecutionMetadata(execution, retry.execution);
+      if (retry.conversationId !== conversationId)
         throw new Error(
-          `ChatGPT retry switched conversation from '${conversationId}' to '${retryConversationId}'.`
+          `ChatGPT retry switched conversation from '${conversationId}' to '${retry.conversationId}'.`
         );
       return retryMessageId;
     }
   );
 }
 
-async function postConversationTurn(window, session, token, payload, fallbackConversationId = null) {
+async function postConversationTurn(
+  window,
+  session,
+  token,
+  payload,
+  fallbackConversationId = null,
+  reportProgress
+) {
   const config = sentinelConfig(window);
   const turnTraceId = randomUUID();
   const conduitToken = await getConduitToken(
@@ -383,7 +397,204 @@ async function postConversationTurn(window, session, token, payload, fallbackCon
     headers,
     body: JSON.stringify(payload)
   });
-  return findConversationId(await response.text()) || fallbackConversationId;
+  const stream = await readConversationStream(response, reportProgress);
+  return {
+    conversationId: stream.conversationId || fallbackConversationId,
+    execution: stream.execution
+  };
+}
+
+async function readConversationStream(response, reportProgress) {
+  const state = {
+    conversationId: null,
+    execution: {},
+    pending: "",
+    thinkingReported: false,
+    respondingReported: false
+  };
+
+  const consume = text => {
+    state.pending += text;
+    while (true) {
+      const newline = state.pending.indexOf("\n");
+      if (newline < 0) break;
+      const line = state.pending.slice(0, newline).replace(/\r$/, "");
+      state.pending = state.pending.slice(newline + 1);
+      inspectConversationStreamLine(line, state, reportProgress);
+    }
+  };
+
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      consume(decoder.decode(value, { stream: true }));
+    }
+    consume(decoder.decode());
+  } else {
+    consume(await response.text());
+  }
+
+  if (state.pending)
+    inspectConversationStreamLine(state.pending.replace(/\r$/, ""), state, reportProgress);
+
+  return {
+    conversationId: state.conversationId,
+    execution: state.execution
+  };
+}
+
+function inspectConversationStreamLine(line, state, reportProgress) {
+  if (!line.startsWith("data:")) return;
+  const data = line.slice(5).trim();
+  if (!data || data === "[DONE]") return;
+
+  let value;
+  try {
+    value = JSON.parse(data);
+  } catch {
+    return;
+  }
+
+  if (!state.conversationId)
+    state.conversationId = findConversationIdInValue(value);
+
+  collectStreamExecutionMetadata(value, state.execution);
+
+  if (value?.type === "message_marker" && value.marker === "cot_token") {
+    state.execution.reasoningObserved = true;
+    if (!state.thinkingReported) {
+      state.thinkingReported = true;
+      reportProgress?.({
+        state: "thinking",
+        detail: "ChatGPT reported reasoning activity."
+      });
+    }
+  }
+
+  if (value?.type === "message_marker" && value.marker === "final_channel_token") {
+    if (!state.respondingReported) {
+      state.respondingReported = true;
+      reportProgress?.({
+        state: "responding",
+        detail: "ChatGPT is generating the visible response."
+      });
+    }
+  }
+}
+
+function findConversationIdInValue(value) {
+  if (!value || typeof value !== "object") return null;
+  if (typeof value.conversation_id === "string" && value.conversation_id)
+    return value.conversation_id;
+  for (const nested of Object.values(value)) {
+    const found = findConversationIdInValue(nested);
+    if (found) return found;
+  }
+  return null;
+}
+
+function collectStreamExecutionMetadata(value, execution) {
+  if (!value || typeof value !== "object") return;
+
+  if (value?.content?.content_type === "reasoning_recap")
+    execution.reasoningObserved = true;
+
+  const metadata = value.metadata;
+  if (metadata && typeof metadata === "object")
+    collectMetadataFields(metadata, execution);
+
+  if (value.type === "server_ste_metadata" && metadata) {
+    const experience = String(metadata.requested_model_experience || "").trim();
+    if (experience) execution.requestedModelExperience ??= experience;
+    const ttfvt = finiteNumber(metadata.server_ttfvt_ms);
+    if (ttfvt !== null) execution.serverTtfvtMs ??= ttfvt;
+  }
+
+  for (const nested of Object.values(value))
+    if (nested && typeof nested === "object")
+      collectStreamExecutionMetadata(nested, execution);
+}
+
+function collectMetadataFields(metadata, execution) {
+  const model = String(
+    metadata.resolved_model_slug ||
+    metadata.model_slug ||
+    ""
+  ).trim();
+  const thinkingEffort = String(metadata.thinking_effort || "").trim();
+  const reasoningStatus = String(metadata.reasoning_status || "").trim();
+  const reasoningStart = finiteNumber(metadata.reasoning_start_time);
+  const reasoningEnd = finiteNumber(metadata.reasoning_end_time);
+
+  if (model) execution.model ??= model;
+  if (thinkingEffort) execution.thinkingEffort ??= thinkingEffort;
+  if (reasoningStatus) execution.reasoningStatus ??= reasoningStatus;
+  if (reasoningStatus || reasoningStart !== null || reasoningEnd !== null)
+    execution.reasoningObserved = true;
+  if (reasoningStart !== null)
+    execution.reasoningStart = execution.reasoningStart === undefined
+      ? reasoningStart
+      : Math.min(execution.reasoningStart, reasoningStart);
+  if (reasoningEnd !== null)
+    execution.reasoningEnd = execution.reasoningEnd === undefined
+      ? reasoningEnd
+      : Math.max(execution.reasoningEnd, reasoningEnd);
+}
+
+function mergeExecutionMetadata(target, source) {
+  if (!source) return target;
+  if (source.model) target.model ??= source.model;
+  if (source.thinkingEffort) target.thinkingEffort ??= source.thinkingEffort;
+  if (source.reasoningStatus) target.reasoningStatus ??= source.reasoningStatus;
+  if (source.requestedModelExperience)
+    target.requestedModelExperience ??= source.requestedModelExperience;
+  if (source.serverTtfvtMs !== undefined)
+    target.serverTtfvtMs ??= source.serverTtfvtMs;
+  if (source.reasoningObserved)
+    target.reasoningObserved = true;
+
+  const start = finiteNumber(source.reasoningStart);
+  const end = finiteNumber(source.reasoningEnd);
+  if (start !== null)
+    target.reasoningStart = target.reasoningStart === undefined
+      ? start
+      : Math.min(target.reasoningStart, start);
+  if (end !== null)
+    target.reasoningEnd = target.reasoningEnd === undefined
+      ? end
+      : Math.max(target.reasoningEnd, end);
+  return target;
+}
+
+function finiteNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function completionDetail(execution) {
+  const facts = [];
+  if (execution?.model) facts.push(`model ${execution.model}`);
+  if (execution?.thinkingEffort) {
+    facts.push(`effort ${execution.thinkingEffort}`);
+  } else if (execution?.requestedThinkingEffort) {
+    facts.push(`requested effort ${execution.requestedThinkingEffort}, not confirmed by provider`);
+  }
+
+  const start = finiteNumber(execution?.reasoningStart);
+  const end = finiteNumber(execution?.reasoningEnd);
+  if (start !== null && end !== null && end >= start) {
+    facts.push(`reasoning ${(end - start).toFixed(1)}s`);
+  } else if (execution?.reasoningObserved) {
+    facts.push("reasoning observed");
+  }
+
+  return facts.length
+    ? `Model response received (${facts.join(", ")}).`
+    : "Model response received.";
 }
 
 async function completeAccountMessage(
@@ -394,6 +605,7 @@ async function completeAccountMessage(
   sleep,
   isNew,
   reportProgress,
+  execution,
   retryTurn
 ) {
   let result;
@@ -405,6 +617,7 @@ async function completeAccountMessage(
       requestMessageId,
       sleep,
       reportProgress,
+      execution,
       retryTurn
     );
   } catch (error) {
@@ -791,6 +1004,7 @@ async function waitForConversation(
   requestMessageId,
   sleep,
   reportProgress,
+  execution,
   retryTurn
 ) {
   const endpoint = API.conversationById(conversationId);
@@ -828,9 +1042,13 @@ async function waitForConversation(
 
     const turn = inspectConversationTurn(conversation, requestMessageId);
     if (turn.reply) {
+      mergeExecutionMetadata(execution, turn.reply.execution);
+      if (execution.model)
+        turn.reply.model = modelSelectionId(execution.model, execution.thinkingEffort);
+      turn.reply.execution = execution;
       reportProgress?.({
         state: "completed",
-        detail: "Model response received.",
+        detail: completionDetail(execution),
         analysis: turn.analysis
       });
       return turn.reply;
@@ -908,7 +1126,7 @@ function inspectConversationTurn(conversation, requestMessageId) {
         if (text) analysis.push(text);
       }
       if (!inProgress && message.status === "in_progress")
-        inProgress = { channel };
+        inProgress = { channel, reasoning: hasReasoningMetadata(message) };
     }
 
     node = mapping[node.parent];
@@ -927,7 +1145,7 @@ function inspectConversationTurn(conversation, requestMessageId) {
   }
 
   if (inProgress) {
-    const thinking = inProgress.channel === "analysis";
+    const thinking = inProgress.channel === "analysis" || inProgress.reasoning;
     return {
       reply: null,
       active: true,
@@ -982,24 +1200,26 @@ function findVisibleAssistantReply(conversation, requestMessageId) {
   let node = mapping[conversation?.current_node];
   let assistant = null;
   const files = new Map();
+  const execution = {};
 
   while (node) {
     const message = node.message;
+    collectConversationExecutionMetadata(message, execution);
+
     if (message?.id === requestMessageId) {
       if (!assistant) return null;
-      const assistantModel = String(
-        assistant.metadata?.resolved_model_slug ||
-        assistant.metadata?.model_slug ||
-        ""
-      ).trim() || null;
       const requestResolvedModel = String(
         message.metadata?.resolved_model_slug || ""
       ).trim() || null;
+      const resolvedModel = execution.model || requestResolvedModel;
       return {
         text: visibleAssistantText(assistant),
         parentMessageId: assistant.id,
         projectId: conversation.gizmo_id || null,
-        model: assistantModel || requestResolvedModel,
+        model: resolvedModel
+          ? modelSelectionId(resolvedModel, execution.thinkingEffort)
+          : null,
+        execution,
         files
       };
     }
@@ -1011,6 +1231,23 @@ function findVisibleAssistantReply(conversation, requestMessageId) {
   }
 
   return null;
+}
+
+function collectConversationExecutionMetadata(message, execution) {
+  if (message?.author?.role !== "assistant") return;
+  collectMetadataFields(message.metadata || {}, execution);
+  if (message?.content?.content_type === "reasoning_recap")
+    execution.reasoningObserved = true;
+}
+
+function hasReasoningMetadata(message) {
+  const metadata = message?.metadata || {};
+  return Boolean(
+    message?.content?.content_type === "reasoning_recap" ||
+    String(metadata.reasoning_status || "").trim() ||
+    finiteNumber(metadata.reasoning_start_time) !== null ||
+    finiteNumber(metadata.reasoning_end_time) !== null
+  );
 }
 
 function isVisibleAssistantMessage(message) {
