@@ -309,6 +309,7 @@ async function submitNativeConversationTurn(
     debug.attach("1.3");
 
   let requestEvent = null;
+  let responseStatus = null;
   let resolveRequest;
   let rejectCompletion;
   let resolveCompletion;
@@ -329,12 +330,30 @@ async function submitNativeConversationTurn(
 
     if (!requestEvent || params?.requestId !== requestEvent.requestId)
       return;
-    if (method === "Network.loadingFinished")
-      resolveCompletion();
-    else if (method === "Network.loadingFailed")
+
+    if (method === "Network.responseReceived") {
+      responseStatus = Number(params?.response?.status) || null;
+      return;
+    }
+
+    if (method === "Network.loadingFinished") {
+      resolveCompletion({ aborted: false });
+      return;
+    }
+
+    if (method === "Network.loadingFailed") {
+      const errorText = String(params?.errorText || "network failure");
+      if (errorText === "net::ERR_ABORTED" &&
+          responseStatus >= 200 &&
+          responseStatus < 300) {
+        resolveCompletion({ aborted: true });
+        return;
+      }
+
       rejectCompletion(new Error(
-        `Native ChatGPT request failed: ${params?.errorText || "network failure"}.`
+        `Native ChatGPT request failed: ${errorText}.`
       ));
+    }
   };
 
   debug.on("message", onMessage);
@@ -378,20 +397,19 @@ async function submitNativeConversationTurn(
       responseBody = response?.base64Encoded
         ? Buffer.from(String(response.body || ""), "base64").toString("utf8")
         : String(response?.body || "");
-    } catch (error) {
-      if (!expectedConversationId)
-        throw new Error(
-          `Could not read the native ChatGPT response stream: ${error?.message || error}`
-        );
+    } catch {
+      // A successful native fetch can be renderer-aborted after ChatGPT has
+      // accepted the turn. The semantic conversation state below is authoritative.
     }
 
     const stream = inspectConversationStreamText(responseBody, reportProgress);
     const conversationId =
       stream.conversationId ||
       String(body?.conversation_id || "").trim() ||
-      String(expectedConversationId || "").trim();
+      String(expectedConversationId || "").trim() ||
+      await waitForNativeConversationId(window);
     if (!conversationId)
-      throw new Error("ChatGPT native response did not reveal a conversation id.");
+      throw new Error("ChatGPT native send did not reveal a conversation id.");
 
     return {
       conversationId,
@@ -414,6 +432,24 @@ function isNativeConversationRequest(request) {
   } catch {
     return false;
   }
+}
+
+async function waitForNativeConversationId(window) {
+  if (typeof window.webContents.getURL !== "function")
+    return null;
+
+  for (let attempt = 0; attempt < 150; attempt++) {
+    try {
+      const url = new URL(String(window.webContents.getURL() || ""));
+      const match = /^\/c\/([^/]+)$/.exec(url.pathname);
+      if (match)
+        return decodeURIComponent(match[1]);
+    } catch {
+      // The page may be between navigations while ChatGPT creates the chat.
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  return null;
 }
 
 async function nativeConversationRequestBody(debug, event) {
@@ -783,9 +819,8 @@ async function apiFetch(session, token, endpoint, options = {}) {
     ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
     ...(options["headers"] || {})
   };
-  const streamRequest = endpoint === API.conversation;
   headers["X-OAI-IS-Client-Observation"] =
-    await integrityStateObservation(session, streamRequest ? "s" : "r");
+    await integrityStateObservation(session);
 
   const response = await session.fetch(ORIGIN + endpoint, {
     ...options,
@@ -810,20 +845,20 @@ async function apiFetch(session, token, endpoint, options = {}) {
   throw error;
 }
 
-async function integrityStateObservation(session, source) {
+async function integrityStateObservation(session) {
   try {
     const cookies = await session.cookies.get({
       url: ORIGIN,
       name: INTEGRITY_STATE_COOKIE
     });
     const value = String(cookies?.[0]?.value || "").trim();
-    if (!value) return `v1.${source}.m`;
+    if (!value) return "v1.r.m";
     const match = INTEGRITY_STATE_PATTERN.exec(value);
     return match
-      ? `v1.${source}.p.${match[1]}`
-      : `v1.${source}.i`;
+      ? `v1.r.p.${match[1]}`
+      : "v1.r.i";
   } catch {
-    return `v1.${source}.r`;
+    return "v1.r.r";
   }
 }
 
