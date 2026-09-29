@@ -128,7 +128,10 @@ function nativeBrowserSurface(session) {
           state.selectAllCalls = (state.selectAllCalls || 0) + 1;
         },
         insertText: async text => {
-          const inserted = String(text).replace(/\r\n?/g, "\n");
+          const normalized = String(text).replace(/\r\n?/g, "\n");
+          const inserted = state.transformInsertedText
+            ? state.transformInsertedText(normalized)
+            : normalized;
           composerText = selectedAll
             ? inserted
             : composerText + inserted;
@@ -290,6 +293,32 @@ test("ChatGPT accepts native LF normalization of Windows prompt line endings", a
 
   assert.equal(postedPrompt, "line one\nline two\nline three");
   assert.equal(result.text, "CRLF_OK");
+});
+
+test("ChatGPT prompt mismatch diagnostics report structure without echoing prompt text", async () => {
+  const chatgpt = loadChatGptModule();
+  const prompt = "[MEŽS AGENT EXECUTION exec_12345678901234567890123456789012]\n\nsecret task text";
+
+  const session = protocolSession({
+    conversationId: "conv-diagnostic",
+    onConversationPost: () => {},
+    onConversationRead: () => {
+      throw new Error("Conversation polling must not start after prompt validation fails.");
+    }
+  });
+  session.__native.transformInsertedText = value =>
+    value.replace("\n", " \n");
+
+  const error = await chatgpt.operations.newChat({
+    ...nativeBrowserSurface(session),
+    session,
+    args: { prompt, files: [] },
+    sleep: async () => {}
+  }).then(() => null, caught => caught);
+
+  assert.match(error?.message || "", /common prefix 60/);
+  assert.match(error?.message || "", /actual changed shape .*SPACE/);
+  assert.doesNotMatch(error?.message || "", /secret task text/);
 });
 
 test("ChatGPT follow-up ignores a stale assistant until the native user message appears in ancestry", async () => {
