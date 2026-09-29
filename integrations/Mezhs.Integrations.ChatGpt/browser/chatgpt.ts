@@ -805,6 +805,24 @@ async function webApiHeaders(session, endpoint, clientSessionId, extra = {}) {
   return headers;
 }
 
+function clientContext(window) {
+  const bounds = window?.getBounds?.() || {};
+  const width = Number(bounds.width) || 1200;
+  const height = Number(bounds.height) || 850;
+  return {
+    is_dark_mode: false,
+    time_since_loaded: 0,
+    page_height: height,
+    page_width: width,
+    pixel_ratio: 1,
+    screen_height: height,
+    screen_width: width,
+    app_name: "chatgpt.com",
+    has_web_push_capabilities: true,
+    web_push_notification_permission: "default"
+  };
+}
+
 async function nativeChatRequirementsHeaders(window) {
   const script = `
     (async () => {
