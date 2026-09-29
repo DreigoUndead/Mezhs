@@ -845,7 +845,6 @@ async function nativeChatRequirementsHeaders(window, payload) {
         return source.includes("chatReq") &&
           source.includes("turnstileToken") &&
           source.includes("proofToken") &&
-          source.includes("force_login") &&
           source.includes("getEnforcementTokenSync") &&
           source.includes("getEnforcementToken");
       };
