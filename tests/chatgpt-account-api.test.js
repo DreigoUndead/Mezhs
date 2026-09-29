@@ -224,9 +224,8 @@ function protocolSession({
   return session;
 }
 
-test("ChatGPT account newChat uses the semantic API even when browser UI hooks exist", async () => {
+test("ChatGPT account newChat submits through the native composer and reads the semantic conversation API", async () => {
   const chatgpt = loadChatGptModule();
-  const browser = hostileBrowserSurface();
   let requestMessageId;
   let conversationPosts = 0;
 
@@ -242,7 +241,7 @@ test("ChatGPT account newChat uses the semantic API even when browser UI hooks e
   });
 
   const result = await chatgpt.operations.newChat({
-    ...browser,
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "hello api", files: [] },
     sleep: async () => {}
@@ -253,7 +252,7 @@ test("ChatGPT account newChat uses the semantic API even when browser UI hooks e
   assert.equal(result.text, "API_OK");
 });
 
-test("ChatGPT follow-up ignores a stale assistant until the sent API message appears in ancestry", async () => {
+test("ChatGPT follow-up ignores a stale assistant until the native user message appears in ancestry", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
   let reads = 0;
@@ -353,7 +352,7 @@ test("ChatGPT final conversation metadata overrides earlier stream model metadat
   ));
 });
 
-test("ChatGPT API polling backs off on 429 without resending the turn", async () => {
+test("ChatGPT conversation polling backs off on 429 without resending the native turn", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
   let reads = 0;
@@ -393,129 +392,6 @@ test("ChatGPT API polling backs off on 429 without resending the turn", async ()
   assert.equal(result.text, "survived rate limit");
 });
 
-
-test("ChatGPT reposts once when a submitted turn never shows model activity", async () => {
-  const chatgpt = loadChatGptModule();
-  const requestIds = [];
-  const postedConversationIds = [];
-  let reads = 0;
-
-  const session = protocolSession({
-    conversationId: "conv-retry-start",
-    onConversationPost: body => {
-      requestIds.push(body.messages[0].id);
-      postedConversationIds.push(body.conversation_id ?? null);
-    },
-    onConversationRead: () => {
-      reads++;
-      const activeRequestId = requestIds.at(-1);
-      if (requestIds.length === 1) {
-        return jsonResponse({
-          conversation_id: "conv-retry-start",
-          current_node: "request-new",
-          mapping: {
-            "request-new": {
-              parent: null,
-              message: {
-                id: activeRequestId,
-                author: { role: "user" },
-                status: "finished_successfully",
-                content: { content_type: "text", parts: ["prompt"] }
-              }
-            }
-          }
-        });
-      }
-      return jsonResponse(
-        completedConversation("conv-retry-start", activeRequestId, "retry worked")
-      );
-    }
-  });
-
-  const result = await chatgpt.operations.newChat({
-    ...nativeBrowserSurface(session),
-    session,
-    args: { prompt: "retry me", files: [] },
-    sleep: async () => {}
-  });
-
-  assert.equal(requestIds.length, 2);
-  assert.notEqual(requestIds[0], requestIds[1]);
-  assert.deepEqual(postedConversationIds, [null, "conv-retry-start"]);
-  assert.ok(reads >= 11);
-  assert.equal(result.text, "retry worked");
-});
-
-test("ChatGPT reposts when model activity stops without a final reply", async () => {
-  const chatgpt = loadChatGptModule();
-  const requestIds = [];
-  let reads = 0;
-  const progress = [];
-
-  const stalledConversation = requestMessageId => ({
-    conversation_id: "conv-stalled-activity",
-    current_node: "assistant-analysis",
-    mapping: {
-      "assistant-analysis": {
-        parent: "request-new",
-        message: {
-          id: "assistant-analysis",
-          author: { role: "assistant" },
-          status: "finished_successfully",
-          channel: "analysis",
-          content: {
-            content_type: "text",
-            parts: ["Command finished; deciding what to do next."]
-          }
-        }
-      },
-      "request-new": {
-        parent: null,
-        message: {
-          id: requestMessageId,
-          author: { role: "user" },
-          status: "finished_successfully",
-          content: { content_type: "text", parts: ["prompt"] }
-        }
-      }
-    }
-  });
-
-  const session = protocolSession({
-    conversationId: "conv-stalled-activity",
-    onConversationPost: body => {
-      requestIds.push(body.messages[0].id);
-    },
-    onConversationRead: () => {
-      reads++;
-      const activeRequestId = requestIds.at(-1);
-      return jsonResponse(
-        requestIds.length === 1
-          ? stalledConversation(activeRequestId)
-          : completedConversation("conv-stalled-activity", activeRequestId, "retry recovered")
-      );
-    }
-  });
-
-  const result = await chatgpt.operations.newChat({
-    ...nativeBrowserSurface(session),
-    session,
-    args: { prompt: "recover stalled turn", files: [] },
-    sleep: async () => {},
-    reportProgress: value => progress.push(value)
-  });
-
-  assert.equal(requestIds.length, 2);
-  assert.notEqual(requestIds[0], requestIds[1]);
-  assert.ok(reads >= 12);
-  assert.equal(result.text, "retry recovered");
-  assert.ok(progress.some(value =>
-    value.state === "waiting" &&
-    value.detail === "Model activity was observed, but no active generation is currently detected." &&
-    value.analysis === "Command finished; deciding what to do next."
-  ));
-  assert.ok(progress.some(value => value.state === "retrying"));
-});
 
 test("ChatGPT inactivity watchdog resets when the conversation advances", async () => {
   const chatgpt = loadChatGptModule();
@@ -796,7 +672,7 @@ test("rate-limited state checks do not consume the turn-start watchdog", async (
   assert.equal(result.text, "after throttling");
 });
 
-test("ChatGPT fails after one automatic repost if model activity still never starts", async () => {
+test("ChatGPT fails stalled state polling without replaying a native send", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
   let posts = 0;
@@ -831,9 +707,9 @@ test("ChatGPT fails after one automatic repost if model activity still never sta
       args: { prompt: "never starts", files: [] },
       sleep: async () => {}
     }),
-    /showed no active generation for 20s after the automatic retry/
+    /showed no active generation for 20s after the native request completed/
   );
-  assert.equal(posts, 2);
+  assert.equal(posts, 1);
 });
 
 test("ChatGPT account does not surface analysis-channel control text as the reply", async () => {
