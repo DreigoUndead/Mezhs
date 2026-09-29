@@ -86,10 +86,9 @@ function nativeChatGptWindow(state) {
         state.selectAllCalls = (state.selectAllCalls || 0) + 1;
       },
       insertText: async text => {
-        const inserted = String(text).replace(/\r\n?/g, "\n");
         composerText = selectedAll
-          ? inserted
-          : composerText + inserted;
+          ? String(text)
+          : composerText + String(text);
         selectedAll = false;
       },
       sendInputEvent: event => {
