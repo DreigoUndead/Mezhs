@@ -269,8 +269,7 @@ async function sendNativeAccountMessage(
     sleep,
     isNew,
     reportProgress,
-    execution,
-    null
+    execution
   );
 }
 
@@ -744,8 +743,7 @@ async function completeAccountMessage(
   sleep,
   isNew,
   reportProgress,
-  execution,
-  retryTurn
+  execution
 ) {
   let result;
   try {
@@ -756,8 +754,7 @@ async function completeAccountMessage(
       requestMessageId,
       sleep,
       reportProgress,
-      execution,
-      retryTurn
+      execution
     );
   } catch (error) {
     if (!isNew && isConversationUnavailable(error, conversationId))
@@ -862,14 +859,12 @@ async function waitForConversation(
   requestMessageId,
   sleep,
   reportProgress,
-  execution,
-  retryTurn
+  execution
 ) {
   const endpoint = API.conversationById(conversationId);
   let consecutiveRateLimits = 0;
   let inactiveWaitMs = 0;
   let lastProgressKey = null;
-  let retries = 0;
 
   while (true) {
     let conversation;
@@ -927,20 +922,9 @@ async function waitForConversation(
     if (turn.active || progressObserved) {
       inactiveWaitMs = 0;
     } else if (inactiveWaitMs >= TURN_INACTIVITY_WATCHDOG_MS) {
-      if (!retryTurn)
-        throw new Error(
-          `ChatGPT showed no active generation for ${TURN_INACTIVITY_WATCHDOG_MS / 1000}s after the native request completed.`
-        );
-
-      requestMessageId = await retryTurn();
-      retries++;
-      inactiveWaitMs = 0;
-      lastProgressKey = null;
-      reportProgress?.({
-        state: "waiting",
-        detail: "Prompt reposted; waiting for model activity."
-      });
-      continue;
+      throw new Error(
+        `ChatGPT showed no active generation for ${TURN_INACTIVITY_WATCHDOG_MS / 1000}s after the native request completed.`
+      );
     }
 
     await sleep(CONVERSATION_POLL_INTERVAL_MS);
