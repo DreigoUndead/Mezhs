@@ -466,6 +466,7 @@ test("ChatGPT browser module delegates conversation security to the native front
   assert.doesNotMatch(source, /conversation-small/);
   assert.doesNotMatch(source, /chat-requirements|Turnstile|Proof-Token|x-conduit-token/i);
   assert.doesNotMatch(source, /conversationPreparePayload|getConduitToken|webApiHeaders/);
+  assert.doesNotMatch(source, /apiFetch\(session, token, API\.conversation/);
 });
 
 test("ChatGPT picker selections are verified on the native outgoing request", async () => {
