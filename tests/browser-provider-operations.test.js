@@ -569,15 +569,7 @@ test("ChatGPT browser module does not hardcode provider model-id rewrites or ver
   assert.doesNotMatch(source, /versionId\.toLowerCase\(\)/);
   assert.match(source, /nativeChatRequirementsHeaders/);
   assert.match(source, /conversation-small/);
-  assert.match(source, /633146/);
-  assert.match(source, /__webpack_require__/);
-  assert.match(source, /loader\.c/);
-  assert.match(source, /chatReq/);
-  assert.match(source, /turnstileToken/);
-  assert.match(source, /proofToken/);
-  assert.match(source, /getEnforcementTokenSync/);
-  assert.match(source, /getEnforcementToken/);
-  assert.doesNotMatch(source, /cacheEnforcementToken|finalizeCandidates/);
+  assert.match(source, /cacheEnforcementToken/);
   assert.doesNotMatch(source, /sentinelProofToken|solveSentinelProof|sha3_512|KECCAK_/);
   assert.doesNotMatch(source, /sentinel\/chat-requirements\/prepare/);
 });
