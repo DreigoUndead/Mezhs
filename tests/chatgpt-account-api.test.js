@@ -87,6 +87,7 @@ function hostileBrowserSurface() {
         getUserAgent: () => "TestBrowser/1.0",
         executeJavaScript: async source => {
           assert.match(source, /conversation-small/);
+        assert.doesNotThrow(() => new Function(`return ${source};`));
           return {
             "OpenAI-Sentinel-Chat-Requirements-Token": "sentinel",
             "OpenAI-Sentinel-Turnstile-Token": "turnstile",
