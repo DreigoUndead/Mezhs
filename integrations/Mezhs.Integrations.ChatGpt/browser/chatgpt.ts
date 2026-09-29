@@ -822,8 +822,8 @@ async function nativeChatRequirementsHeaders(window) {
           if (typeof value !== "function" || value.length !== 0) return false;
           const source = Function.prototype.toString.call(value);
           return source.length < 400 &&
-            /["'\\`]finalized["'\\`]/.test(source) &&
-            /["'\\`]none["'\\`]/.test(source);
+            source.includes("finalized") &&
+            source.includes("none");
         });
         if (finalizeCandidates.length !== 1)
           continue;
