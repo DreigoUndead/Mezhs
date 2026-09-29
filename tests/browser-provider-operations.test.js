@@ -3,7 +3,6 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createHash, getHashes } = require("node:crypto");
 
 const root = path.resolve(__dirname, "..");
 
@@ -37,6 +36,30 @@ function mockSession(fetch, deviceId = null) {
     fetch,
     cookies: {
       get: async () => deviceId ? [{ value: deviceId }] : []
+    }
+  };
+}
+
+function chatGptWindow(overrides = {}) {
+  const {
+    webContents: webContentsOverrides = {},
+    ...windowOverrides
+  } = overrides;
+  return {
+    getBounds: () => ({ width: 1200, height: 850 }),
+    ...windowOverrides,
+    webContents: {
+      getUserAgent: () => "TestBrowser/1.0",
+      executeJavaScript: async source => {
+        assert.match(source, /conversation-small/);
+        return {
+          "OpenAI-Sentinel-Chat-Requirements-Token": "sentinel",
+          "OpenAI-Sentinel-Turnstile-Token": "turnstile",
+          "OpenAI-Sentinel-Proof-Token": "proof",
+          "OAI-Telemetry": "[1,null]"
+        };
+      },
+      ...webContentsOverrides
     }
   };
 }
@@ -78,20 +101,6 @@ function completedConversation(
     };
   }
   return conversation;
-}
-
-function assertProofToken(token, seed, difficulty) {
-  const prefix = "gAAAAAB";
-  assert.match(token, /^gAAAAAB/);
-  const encoded = token.slice(prefix.length);
-  const config = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
-  assert.equal(config.length, 18);
-
-  if (!getHashes().includes("sha3-512")) return;
-
-  const digest = createHash("sha3-512").update(seed).update(encoded).digest();
-  const target = Buffer.from(difficulty, "hex");
-  assert.ok(digest.subarray(0, target.length).compare(target) < 0);
 }
 
 test("browser transport polls long provider operations through short HTTP requests", () => {
@@ -298,14 +307,10 @@ test("ChatGPT getModels follows the native picker instead of the raw catalog", a
 
 test("ChatGPT o3 newChat follows the semantic web API protocol and reports the assistant model", async () => {
   const chatgpt = loadChatGptModule();
-  const seed = "0.559779845730002";
-  const difficulty = "ffffff";
   let initHeaders;
   let initPayload;
   let prepareHeaders;
   let preparePayload;
-  let sentinelPreparePayload;
-  let sentinelFinalizePayload;
   let conversationPayload;
   let conversationHeaders;
 
@@ -342,19 +347,6 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
       return jsonResponse({ status: "ok", conduit_token: "conduit" });
     }
 
-    if (target.pathname === "/backend-api/sentinel/chat-requirements/prepare") {
-      sentinelPreparePayload = JSON.parse(options.body);
-      return jsonResponse({
-        prepare_token: "prepared",
-        proofofwork: { required: true, seed, difficulty },
-        turnstile: { required: true, dx: "turnstile-challenge" }
-      });
-    }
-
-    if (target.pathname === "/backend-api/sentinel/chat-requirements/finalize") {
-      sentinelFinalizePayload = JSON.parse(options.body);
-      return jsonResponse({ token: "sentinel", expire_after: 540 });
-    }
 
     if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
       conversationPayload = JSON.parse(options.body);
@@ -375,16 +367,12 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
   }, "device-1");
 
   const result = await chatgpt.operations.newChat({
-    window: {
+    window: chatGptWindow({
       loadURL: async () => {
         throw new Error("ChatGPT account send must not navigate the UI.");
       },
-      getBounds: () => ({ width: 1200, height: 850 }),
-      webContents: {
-        getUserAgent: () => "TestBrowser/1.0",
-        debugger: {}
-      }
-    },
+      webContents: { debugger: {} }
+    }),
     page: {
       invoke: async () => {
         throw new Error("ChatGPT account send must not invoke page operations.");
@@ -414,10 +402,6 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
   assert.equal(initHeaders["x-openai-target-path"], "/backend-api/conversation/init");
   assert.equal(initHeaders["Oai-Device-Id"], "device-1");
   assert.ok(initHeaders["Oai-Session-Id"]);
-
-  assert.match(sentinelPreparePayload.p, /^gAAAAAC/);
-  assert.equal(sentinelFinalizePayload.prepare_token, "prepared");
-  assertProofToken(sentinelFinalizePayload.proofofwork, seed, difficulty);
 
   assert.equal(prepareHeaders["Content-Type"], "application/json");
   assert.equal("x-conduit-token" in prepareHeaders, false);
@@ -466,7 +450,10 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
   assert.equal("thinking_effort" in conversationPayload, false);
   assert.equal("conversation_id" in conversationPayload, false);
 
-  assert.equal(conversationHeaders["openai-sentinel-chat-requirements-token"], "sentinel");
+  assert.equal(conversationHeaders["OpenAI-Sentinel-Chat-Requirements-Token"], "sentinel");
+  assert.equal(conversationHeaders["OpenAI-Sentinel-Turnstile-Token"], "turnstile");
+  assert.equal(conversationHeaders["OpenAI-Sentinel-Proof-Token"], "proof");
+  assert.equal(conversationHeaders["OAI-Telemetry"], "[1,null]");
   assert.equal(conversationHeaders["x-conduit-token"], "conduit");
   assert.equal(conversationHeaders["x-openai-web-frontend"], "core_web");
   assert.equal(prepareHeaders["x-openai-web-frontend"], "core_web");
@@ -475,7 +462,6 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
   assert.equal(conversationHeaders["x-oai-turn-trace-id"], prepareHeaders["x-oai-turn-trace-id"]);
   assert.equal(conversationHeaders["x-openai-target-path"], "/backend-api/f/conversation");
   assert.equal(conversationHeaders["Oai-Device-Id"], "device-1");
-  assertProofToken(conversationHeaders["openai-sentinel-proof-token"], seed, difficulty);
 
   assert.equal(result.conversationId, "conv-1");
   assert.equal(result.parentMessageId, "assistant-1");
@@ -528,11 +514,6 @@ test("ChatGPT carries native integrity-state observations across account API req
         return jsonResponse({ conduit_token: "conduit" });
       }
 
-      if (target.pathname === "/backend-api/sentinel/chat-requirements/prepare")
-        return jsonResponse({ prepare_token: "prepared" });
-
-      if (target.pathname === "/backend-api/sentinel/chat-requirements/finalize")
-        return jsonResponse({ token: "sentinel" });
 
       if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
         conversationObservation = options.headers["X-OAI-IS-Client-Observation"];
@@ -564,10 +545,7 @@ test("ChatGPT carries native integrity-state observations across account API req
   };
 
   const result = await chatgpt.operations.newChat({
-    window: {
-      getBounds: () => ({ width: 1200, height: 850 }),
-      webContents: { getUserAgent: () => "TestBrowser/1.0" }
-    },
+    window: chatGptWindow(),
     session,
     args: { prompt: "integrity", model: "o3", files: [] },
     sleep: async () => {}
@@ -588,6 +566,11 @@ test("ChatGPT browser module does not hardcode provider model-id rewrites or ver
   assert.doesNotMatch(source, /CHATGPT_WIRE_MODEL/);
   assert.doesNotMatch(source, /"gpt-[^"]+":\s*"gpt-[^"]+"/);
   assert.doesNotMatch(source, /versionId\.toLowerCase\(\)/);
+  assert.match(source, /nativeChatRequirementsHeaders/);
+  assert.match(source, /conversation-small/);
+  assert.match(source, /cacheEnforcementToken/);
+  assert.doesNotMatch(source, /sentinelProofToken|solveSentinelProof|sha3_512|KECCAK_/);
+  assert.doesNotMatch(source, /sentinel\/chat-requirements\/prepare/);
 });
 
 test("ChatGPT picker selections are sent without model-specific rewrites", async () => {
@@ -635,10 +618,7 @@ test("ChatGPT picker selections are sent without model-specific rewrites", async
         preparePayload = JSON.parse(options.body);
         return jsonResponse({ conduit_token: "conduit" });
       }
-      if (target.pathname === "/backend-api/sentinel/chat-requirements/prepare")
-        return jsonResponse({ prepare_token: "prepared" });
-      if (target.pathname === "/backend-api/sentinel/chat-requirements/finalize")
-        return jsonResponse({ token: "sentinel" });
+
       if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
         conversationPayload = JSON.parse(options.body);
         return textResponse('data: {"conversation_id":"conv-selection"}\n\n', 200, "text/event-stream");
@@ -655,7 +635,7 @@ test("ChatGPT picker selections are sent without model-specific rewrites", async
     });
 
     await chatgpt.operations.newChat({
-      window: { webContents: { getUserAgent: () => "TestBrowser/1.0" } },
+      window: chatGptWindow(),
       session,
       args: { prompt: "test selection", model: selection.selected, files: [] },
       sleep: async () => {}
@@ -678,10 +658,7 @@ test("ChatGPT send continues the existing conversation through the current trans
       return jsonResponse({ accessToken: "token" });
     if (target.pathname === "/backend-api/f/conversation/prepare")
       return jsonResponse({ conduit_token: "conduit" });
-    if (target.pathname === "/backend-api/sentinel/chat-requirements/prepare")
-      return jsonResponse({ prepare_token: "prepared" });
-    if (target.pathname === "/backend-api/sentinel/chat-requirements/finalize")
-      return jsonResponse({ token: "sentinel" });
+
 
     if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
       conversationPayload = JSON.parse(options.body);
@@ -700,7 +677,7 @@ test("ChatGPT send continues the existing conversation through the current trans
   });
 
   const result = await chatgpt.operations.send({
-    window: { webContents: { getUserAgent: () => "TestBrowser/1.0" } },
+    window: chatGptWindow(),
     session,
     args: {
       prompt: "continue",
@@ -719,9 +696,8 @@ test("ChatGPT send continues the existing conversation through the current trans
   assert.equal(result.model, "served-continuation");
 });
 
-test("ChatGPT rejects an invalid proof-of-work challenge before finalize/send", async () => {
+test("ChatGPT account send fails closed when native chat requirements are unavailable", async () => {
   const chatgpt = loadChatGptModule();
-  let finalizeCalled = false;
   let conversationCalled = false;
   const session = mockSession(async (url) => {
     const target = new URL(String(url));
@@ -734,12 +710,6 @@ test("ChatGPT rejects an invalid proof-of-work challenge before finalize/send", 
       });
     if (target.pathname === "/backend-api/f/conversation/prepare")
       return jsonResponse({ conduit_token: "conduit" });
-    if (target.pathname === "/backend-api/sentinel/chat-requirements/prepare")
-      return jsonResponse({ prepare_token: "prepared", proofofwork: { required: true } });
-    if (target.pathname === "/backend-api/sentinel/chat-requirements/finalize") {
-      finalizeCalled = true;
-      return jsonResponse({ token: "unexpected" });
-    }
     if (target.pathname === "/backend-api/f/conversation") {
       conversationCalled = true;
       return textResponse("unexpected");
@@ -748,13 +718,18 @@ test("ChatGPT rejects an invalid proof-of-work challenge before finalize/send", 
   });
 
   const error = await chatgpt.operations.newChat({
-    window: { webContents: { getUserAgent: () => "TestBrowser/1.0" } },
+    window: chatGptWindow({
+      webContents: {
+        executeJavaScript: async () => {
+          throw new Error("native ChatGPT chat requirements unavailable");
+        }
+      }
+    }),
     session,
     args: { prompt: "hello", projectId: "g-p-mezhs", files: [] },
     sleep: async () => {}
   }).then(() => null, caught => caught);
 
-  assert.equal(error?.message, "ChatGPT returned an invalid Sentinel proof-of-work challenge.");
-  assert.equal(finalizeCalled, false);
+  assert.equal(error?.message, "native ChatGPT chat requirements unavailable");
   assert.equal(conversationCalled, false);
 });
