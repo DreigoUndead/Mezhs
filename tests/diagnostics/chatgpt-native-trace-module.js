@@ -304,9 +304,8 @@ function sourceSnippet(source, lineNumber, columnNumber) {
 }
 
 async function triggerNativeSend(window, prompt) {
-  const promptJson = JSON.stringify(prompt);
   const selectorJson = JSON.stringify(PROMPT_EDITOR_SELECTOR);
-  const result = await window.webContents.executeJavaScript(`
+  const focused = await window.webContents.executeJavaScript(`
     (async () => {
       const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       const selector = ${selectorJson};
@@ -319,42 +318,33 @@ async function triggerNativeSend(window, prompt) {
         throw new Error("ChatGPT prompt editor was not found.");
 
       editor.focus();
-      const prompt = ${promptJson};
-      if (editor.tagName === "TEXTAREA" || editor.tagName === "INPUT") {
-        const prototype = editor.tagName === "TEXTAREA"
-          ? HTMLTextAreaElement.prototype
-          : HTMLInputElement.prototype;
-        const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
-        if (setter) setter.call(editor, prompt);
-        else editor.value = prompt;
-        editor.dispatchEvent(new Event("input", { bubbles: true }));
-      } else {
-        document.execCommand("selectAll", false, null);
-        document.execCommand("insertText", false, prompt);
-        editor.dispatchEvent(new InputEvent("input", {
-          bubbles: true,
-          inputType: "insertText",
-          data: prompt
-        }));
-      }
-
-      let send = null;
-      for (let i = 0; i < 120 && (!send || send.disabled); i++) {
-        send = document.querySelector(
-          'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
-        );
-        if (!send || send.disabled) await sleep(250);
-      }
-      if (!send || send.disabled)
-        throw new Error("ChatGPT send button did not become available.");
-
-      send.click();
-      return { clicked: true, url: location.href };
+      return {
+        focused: document.activeElement === editor || editor.contains(document.activeElement),
+        tagName: editor.tagName,
+        contentEditable: editor.getAttribute("contenteditable")
+      };
     })()
   `, true);
 
-  if (!result?.clicked)
-    throw new Error("ChatGPT native send was not triggered.");
+  if (!focused?.focused)
+    throw new Error("ChatGPT prompt editor could not be focused.");
+
+  if (typeof window.webContents.insertText !== "function" ||
+      typeof window.webContents.sendInputEvent !== "function") {
+    throw new Error("Electron native text/input APIs are unavailable.");
+  }
+
+  await Promise.resolve(window.webContents.insertText(prompt));
+  await new Promise(resolve => setTimeout(resolve, 250));
+
+  window.webContents.sendInputEvent({
+    type: "keyDown",
+    keyCode: "Enter"
+  });
+  window.webContents.sendInputEvent({
+    type: "keyUp",
+    keyCode: "Enter"
+  });
 }
 
 function withTimeout(promise, milliseconds, message) {
