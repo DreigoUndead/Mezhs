@@ -1,0 +1,22 @@
+name: Temporary ChatGPT native input validation
+
+on:
+  push:
+    branches:
+      - agent-model-presets
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: ChatGPT tests
+        run: node --test tests/chatgpt-account-api.test.js tests/browser-provider-operations.test.js tests/chatgpt-native-trace.test.js
+      - name: Release build
+        run: dotnet build Mezhs.sln --configuration Release
