@@ -831,7 +831,7 @@ async function nativeChatRequirementsHeaders(window, payload) {
       : {})
   };
   const metadata = JSON.stringify(securityMetadata);
-  const script = \`
+  const script = `
     (async () => {
       const resources = [...new Set(
         performance.getEntriesByType("resource")
@@ -920,7 +920,7 @@ async function nativeChatRequirementsHeaders(window, payload) {
         }
       }
 
-      const security = await Promise.resolve(securityProvider(\${metadata}));
+      const security = await Promise.resolve(securityProvider(${metadata}));
       if (!security?.chatReq || typeof security.chatReq !== "object")
         throw new Error("ChatGPT native chat requirements provider returned no requirements.");
 
@@ -942,7 +942,7 @@ async function nativeChatRequirementsHeaders(window, payload) {
         telemetry: typeof telemetry === "string" ? telemetry : null
       };
     })()
-  \`;
+  `;
 
   const security = await window.webContents.executeJavaScript(script, true);
   if (!security || typeof security !== "object")
@@ -954,7 +954,7 @@ async function nativeChatRequirementsHeaders(window, payload) {
   const addHeader = (name, value) => {
     if (value === null || value === undefined || value === "") return;
     if (typeof value !== "string" || /[\r\n]/.test(value))
-      throw new Error(\`ChatGPT native chat requirements returned an invalid '\${name}' header.\`);
+      throw new Error(`ChatGPT native chat requirements returned an invalid '${name}' header.`);
     headers[name] = value;
   };
 
