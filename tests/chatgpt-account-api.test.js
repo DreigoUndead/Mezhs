@@ -108,23 +108,30 @@ function nativeBrowserSurface(session) {
   const debug = new NativeDebugger();
   let currentUrl = "https://chatgpt.com/";
   let composerText = "";
+  let selectedAll = false;
 
   return {
     window: {
       loadURL: async url => {
         currentUrl = String(url);
-        composerText = "";
+        composerText = String(state.draft || "");
+        selectedAll = false;
       },
       webContents: {
         debugger: debug,
         executeJavaScript: async source => {
           assert.doesNotThrow(() => new Function(`return ${source};`));
-          if (source.includes("contains an existing draft"))
-            return { ok: true };
-          return composerText;
+          return { ok: true };
+        },
+        selectAll: () => {
+          selectedAll = true;
+          state.selectAllCalls = (state.selectAllCalls || 0) + 1;
         },
         insertText: async text => {
-          composerText = String(text);
+          composerText = selectedAll
+            ? String(text)
+            : composerText + String(text);
+          selectedAll = false;
         },
         sendInputEvent: event => {
           if (event.type !== "keyDown" || event.keyCode !== "Enter")
@@ -240,6 +247,8 @@ test("ChatGPT account newChat submits through the native composer and reads the 
       jsonResponse(completedConversation("conv-api", requestMessageId, "API_OK"))
   });
 
+  session.__native.draft = "stale draft from a previous native send";
+
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
     session,
@@ -248,6 +257,7 @@ test("ChatGPT account newChat submits through the native composer and reads the 
   });
 
   assert.equal(conversationPosts, 1);
+  assert.equal(session.__native.selectAllCalls, 1);
   assert.equal(result.conversationId, "conv-api");
   assert.equal(result.text, "API_OK");
 });
