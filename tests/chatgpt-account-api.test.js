@@ -31,7 +31,14 @@ function textResponse(value, status = 200, contentType = "text/plain") {
   });
 }
 
-function completedConversation(conversationId, requestMessageId, text = "answer") {
+function completedConversation(
+  conversationId,
+  requestMessageId,
+  text = "answer",
+  assistantModel = "gpt-5-6-thinking",
+  requestResolvedModel = assistantModel,
+  thinkingEffort = null
+) {
   return {
     conversation_id: conversationId,
     current_node: "assistant-new",
@@ -43,7 +50,10 @@ function completedConversation(conversationId, requestMessageId, text = "answer"
           author: { role: "assistant" },
           status: "finished_successfully",
           content: { parts: [text] },
-          metadata: { model_slug: "gpt-5-6-thinking" }
+          metadata: {
+            model_slug: assistantModel,
+            ...(thinkingEffort ? { thinking_effort: thinkingEffort } : {})
+          }
         }
       },
       "request-new": {
@@ -53,7 +63,7 @@ function completedConversation(conversationId, requestMessageId, text = "answer"
           author: { role: "user" },
           status: "finished_successfully",
           content: { parts: ["prompt"] },
-          metadata: { resolved_model_slug: "gpt-5-6-thinking" }
+          metadata: { resolved_model_slug: requestResolvedModel }
         }
       }
     }
@@ -75,6 +85,15 @@ function hostileBrowserSurface() {
       },
       webContents: {
         getUserAgent: () => "TestBrowser/1.0",
+        executeJavaScript: async source => {
+          assert.match(source, /conversation-small/);
+          return {
+            "OpenAI-Sentinel-Chat-Requirements-Token": "sentinel",
+            "OpenAI-Sentinel-Turnstile-Token": "turnstile",
+            "OpenAI-Sentinel-Proof-Token": "proof",
+            "OAI-Telemetry": "[1,null]"
+          };
+        },
         debugger: {
           isAttached() { throw new Error("ChatGPT account send must not inspect the debugger."); },
           attach() { throw new Error("ChatGPT account send must not attach the debugger."); },
@@ -217,6 +236,48 @@ test("ChatGPT follow-up ignores a stale assistant until the sent API message app
 
   assert.equal(reads, 2);
   assert.equal(result.text, "fresh answer");
+});
+
+test("ChatGPT final conversation metadata overrides earlier stream model metadata", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  const progress = [];
+
+  const session = protocolSession({
+    conversationId: "conv-served-model",
+    onConversationPost: body => {
+      requestMessageId = body.messages[0].id;
+    },
+    conversationStream: () =>
+      'data: {"conversation_id":"conv-served-model","metadata":{"resolved_model_slug":"gpt-5-6-thinking","thinking_effort":"extended"}}\n\ndata: [DONE]\n\n',
+    onConversationRead: () =>
+      jsonResponse(completedConversation(
+        "conv-served-model",
+        requestMessageId,
+        "served instant",
+        "gpt-5-6-instant",
+        "gpt-5-6-thinking"
+      ))
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...hostileBrowserSurface(),
+    session,
+    args: {
+      prompt: "verify served model",
+      model: "gpt-5-6-thinking::thinking-effort=extended",
+      files: []
+    },
+    sleep: async () => {},
+    reportProgress: value => progress.push(value)
+  });
+
+  assert.equal(result.model, "gpt-5-6-instant");
+  assert.ok(progress.some(value =>
+    value.state === "completed" &&
+    value.detail.includes("served model gpt-5-6-instant") &&
+    value.detail.includes("requested model gpt-5-6-thinking")
+  ));
 });
 
 test("ChatGPT API polling backs off on 429 without resending the turn", async () => {
