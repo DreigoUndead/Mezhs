@@ -113,6 +113,9 @@ try {
         throw 'Trace operation did not return an operation id.'
     }
 
+    $outputDirectory = Split-Path -Parent $OutputPath
+    New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+
     $deadline = [DateTime]::UtcNow.AddMinutes(1)
     $result = $null
     while ([DateTime]::UtcNow -lt $deadline) {
@@ -120,7 +123,14 @@ try {
         switch ($state.status) {
             'queued' { Start-Sleep -Milliseconds 250; continue }
             'running' { Start-Sleep -Milliseconds 250; continue }
-            'failed' { throw "Native trace failed: $($state.error)" }
+            'failed' {
+                [ordered]@{
+                    capturedAt = [DateTime]::UtcNow.ToString('o')
+                    status = 'failed'
+                    error = [string]$state.error
+                } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+                throw "Native trace failed: $($state.error) Failure trace: $OutputPath"
+            }
             'completed' {
                 $result = $state.result
                 break
@@ -134,8 +144,6 @@ try {
         throw 'Timed out waiting for the native ChatGPT request trace.'
     }
 
-    $outputDirectory = Split-Path -Parent $OutputPath
-    New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
     $result | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
 
     Write-Host ""
