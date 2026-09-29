@@ -445,9 +445,12 @@ function validateNativeConversationRequest(
   const normalizedSubmittedPrompt = normalizeLineEndings(submittedPrompt);
   const normalizedPrompt = normalizeLineEndings(prompt);
   if (normalizedSubmittedPrompt !== normalizedPrompt) {
-    const mismatch = firstStringMismatch(normalizedPrompt, normalizedSubmittedPrompt);
+    const difference = describeStringDifference(
+      normalizedPrompt,
+      normalizedSubmittedPrompt
+    );
     throw new Error(
-      `ChatGPT native request changed the submitted prompt (expected length ${normalizedPrompt.length}, actual length ${normalizedSubmittedPrompt.length}, first mismatch ${mismatch}).`
+      `ChatGPT native request changed the submitted prompt (${difference}).`
     );
   }
 
@@ -481,12 +484,64 @@ function normalizeLineEndings(value) {
   return String(value ?? "").replace(/\r\n?/g, "\n");
 }
 
-function firstStringMismatch(expected, actual) {
-  const limit = Math.min(expected.length, actual.length);
-  for (let index = 0; index < limit; index++)
-    if (expected.charCodeAt(index) !== actual.charCodeAt(index))
-      return index;
-  return limit;
+function describeStringDifference(expected, actual) {
+  const prefixLimit = Math.min(expected.length, actual.length);
+  let prefix = 0;
+  while (prefix < prefixLimit &&
+         expected.charCodeAt(prefix) === actual.charCodeAt(prefix)) {
+    prefix++;
+  }
+
+  let suffix = 0;
+  const expectedRemaining = expected.length - prefix;
+  const actualRemaining = actual.length - prefix;
+  const suffixLimit = Math.min(expectedRemaining, actualRemaining);
+  while (suffix < suffixLimit &&
+         expected.charCodeAt(expected.length - 1 - suffix) ===
+           actual.charCodeAt(actual.length - 1 - suffix)) {
+    suffix++;
+  }
+
+  const expectedChanged = expected.slice(prefix, expected.length - suffix);
+  const actualChanged = actual.slice(prefix, actual.length - suffix);
+  return [
+    `expected length ${expected.length}`,
+    `actual length ${actual.length}`,
+    `common prefix ${prefix}`,
+    `common suffix ${suffix}`,
+    `expected changed length ${expectedChanged.length}`,
+    `actual changed length ${actualChanged.length}`,
+    `expected changed shape ${stringShape(expectedChanged)}`,
+    `actual changed shape ${stringShape(actualChanged)}`
+  ].join(", ");
+}
+
+function stringShape(value) {
+  if (!value) return "empty";
+
+  const counts = new Map();
+  for (const character of value) {
+    const kind = characterKind(character);
+    counts.set(kind, (counts.get(kind) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([kind, count]) => `${kind}x${count}`)
+    .join("+");
+}
+
+function characterKind(character) {
+  switch (character) {
+    case "\n": return "LF";
+    case "\r": return "CR";
+    case "\t": return "TAB";
+    case " ": return "SPACE";
+    case "\u00a0": return "NBSP";
+    case "\u2028": return "LINE_SEPARATOR";
+    case "\u2029": return "PARAGRAPH_SEPARATOR";
+    case "\u200b": return "ZERO_WIDTH_SPACE";
+    case "\ufeff": return "BOM";
+    default: return "NON_WHITESPACE";
+  }
 }
 
 async function focusNativeComposer(window) {
