@@ -1,7 +1,6 @@
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { Buffer } = require("node:buffer");
 const { randomUUID } = require("node:crypto");
 
 const ORIGIN = "https://chatgpt.com";
@@ -13,8 +12,6 @@ const API = Object.freeze({
   modelPreference: "/backend-api/settings/user_last_used_model_config",
   conversationInit: "/backend-api/conversation/init",
   conversationPrepare: "/backend-api/f/conversation/prepare",
-  requirementsPrepare: "/backend-api/sentinel/chat-requirements/prepare",
-  requirementsFinalize: "/backend-api/sentinel/chat-requirements/finalize",
   conversation: "/backend-api/f/conversation",
   conversationById: id => `/backend-api/conversation/${encodeURIComponent(id)}`,
   files: "/backend-api/files",
@@ -384,7 +381,6 @@ async function postConversationTurn(
   reportProgress,
   clientSessionId
 ) {
-  const config = sentinelConfig(window);
   const turnTraceId = randomUUID();
   const conduitToken = await getConduitToken(
     session,
@@ -393,7 +389,7 @@ async function postConversationTurn(
     conversationPreparePayload(payload),
     clientSessionId
   );
-  const requirements = await getSentinelToken(session, token, config);
+  const sentinelHeaders = await nativeChatRequirementsHeaders(window);
 
   const headers = await webApiHeaders(
     session,
@@ -402,13 +398,11 @@ async function postConversationTurn(
     {
       "Content-Type": "application/json",
       "Accept": "text/event-stream",
-      "openai-sentinel-chat-requirements-token": requirements.token,
+      ...sentinelHeaders,
       "x-conduit-token": conduitToken,
       "x-oai-turn-trace-id": turnTraceId
     }
   );
-  if (requirements.proofToken)
-    headers["openai-sentinel-proof-token"] = requirements.proofToken;
 
   const response = await apiFetch(session, token, API.conversation, {
     method: "POST",
@@ -592,10 +586,18 @@ function collectMetadataFields(metadata, execution) {
       : Math.max(execution.reasoningEnd, reasoningEnd);
 }
 
-function mergeExecutionMetadata(target, source) {
+function mergeExecutionMetadata(target, source, authoritative = false) {
   if (!source) return target;
-  if (source.model) target.model ??= source.model;
-  if (source.thinkingEffort) target.thinkingEffort ??= source.thinkingEffort;
+  if (source.model) {
+    if (authoritative) {
+      target.model = source.model;
+      target.thinkingEffort = source.thinkingEffort || null;
+    } else {
+      target.model ??= source.model;
+    }
+  }
+  if (!authoritative && source.thinkingEffort)
+    target.thinkingEffort ??= source.thinkingEffort;
   if (source.reasoningStatus) target.reasoningStatus ??= source.reasoningStatus;
   if (source.requestedModelExperience)
     target.requestedModelExperience ??= source.requestedModelExperience;
@@ -627,7 +629,11 @@ function finiteNumber(value) {
 
 function completionDetail(execution) {
   const facts = [];
-  if (execution?.model) facts.push(`model ${execution.model}`);
+  if (execution?.model) facts.push(`served model ${execution.model}`);
+  if (execution?.requestedModel &&
+      execution?.model &&
+      execution.requestedModel !== execution.model)
+    facts.push(`requested model ${execution.requestedModel}`);
   if (execution?.thinkingEffort) {
     facts.push(`effort ${execution.thinkingEffort}`);
   } else if (execution?.requestedThinkingEffort) {
@@ -799,191 +805,78 @@ async function webApiHeaders(session, endpoint, clientSessionId, extra = {}) {
   return headers;
 }
 
-async function getSentinelToken(session, token, config) {
-  const prepared = await apiJson(session, token, API.requirementsPrepare, {
-    method: "POST",
-    headers: targetHeaders(API.requirementsPrepare),
-    body: JSON.stringify({ p: sentinelRequirementsToken(config) })
-  });
-  const prepareToken = String(prepared?.prepare_token || "").trim();
-  if (!prepareToken)
-    throw new Error("ChatGPT Sentinel prepare did not return a prepare token.");
+async function nativeChatRequirementsHeaders(window) {
+  const script = `
+    (async () => {
+      const moduleUrls = [...new Set(
+        performance.getEntriesByType("resource")
+          .map(entry => String(entry.name || ""))
+          .filter(url => /\\/cdn\\/assets\\/conversation-small-[^/?#]+\\.js(?:[?#].*)?$/i.test(url))
+      )].reverse();
 
-  const proofToken = prepared?.proofofwork?.required
-    ? sentinelProofToken(prepared.proofofwork, config)
-    : null;
-  const body = { prepare_token: prepareToken };
-  if (proofToken) body.proofofwork = proofToken;
+      for (const moduleUrl of moduleUrls) {
+        const provider = await import(moduleUrl);
+        const values = Object.values(provider);
 
-  const finalized = await apiJson(session, token, API.requirementsFinalize, {
-    method: "POST",
-    headers: targetHeaders(API.requirementsFinalize),
-    body: JSON.stringify(body)
-  });
-  const sentinelToken = String(finalized?.token || "").trim();
-  if (!sentinelToken)
-    throw new Error("ChatGPT Sentinel finalize did not return a token.");
-  return { token: sentinelToken, proofToken };
-}
+        const finalizeCandidates = values.filter(value => {
+          if (typeof value !== "function" || value.length !== 0) return false;
+          const source = Function.prototype.toString.call(value);
+          return source.length < 400 &&
+            /["'\\`]finalized["'\\`]/.test(source) &&
+            /["'\\`]none["'\\`]/.test(source);
+        });
+        if (finalizeCandidates.length !== 1)
+          continue;
 
-function targetHeaders(endpoint) {
-  return {
-    "Accept": "*/*",
-    "Content-Type": "application/json",
-    "x-openai-target-path": endpoint,
-    "x-openai-target-route": endpoint
-  };
-}
+        const proofProvider = values.find(value =>
+          value &&
+          typeof value === "object" &&
+          typeof value.getRequirementsTokenBlocking === "function" &&
+          typeof value.getEnforcementTokenSync === "function");
+        const turnstileProvider = values.find(value =>
+          value &&
+          typeof value === "object" &&
+          typeof value.cacheEnforcementToken === "function" &&
+          typeof value.getEnforcementTokenSync === "function");
+        const headerBuilder = values.find(value => {
+          if (typeof value !== "function") return false;
+          const source = Function.prototype.toString.call(value);
+          return source.includes("OpenAI-Sentinel-Chat-Requirements-Token") &&
+            source.includes("OpenAI-Sentinel-Turnstile-Token") &&
+            source.includes("OpenAI-Sentinel-Proof-Token");
+        });
 
-function clientContext(window) {
-  const bounds = window?.getBounds?.() || {};
-  const width = Number(bounds.width) || 1200;
-  const height = Number(bounds.height) || 850;
-  return {
-    is_dark_mode: false,
-    time_since_loaded: 0,
-    page_height: height,
-    page_width: width,
-    pixel_ratio: 1,
-    screen_height: height,
-    screen_width: width,
-    app_name: "chatgpt.com",
-    has_web_push_capabilities: true,
-    web_push_notification_permission: "default"
-  };
-}
+        if (!proofProvider || !turnstileProvider || !headerBuilder)
+          continue;
 
-function sentinelConfig(window) {
-  const userAgent = window?.webContents?.getUserAgent?.() || "Mozilla/5.0";
-  return [
-    3000,
-    new Date().toString(),
-    4294705152,
-    0,
-    userAgent,
-    "",
-    "",
-    "en-US",
-    "en-US,en",
-    0,
-    "vendor−Google Inc.",
-    "location",
-    "navigator",
-    0,
-    randomUUID(),
-    "",
-    8,
-    Date.now()
-  ];
-}
+        const requirements = await finalizeCandidates[0](false, "none");
+        if (!requirements?.token)
+          throw new Error("ChatGPT finalized chat requirements without a token.");
 
-function sentinelRequirementsToken(config) {
-  return solveSentinelProof(String(Math.random()), "0fffff", config, "gAAAAAC");
-}
+        const proofToken = proofProvider.getEnforcementTokenSync(requirements);
+        const turnstileToken = turnstileProvider.getEnforcementTokenSync(requirements);
+        const timing = await Promise.resolve(window.SentinelSDK?.timing?.() ?? null);
+        const headers = headerBuilder(
+          requirements,
+          turnstileToken,
+          proofToken,
+          null,
+          null,
+          timing
+        );
 
-function sentinelProofToken(challenge, config) {
-  const seed = String(challenge?.seed || "");
-  const difficulty = String(challenge?.difficulty || "");
-  if (!seed || !/^[0-9a-f]+$/i.test(difficulty) || difficulty.length % 2)
-    throw new Error("ChatGPT returned an invalid Sentinel proof-of-work challenge.");
-  return solveSentinelProof(seed, difficulty, config, "gAAAAAB");
-}
+        if (!headers?.["OpenAI-Sentinel-Chat-Requirements-Token"])
+          throw new Error("ChatGPT native chat requirements did not produce request headers.");
+        return headers;
+      }
 
-function solveSentinelProof(seed, difficulty, config, prefix) {
-  const target = Buffer.from(difficulty, "hex");
-  for (let counter = 0; counter < 500000; counter++) {
-    const candidate = [...config];
-    candidate[3] = counter;
-    candidate[9] = counter >> 1;
-    const encoded = Buffer.from(JSON.stringify(candidate)).toString("base64");
-    const digest = sha3_512(Buffer.from(seed + encoded));
-    if (digest.subarray(0, target.length).compare(target) < 0)
-      return prefix + encoded;
-  }
-  throw new Error("ChatGPT Sentinel proof-of-work could not be solved.");
-}
-
-const KECCAK_MASK = (1n << 64n) - 1n;
-const KECCAK_ROTATION = [
-  0, 1, 62, 28, 27,
-  36, 44, 6, 55, 20,
-  3, 10, 43, 25, 39,
-  41, 45, 15, 21, 8,
-  18, 2, 61, 56, 14
-];
-const KECCAK_ROUND_CONSTANTS = [
-  0x0000000000000001n, 0x0000000000008082n, 0x800000000000808an,
-  0x8000000080008000n, 0x000000000000808bn, 0x0000000080000001n,
-  0x8000000080008081n, 0x8000000000008009n, 0x000000000000008an,
-  0x0000000000000088n, 0x0000000080008009n, 0x000000008000000an,
-  0x000000008000808bn, 0x800000000000008bn, 0x8000000000008089n,
-  0x8000000000008003n, 0x8000000000008002n, 0x8000000000000080n,
-  0x000000000000800an, 0x800000008000000an, 0x8000000080008081n,
-  0x8000000000008080n, 0x0000000080000001n, 0x8000000080008008n
-];
-
-function sha3_512(input) {
-  const rate = 72;
-  const state = new Array(25).fill(0n);
-  let offset = 0;
-
-  while (offset + rate <= input.length) {
-    absorbKeccakBlock(state, input.subarray(offset, offset + rate));
-    offset += rate;
-  }
-
-  const block = Buffer.alloc(rate);
-  input.copy(block, 0, offset);
-  block[input.length - offset] = 0x06;
-  block[rate - 1] |= 0x80;
-  absorbKeccakBlock(state, block);
-
-  const output = Buffer.alloc(64);
-  for (let index = 0; index < output.length; index++)
-    output[index] = Number((state[Math.floor(index / 8)] >> BigInt(8 * (index % 8))) & 0xffn);
-  return output;
-}
-
-function absorbKeccakBlock(state, block) {
-  for (let lane = 0; lane < 9; lane++) {
-    let value = 0n;
-    for (let byte = 0; byte < 8; byte++)
-      value |= BigInt(block[lane * 8 + byte]) << BigInt(byte * 8);
-    state[lane] ^= value;
-  }
-  keccakF1600(state);
-}
-
-function keccakF1600(state) {
-  for (const roundConstant of KECCAK_ROUND_CONSTANTS) {
-    const column = new Array(5);
-    const delta = new Array(5);
-    for (let x = 0; x < 5; x++)
-      column[x] = state[x] ^ state[x + 5] ^ state[x + 10] ^ state[x + 15] ^ state[x + 20];
-    for (let x = 0; x < 5; x++)
-      delta[x] = column[(x + 4) % 5] ^ rotateKeccak(column[(x + 1) % 5], 1);
-    for (let y = 0; y < 5; y++)
-      for (let x = 0; x < 5; x++)
-        state[x + 5 * y] ^= delta[x];
-
-    const rotated = new Array(25).fill(0n);
-    for (let y = 0; y < 5; y++)
-      for (let x = 0; x < 5; x++)
-        rotated[y + 5 * ((2 * x + 3 * y) % 5)] =
-          rotateKeccak(state[x + 5 * y], KECCAK_ROTATION[x + 5 * y]);
-
-    for (let y = 0; y < 5; y++)
-      for (let x = 0; x < 5; x++)
-        state[x + 5 * y] = rotated[x + 5 * y] ^
-          ((~rotated[(x + 1) % 5 + 5 * y]) & rotated[(x + 2) % 5 + 5 * y]);
-    state[0] ^= roundConstant;
-  }
-}
-
-function rotateKeccak(value, bits) {
-  if (!bits) return value;
-  const shift = BigInt(bits);
-  return ((value << shift) | (value >> (64n - shift))) & KECCAK_MASK;
+      throw new Error("ChatGPT native chat requirements helper was not found in the loaded frontend.");
+    })()
+  `;
+  const headers = await window.webContents.executeJavaScript(script, true);
+  if (!headers || typeof headers !== "object")
+    throw new Error("ChatGPT native chat requirements returned an invalid header set.");
+  return headers;
 }
 
 async function accessToken(session) {
@@ -1183,7 +1076,7 @@ async function waitForConversation(
 
     const turn = inspectConversationTurn(conversation, requestMessageId);
     if (turn.reply) {
-      mergeExecutionMetadata(execution, turn.reply.execution);
+      mergeExecutionMetadata(execution, turn.reply.execution, true);
       if (execution.model)
         turn.reply.model = modelSelectionId(execution.model, execution.thinkingEffort);
       turn.reply.execution = execution;
