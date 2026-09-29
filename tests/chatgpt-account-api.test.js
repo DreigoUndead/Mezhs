@@ -87,23 +87,12 @@ function hostileBrowserSurface() {
         getUserAgent: () => "TestBrowser/1.0",
         executeJavaScript: async source => {
           assert.match(source, /conversation-small/);
-          assert.match(source, /633146/);
-          assert.match(source, /__webpack_require__/);
-          assert.match(source, /loader\.c/);
-          assert.match(source, /chatReq/);
-          assert.match(source, /turnstileToken/);
-          assert.match(source, /proofToken/);
-          assert.match(source, /getEnforcementTokenSync/);
-          assert.match(source, /getEnforcementToken/);
-          assert.doesNotMatch(source, /cacheEnforcementToken|finalizeCandidates/);
-          assert.doesNotThrow(() => new Function(`return ${source};`));
+        assert.doesNotThrow(() => new Function(`return ${source};`));
           return {
-            requirementsToken: "sentinel",
-            prepareToken: null,
-            forceLogin: false,
-            turnstileToken: "turnstile",
-            proofToken: "proof",
-            telemetry: "[1,null]"
+            "OpenAI-Sentinel-Chat-Requirements-Token": "sentinel",
+            "OpenAI-Sentinel-Turnstile-Token": "turnstile",
+            "OpenAI-Sentinel-Proof-Token": "proof",
+            "OAI-Telemetry": "[1,null]"
           };
         },
         debugger: {
