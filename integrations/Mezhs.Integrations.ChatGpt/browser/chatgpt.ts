@@ -889,7 +889,7 @@ async function nativeChatRequirementsHeaders(window, payload) {
   const headers = {};
   const addHeader = (name, value) => {
     if (value === null || value === undefined || value === "") return;
-    if (typeof value !== "string" || /[\\r\\n]/.test(value))
+    if (typeof value !== "string" || /[\r\n]/.test(value))
       throw new Error(`ChatGPT native chat requirements returned an invalid '${name}' header.`);
     headers[name] = value;
   };
