@@ -389,7 +389,7 @@ async function postConversationTurn(
     conversationPreparePayload(payload),
     clientSessionId
   );
-  const sentinelHeaders = await nativeChatRequirementsHeaders(window, payload);
+  const sentinelHeaders = await nativeChatRequirementsHeaders(window);
 
   const headers = await webApiHeaders(
     session,
@@ -823,156 +823,77 @@ function clientContext(window) {
   };
 }
 
-async function nativeChatRequirementsHeaders(window, payload) {
-  const securityMetadata = {
-    systemHints: Array.isArray(payload?.system_hints) ? payload.system_hints : [],
-    ...(payload?.conversation_mode?.gizmo_id
-      ? { conversationMode: payload.conversation_mode }
-      : {})
-  };
-  const metadata = JSON.stringify(securityMetadata);
+async function nativeChatRequirementsHeaders(window) {
   const script = `
     (async () => {
-      const resources = [...new Set(
+      const moduleUrls = [...new Set(
         performance.getEntriesByType("resource")
           .map(entry => String(entry.name || ""))
-          .filter(url => /^https:\\/\\/chatgpt\\.com\\/cdn\\/assets\\/[^/?#]+\\.js(?:[?#].*)?$/i.test(url))
+          .filter(url => /\\/cdn\\/assets\\/conversation-small-[^/?#]+\\.js(?:[?#].*)?$/i.test(url))
       )].reverse();
 
-      const isSecurityProvider = value => {
-        if (typeof value !== "function") return false;
-        const source = Function.prototype.toString.call(value);
-        return source.includes("chatReq") &&
-          source.includes("turnstileToken") &&
-          source.includes("proofToken") &&
-          source.includes("getEnforcementTokenSync") &&
-          source.includes("getEnforcementToken");
-      };
+      for (const moduleUrl of moduleUrls) {
+        const provider = await import(moduleUrl);
+        const values = Object.values(provider);
 
-      const uniqueSecurityProvider = values => {
-        const matches = [...new Set(values.filter(isSecurityProvider))];
-        if (matches.length > 1)
-          throw new Error("ChatGPT native chat requirements provider is ambiguous.");
-        return matches[0] || null;
-      };
+        const finalizeCandidates = values.filter(value => {
+          if (typeof value !== "function" || value.length !== 0) return false;
+          const source = Function.prototype.toString.call(value);
+          return source.length < 400 &&
+            source.includes("finalized") &&
+            source.includes("none");
+        });
+        if (finalizeCandidates.length !== 1)
+          continue;
 
-      let securityProvider = null;
-      const rspackRuntimeUrls = resources.filter(url =>
-        /\\/cdn\\/assets\\/633146\\.[a-f0-9]+\\.js(?:[?#].*)?$/i.test(url));
+        const proofProvider = values.find(value =>
+          value &&
+          typeof value === "object" &&
+          typeof value.getRequirementsTokenBlocking === "function" &&
+          typeof value.getEnforcementTokenSync === "function");
+        const turnstileProvider = values.find(value =>
+          value &&
+          typeof value === "object" &&
+          typeof value.cacheEnforcementToken === "function" &&
+          typeof value.getEnforcementTokenSync === "function");
+        const headerBuilder = values.find(value => {
+          if (typeof value !== "function") return false;
+          const source = Function.prototype.toString.call(value);
+          return source.includes("OpenAI-Sentinel-Chat-Requirements-Token") &&
+            source.includes("OpenAI-Sentinel-Turnstile-Token") &&
+            source.includes("OpenAI-Sentinel-Proof-Token");
+        });
 
-      if (rspackRuntimeUrls.length) {
-        for (const runtimeUrl of rspackRuntimeUrls) {
-          let runtime;
-          try {
-            runtime = await import(runtimeUrl);
-          } catch {
-            continue;
-          }
+        if (!proofProvider || !turnstileProvider || !headerBuilder)
+          continue;
 
-          const loader = runtime?.__webpack_require__;
-          if (typeof loader !== "function" ||
-              !loader.c ||
-              typeof loader.c !== "object") {
-            continue;
-          }
+        const requirements = await finalizeCandidates[0](false, "none");
+        if (!requirements?.token)
+          throw new Error("ChatGPT finalized chat requirements without a token.");
 
-          const values = [];
-          for (const record of Object.values(loader.c)) {
-            const exported = record?.exports;
-            if (exported === null || exported === undefined)
-              continue;
-            values.push(exported);
-            if (typeof exported === "object" || typeof exported === "function") {
-              try {
-                values.push(...Object.values(exported));
-              } catch {
-                // An unrelated export getter must not make provider discovery fail.
-              }
-            }
-          }
+        const proofToken = proofProvider.getEnforcementTokenSync(requirements);
+        const turnstileToken = turnstileProvider.getEnforcementTokenSync(requirements);
+        const timing = await Promise.resolve(window.SentinelSDK?.timing?.() ?? null);
+        const headers = headerBuilder(
+          requirements,
+          turnstileToken,
+          proofToken,
+          null,
+          null,
+          timing
+        );
 
-          securityProvider = uniqueSecurityProvider(values);
-          if (securityProvider)
-            break;
-        }
-
-        if (!securityProvider) {
-          throw new Error(
-            "ChatGPT native chat requirements provider was not found in the loaded Rspack frontend."
-          );
-        }
-      } else {
-        const legacyModuleUrls = resources.filter(url =>
-          /\\/cdn\\/assets\\/conversation-small-[^/?#]+\\.js(?:[?#].*)?$/i.test(url));
-
-        for (const moduleUrl of legacyModuleUrls) {
-          const provider = await import(moduleUrl);
-          securityProvider = uniqueSecurityProvider(Object.values(provider));
-          if (securityProvider)
-            break;
-        }
-
-        if (!securityProvider) {
-          throw new Error(
-            "ChatGPT native chat requirements provider was not found in the loaded frontend."
-          );
-        }
+        if (!headers?.["OpenAI-Sentinel-Chat-Requirements-Token"])
+          throw new Error("ChatGPT native chat requirements did not produce request headers.");
+        return headers;
       }
 
-      const security = await Promise.resolve(securityProvider(${metadata}));
-      if (!security?.chatReq || typeof security.chatReq !== "object")
-        throw new Error("ChatGPT native chat requirements provider returned no requirements.");
-
-      const telemetry = await Promise.resolve(window.SentinelSDK?.timing?.() ?? null);
-      return {
-        requirementsToken:
-          typeof security.chatReq.token === "string" ? security.chatReq.token : null,
-        prepareToken:
-          typeof security.chatReq.prepare_token === "string"
-            ? security.chatReq.prepare_token
-            : null,
-        forceLogin: security.chatReq.force_login === true,
-        turnstileToken:
-          typeof security.turnstileToken === "string"
-            ? security.turnstileToken
-            : null,
-        proofToken:
-          typeof security.proofToken === "string" ? security.proofToken : null,
-        telemetry: typeof telemetry === "string" ? telemetry : null
-      };
+      throw new Error("ChatGPT native chat requirements helper was not found in the loaded frontend.");
     })()
   `;
-
-  const security = await window.webContents.executeJavaScript(script, true);
-  if (!security || typeof security !== "object")
-    throw new Error("ChatGPT native chat requirements returned an invalid result.");
-  if (security.forceLogin)
-    throw new Error("ChatGPT native chat requirements require login.");
-
-  const headers = {};
-  const addHeader = (name, value) => {
-    if (value === null || value === undefined || value === "") return;
-    if (typeof value !== "string" || /[\r\n]/.test(value))
-      throw new Error(`ChatGPT native chat requirements returned an invalid '${name}' header.`);
-    headers[name] = value;
-  };
-
-  addHeader(
-    "OpenAI-Sentinel-Chat-Requirements-Token",
-    security.requirementsToken
-  );
-  addHeader(
-    "OpenAI-Sentinel-Chat-Requirements-Prepare-Token",
-    security.prepareToken
-  );
-  addHeader("OpenAI-Sentinel-Turnstile-Token", security.turnstileToken);
-  addHeader("OpenAI-Sentinel-Proof-Token", security.proofToken);
-  addHeader("OAI-Telemetry", security.telemetry);
-
-  if (!headers["OpenAI-Sentinel-Chat-Requirements-Token"] &&
-      !headers["OpenAI-Sentinel-Chat-Requirements-Prepare-Token"]) {
-    throw new Error("ChatGPT native chat requirements did not produce a requirements token.");
-  }
+  const headers = await window.webContents.executeJavaScript(script, true);
+  if (!headers || typeof headers !== "object")
+    throw new Error("ChatGPT native chat requirements returned an invalid header set.");
   return headers;
 }
 
