@@ -65,24 +65,31 @@ function nativeChatGptWindow(state) {
   const debug = new NativeDebugger();
   let currentUrl = "https://chatgpt.com/";
   let composerText = "";
+  let selectedAll = false;
 
   return {
     getBounds: () => ({ width: 1200, height: 850 }),
     loadURL: async url => {
       currentUrl = String(url);
       state.loadedUrl = currentUrl;
-      composerText = "";
+      composerText = String(state.draft || "");
+      selectedAll = false;
     },
     webContents: {
       debugger: debug,
       executeJavaScript: async source => {
         assert.doesNotThrow(() => new Function(`return ${source};`));
-        if (source.includes("contains an existing draft"))
-          return { ok: true };
-        return composerText;
+        return { ok: true };
+      },
+      selectAll: () => {
+        selectedAll = true;
+        state.selectAllCalls = (state.selectAllCalls || 0) + 1;
       },
       insertText: async text => {
-        composerText = String(text);
+        composerText = selectedAll
+          ? String(text)
+          : composerText + String(text);
+        selectedAll = false;
       },
       sendInputEvent: event => {
         if (event.type !== "keyDown" || event.keyCode !== "Enter")
@@ -458,6 +465,7 @@ test("ChatGPT browser module delegates conversation security to the native front
   assert.doesNotMatch(source, /CHATGPT_WIRE_MODEL/);
   assert.doesNotMatch(source, /"gpt-[^"]+":\s*"gpt-[^"]+"/);
   assert.doesNotMatch(source, /versionId\.toLowerCase\(\)/);
+  assert.match(source, /selectAll\(\)/);
   assert.match(source, /insertText\(prompt\)/);
   assert.match(source, /sendInputEvent\(\{ type: "keyDown", keyCode: "Enter" \}\)/);
   assert.match(source, /Network\.requestWillBeSent/);
