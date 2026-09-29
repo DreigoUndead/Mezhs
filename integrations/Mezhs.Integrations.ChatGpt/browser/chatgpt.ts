@@ -337,7 +337,14 @@ async function submitNativeConversationTurn(
     }
 
     if (method === "Network.loadingFinished") {
-      resolveCompletion({ aborted: false });
+      if (responseStatus !== null &&
+          (responseStatus < 200 || responseStatus >= 300)) {
+        rejectCompletion(new Error(
+          `Native ChatGPT request returned HTTP ${responseStatus}.`
+        ));
+      } else {
+        resolveCompletion({ aborted: false });
+      }
       return;
     }
 
