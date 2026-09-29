@@ -298,7 +298,8 @@ async function submitNativeConversationTurn(
       typeof debug.removeListener !== "function") {
     throw new Error("Electron debugger API is unavailable for native ChatGPT submission.");
   }
-  if (typeof window.webContents.insertText !== "function" ||
+  if (typeof window.webContents.selectAll !== "function" ||
+      typeof window.webContents.insertText !== "function" ||
       typeof window.webContents.sendInputEvent !== "function") {
     throw new Error("Electron native input APIs are unavailable for native ChatGPT submission.");
   }
@@ -339,7 +340,8 @@ async function submitNativeConversationTurn(
   debug.on("message", onMessage);
   try {
     await debug.sendCommand("Network.enable", { maxPostDataSize: 1024 * 1024 });
-    await focusEmptyNativeComposer(window);
+    await focusNativeComposer(window);
+    window.webContents.selectAll();
     await Promise.resolve(window.webContents.insertText(prompt));
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
@@ -469,7 +471,7 @@ function validateNativeConversationRequest(
   }
 }
 
-async function focusEmptyNativeComposer(window) {
+async function focusNativeComposer(window) {
   const selector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
   const result = await window.webContents.executeJavaScript(`
     (async () => {
@@ -482,12 +484,6 @@ async function focusEmptyNativeComposer(window) {
       }
       if (!editor)
         return { ok: false, error: "ChatGPT prompt editor was not found." };
-
-      const text = editor.tagName === "TEXTAREA" || editor.tagName === "INPUT"
-        ? editor.value
-        : editor.innerText || editor.textContent || "";
-      if (String(text || "").trim())
-        return { ok: false, error: "ChatGPT prompt editor contains an existing draft." };
 
       editor.focus();
       return { ok: true };
