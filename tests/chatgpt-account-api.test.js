@@ -127,12 +127,6 @@ function protocolSession({
     if (target.pathname === "/backend-api/f/conversation/prepare")
       return jsonResponse({ conduit_token: "conduit" });
 
-    if (target.pathname === "/backend-api/sentinel/chat-requirements/prepare")
-      return jsonResponse({ prepare_token: "prepared" });
-
-    if (target.pathname === "/backend-api/sentinel/chat-requirements/finalize")
-      return jsonResponse({ token: "sentinel" });
-
     if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
       const body = JSON.parse(options.body);
       onConversationPost?.(body);
