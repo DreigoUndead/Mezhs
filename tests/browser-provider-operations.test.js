@@ -56,8 +56,11 @@ function nativeChatGptWindow(state) {
     async sendCommand(method) {
       if (method === "Network.enable")
         return {};
-      if (method === "Network.getResponseBody")
+      if (method === "Network.getResponseBody") {
+        if (state.responseBodyUnavailable)
+          throw new Error("No resource with given identifier found");
         return { body: state.streamBody || "", base64Encoded: false };
+      }
       throw new Error(`Unexpected debugger command ${method}`);
     }
   }
@@ -77,6 +80,7 @@ function nativeChatGptWindow(state) {
     },
     webContents: {
       debugger: debug,
+      getURL: () => currentUrl,
       executeJavaScript: async source => {
         assert.doesNotThrow(() => new Function(`return ${source};`));
         return { ok: true };
@@ -143,6 +147,12 @@ function nativeChatGptWindow(state) {
             postData: JSON.stringify(body)
           }
         });
+        debug.emit("message", {}, "Network.responseReceived", {
+          requestId,
+          response: { status: 200 }
+        });
+        if (!continuation && state.conversationId)
+          currentUrl = `https://chatgpt.com/c/${state.conversationId}`;
         debug.emit("message", {}, "Network.loadingFinished", { requestId });
       }
     }
@@ -469,6 +479,8 @@ test("ChatGPT browser module delegates conversation security to the native front
   assert.match(source, /insertText\(prompt\)/);
   assert.match(source, /sendInputEvent\(\{ type: "keyDown", keyCode: "Enter" \}\)/);
   assert.match(source, /Network\.requestWillBeSent/);
+  assert.match(source, /Network\.responseReceived/);
+  assert.match(source, /net::ERR_ABORTED/);
   assert.match(source, /Network\.getResponseBody/);
   assert.doesNotMatch(source, /nativeChatRequirementsHeaders/);
   assert.doesNotMatch(source, /conversation-small/);
