@@ -831,54 +831,118 @@ async function nativeChatRequirementsHeaders(window, payload) {
       : {})
   };
   const metadata = JSON.stringify(securityMetadata);
-  const script = `
+  const script = \`
     (async () => {
-      const moduleUrls = [...new Set(
+      const resources = [...new Set(
         performance.getEntriesByType("resource")
           .map(entry => String(entry.name || ""))
-          .filter(url => /\\/cdn\\/assets\\/conversation-small-[^/?#]+\\.js(?:[?#].*)?$/i.test(url))
+          .filter(url => /^https:\\/\\/chatgpt\\.com\\/cdn\\/assets\\/[^/?#]+\\.js(?:[?#].*)?$/i.test(url))
       )].reverse();
 
-      for (const moduleUrl of moduleUrls) {
-        const provider = await import(moduleUrl);
-        const candidates = Object.values(provider).filter(value => {
-          if (typeof value !== "function") return false;
-          const source = Function.prototype.toString.call(value);
-          return source.includes("chatReq") &&
-            source.includes("turnstileToken") &&
-            source.includes("proofToken") &&
-            source.includes("getEnforcementTokenSync") &&
-            source.includes("getEnforcementToken");
-        });
-        if (candidates.length !== 1)
-          continue;
+      const isSecurityProvider = value => {
+        if (typeof value !== "function") return false;
+        const source = Function.prototype.toString.call(value);
+        return source.includes("chatReq") &&
+          source.includes("turnstileToken") &&
+          source.includes("proofToken") &&
+          source.includes("force_login") &&
+          source.includes("getEnforcementTokenSync") &&
+          source.includes("getEnforcementToken");
+      };
 
-        const security = await Promise.resolve(candidates[0](${metadata}));
-        if (!security?.chatReq || typeof security.chatReq !== "object")
-          throw new Error("ChatGPT native chat requirements provider returned no requirements.");
+      const uniqueSecurityProvider = values => {
+        const matches = [...new Set(values.filter(isSecurityProvider))];
+        if (matches.length > 1)
+          throw new Error("ChatGPT native chat requirements provider is ambiguous.");
+        return matches[0] || null;
+      };
 
-        const telemetry = await Promise.resolve(window.SentinelSDK?.timing?.() ?? null);
-        return {
-          requirementsToken:
-            typeof security.chatReq.token === "string" ? security.chatReq.token : null,
-          prepareToken:
-            typeof security.chatReq.prepare_token === "string"
-              ? security.chatReq.prepare_token
-              : null,
-          forceLogin: security.chatReq.force_login === true,
-          turnstileToken:
-            typeof security.turnstileToken === "string"
-              ? security.turnstileToken
-              : null,
-          proofToken:
-            typeof security.proofToken === "string" ? security.proofToken : null,
-          telemetry: typeof telemetry === "string" ? telemetry : null
-        };
+      let securityProvider = null;
+      const rspackRuntimeUrls = resources.filter(url =>
+        /\\/cdn\\/assets\\/633146\\.[a-f0-9]+\\.js(?:[?#].*)?$/i.test(url));
+
+      if (rspackRuntimeUrls.length) {
+        for (const runtimeUrl of rspackRuntimeUrls) {
+          let runtime;
+          try {
+            runtime = await import(runtimeUrl);
+          } catch {
+            continue;
+          }
+
+          const loader = runtime?.__webpack_require__;
+          if (typeof loader !== "function" ||
+              !loader.c ||
+              typeof loader.c !== "object") {
+            continue;
+          }
+
+          const values = [];
+          for (const record of Object.values(loader.c)) {
+            const exported = record?.exports;
+            if (exported === null || exported === undefined)
+              continue;
+            values.push(exported);
+            if (typeof exported === "object" || typeof exported === "function") {
+              try {
+                values.push(...Object.values(exported));
+              } catch {
+                // An unrelated export getter must not make provider discovery fail.
+              }
+            }
+          }
+
+          securityProvider = uniqueSecurityProvider(values);
+          if (securityProvider)
+            break;
+        }
+
+        if (!securityProvider) {
+          throw new Error(
+            "ChatGPT native chat requirements provider was not found in the loaded Rspack frontend."
+          );
+        }
+      } else {
+        const legacyModuleUrls = resources.filter(url =>
+          /\\/cdn\\/assets\\/conversation-small-[^/?#]+\\.js(?:[?#].*)?$/i.test(url));
+
+        for (const moduleUrl of legacyModuleUrls) {
+          const provider = await import(moduleUrl);
+          securityProvider = uniqueSecurityProvider(Object.values(provider));
+          if (securityProvider)
+            break;
+        }
+
+        if (!securityProvider) {
+          throw new Error(
+            "ChatGPT native chat requirements provider was not found in the loaded frontend."
+          );
+        }
       }
 
-      throw new Error("ChatGPT native chat requirements provider was not found in the loaded frontend.");
+      const security = await Promise.resolve(securityProvider(\${metadata}));
+      if (!security?.chatReq || typeof security.chatReq !== "object")
+        throw new Error("ChatGPT native chat requirements provider returned no requirements.");
+
+      const telemetry = await Promise.resolve(window.SentinelSDK?.timing?.() ?? null);
+      return {
+        requirementsToken:
+          typeof security.chatReq.token === "string" ? security.chatReq.token : null,
+        prepareToken:
+          typeof security.chatReq.prepare_token === "string"
+            ? security.chatReq.prepare_token
+            : null,
+        forceLogin: security.chatReq.force_login === true,
+        turnstileToken:
+          typeof security.turnstileToken === "string"
+            ? security.turnstileToken
+            : null,
+        proofToken:
+          typeof security.proofToken === "string" ? security.proofToken : null,
+        telemetry: typeof telemetry === "string" ? telemetry : null
+      };
     })()
-  `;
+  \`;
 
   const security = await window.webContents.executeJavaScript(script, true);
   if (!security || typeof security !== "object")
@@ -890,7 +954,7 @@ async function nativeChatRequirementsHeaders(window, payload) {
   const addHeader = (name, value) => {
     if (value === null || value === undefined || value === "") return;
     if (typeof value !== "string" || /[\r\n]/.test(value))
-      throw new Error(`ChatGPT native chat requirements returned an invalid '${name}' header.`);
+      throw new Error(\`ChatGPT native chat requirements returned an invalid '\${name}' header.\`);
     headers[name] = value;
   };
 
