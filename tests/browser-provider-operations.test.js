@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { EventEmitter } = require("node:events");
 
 const root = path.resolve(__dirname, "..");
 
@@ -40,27 +41,103 @@ function mockSession(fetch, deviceId = null) {
   };
 }
 
-function chatGptWindow(overrides = {}) {
-  const {
-    webContents: webContentsOverrides = {},
-    ...windowOverrides
-  } = overrides;
+function nativeChatGptWindow(state) {
+  class NativeDebugger extends EventEmitter {
+    constructor() {
+      super();
+      this.attached = false;
+    }
+    isAttached() { return this.attached; }
+    attach(version) {
+      assert.equal(version, "1.3");
+      this.attached = true;
+    }
+    detach() { this.attached = false; }
+    async sendCommand(method) {
+      if (method === "Network.enable")
+        return {};
+      if (method === "Network.getResponseBody")
+        return { body: state.streamBody || "", base64Encoded: false };
+      throw new Error(`Unexpected debugger command ${method}`);
+    }
+  }
+
+  const debug = new NativeDebugger();
+  let currentUrl = "https://chatgpt.com/";
+  let composerText = "";
+
   return {
     getBounds: () => ({ width: 1200, height: 850 }),
-    ...windowOverrides,
+    loadURL: async url => {
+      currentUrl = String(url);
+      state.loadedUrl = currentUrl;
+      composerText = "";
+    },
     webContents: {
-      getUserAgent: () => "TestBrowser/1.0",
+      debugger: debug,
       executeJavaScript: async source => {
-        assert.match(source, /conversation-small/);
         assert.doesNotThrow(() => new Function(`return ${source};`));
-        return {
-          "OpenAI-Sentinel-Chat-Requirements-Token": "sentinel",
-          "OpenAI-Sentinel-Turnstile-Token": "turnstile",
-          "OpenAI-Sentinel-Proof-Token": "proof",
-          "OAI-Telemetry": "[1,null]"
-        };
+        if (source.includes("contains an existing draft"))
+          return { ok: true };
+        return composerText;
       },
-      ...webContentsOverrides
+      insertText: async text => {
+        composerText = String(text);
+      },
+      sendInputEvent: event => {
+        if (event.type !== "keyDown" || event.keyCode !== "Enter")
+          return;
+
+        const url = new URL(currentUrl);
+        const continuation = /^\/c\/([^/]+)$/.exec(url.pathname);
+        const project = /^\/g\/(g-p-[^/]+)\/project$/.exec(url.pathname);
+        const requestMessageId = `request-${(state.posts || 0) + 1}`;
+        state.posts = (state.posts || 0) + 1;
+
+        const body = {
+          action: "next",
+          model: state.model || "gpt-5-6-thinking",
+          parent_message_id: continuation
+            ? state.parentMessageId || "assistant-old"
+            : "client-created-root",
+          client_prepare_state: "success",
+          supported_encodings: ["v1"],
+          messages: [{
+            id: requestMessageId,
+            author: { role: "user" },
+            content: { content_type: "text", parts: [composerText] }
+          }],
+          ...(state.effort ? { thinking_effort: state.effort } : {}),
+          ...(continuation
+            ? { conversation_id: decodeURIComponent(continuation[1]) }
+            : {}),
+          ...(project
+            ? {
+                conversation_mode: {
+                  kind: "gizmo_interaction",
+                  gizmo_id: decodeURIComponent(project[1])
+                }
+              }
+            : {})
+        };
+
+        state.lastBody = body;
+        state.onRequest?.(body);
+        state.streamBody = state.stream?.(body) ??
+          `data: {"conversation_id":"${state.conversationId}"}\n\ndata: [DONE]\n\n`;
+
+        const requestId = `native-${state.posts}`;
+        debug.emit("message", {}, "Network.requestWillBeSent", {
+          requestId,
+          request: {
+            url: "https://chatgpt.com/backend-api/f/conversation",
+            method: "POST",
+            headers: {},
+            postData: JSON.stringify(body)
+          }
+        });
+        debug.emit("message", {}, "Network.loadingFinished", { requestId });
+      }
     }
   };
 }
@@ -306,79 +383,44 @@ test("ChatGPT getModels follows the native picker instead of the raw catalog", a
   ]);
 });
 
-test("ChatGPT o3 newChat follows the semantic web API protocol and reports the assistant model", async () => {
+test("ChatGPT o3 newChat uses the native project composer and reports the served model", async () => {
   const chatgpt = loadChatGptModule();
-  let initHeaders;
-  let initPayload;
-  let prepareHeaders;
-  let preparePayload;
-  let conversationPayload;
-  let conversationHeaders;
+  const state = {
+    conversationId: "conv-1",
+    projectId: "g-p-mezhs",
+    model: "gpt-5-6-thinking",
+    effort: null
+  };
 
-  const session = mockSession(async (url, options = {}) => {
+  const session = mockSession(async (url) => {
     const target = new URL(String(url));
 
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
+
     if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
       assert.equal(target.search, "?model_slug=o3");
+      state.model = target.searchParams.get("model_slug");
+      state.effort = target.searchParams.get("thinking_effort");
       return textResponse("");
     }
 
-    if (target.pathname === "/backend-api/conversation/init") {
-      initHeaders = options.headers;
-      initPayload = JSON.parse(options.body);
-      return jsonResponse({
-        type: "conversation_detail_metadata",
-        default_model_slug: "o3",
-        intended_default_model_slug: "o3"
-      });
-    }
-
-    if (target.pathname === "/backend-api/f/conversation/prepare") {
-      prepareHeaders = options.headers;
-      assert.equal(options.method, "POST");
-      if (!options.body) {
-        return jsonResponse({ detail: [
-          { type: "missing", loc: ["body"], msg: "Field required", input: null },
-          { type: "missing", loc: ["body"], msg: "Field required", input: null }
-        ] }, 422);
-      }
-      preparePayload = JSON.parse(options.body);
-      return jsonResponse({ status: "ok", conduit_token: "conduit" });
-    }
-
-
-    if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
-      conversationPayload = JSON.parse(options.body);
-      conversationHeaders = options.headers;
-      return textResponse('data: {"conversation_id":"conv-1"}\n\ndata: [DONE]\n\n', 200, "text/event-stream");
-    }
-
-    if (target.pathname === "/backend-api/conversation/conv-1")
+    if (target.pathname === "/backend-api/conversation/conv-1") {
       return jsonResponse(completedConversation(
         "conv-1",
         "g-p-mezhs",
         "o3",
-        conversationPayload.messages[0].id,
-        "gpt-5-5-mini"
+        state.lastBody.messages[0].id,
+        "o3"
       ));
+    }
 
     throw new Error(`Unexpected request ${target}`);
-  }, "device-1");
+  });
 
   const result = await chatgpt.operations.newChat({
-    window: chatGptWindow({
-      loadURL: async () => {
-        throw new Error("ChatGPT account send must not navigate the UI.");
-      },
-      webContents: { debugger: {} }
-    }),
-    page: {
-      invoke: async () => {
-        throw new Error("ChatGPT account send must not invoke page operations.");
-      }
-    },
+    window: nativeChatGptWindow(state),
+    page: { invoke: async () => { throw new Error("page operation not expected"); } },
     session,
     args: {
       prompt: "what model are you?",
@@ -391,78 +433,15 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
     sleep: async () => {}
   });
 
-  assert.deepEqual(initPayload, {
-    gizmo_id: "g-p-mezhs",
-    requested_default_model: null,
-    conversation_id: null,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-    timezone_offset_min: new Date().getTimezoneOffset(),
-    conversation_origin: null
-  });
-  assert.equal(initHeaders["x-openai-web-frontend"], "core_web");
-  assert.equal(initHeaders["x-openai-target-path"], "/backend-api/conversation/init");
-  assert.equal(initHeaders["Oai-Device-Id"], "device-1");
-  assert.ok(initHeaders["Oai-Session-Id"]);
-
-  assert.equal(prepareHeaders["Content-Type"], "application/json");
-  assert.equal("x-conduit-token" in prepareHeaders, false);
-  assert.equal(prepareHeaders["x-openai-target-path"], "/backend-api/f/conversation/prepare");
-  assert.ok(prepareHeaders["x-oai-turn-trace-id"]);
-  assert.equal(preparePayload.action, "next");
-  assert.equal(preparePayload.model, "o3");
-  assert.equal(preparePayload.parent_message_id, "client-created-root");
-  assert.deepEqual(preparePayload.conversation_mode, {
+  assert.equal(state.loadedUrl, "https://chatgpt.com/g/g-p-mezhs/project");
+  assert.equal(state.lastBody.model, "o3");
+  assert.equal("thinking_effort" in state.lastBody, false);
+  assert.deepEqual(state.lastBody.conversation_mode, {
     kind: "gizmo_interaction",
     gizmo_id: "g-p-mezhs"
   });
-  assert.equal(preparePayload.client_prepare_state, "none");
-  assert.equal(preparePayload.client_prepare_dispatch, "debounced");
-  assert.equal(preparePayload.client_prepare_source, "composer_editor_state");
-  assert.equal(preparePayload.partial_query.id, conversationPayload.messages[0].id);
-  assert.deepEqual(preparePayload.partial_query.author, { role: "user" });
-  assert.deepEqual(preparePayload.partial_query.content, conversationPayload.messages[0].content);
-  assert.deepEqual(preparePayload.supported_encodings, ["v1"]);
-  assert.equal(preparePayload.supports_buffering, true);
-  assert.deepEqual(preparePayload.local_function_names, ["local.continue_in_work"]);
-  assert.deepEqual(preparePayload.client_contextual_info, {
-    app_name: "chatgpt.com",
-    has_web_push_capabilities: true,
-    web_push_notification_permission: "default"
-  });
-  assert.equal("thinking_effort" in preparePayload, false);
-
-  assert.deepEqual(conversationPayload.conversation_mode, {
-    kind: "gizmo_interaction",
-    gizmo_id: "g-p-mezhs"
-  });
-  assert.equal(conversationPayload.messages[0].content.parts.at(-1), "what model are you?");
-  assert.equal(conversationPayload.messages[0].metadata.serialization_metadata.custom_symbol_offsets.length, 0);
-  assert.equal("selected_github_repos" in conversationPayload.messages[0].metadata, false);
-  assert.equal(conversationPayload.model, "o3");
-  assert.equal(conversationPayload.parent_message_id, "client-created-root");
-  assert.equal(conversationPayload.client_prepare_state, "success");
-  assert.deepEqual(conversationPayload.supported_encodings, ["v1"]);
-  assert.equal(conversationPayload.supports_buffering, true);
-  assert.equal(conversationPayload.enable_message_followups, true);
-  assert.equal(conversationPayload.messages[0].metadata.submission_mode, "manual_send");
-  assert.equal("history_and_training_disabled" in conversationPayload, false);
-  assert.equal(conversationPayload.force_parallel_switch, "auto");
-  assert.deepEqual(conversationPayload.local_function_names, ["local.continue_in_work"]);
-  assert.equal("thinking_effort" in conversationPayload, false);
-  assert.equal("conversation_id" in conversationPayload, false);
-
-  assert.equal(conversationHeaders["OpenAI-Sentinel-Chat-Requirements-Token"], "sentinel");
-  assert.equal(conversationHeaders["OpenAI-Sentinel-Turnstile-Token"], "turnstile");
-  assert.equal(conversationHeaders["OpenAI-Sentinel-Proof-Token"], "proof");
-  assert.equal(conversationHeaders["OAI-Telemetry"], "[1,null]");
-  assert.equal(conversationHeaders["x-conduit-token"], "conduit");
-  assert.equal(conversationHeaders["x-openai-web-frontend"], "core_web");
-  assert.equal(prepareHeaders["x-openai-web-frontend"], "core_web");
-  assert.equal(initHeaders["Oai-Session-Id"], prepareHeaders["Oai-Session-Id"]);
-  assert.equal(prepareHeaders["Oai-Session-Id"], conversationHeaders["Oai-Session-Id"]);
-  assert.equal(conversationHeaders["x-oai-turn-trace-id"], prepareHeaders["x-oai-turn-trace-id"]);
-  assert.equal(conversationHeaders["x-openai-target-path"], "/backend-api/f/conversation");
-  assert.equal(conversationHeaders["Oai-Device-Id"], "device-1");
+  assert.equal(state.lastBody.messages[0].content.parts[0], "what model are you?");
+  assert.equal("conversation_id" in state.lastBody, false);
 
   assert.equal(result.conversationId, "conv-1");
   assert.equal(result.parentMessageId, "assistant-1");
@@ -471,95 +450,7 @@ test("ChatGPT o3 newChat follows the semantic web API protocol and reports the a
   assert.equal(result.model, "o3");
 });
 
-test("ChatGPT carries native integrity-state observations across account API requests", async () => {
-  const chatgpt = loadChatGptModule();
-  const stateA = "ois1.header.1234567890abcdef.payloadA";
-  const stateB = "ois1.header.abcdef1234567890.payloadB";
-  const stateC = "ois1.header.fedcba0987654321.payloadC";
-  let integrityState = stateA;
-  let preferenceObservation;
-  let prepareObservation;
-  let conversationObservation;
-  let requestMessageId;
-
-  const session = {
-    cookies: {
-      async get({ name }) {
-        if (name === "__Secure-oai-is")
-          return integrityState ? [{ value: integrityState }] : [];
-        if (name === "oai-did")
-          return [{ value: "device-1" }];
-        return [];
-      },
-      async set(cookie) {
-        if (cookie.name === "__Secure-oai-is")
-          integrityState = cookie.value;
-      }
-    },
-    async fetch(url, options = {}) {
-      const target = new URL(String(url));
-
-      if (target.pathname === "/api/auth/session")
-        return jsonResponse({ accessToken: "token" });
-
-      if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
-        preferenceObservation = options.headers["X-OAI-IS-Client-Observation"];
-        return new Response("", {
-          status: 200,
-          headers: { "x-oai-is-update": stateB }
-        });
-      }
-
-      if (target.pathname === "/backend-api/f/conversation/prepare") {
-        prepareObservation = options.headers["X-OAI-IS-Client-Observation"];
-        return jsonResponse({ conduit_token: "conduit" });
-      }
-
-
-      if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
-        conversationObservation = options.headers["X-OAI-IS-Client-Observation"];
-        const body = JSON.parse(options.body);
-        requestMessageId = body.messages[0].id;
-        return new Response(
-          'data: {"conversation_id":"conv-integrity"}\n\ndata: [DONE]\n\n',
-          {
-            status: 200,
-            headers: {
-              "content-type": "text/event-stream",
-              "x-oai-is-update": stateC
-            }
-          }
-        );
-      }
-
-      if (target.pathname === "/backend-api/conversation/conv-integrity")
-        return jsonResponse(completedConversation(
-          "conv-integrity",
-          null,
-          "o3",
-          requestMessageId,
-          "o3"
-        ));
-
-      throw new Error(`Unexpected request ${target}`);
-    }
-  };
-
-  const result = await chatgpt.operations.newChat({
-    window: chatGptWindow(),
-    session,
-    args: { prompt: "integrity", model: "o3", files: [] },
-    sleep: async () => {}
-  });
-
-  assert.equal(preferenceObservation, "v1.r.p.1234567890abcdef");
-  assert.equal(prepareObservation, "v1.r.p.abcdef1234567890");
-  assert.equal(conversationObservation, "v1.s.p.abcdef1234567890");
-  assert.equal(integrityState, stateC);
-  assert.equal(result.text, "answer");
-});
-
-test("ChatGPT browser module does not hardcode provider model-id rewrites or version classifiers", () => {
+test("ChatGPT browser module delegates conversation security to the native frontend", () => {
   const source = fs.readFileSync(
     path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "chatgpt.ts"),
     "utf8"
@@ -567,17 +458,20 @@ test("ChatGPT browser module does not hardcode provider model-id rewrites or ver
   assert.doesNotMatch(source, /CHATGPT_WIRE_MODEL/);
   assert.doesNotMatch(source, /"gpt-[^"]+":\s*"gpt-[^"]+"/);
   assert.doesNotMatch(source, /versionId\.toLowerCase\(\)/);
-  assert.match(source, /nativeChatRequirementsHeaders/);
-  assert.match(source, /conversation-small/);
-  assert.match(source, /cacheEnforcementToken/);
-  assert.doesNotMatch(source, /sentinelProofToken|solveSentinelProof|sha3_512|KECCAK_/);
-  assert.doesNotMatch(source, /sentinel\/chat-requirements\/prepare/);
+  assert.match(source, /insertText\(prompt\)/);
+  assert.match(source, /sendInputEvent\(\{ type: "keyDown", keyCode: "Enter" \}\)/);
+  assert.match(source, /Network\.requestWillBeSent/);
+  assert.match(source, /Network\.getResponseBody/);
+  assert.doesNotMatch(source, /nativeChatRequirementsHeaders/);
+  assert.doesNotMatch(source, /conversation-small/);
+  assert.doesNotMatch(source, /chat-requirements|Turnstile|Proof-Token|x-conduit-token/i);
+  assert.doesNotMatch(source, /conversationPreparePayload|getConduitToken|webApiHeaders/);
 });
 
-test("ChatGPT picker selections are sent without model-specific rewrites", async () => {
+test("ChatGPT picker selections are verified on the native outgoing request", async () => {
   const chatgpt = loadChatGptModule();
   const selections = [
-    { selected: undefined, model: "auto", effort: null },
+    { selected: undefined, model: "gpt-5-6-thinking", effort: null },
     { selected: "gpt-5-6-instant", model: "gpt-5-6-instant", effort: null },
     {
       selected: "gpt-5-6-thinking::thinking-effort=standard",
@@ -589,96 +483,81 @@ test("ChatGPT picker selections are sent without model-specific rewrites", async
       model: "gpt-5-6-thinking",
       effort: "extended"
     },
-    { selected: "gpt-5-5-instant", model: "gpt-5-5-instant", effort: null },
-    {
-      selected: "gpt-5-5-thinking::thinking-effort=standard",
-      model: "gpt-5-5-thinking",
-      effort: "standard"
-    },
-    {
-      selected: "gpt-5-5-thinking::thinking-effort=extended",
-      model: "gpt-5-5-thinking",
-      effort: "extended"
-    },
     { selected: "o3", model: "o3", effort: null }
   ];
 
   for (const selection of selections) {
-    let preparePayload;
-    let conversationPayload;
-    const session = mockSession(async (url, options = {}) => {
+    const state = {
+      conversationId: "conv-selection",
+      model: "gpt-5-6-thinking",
+      effort: null
+    };
+    const session = mockSession(async (url) => {
       const target = new URL(String(url));
       if (target.pathname === "/api/auth/session")
         return jsonResponse({ accessToken: "token" });
       if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
-        assert.equal(target.searchParams.get("model_slug"), selection.model);
-        assert.equal(target.searchParams.get("thinking_effort"), selection.effort);
+        state.model = target.searchParams.get("model_slug");
+        state.effort = target.searchParams.get("thinking_effort");
+        assert.equal(state.model, selection.model);
+        assert.equal(state.effort, selection.effort);
         return textResponse("");
       }
-      if (target.pathname === "/backend-api/f/conversation/prepare") {
-        preparePayload = JSON.parse(options.body);
-        return jsonResponse({ conduit_token: "conduit" });
-      }
-
-      if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
-        conversationPayload = JSON.parse(options.body);
-        return textResponse('data: {"conversation_id":"conv-selection"}\n\n', 200, "text/event-stream");
-      }
-      if (target.pathname === "/backend-api/conversation/conv-selection")
+      if (target.pathname === "/backend-api/conversation/conv-selection") {
         return jsonResponse(completedConversation(
           "conv-selection",
           null,
           selection.model,
-          conversationPayload.messages[0].id,
+          state.lastBody.messages[0].id,
           selection.model
         ));
+      }
       throw new Error(`Unexpected request ${target}`);
     });
 
+    if (!selection.selected)
+      state.model = selection.model;
+
     await chatgpt.operations.newChat({
-      window: chatGptWindow(),
+      window: nativeChatGptWindow(state),
       session,
       args: { prompt: "test selection", model: selection.selected, files: [] },
       sleep: async () => {}
     });
 
-    assert.equal(preparePayload.model, selection.model, selection.selected);
-    assert.equal(conversationPayload.model, selection.model, selection.selected);
-    assert.equal(preparePayload.thinking_effort ?? null, selection.effort, selection.selected);
-    assert.equal(conversationPayload.thinking_effort ?? null, selection.effort, selection.selected);
+    assert.equal(state.lastBody.model, selection.model, selection.selected);
+    assert.equal(state.lastBody.thinking_effort ?? null, selection.effort, selection.selected);
   }
 });
 
-test("ChatGPT send continues the existing conversation through the current transport", async () => {
+test("ChatGPT send continues the existing conversation through the native composer", async () => {
   const chatgpt = loadChatGptModule();
-  let conversationPayload;
-  const session = mockSession(async (url, options = {}) => {
+  const state = {
+    conversationId: "conv-existing",
+    model: "gpt-5-6-thinking",
+    effort: null,
+    parentMessageId: "assistant-old"
+  };
+  const session = mockSession(async (url) => {
     const target = new URL(String(url));
 
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
-    if (target.pathname === "/backend-api/f/conversation/prepare")
-      return jsonResponse({ conduit_token: "conduit" });
 
-
-    if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
-      conversationPayload = JSON.parse(options.body);
-      return textResponse('data: {"conversation_id":"conv-existing"}\n\n', 200, "text/event-stream");
-    }
-
-    if (target.pathname === "/backend-api/conversation/conv-existing")
+    if (target.pathname === "/backend-api/conversation/conv-existing") {
       return jsonResponse(completedConversation(
         "conv-existing",
         "g-p-mezhs",
         "served-continuation",
-        conversationPayload.messages[0].id
+        state.lastBody.messages[0].id
       ));
+    }
 
     throw new Error(`Unexpected request ${target}`);
   });
 
   const result = await chatgpt.operations.send({
-    window: chatGptWindow(),
+    window: nativeChatGptWindow(state),
     session,
     args: {
       prompt: "continue",
@@ -689,48 +568,67 @@ test("ChatGPT send continues the existing conversation through the current trans
     sleep: async () => {}
   });
 
-  assert.equal(conversationPayload.conversation_id, "conv-existing");
-  assert.equal(conversationPayload.parent_message_id, "assistant-old");
-  assert.equal(conversationPayload.model, "auto");
-  assert.equal("conversation_mode" in conversationPayload, false);
+  assert.equal(state.loadedUrl, "https://chatgpt.com/c/conv-existing");
+  assert.equal(state.lastBody.conversation_id, "conv-existing");
+  assert.equal("conversation_mode" in state.lastBody, false);
   assert.equal(result.projectId, "g-p-mezhs");
   assert.equal(result.model, "served-continuation");
 });
 
-test("ChatGPT account send fails closed when native chat requirements are unavailable", async () => {
+test("ChatGPT fails closed when the native outgoing request uses the wrong effort", async () => {
   const chatgpt = loadChatGptModule();
-  let conversationCalled = false;
+  const state = {
+    conversationId: "conv-wrong-effort",
+    model: "gpt-5-6-thinking",
+    effort: "standard"
+  };
   const session = mockSession(async (url) => {
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
-    if (target.pathname === "/backend-api/conversation/init")
-      return jsonResponse({
-        type: "conversation_detail_metadata",
-        default_model_slug: "gpt-5-6-thinking"
-      });
-    if (target.pathname === "/backend-api/f/conversation/prepare")
-      return jsonResponse({ conduit_token: "conduit" });
-    if (target.pathname === "/backend-api/f/conversation") {
-      conversationCalled = true;
-      return textResponse("unexpected");
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
+      // Simulate the frontend ignoring the requested preference after the PATCH.
+      return textResponse("");
     }
     throw new Error(`Unexpected request ${target}`);
   });
 
-  const error = await chatgpt.operations.newChat({
-    window: chatGptWindow({
-      webContents: {
-        executeJavaScript: async () => {
-          throw new Error("native ChatGPT chat requirements unavailable");
-        }
-      }
+  await assert.rejects(
+    chatgpt.operations.newChat({
+      window: nativeChatGptWindow(state),
+      session,
+      args: {
+        prompt: "hello",
+        model: "gpt-5-6-thinking::thinking-effort=extended",
+        files: []
+      },
+      sleep: async () => {}
     }),
-    session,
-    args: { prompt: "hello", projectId: "g-p-mezhs", files: [] },
-    sleep: async () => {}
-  }).then(() => null, caught => caught);
-
-  assert.equal(error?.message, "native ChatGPT chat requirements unavailable");
-  assert.equal(conversationCalled, false);
+    /selected thinking effort 'standard' instead of 'extended'/
+  );
 });
+
+test("ChatGPT rejects file input instead of falling back to the obsolete direct protocol", async () => {
+  const chatgpt = loadChatGptModule();
+  const state = { conversationId: "unused" };
+  const session = mockSession(async (url) => {
+    const target = new URL(String(url));
+    if (target.pathname === "/api/auth/session")
+      return jsonResponse({ accessToken: "token" });
+    throw new Error(`Unexpected request ${target}`);
+  });
+
+  await assert.rejects(
+    chatgpt.operations.newChat({
+      window: nativeChatGptWindow(state),
+      session,
+      args: {
+        prompt: "hello",
+        files: [{ path: "unused", name: "unused.txt", contentType: "text/plain" }]
+      },
+      sleep: async () => {}
+    }),
+    /file input is temporarily unavailable/
+  );
+});
+
