@@ -128,9 +128,10 @@ function nativeBrowserSurface(session) {
           state.selectAllCalls = (state.selectAllCalls || 0) + 1;
         },
         insertText: async text => {
+          const inserted = String(text).replace(/\r\n?/g, "\n");
           composerText = selectedAll
-            ? String(text)
-            : composerText + String(text);
+            ? inserted
+            : composerText + inserted;
           selectedAll = false;
         },
         sendInputEvent: event => {
@@ -260,6 +261,35 @@ test("ChatGPT account newChat submits through the native composer and reads the 
   assert.equal(session.__native.selectAllCalls, 1);
   assert.equal(result.conversationId, "conv-api");
   assert.equal(result.text, "API_OK");
+});
+
+test("ChatGPT accepts native LF normalization of Windows prompt line endings", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  let postedPrompt;
+
+  const session = protocolSession({
+    conversationId: "conv-crlf",
+    onConversationPost: body => {
+      requestMessageId = body.messages[0].id;
+      postedPrompt = body.messages[0].content.parts[0];
+    },
+    onConversationRead: () =>
+      jsonResponse(completedConversation("conv-crlf", requestMessageId, "CRLF_OK"))
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...nativeBrowserSurface(session),
+    session,
+    args: {
+      prompt: "line one\r\nline two\r\nline three",
+      files: []
+    },
+    sleep: async () => {}
+  });
+
+  assert.equal(postedPrompt, "line one\nline two\nline three");
+  assert.equal(result.text, "CRLF_OK");
 });
 
 test("ChatGPT follow-up ignores a stale assistant until the native user message appears in ancestry", async () => {
