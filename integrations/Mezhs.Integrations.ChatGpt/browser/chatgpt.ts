@@ -442,8 +442,14 @@ function validateNativeConversationRequest(
   const submittedPrompt = body?.messages?.[0]?.content?.parts
     ?.filter(part => typeof part === "string")
     .join("\n");
-  if (submittedPrompt !== prompt)
-    throw new Error("ChatGPT native request did not contain the exact submitted prompt.");
+  const normalizedSubmittedPrompt = normalizeLineEndings(submittedPrompt);
+  const normalizedPrompt = normalizeLineEndings(prompt);
+  if (normalizedSubmittedPrompt !== normalizedPrompt) {
+    const mismatch = firstStringMismatch(normalizedPrompt, normalizedSubmittedPrompt);
+    throw new Error(
+      `ChatGPT native request changed the submitted prompt (expected length ${normalizedPrompt.length}, actual length ${normalizedSubmittedPrompt.length}, first mismatch ${mismatch}).`
+    );
+  }
 
   if (selection.model && selection.model !== "auto" && body?.model !== selection.model) {
     throw new Error(
@@ -469,6 +475,18 @@ function validateNativeConversationRequest(
       `ChatGPT native composer did not submit inside project '${expectedProjectId}'.`
     );
   }
+}
+
+function normalizeLineEndings(value) {
+  return String(value ?? "").replace(/\r\n?/g, "\n");
+}
+
+function firstStringMismatch(expected, actual) {
+  const limit = Math.min(expected.length, actual.length);
+  for (let index = 0; index < limit; index++)
+    if (expected.charCodeAt(index) !== actual.charCodeAt(index))
+      return index;
+  return limit;
 }
 
 async function focusNativeComposer(window) {
