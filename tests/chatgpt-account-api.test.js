@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { EventEmitter } = require("node:events");
 
 const root = path.resolve(__dirname, "..");
 
@@ -77,28 +78,104 @@ function apiSession(handler) {
   };
 }
 
-function hostileBrowserSurface() {
+function nativeBrowserSurface(session) {
+  const state = session.__native;
+  if (!state)
+    throw new Error("Native browser fixture requires protocolSession().");
+
+  class NativeDebugger extends EventEmitter {
+    constructor() {
+      super();
+      this.attached = false;
+    }
+
+    isAttached() { return this.attached; }
+    attach(version) {
+      assert.equal(version, "1.3");
+      this.attached = true;
+    }
+    detach() { this.attached = false; }
+
+    async sendCommand(method) {
+      if (method === "Network.enable")
+        return {};
+      if (method === "Network.getResponseBody")
+        return { body: state.lastStream || "", base64Encoded: false };
+      throw new Error(`Unexpected debugger command ${method}`);
+    }
+  }
+
+  const debug = new NativeDebugger();
+  let currentUrl = "https://chatgpt.com/";
+  let composerText = "";
+
   return {
     window: {
-      loadURL: async () => {
-        throw new Error("ChatGPT account send must not navigate the UI.");
+      loadURL: async url => {
+        currentUrl = String(url);
+        composerText = "";
       },
       webContents: {
-        getUserAgent: () => "TestBrowser/1.0",
+        debugger: debug,
         executeJavaScript: async source => {
-          assert.match(source, /conversation-small/);
-        assert.doesNotThrow(() => new Function(`return ${source};`));
-          return {
-            "OpenAI-Sentinel-Chat-Requirements-Token": "sentinel",
-            "OpenAI-Sentinel-Turnstile-Token": "turnstile",
-            "OpenAI-Sentinel-Proof-Token": "proof",
-            "OAI-Telemetry": "[1,null]"
-          };
+          assert.doesNotThrow(() => new Function(`return ${source};`));
+          if (source.includes("contains an existing draft"))
+            return { ok: true };
+          return composerText;
         },
-        debugger: {
-          isAttached() { throw new Error("ChatGPT account send must not inspect the debugger."); },
-          attach() { throw new Error("ChatGPT account send must not attach the debugger."); },
-          sendCommand() { throw new Error("ChatGPT account send must not use debugger commands."); }
+        insertText: async text => {
+          composerText = String(text);
+        },
+        sendInputEvent: event => {
+          if (event.type !== "keyDown" || event.keyCode !== "Enter")
+            return;
+
+          const url = new URL(currentUrl);
+          const continuation = /^\/c\/([^/]+)$/.exec(url.pathname);
+          const project = /^\/g\/(g-p-[^/]+)\/project$/.exec(url.pathname);
+          const requestMessageId = `request-${++state.posts}`;
+          const body = {
+            action: "next",
+            model: state.model || "gpt-5-6-thinking",
+            parent_message_id: continuation ? "assistant-old" : "client-created-root",
+            client_prepare_state: "success",
+            supported_encodings: ["v1"],
+            messages: [{
+              id: requestMessageId,
+              author: { role: "user" },
+              content: { content_type: "text", parts: [composerText] }
+            }],
+            ...(state.thinkingEffort
+              ? { thinking_effort: state.thinkingEffort }
+              : {}),
+            ...(continuation
+              ? { conversation_id: decodeURIComponent(continuation[1]) }
+              : {}),
+            ...(project
+              ? {
+                  conversation_mode: {
+                    kind: "gizmo_interaction",
+                    gizmo_id: decodeURIComponent(project[1])
+                  }
+                }
+              : {})
+          };
+
+          state.onConversationPost?.(body);
+          state.lastStream = state.conversationStream?.(body) ??
+            `data: {"conversation_id":"${state.conversationId}"}\n\ndata: [DONE]\n\n`;
+
+          const requestId = `native-${state.posts}`;
+          debug.emit("message", {}, "Network.requestWillBeSent", {
+            requestId,
+            request: {
+              url: "https://chatgpt.com/backend-api/f/conversation",
+              method: "POST",
+              headers: {},
+              postData: JSON.stringify(body)
+            }
+          });
+          debug.emit("message", {}, "Network.loadingFinished", { requestId });
         }
       }
     },
@@ -116,27 +193,26 @@ function protocolSession({
   onConversationPost,
   conversationStream
 }) {
-  return apiSession(async (url, options = {}) => {
+  const state = {
+    conversationId,
+    onConversationPost,
+    conversationStream,
+    model: "gpt-5-6-thinking",
+    thinkingEffort: null,
+    lastStream: "",
+    posts: 0
+  };
+
+  const session = apiSession(async (url, options = {}) => {
     const target = new URL(String(url));
 
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token", user: { id: "account-1" } });
 
-    if (target.pathname === "/backend-api/settings/user_last_used_model_config")
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
+      state.model = target.searchParams.get("model_slug") || state.model;
+      state.thinkingEffort = target.searchParams.get("thinking_effort");
       return textResponse("");
-
-    if (target.pathname === "/backend-api/f/conversation/prepare")
-      return jsonResponse({ conduit_token: "conduit" });
-
-    if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
-      const body = JSON.parse(options.body);
-      onConversationPost?.(body);
-      return textResponse(
-        conversationStream?.(body) ??
-          `data: {"conversation_id":"${conversationId}"}\n\ndata: [DONE]\n\n`,
-        200,
-        "text/event-stream"
-      );
     }
 
     if (target.pathname === `/backend-api/conversation/${conversationId}`)
@@ -144,6 +220,8 @@ function protocolSession({
 
     throw new Error(`Unexpected request ${target}`);
   });
+  session.__native = state;
+  return session;
 }
 
 test("ChatGPT account newChat uses the semantic API even when browser UI hooks exist", async () => {
@@ -218,7 +296,7 @@ test("ChatGPT follow-up ignores a stale assistant until the sent API message app
   });
 
   const result = await chatgpt.operations.send({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: {
       prompt: "continue",
@@ -256,7 +334,7 @@ test("ChatGPT final conversation metadata overrides earlier stream model metadat
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: {
       prompt: "verify served model",
@@ -303,7 +381,7 @@ test("ChatGPT API polling backs off on 429 without resending the turn", async ()
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "test", files: [] },
     sleep: async ms => { sleeps.push(ms); }
@@ -355,7 +433,7 @@ test("ChatGPT reposts once when a submitted turn never shows model activity", as
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "retry me", files: [] },
     sleep: async () => {}
@@ -420,7 +498,7 @@ test("ChatGPT reposts when model activity stops without a final reply", async ()
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "recover stalled turn", files: [] },
     sleep: async () => {},
@@ -493,7 +571,7 @@ test("ChatGPT inactivity watchdog resets when the conversation advances", async 
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "keep progressing", files: [] },
     sleep: async () => {}
@@ -553,7 +631,7 @@ test("ChatGPT keeps waiting while explicit in-progress analysis remains active",
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "state please", files: [] },
     sleep: async () => {},
@@ -610,7 +688,7 @@ test("ChatGPT captures transient provider reasoning metadata from the response s
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: {
       prompt: "reason",
@@ -661,7 +739,7 @@ test("ChatGPT distinguishes requested thinking effort from provider-confirmed ef
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: {
       prompt: "reason",
@@ -707,7 +785,7 @@ test("rate-limited state checks do not consume the turn-start watchdog", async (
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "do not duplicate", files: [] },
     sleep: async () => {}
@@ -748,7 +826,7 @@ test("ChatGPT fails after one automatic repost if model activity still never sta
 
   await assert.rejects(
     chatgpt.operations.newChat({
-      ...hostileBrowserSurface(),
+      ...nativeBrowserSurface(session),
       session,
       args: { prompt: "never starts", files: [] },
       sleep: async () => {}
@@ -825,7 +903,7 @@ test("ChatGPT account does not surface analysis-channel control text as the repl
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "test internal filtering", files: [] },
     sleep: async () => {}
@@ -887,7 +965,7 @@ test("ChatGPT account walks past hidden current nodes to the visible final reply
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "test hidden tail", files: [] },
     sleep: async () => {}
