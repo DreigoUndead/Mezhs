@@ -598,7 +598,14 @@ test("ChatGPT captures transient provider reasoning metadata from the response s
       ""
     ].join("\n"),
     onConversationRead: () =>
-      jsonResponse(completedConversation("conv-stream-reasoning", requestMessageId, "done"))
+      jsonResponse(completedConversation(
+        "conv-stream-reasoning",
+        requestMessageId,
+        "done",
+        "provider-thinking-model",
+        "provider-thinking-model",
+        "provider-high"
+      ))
   });
 
   const result = await chatgpt.operations.newChat({
@@ -630,7 +637,7 @@ test("ChatGPT captures transient provider reasoning metadata from the response s
   assert.ok(progress.some(value =>
     value.state === "completed" &&
     value.detail ===
-      "Model response received (model provider-thinking-model, effort provider-high, reasoning 3.5s, tools web.run)."
+      "Model response received (served model provider-thinking-model, effort provider-high, reasoning 3.5s, tools web.run)."
   ));
   const states = progress.map(value => value.state);
   assert.ok(states.indexOf("waiting") >= 0);
@@ -668,7 +675,7 @@ test("ChatGPT distinguishes requested thinking effort from provider-confirmed ef
   assert.ok(progress.some(value =>
     value.state === "completed" &&
     value.detail ===
-      "Model response received (model gpt-5-6-thinking, requested effort extended, not confirmed by provider)."
+      "Model response received (served model gpt-5-6-thinking, requested effort extended, not confirmed by provider)."
   ));
 });
 
