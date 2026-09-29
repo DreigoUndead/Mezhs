@@ -87,9 +87,9 @@ function hostileBrowserSurface() {
         getUserAgent: () => "TestBrowser/1.0",
         executeJavaScript: async source => {
           assert.match(source, /conversation-small/);
-        assert.match(source, /633146/);
-        assert.match(source, /__webpack_require__/);
-        assert.match(source, /loader\.c/);
+          assert.match(source, /633146/);
+          assert.match(source, /__webpack_require__/);
+          assert.match(source, /loader\.c/);
           assert.match(source, /chatReq/);
           assert.match(source, /turnstileToken/);
           assert.match(source, /proofToken/);
@@ -105,7 +105,6 @@ function hostileBrowserSurface() {
             proofToken: "proof",
             telemetry: "[1,null]"
           };
-        }
         },
         debugger: {
           isAttached() { throw new Error("ChatGPT account send must not inspect the debugger."); },
