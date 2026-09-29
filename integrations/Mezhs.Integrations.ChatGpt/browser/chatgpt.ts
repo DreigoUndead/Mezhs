@@ -441,10 +441,9 @@ function validateNativeConversationRequest(
 ) {
   const submittedPrompt = body?.messages?.[0]?.content?.parts
     ?.filter(part => typeof part === "string")
-    .join("\n")
-    .trim();
-  if (submittedPrompt !== prompt.trim())
-    throw new Error("ChatGPT native request did not contain the submitted prompt.");
+    .join("\n");
+  if (submittedPrompt !== prompt)
+    throw new Error("ChatGPT native request did not contain the exact submitted prompt.");
 
   if (selection.model && selection.model !== "auto" && body?.model !== selection.model) {
     throw new Error(
