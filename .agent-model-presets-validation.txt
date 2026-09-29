@@ -1,0 +1,608 @@
+== Node provider tests ==
+TAP version 13
+# Subtest: browser transport polls long provider operations through short HTTP requests
+ok 1 - browser transport polls long provider operations through short HTTP requests
+  ---
+  duration_ms: 1.193526
+  type: 'test'
+  ...
+# Subtest: provider response lifetime is not capped by wall-clock deadlines
+ok 2 - provider response lifetime is not capped by wall-clock deadlines
+  ---
+  duration_ms: 1.507659
+  type: 'test'
+  ...
+# Subtest: ChatGPT getProjects uses the private API and follows pagination
+not ok 3 - ChatGPT getProjects uses the private API and follows pagination
+  ---
+  duration_ms: 3.946021
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:152:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:153:19)
+  ...
+# Subtest: ChatGPT getModels follows the native picker instead of the raw catalog
+not ok 4 - ChatGPT getModels follows the native picker instead of the raw catalog
+  ---
+  duration_ms: 2.447831
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:191:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:192:19)
+  ...
+# Subtest: ChatGPT o3 newChat follows the semantic web API protocol and reports the assistant model
+not ok 5 - ChatGPT o3 newChat follows the semantic web API protocol and reports the assistant model
+  ---
+  duration_ms: 2.409924
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:308:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:309:19)
+  ...
+# Subtest: ChatGPT carries native integrity-state observations across account API requests
+not ok 6 - ChatGPT carries native integrity-state observations across account API requests
+  ---
+  duration_ms: 3.283399
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:473:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:474:19)
+  ...
+# Subtest: ChatGPT browser module does not hardcode provider model-id rewrites or version classifiers
+ok 7 - ChatGPT browser module does not hardcode provider model-id rewrites or version classifiers
+  ---
+  duration_ms: 0.653368
+  type: 'test'
+  ...
+# Subtest: ChatGPT picker selections are sent without model-specific rewrites
+not ok 8 - ChatGPT picker selections are sent without model-specific rewrites
+  ---
+  duration_ms: 2.392002
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:576:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:577:19)
+  ...
+# Subtest: ChatGPT send continues the existing conversation through the current transport
+not ok 9 - ChatGPT send continues the existing conversation through the current transport
+  ---
+  duration_ms: 2.478068
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:651:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:652:19)
+  ...
+# Subtest: ChatGPT account send fails closed when native chat requirements are unavailable
+not ok 10 - ChatGPT account send fails closed when native chat requirements are unavailable
+  ---
+  duration_ms: 2.923011
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:699:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:700:19)
+  ...
+# Subtest: ChatGPT account newChat uses the semantic API even when browser UI hooks exist
+not ok 11 - ChatGPT account newChat uses the semantic API even when browser UI hooks exist
+  ---
+  duration_ms: 4.685886
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:154:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:155:19)
+  ...
+# Subtest: ChatGPT follow-up ignores a stale assistant until the sent API message appears in ancestry
+not ok 12 - ChatGPT follow-up ignores a stale assistant until the sent API message appears in ancestry
+  ---
+  duration_ms: 2.445288
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:183:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:184:19)
+  ...
+# Subtest: ChatGPT final conversation metadata overrides earlier stream model metadata
+not ok 13 - ChatGPT final conversation metadata overrides earlier stream model metadata
+  ---
+  duration_ms: 2.301178
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:241:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:242:19)
+  ...
+# Subtest: ChatGPT API polling backs off on 429 without resending the turn
+not ok 14 - ChatGPT API polling backs off on 429 without resending the turn
+  ---
+  duration_ms: 2.282209
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:283:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:284:19)
+  ...
+# Subtest: ChatGPT reposts once when a submitted turn never shows model activity
+not ok 15 - ChatGPT reposts once when a submitted turn never shows model activity
+  ---
+  duration_ms: 3.443014
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:324:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:325:19)
+  ...
+# Subtest: ChatGPT reposts when model activity stops without a final reply
+not ok 16 - ChatGPT reposts when model activity stops without a final reply
+  ---
+  duration_ms: 2.24251
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:376:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:377:19)
+  ...
+# Subtest: ChatGPT inactivity watchdog resets when the conversation advances
+not ok 17 - ChatGPT inactivity watchdog resets when the conversation advances
+  ---
+  duration_ms: 2.076766
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:447:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:448:19)
+  ...
+# Subtest: ChatGPT keeps waiting while explicit in-progress analysis remains active
+not ok 18 - ChatGPT keeps waiting while explicit in-progress analysis remains active
+  ---
+  duration_ms: 2.387523
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:512:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:513:19)
+  ...
+# Subtest: ChatGPT captures transient provider reasoning metadata from the response stream
+not ok 19 - ChatGPT captures transient provider reasoning metadata from the response stream
+  ---
+  duration_ms: 3.125482
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:577:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:578:19)
+  ...
+# Subtest: ChatGPT distinguishes requested thinking effort from provider-confirmed effort
+not ok 20 - ChatGPT distinguishes requested thinking effort from provider-confirmed effort
+  ---
+  duration_ms: 3.224918
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:647:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:648:19)
+  ...
+# Subtest: rate-limited state checks do not consume the turn-start watchdog
+not ok 21 - rate-limited state checks do not consume the turn-start watchdog
+  ---
+  duration_ms: 2.965945
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:681:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:682:19)
+  ...
+# Subtest: ChatGPT fails after one automatic repost if model activity still never starts
+not ok 22 - ChatGPT fails after one automatic repost if model activity still never starts
+  ---
+  duration_ms: 2.072571
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:719:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:720:19)
+  ...
+# Subtest: ChatGPT account does not surface analysis-channel control text as the reply
+not ok 23 - ChatGPT account does not surface analysis-channel control text as the reply
+  ---
+  duration_ms: 2.020138
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:759:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:760:19)
+  ...
+# Subtest: ChatGPT account walks past hidden current nodes to the visible final reply
+not ok 24 - ChatGPT account walks past hidden current nodes to the visible final reply
+  ---
+  duration_ms: 2.015488
+  type: 'test'
+  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:839:1'
+  failureType: 'testCodeFailure'
+  error: "Unexpected token ']'"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    wrapSafe (node:internal/modules/cjs/loader:1713:18)
+    Module._compile (node:internal/modules/cjs/loader:1755:20)
+    Object..js (node:internal/modules/cjs/loader:1913:10)
+    Module.load (node:internal/modules/cjs/loader:1505:32)
+    Function._load (node:internal/modules/cjs/loader:1309:12)
+    wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    Module.require (node:internal/modules/cjs/loader:1527:12)
+    require (node:internal/modules/helpers:147:16)
+    loadChatGptModule (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:17:10)
+    TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:840:19)
+  ...
+1..24
+# tests 24
+# suites 0
+# pass 3
+# fail 21
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 99.030971
+NODE_EXIT=1
+
+== Solution build ==
+  Determining projects to restore...
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Api.Client/Mezhs.Api.Client.csproj (in 132 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Agent.Web/Mezhs.Agent.Web.csproj (in 120 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Api.Contracts/Mezhs.Api.Contracts.csproj (in 120 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Web/Mezhs.Web.csproj (in 2 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Api/Mezhs.Api.csproj (in 1.04 sec).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Log.Shared/Mezhs.Log.Shared.csproj (in 3 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Log.Data/Mezhs.Log.Data.csproj (in 2 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Integration.Browser/Mezhs.Integration.Browser.csproj (in 2 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Integration.Abstractions/Mezhs.Integration.Abstractions.csproj (in 0.9 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Sqlite/Mezhs.Sqlite.csproj (in 925 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Log.Sql/Mezhs.Log.Sql.csproj (in 919 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Executor/Mezhs.Executor.csproj (in 27 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Common/Mezhs.Common.csproj (in 1 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Console/Mezhs.Console.csproj (in 2 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/transports/Mezhs.Browser.Electron/Mezhs.Browser.Electron.csproj (in 2 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/transports/Mezhs.Browser.Abstractions/Mezhs.Browser.Abstractions.csproj (in 1 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Agent.Api/Mezhs.Agent.Api.csproj (in 925 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.WhatsApp/Mezhs.WhatsApp.csproj (in 3 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.Mock/Mezhs.Integrations.Mock.csproj (in 2 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/src/Mezhs.Agent.Api.Client/Mezhs.Agent.Api.Client.csproj (in 3 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.Grok/Mezhs.Integrations.Grok.csproj (in 3 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.Gemini/Mezhs.Integrations.Gemini.csproj (in 3 ms).
+  Restored /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.ChatGpt/Mezhs.Integrations.ChatGpt.csproj (in 3 ms).
+  Mezhs.Api.Contracts -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Api.Contracts/bin/Release/net10.0/Mezhs.Api.Contracts.dll
+  Mezhs.Common -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Common/bin/Release/net10.0/Mezhs.Common.dll
+  Mezhs.Web -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Web/bin/Release/net10.0/Mezhs.Web.dll
+  Mezhs.Agent.Web -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Agent.Web/bin/Release/net10.0/Mezhs.Agent.Web.dll
+  npm warn old lockfile
+  npm warn old lockfile The package-lock.json file was created with an old version of npm,
+  npm warn old lockfile so supplemental metadata must be fetched from the registry.
+  npm warn old lockfile
+  npm warn old lockfile This is a one-time fix-up, please be patient...
+  npm warn old lockfile
+  
+  added 75 packages, and audited 77 packages in 6s
+  
+  11 packages are looking for funding
+    run `npm fund` for details
+  
+  4 vulnerabilities (1 moderate, 3 high)
+  
+  To address issues that do not require attention, run:
+    npm audit fix
+  
+  To address all issues (including breaking changes), run:
+    npm audit fix --force
+  
+  Run `npm audit` for details.
+  
+  > mezhs-web@0.1.0 build
+  > tsc --noEmit && vite build
+  
+  [36mvite v2.9.16 [32mbuilding for production...[36m[39m
+  transforming...
+  
+  added 75 packages, and audited 77 packages in 9s
+  
+  11 packages are looking for funding
+    run `npm fund` for details
+  
+  3 vulnerabilities (1 moderate, 2 high)
+  
+  To address all issues (including breaking changes), run:
+    npm audit fix --force
+  
+  Run `npm audit` for details.
+  
+  > mezhs-agent-web@0.1.0 build
+  > tsc --noEmit && vite build
+  
+  [32m✓[39m 43 modules transformed.
+  rendering chunks...
+  [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.50 KiB[22m
+  [90m[37m[2mdist/[22m[90m[39m[35massets/index.5cf43e1d.css  [39m [2m23.30 KiB / gzip: 5.88 KiB[22m
+  [90m[37m[2mdist/[22m[90m[39m[36massets/index.2bacd79f.js   [39m [2m165.27 KiB / gzip: 52.88 KiB[22m
+  Mezhs.Integration.Abstractions -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Integration.Abstractions/bin/Release/net10.0/Mezhs.Integration.Abstractions.dll
+  Mezhs.Browser.Abstractions -> /home/runner/work/Mezhs/Mezhs/transports/Mezhs.Browser.Abstractions/bin/Release/net10.0/Mezhs.Browser.Abstractions.dll
+  Mezhs.Integration.Browser -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Integration.Browser/bin/Release/net10.0/Mezhs.Integration.Browser.dll
+  Mezhs.Integrations.ChatGpt -> /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.ChatGpt/bin/Release/net10.0/Mezhs.Integrations.ChatGpt.dll
+  Mezhs.Integrations.Grok -> /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.Grok/bin/Release/net10.0/Mezhs.Integrations.Grok.dll
+  Mezhs.Integrations.Mock -> /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.Mock/bin/Release/net10.0/Mezhs.Integrations.Mock.dll
+  [36mvite v2.9.16 [32mbuilding for production...[36m[39m
+  transforming...
+  [32m✓[39m 44 modules transformed.
+  rendering chunks...
+  [90m[37m[2mdist/[22m[90m[39m[32mindex.html                 [39m [2m0.43 KiB[22m
+  [90m[37m[2mdist/[22m[90m[39m[35massets/index.5069c1f0.css  [39m [2m34.69 KiB / gzip: 7.63 KiB[22m
+  [90m[37m[2mdist/[22m[90m[39m[36massets/index.485a39fb.js   [39m [2m176.44 KiB / gzip: 56.18 KiB[22m
+  Mezhs.Browser.Electron -> /home/runner/work/Mezhs/Mezhs/transports/Mezhs.Browser.Electron/bin/Release/net10.0/Mezhs.Browser.Electron.dll
+  Mezhs.Api.Client -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Api.Client/bin/Release/net10.0/Mezhs.Api.Client.dll
+  Mezhs.Agent.Api.Client -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Agent.Api.Client/bin/Release/net10.0/Mezhs.Agent.Api.Client.dll
+  Mezhs.Integrations.Gemini -> /home/runner/work/Mezhs/Mezhs/integrations/Mezhs.Integrations.Gemini/bin/Release/net10.0/Mezhs.Integrations.Gemini.dll
+  Mezhs.Console -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Console/bin/Release/net10.0/Mezhs.Console.dll
+  Mezhs.Sqlite -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Sqlite/bin/Release/net10.0/Mezhs.Sqlite.dll
+  Mezhs.Log.Shared -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Log.Shared/bin/Release/net10.0/Mezhs.Log.Shared.dll
+/home/runner/work/Mezhs/Mezhs/src/Mezhs.WhatsApp/WhatsAppApplication.Tests.cs(11,19): warning CS0114: 'WhatsAppApplication.Test()' hides inherited member 'ConsoleApplication.Test()'. To make the current member override that implementation, add the override keyword. Otherwise add the new keyword. [/home/runner/work/Mezhs/Mezhs/src/Mezhs.WhatsApp/Mezhs.WhatsApp.csproj]
+  Mezhs.WhatsApp -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.WhatsApp/bin/Release/net10.0/Mezhs.WhatsApp.dll
+  Mezhs.Api -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Api/bin/Release/net10.0/Mezhs.Api.dll
+  Mezhs.Log.Data -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Log.Data/bin/Release/net10.0/Mezhs.Log.Data.dll
+  Mezhs.Log.Sql -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Log.Sql/bin/Release/net10.0/Mezhs.Log.Sql.dll
+  Mezhs.Executor -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Executor/bin/Release/net10.0/Mezhs.Executor.dll
+  Mezhs.Agent.Api -> /home/runner/work/Mezhs/Mezhs/src/Mezhs.Agent.Api/bin/Release/net10.0/Mezhs.Agent.Api.dll
+
+Build succeeded.
+
+/home/runner/work/Mezhs/Mezhs/src/Mezhs.WhatsApp/WhatsAppApplication.Tests.cs(11,19): warning CS0114: 'WhatsAppApplication.Test()' hides inherited member 'ConsoleApplication.Test()'. To make the current member override that implementation, add the override keyword. Otherwise add the new keyword. [/home/runner/work/Mezhs/Mezhs/src/Mezhs.WhatsApp/Mezhs.WhatsApp.csproj]
+    1 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:29.26
+BUILD_EXIT=0
+
+OVERALL=FAIL
