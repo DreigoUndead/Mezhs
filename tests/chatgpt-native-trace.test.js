@@ -46,7 +46,14 @@ class FakeDebugger extends EventEmitter {
 
 function fakeWindow() {
   const debug = new FakeDebugger();
-  const calls = { loadUrl: null, shown: 0, focused: 0, script: null };
+  const calls = {
+    loadUrl: null,
+    shown: 0,
+    focused: 0,
+    script: null,
+    insertedText: null,
+    inputEvents: []
+  };
   const window = {
     async loadURL(url) {
       calls.loadUrl = url;
@@ -69,6 +76,14 @@ function fakeWindow() {
       executeJavaScript: async source => {
         calls.script = source;
         assert.doesNotThrow(() => new Function(`return ${source};`));
+        return {
+          focused: true,
+          tagName: "DIV",
+          contentEditable: "true"
+        };
+      },
+      insertText: async text => {
+        calls.insertedText = text;
 
         const postData = JSON.stringify({
           action: "next",
@@ -128,8 +143,9 @@ function fakeWindow() {
             }
           }
         });
-
-        return { clicked: true, url: "https://chatgpt.com/" };
+      },
+      sendInputEvent: event => {
+        calls.inputEvents.push(event);
       }
     }
   };
@@ -149,7 +165,13 @@ test("native trace captures the real request boundary without exposing security 
   assert.equal(calls.loadUrl, "https://chatgpt.com/");
   assert.equal(calls.shown, 1);
   assert.equal(calls.focused, 1);
-  assert.match(calls.script, /send-button/);
+  assert.match(calls.script, /prompt editor/);
+  assert.equal(calls.insertedText, "trace fixture");
+  assert.deepEqual(calls.inputEvents, [
+    { type: "keyDown", keyCode: "Enter" },
+    { type: "keyUp", keyCode: "Enter" }
+  ]);
+  assert.doesNotMatch(calls.script, /send-button/);
 
   assert.equal(result.request.model, "gpt-5-6-thinking");
   assert.equal(result.request.thinkingEffort, "extended");
