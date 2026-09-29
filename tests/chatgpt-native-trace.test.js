@@ -84,68 +84,71 @@ function fakeWindow() {
       },
       insertText: async text => {
         calls.insertedText = text;
-
-        const postData = JSON.stringify({
-          action: "next",
-          model: "gpt-5-6-thinking",
-          thinking_effort: "extended",
-          parent_message_id: "client-created-root",
-          client_prepare_state: "success",
-          conversation_mode: {
-            kind: "gizmo_interaction",
-            gizmo_id: "g-p-fixture"
-          },
-          enable_message_followups: true,
-          system_hints: [],
-          supports_buffering: true,
-          supported_encodings: ["v1"],
-          model_response_contracts: [{ type: "photo_upload_action.v1" }],
-          messages: [{
-            metadata: { submission_mode: "manual_send" },
-            content: { content_type: "text", parts: ["private prompt text"] }
-          }]
-        });
-
-        debug.emit("message", {}, "Network.requestWillBeSentExtraInfo", {
-          requestId: "request-1",
-          headers: {
-            "OpenAI-Sentinel-Chat-Requirements-Token": "secret-requirements-token",
-            "OpenAI-Sentinel-Turnstile-Token": "secret-turnstile-token",
-            "OpenAI-Sentinel-Proof-Token": "secret-proof-token",
-            "OAI-Telemetry": "[1,2,3]",
-            "x-conduit-token": "secret-conduit-token",
-            "x-oai-is-client-observation": "v1.fixture-observation",
-            "x-openai-web-frontend": "core_web",
-            "oai-session-id": "session-fixture",
-            "user-agent": "FixtureBrowser/1.0"
-          }
-        });
-        debug.emit("message", {}, "Network.requestWillBeSent", {
-          requestId: "request-1",
-          request: {
-            url: "https://chatgpt.com/backend-api/f/conversation",
-            method: "POST",
-            headers: {
-              "content-type": "application/json"
-            },
-            postData
-          },
-          initiator: {
-            type: "script",
-            stack: {
-              callFrames: [{
-                functionName: "nativeSubmit",
-                scriptId: "42",
-                url: "https://chatgpt.com/cdn/assets/934244.fixture.js",
-                lineNumber: 0,
-                columnNumber: 35
-              }]
-            }
-          }
-        });
       },
       sendInputEvent: event => {
         calls.inputEvents.push(event);
+        if (event.type !== "keyDown" || event.keyCode !== "Enter")
+          return;
+
+          const postData = JSON.stringify({
+            action: "next",
+            model: "gpt-5-6-thinking",
+            thinking_effort: "extended",
+            parent_message_id: "client-created-root",
+            client_prepare_state: "success",
+            conversation_mode: {
+              kind: "gizmo_interaction",
+              gizmo_id: "g-p-fixture"
+            },
+            enable_message_followups: true,
+            system_hints: [],
+            supports_buffering: true,
+            supported_encodings: ["v1"],
+            model_response_contracts: [{ type: "photo_upload_action.v1" }],
+            messages: [{
+              metadata: { submission_mode: "manual_send" },
+              content: { content_type: "text", parts: ["private prompt text"] }
+            }]
+          });
+  
+          debug.emit("message", {}, "Network.requestWillBeSentExtraInfo", {
+            requestId: "request-1",
+            headers: {
+              "OpenAI-Sentinel-Chat-Requirements-Token": "secret-requirements-token",
+              "OpenAI-Sentinel-Turnstile-Token": "secret-turnstile-token",
+              "OpenAI-Sentinel-Proof-Token": "secret-proof-token",
+              "OAI-Telemetry": "[1,2,3]",
+              "x-conduit-token": "secret-conduit-token",
+              "x-oai-is-client-observation": "v1.fixture-observation",
+              "x-openai-web-frontend": "core_web",
+              "oai-session-id": "session-fixture",
+              "user-agent": "FixtureBrowser/1.0"
+            }
+          });
+          debug.emit("message", {}, "Network.requestWillBeSent", {
+            requestId: "request-1",
+            request: {
+              url: "https://chatgpt.com/backend-api/f/conversation",
+              method: "POST",
+              headers: {
+                "content-type": "application/json"
+              },
+              postData
+            },
+            initiator: {
+              type: "script",
+              stack: {
+                callFrames: [{
+                  functionName: "nativeSubmit",
+                  scriptId: "42",
+                  url: "https://chatgpt.com/cdn/assets/934244.fixture.js",
+                  lineNumber: 0,
+                  columnNumber: 35
+                }]
+              }
+            }
+          });
+  
       }
     }
   };
