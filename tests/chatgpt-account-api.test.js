@@ -99,8 +99,11 @@ function nativeBrowserSurface(session) {
     async sendCommand(method) {
       if (method === "Network.enable")
         return {};
-      if (method === "Network.getResponseBody")
+      if (method === "Network.getResponseBody") {
+        if (state.responseBodyUnavailable)
+          throw new Error("No resource with given identifier found");
         return { body: state.lastStream || "", base64Encoded: false };
+      }
       throw new Error(`Unexpected debugger command ${method}`);
     }
   }
@@ -119,6 +122,7 @@ function nativeBrowserSurface(session) {
       },
       webContents: {
         debugger: debug,
+        getURL: () => currentUrl,
         executeJavaScript: async source => {
           assert.doesNotThrow(() => new Function(`return ${source};`));
           return { ok: true };
@@ -182,7 +186,31 @@ function nativeBrowserSurface(session) {
               postData: JSON.stringify(body)
             }
           });
-          debug.emit("message", {}, "Network.loadingFinished", { requestId });
+
+          if (state.abortBeforeResponse) {
+            debug.emit("message", {}, "Network.loadingFailed", {
+              requestId,
+              errorText: "net::ERR_ABORTED"
+            });
+            return;
+          }
+
+          debug.emit("message", {}, "Network.responseReceived", {
+            requestId,
+            response: { status: 200 }
+          });
+
+          if (!continuation && state.conversationId)
+            currentUrl = `https://chatgpt.com/c/${state.conversationId}`;
+
+          if (state.abortAfterResponse) {
+            debug.emit("message", {}, "Network.loadingFailed", {
+              requestId,
+              errorText: "net::ERR_ABORTED"
+            });
+          } else {
+            debug.emit("message", {}, "Network.loadingFinished", { requestId });
+          }
         }
       }
     },
@@ -260,6 +288,66 @@ test("ChatGPT account newChat submits through the native composer and reads the 
   assert.equal(session.__native.selectAllCalls, 1);
   assert.equal(result.conversationId, "conv-api");
   assert.equal(result.text, "API_OK");
+});
+
+test("ChatGPT continues after a successful native response is renderer-aborted", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  let posts = 0;
+
+  const session = protocolSession({
+    conversationId: "conv-aborted",
+    onConversationPost: body => {
+      posts++;
+      requestMessageId = body.messages[0].id;
+    },
+    onConversationRead: () =>
+      jsonResponse(completedConversation(
+        "conv-aborted",
+        requestMessageId,
+        "ABORTED_STREAM_OK"
+      ))
+  });
+  session.__native.abortAfterResponse = true;
+  session.__native.responseBodyUnavailable = true;
+
+  const result = await chatgpt.operations.newChat({
+    ...nativeBrowserSurface(session),
+    session,
+    args: {
+      prompt: "test successful renderer abort",
+      model: "gpt-5-6-thinking::thinking-effort=extended",
+      files: []
+    },
+    sleep: async () => {}
+  });
+
+  assert.equal(posts, 1);
+  assert.equal(result.conversationId, "conv-aborted");
+  assert.equal(result.text, "ABORTED_STREAM_OK");
+});
+
+test("ChatGPT still fails when the native request aborts before a response", async () => {
+  const chatgpt = loadChatGptModule();
+
+  const session = protocolSession({
+    conversationId: "conv-never-accepted",
+    onConversationPost: () => {},
+    onConversationRead: () => {
+      throw new Error("Conversation polling must not start.");
+    }
+  });
+  session.__native.abortBeforeResponse = true;
+
+  await assert.rejects(
+    chatgpt.operations.newChat({
+      ...nativeBrowserSurface(session),
+      session,
+      args: { prompt: "must fail", files: [] },
+      sleep: async () => {}
+    }),
+    /Native ChatGPT request failed: net::ERR_ABORTED/
+  );
 });
 
 test("ChatGPT follow-up ignores a stale assistant until the native user message appears in ancestry", async () => {
