@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - agent-model-presets
+  workflow_dispatch:
 
 permissions:
   contents: write
