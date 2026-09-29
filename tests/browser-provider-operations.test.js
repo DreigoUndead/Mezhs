@@ -52,12 +52,20 @@ function chatGptWindow(overrides = {}) {
       getUserAgent: () => "TestBrowser/1.0",
       executeJavaScript: async source => {
         assert.match(source, /conversation-small/);
+        assert.match(source, /chatReq/);
+        assert.match(source, /turnstileToken/);
+        assert.match(source, /proofToken/);
+        assert.match(source, /getEnforcementTokenSync/);
+        assert.match(source, /getEnforcementToken/);
+        assert.doesNotMatch(source, /cacheEnforcementToken|finalizeCandidates/);
         assert.doesNotThrow(() => new Function(`return ${source};`));
         return {
-          "OpenAI-Sentinel-Chat-Requirements-Token": "sentinel",
-          "OpenAI-Sentinel-Turnstile-Token": "turnstile",
-          "OpenAI-Sentinel-Proof-Token": "proof",
-          "OAI-Telemetry": "[1,null]"
+          requirementsToken: "sentinel",
+          prepareToken: null,
+          forceLogin: false,
+          turnstileToken: "turnstile",
+          proofToken: "proof",
+          telemetry: "[1,null]"
         };
       },
       ...webContentsOverrides
@@ -569,7 +577,12 @@ test("ChatGPT browser module does not hardcode provider model-id rewrites or ver
   assert.doesNotMatch(source, /versionId\.toLowerCase\(\)/);
   assert.match(source, /nativeChatRequirementsHeaders/);
   assert.match(source, /conversation-small/);
-  assert.match(source, /cacheEnforcementToken/);
+  assert.match(source, /chatReq/);
+  assert.match(source, /turnstileToken/);
+  assert.match(source, /proofToken/);
+  assert.match(source, /getEnforcementTokenSync/);
+  assert.match(source, /getEnforcementToken/);
+  assert.doesNotMatch(source, /cacheEnforcementToken|finalizeCandidates/);
   assert.doesNotMatch(source, /sentinelProofToken|solveSentinelProof|sha3_512|KECCAK_/);
   assert.doesNotMatch(source, /sentinel\/chat-requirements\/prepare/);
 });
