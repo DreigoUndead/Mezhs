@@ -32,34 +32,6 @@ function textResponse(value, status = 200, contentType = "text/plain") {
   });
 }
 
-function nativePresetCatalog() {
-  return {
-    versions: [{
-      id: "5.6",
-      enabled: true,
-      intelligence_presets: [
-        {
-          title: "Instant",
-          model_slug: "gpt-5-6",
-          preset_type: "available"
-        },
-        {
-          title: "Medium",
-          model_slug: "gpt-5-6-thinking",
-          thinking_effort: "standard",
-          preset_type: "available"
-        },
-        {
-          title: "High",
-          model_slug: "gpt-5-6-thinking",
-          thinking_effort: "extended",
-          preset_type: "available"
-        }
-      ]
-    }]
-  };
-}
-
 function completedConversation(
   conversationId,
   requestMessageId,
@@ -170,20 +142,6 @@ function nativeBrowserSurface(session) {
         getURL: () => currentUrl,
         executeJavaScript: async source => {
           assert.doesNotThrow(() => new Function(`return ${source};`));
-
-          if (source.includes("MEZHS_NATIVE_MODEL_MENU"))
-            return { found: true, x: 10, y: 10 };
-
-          if (source.includes("MEZHS_NATIVE_MODEL_OPTION")) {
-            const match = source.match(/const target = (\{[^\n]+\});/);
-            assert.ok(match, "native picker target was not embedded");
-            state.pendingPicker = JSON.parse(match[1]);
-            return { found: true, x: 20, y: 20 };
-          }
-
-          if (source.includes("MEZHS_NATIVE_MODEL_CLOSED"))
-            return { found: true, x: 0, y: 0 };
-
           return { ok: true };
         },
         selectAll: () => {
@@ -197,16 +155,6 @@ function nativeBrowserSurface(session) {
           selectedAll = false;
         },
         sendInputEvent: event => {
-          if (event.type === "mouseUp" && state.pendingPicker) {
-            state.nativePickerSelections = (state.nativePickerSelections || 0) + 1;
-            if (!state.ignorePickerSelection) {
-              state.model = state.pendingPicker.model;
-              state.thinkingEffort = state.pendingPicker.thinkingEffort;
-            }
-            state.pendingPicker = null;
-            return;
-          }
-
           if (event.type !== "keyDown" || event.keyCode !== "Enter")
             return;
 
@@ -334,9 +282,6 @@ function protocolSession({
 
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token", user: { id: "account-1" } });
-
-    if (target.pathname === "/backend-api/models")
-      return jsonResponse(nativePresetCatalog());
 
     if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
       state.patchedModel = target.searchParams.get("model_slug");
