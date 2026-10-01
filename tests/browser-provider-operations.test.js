@@ -549,6 +549,8 @@ test("ChatGPT browser module delegates conversation security to the native front
   assert.match(source, /selectNativePickerPreset/);
   assert.match(source, /MEZHS_NATIVE_MODEL_MENU/);
   assert.match(source, /MEZHS_NATIVE_MODEL_OPTION/);
+  assert.doesNotMatch(source, /options\[target\.order\]/);
+  assert.match(source, /optionText/);
   assert.match(source, /mouseDown/);
   assert.match(source, /selectAll\(\)/);
   assert.match(source, /insertText\(prompt\)/);
