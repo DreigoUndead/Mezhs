@@ -393,11 +393,19 @@ async function submitNativeConversationTurn(
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
 
-    const event = await withTimeout(
-      requestSeen,
-      30000,
-      "Timed out waiting for ChatGPT's native conversation request."
-    );
+    let event;
+    try {
+      event = await withTimeout(
+        requestSeen,
+        30000,
+        "Timed out waiting for ChatGPT's native conversation request."
+      );
+    } catch (error) {
+      const state = await inspectNativeComposerState(window).catch(() => null);
+      throw new Error(
+        `${error?.message || error}${state ? ` (${formatNativeComposerState(state)})` : ""}`
+      );
+    }
     const body = await nativeConversationRequestBody(debug, event);
     validateNativeConversationRequest(
       body,
@@ -557,6 +565,63 @@ function validateNativeConversationRequest(
       `ChatGPT native composer did not submit inside project '${expectedProjectId}'.`
     );
   }
+}
+
+async function inspectNativeComposerState(window) {
+  const selector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
+  const result = await window.webContents.executeJavaScript(`
+    (() => {
+      const editor = document.querySelector(${selector});
+      const send = document.querySelector(
+        'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
+      );
+      const stop = document.querySelector(
+        'button[data-testid="stop-button"], button[aria-label="Stop streaming"]'
+      );
+      const text = !editor
+        ? ""
+        : editor.tagName === "TEXTAREA" || editor.tagName === "INPUT"
+          ? editor.value || ""
+          : editor.innerText || editor.textContent || "";
+      return {
+        readyState: document.readyState,
+        editorFound: Boolean(editor),
+        editorActive: Boolean(editor && document.activeElement === editor),
+        editorLength: String(text).length,
+        editorEditable: editor
+          ? editor.isContentEditable || !editor.disabled
+          : false,
+        sendFound: Boolean(send),
+        sendDisabled: Boolean(send?.disabled || send?.getAttribute("aria-disabled") === "true"),
+        stopFound: Boolean(stop)
+      };
+    })()
+  `, true);
+  return {
+    urlPath: safeUrlPath(window.webContents.getURL?.()),
+    ...result
+  };
+}
+
+function safeUrlPath(value) {
+  try {
+    return new URL(String(value || "")).pathname || "/";
+  } catch {
+    return "unknown";
+  }
+}
+
+function formatNativeComposerState(state) {
+  return [
+    `url=${state.urlPath}`,
+    `ready=${state.readyState || "unknown"}`,
+    `editor=${state.editorFound ? "yes" : "no"}`,
+    `active=${state.editorActive ? "yes" : "no"}`,
+    `length=${Number(state.editorLength) || 0}`,
+    `editable=${state.editorEditable ? "yes" : "no"}`,
+    `send=${state.sendFound ? (state.sendDisabled ? "disabled" : "enabled") : "missing"}`,
+    `stop=${state.stopFound ? "yes" : "no"}`
+  ].join(", ");
 }
 
 async function focusNativeComposer(window) {
