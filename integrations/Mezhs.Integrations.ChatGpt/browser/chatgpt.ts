@@ -310,6 +310,8 @@ async function submitNativeConversationTurn(
 
   let requestEvent = null;
   let responseStatus = null;
+  let responseCapture = null;
+  const responseChunks = [];
   let resolveRequest;
   let resolveConversationId;
   let rejectCompletion;
@@ -327,6 +329,9 @@ async function submitNativeConversationTurn(
     if (method === "Network.requestWillBeSent") {
       if (!requestEvent && isNativeConversationRequest(params?.request)) {
         requestEvent = params;
+        responseCapture = debug.sendCommand("Network.streamResourceContent", {
+          requestId: params.requestId
+        }).catch(() => null);
         resolveRequest(params);
         return;
       }
@@ -341,6 +346,11 @@ async function submitNativeConversationTurn(
 
     if (!requestEvent || params?.requestId !== requestEvent.requestId)
       return;
+
+    if (method === "Network.dataReceived" && params?.data) {
+      responseChunks.push(Buffer.from(String(params.data), "base64"));
+      return;
+    }
 
     if (method === "Network.responseReceived") {
       responseStatus = Number(params?.response?.status) || null;
@@ -408,16 +418,26 @@ async function submitNativeConversationTurn(
     await completionSeen;
 
     let responseBody = "";
-    try {
-      const response = await debug.sendCommand("Network.getResponseBody", {
-        requestId: event.requestId
-      });
-      responseBody = response?.base64Encoded
-        ? Buffer.from(String(response.body || ""), "base64").toString("utf8")
-        : String(response?.body || "");
-    } catch {
-      // A successful native fetch can be renderer-aborted after ChatGPT has
-      // accepted the turn. The semantic conversation state below is authoritative.
+    const captured = responseCapture ? await responseCapture : null;
+    const buffered = String(captured?.bufferedData || "");
+    if (buffered || responseChunks.length) {
+      const chunks = [
+        ...(buffered ? [Buffer.from(buffered, "base64")] : []),
+        ...responseChunks
+      ];
+      responseBody = Buffer.concat(chunks).toString("utf8");
+    } else {
+      try {
+        const response = await debug.sendCommand("Network.getResponseBody", {
+          requestId: event.requestId
+        });
+        responseBody = response?.base64Encoded
+          ? Buffer.from(String(response.body || ""), "base64").toString("utf8")
+          : String(response?.body || "");
+      } catch {
+        // A successful native fetch can be renderer-aborted after ChatGPT has
+        // accepted the turn. URL/network state remains a last-resort id source.
+      }
     }
 
     const stream = inspectConversationStreamText(responseBody, reportProgress);
