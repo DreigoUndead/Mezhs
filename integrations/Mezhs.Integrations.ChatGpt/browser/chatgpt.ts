@@ -225,13 +225,33 @@ async function sendAccountMessage(context, isNew) {
   return sendNativeAccountMessage(context, isNew, token, selection);
 }
 
+const LAST_USED_MODEL_CONFIG_COOKIE = "oai-last-model-config";
+const MODEL_PREFERENCE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+
 async function setModelPreference(session, token, selection) {
   if (!selection.model || selection.model === "auto") return;
+
   const url = new URL(API.modelPreference, ORIGIN);
   url.searchParams.set("model_slug", selection.model);
   if (selection.thinkingEffort)
     url.searchParams.set("thinking_effort", selection.thinkingEffort);
   await apiFetch(session, token, url.pathname + url.search, { method: "PATCH" });
+
+  if (session.cookies?.set) {
+    const preference = { model: selection.model };
+    if (selection.thinkingEffort)
+      preference.effort = selection.thinkingEffort;
+
+    await session.cookies.set({
+      url: ORIGIN,
+      name: LAST_USED_MODEL_CONFIG_COOKIE,
+      value: encodeURIComponent(JSON.stringify(preference)),
+      path: "/",
+      secure: true,
+      sameSite: "lax",
+      expirationDate: Date.now() / 1000 + MODEL_PREFERENCE_MAX_AGE_SECONDS
+    });
+  }
 }
 
 async function sendNativeAccountMessage(
