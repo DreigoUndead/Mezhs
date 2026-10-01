@@ -347,6 +347,8 @@ test("ChatGPT continues after a successful native response is renderer-aborted",
         "ABORTED_STREAM_OK"
       ))
   });
+  session.__native.model = "gpt-5-6-thinking";
+  session.__native.thinkingEffort = "extended";
   session.__native.abortAfterResponse = true;
   session.__native.responseBodyUnavailable = true;
   session.__native.stayOnProjectUrl = true;
@@ -471,6 +473,9 @@ test("ChatGPT final conversation metadata overrides earlier stream model metadat
         "gpt-5-6-thinking"
       ))
   });
+
+  session.__native.model = "gpt-5-6-thinking";
+  session.__native.thinkingEffort = "extended";
 
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
@@ -703,6 +708,9 @@ test("ChatGPT captures transient provider reasoning metadata from the response s
       ))
   });
 
+  session.__native.model = "provider-thinking-model";
+  session.__native.thinkingEffort = "provider-high";
+
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
     session,
@@ -753,6 +761,9 @@ test("ChatGPT distinguishes requested thinking effort from provider-confirmed ef
     onConversationRead: () =>
       jsonResponse(completedConversation("conv-effort-unconfirmed", requestMessageId, "done"))
   });
+
+  session.__native.model = "gpt-5-6-thinking";
+  session.__native.thinkingEffort = "extended";
 
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
