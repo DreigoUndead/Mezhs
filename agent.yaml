@@ -74,7 +74,7 @@ policies:
   low:
     name: ChatGPT Instant
     connectionId: chatgpt-sub
-    defaultModel: gpt-5-6-instant
+    defaultModel: gpt-5-6
     instructions: |
       Complete the assigned task and keep actions auditable.
     commands:
