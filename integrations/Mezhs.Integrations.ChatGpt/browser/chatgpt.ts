@@ -311,21 +311,32 @@ async function submitNativeConversationTurn(
   let requestEvent = null;
   let responseStatus = null;
   let resolveRequest;
+  let resolveConversationId;
   let rejectCompletion;
   let resolveCompletion;
   const requestSeen = new Promise(resolve => { resolveRequest = resolve; });
+  const conversationIdSeen = new Promise(resolve => {
+    resolveConversationId = resolve;
+  });
   const completionSeen = new Promise((resolve, reject) => {
     resolveCompletion = resolve;
     rejectCompletion = reject;
   });
 
   const onMessage = (_event, method, params) => {
-    if (method === "Network.requestWillBeSent" &&
-        !requestEvent &&
-        isNativeConversationRequest(params?.request)) {
-      requestEvent = params;
-      resolveRequest(params);
-      return;
+    if (method === "Network.requestWillBeSent") {
+      if (!requestEvent && isNativeConversationRequest(params?.request)) {
+        requestEvent = params;
+        resolveRequest(params);
+        return;
+      }
+
+      if (requestEvent) {
+        const conversationId =
+          conversationIdFromNativeRequest(params?.request);
+        if (conversationId)
+          resolveConversationId(conversationId);
+      }
     }
 
     if (!requestEvent || params?.requestId !== requestEvent.requestId)
@@ -410,13 +421,19 @@ async function submitNativeConversationTurn(
     }
 
     const stream = inspectConversationStreamText(responseBody, reportProgress);
-    const conversationId =
+    const immediateConversationId =
       stream.conversationId ||
       String(body?.conversation_id || "").trim() ||
-      String(expectedConversationId || "").trim() ||
-      await waitForNativeConversationId(window);
+      String(expectedConversationId || "").trim();
+    const conversationId = immediateConversationId ||
+      await Promise.race([
+        conversationIdSeen,
+        waitForNativeConversationId(window)
+      ]);
     if (!conversationId)
-      throw new Error("ChatGPT native send did not reveal a conversation id.");
+      throw new Error(
+        `ChatGPT native send did not reveal a conversation id after HTTP ${responseStatus ?? "unknown"}.`
+      );
 
     return {
       conversationId,
@@ -438,6 +455,23 @@ function isNativeConversationRequest(request) {
     return url.origin === ORIGIN && url.pathname === API.conversation;
   } catch {
     return false;
+  }
+}
+
+function conversationIdFromNativeRequest(request) {
+  try {
+    const url = new URL(String(request?.url || ""));
+    if (url.origin !== ORIGIN)
+      return null;
+
+    let match = /^\/backend-api\/conversation\/([^/?#]+)$/.exec(url.pathname);
+    if (match)
+      return decodeURIComponent(match[1]);
+
+    match = /^\/c\/([^/?#]+)$/.exec(url.pathname);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
   }
 }
 
