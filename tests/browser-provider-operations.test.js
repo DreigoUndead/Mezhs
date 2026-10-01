@@ -33,15 +33,24 @@ function textResponse(value, status = 200, contentType = "text/plain") {
 }
 
 function mockSession(fetch, deviceId = null) {
+  const cookies = new Map();
   return {
     fetch,
     cookies: {
-      get: async () => deviceId ? [{ value: deviceId }] : []
-    }
+      get: async ({ name } = {}) => {
+        if (cookies.has(name))
+          return [{ name, value: cookies.get(name) }];
+        return deviceId ? [{ value: deviceId }] : [];
+      },
+      set: async cookie => {
+        cookies.set(cookie.name, cookie.value);
+      }
+    },
+    __cookies: cookies
   };
 }
 
-function nativeChatGptWindow(state) {
+function nativeChatGptWindow(state, session = null) {
   class NativeDebugger extends EventEmitter {
     constructor() {
       super();
@@ -83,6 +92,15 @@ function nativeChatGptWindow(state) {
       state.loadedUrl = currentUrl;
       composerText = String(state.draft || "");
       selectedAll = false;
+
+      if (session && !state.ignoreModelCookie) {
+        const encoded = session.__cookies?.get("oai-last-model-config");
+        if (encoded) {
+          const preference = JSON.parse(decodeURIComponent(encoded));
+          state.model = preference.model || state.model;
+          state.effort = preference.effort ?? null;
+        }
+      }
     },
     webContents: {
       debugger: debug,
@@ -528,10 +546,8 @@ test("ChatGPT picker selections are verified on the native outgoing request", as
       if (target.pathname === "/api/auth/session")
         return jsonResponse({ accessToken: "token" });
       if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
-        state.model = target.searchParams.get("model_slug");
-        state.effort = target.searchParams.get("thinking_effort");
-        assert.equal(state.model, selection.model);
-        assert.equal(state.effort, selection.effort);
+        assert.equal(target.searchParams.get("model_slug"), selection.model);
+        assert.equal(target.searchParams.get("thinking_effort"), selection.effort);
         return textResponse("");
       }
       if (target.pathname === "/backend-api/conversation/conv-selection") {
@@ -550,7 +566,7 @@ test("ChatGPT picker selections are verified on the native outgoing request", as
       state.model = selection.model;
 
     await chatgpt.operations.newChat({
-      window: nativeChatGptWindow(state),
+      window: nativeChatGptWindow(state, session),
       session,
       args: { prompt: "test selection", model: selection.selected, files: [] },
       sleep: async () => {}
@@ -613,6 +629,7 @@ test("ChatGPT fails closed when the native outgoing request uses the wrong effor
     model: "gpt-5-6-thinking",
     effort: "standard"
   };
+  state.ignoreModelCookie = true;
   const session = mockSession(async (url) => {
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
@@ -626,7 +643,7 @@ test("ChatGPT fails closed when the native outgoing request uses the wrong effor
 
   await assert.rejects(
     chatgpt.operations.newChat({
-      window: nativeChatGptWindow(state),
+      window: nativeChatGptWindow(state, session),
       session,
       args: {
         prompt: "hello",
