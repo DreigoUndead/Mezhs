@@ -96,9 +96,15 @@ function nativeBrowserSurface(session) {
     }
     detach() { this.attached = false; }
 
-    async sendCommand(method) {
+    async sendCommand(method, args = {}) {
       if (method === "Network.enable")
         return {};
+      if (method === "Network.streamResourceContent") {
+        state.streamResourceRequestId = args.requestId;
+        return {
+          bufferedData: Buffer.from(state.lastStream || "", "utf8").toString("base64")
+        };
+      }
       if (method === "Network.getResponseBody") {
         if (state.responseBodyUnavailable)
           throw new Error("No resource with given identifier found");
@@ -334,7 +340,6 @@ test("ChatGPT continues after a successful native response is renderer-aborted",
   session.__native.responseBodyUnavailable = true;
   session.__native.stayOnProjectUrl = true;
   session.__native.emitConversationInitRequest = true;
-  session.__native.emitConversationReadRequest = true;
 
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
@@ -348,6 +353,7 @@ test("ChatGPT continues after a successful native response is renderer-aborted",
   });
 
   assert.equal(posts, 1);
+  assert.equal(session.__native.streamResourceRequestId, "native-1");
   assert.equal(result.conversationId, "conv-aborted");
   assert.equal(result.text, "ABORTED_STREAM_OK");
 });
