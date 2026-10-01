@@ -637,6 +637,59 @@ test("ChatGPT picker selections are verified on the native outgoing request", as
   }
 });
 
+test("ChatGPT reports live native presets when a requested model does not resolve", async () => {
+  const chatgpt = loadChatGptModule();
+  const state = {
+    conversationId: "conv-live-preset-miss",
+    model: "gpt-5-6-thinking",
+    effort: "extended"
+  };
+  const session = mockSession(async (url) => {
+    const target = new URL(String(url));
+    if (target.pathname === "/api/auth/session")
+      return jsonResponse({ accessToken: "token" });
+    if (target.pathname === "/backend-api/models") {
+      return jsonResponse({
+        versions: [{
+          id: "5.6",
+          enabled: true,
+          intelligence_presets: [
+            {
+              title: "Instant",
+              model_slug: "gpt-5-6-instant",
+              preset_type: "available"
+            },
+            {
+              title: "High",
+              model_slug: "gpt-5-6-thinking",
+              thinking_effort: "extended",
+              preset_type: "available"
+            }
+          ]
+        }]
+      });
+    }
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config")
+      return textResponse("");
+    throw new Error(`Unexpected request ${target}`);
+  });
+
+  await assert.rejects(
+    chatgpt.operations.newChat({
+      window: nativeChatGptWindow(state, session),
+      session,
+      args: { prompt: "instant please", model: "gpt-5-6", files: [] },
+      sleep: async () => {}
+    }),
+    error => {
+      assert.match(error.message, /selected model 'gpt-5-6-thinking' instead of 'gpt-5-6'/);
+      assert.match(error.message, /Instant=gpt-5-6-instant/);
+      assert.match(error.message, /High=gpt-5-6-thinking::extended/);
+      return true;
+    }
+  );
+});
+
 test("ChatGPT send continues the existing conversation through the native composer", async () => {
   const chatgpt = loadChatGptModule();
   const state = {
