@@ -93,14 +93,6 @@ function nativeChatGptWindow(state, session = null) {
       composerText = String(state.draft || "");
       selectedAll = false;
 
-      if (session && !state.ignoreModelCookie) {
-        const encoded = session.__cookies?.get("oai-last-model-config");
-        if (encoded) {
-          const preference = JSON.parse(decodeURIComponent(encoded));
-          state.model = preference.model || state.model;
-          state.effort = preference.effort ?? null;
-        }
-      }
     },
     webContents: {
       debugger: debug,
@@ -334,7 +326,7 @@ test("ChatGPT getModels follows the native picker instead of the raw catalog", a
             intelligence_presets: [
               {
                 title: "Instant",
-                model_slug: "gpt-5-6-instant",
+                model_slug: "gpt-5-6",
                 lane: "instant",
                 preset_type: "available"
               },
@@ -402,7 +394,7 @@ test("ChatGPT getModels follows the native picker instead of the raw catalog", a
   });
 
   assert.deepEqual(await chatgpt.operations.getModels({ session }), [
-    { id: "gpt-5-6-instant", name: "GPT-5.6 Sol · Instant" },
+    { id: "gpt-5-6", name: "GPT-5.6 Sol · Instant" },
     {
       id: "gpt-5-6-thinking::thinking-effort=standard",
       name: "GPT-5.6 Sol · Medium"
@@ -521,7 +513,7 @@ test("ChatGPT picker selections are verified on the native outgoing request", as
   const chatgpt = loadChatGptModule();
   const selections = [
     { selected: undefined, model: "gpt-5-6-thinking", effort: null },
-    { selected: "gpt-5-6-instant", model: "gpt-5-6-instant", effort: null },
+    { selected: "gpt-5-6", model: "gpt-5-6", effort: null },
     {
       selected: "gpt-5-6-thinking::thinking-effort=standard",
       model: "gpt-5-6-thinking",
@@ -548,6 +540,8 @@ test("ChatGPT picker selections are verified on the native outgoing request", as
       if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
         assert.equal(target.searchParams.get("model_slug"), selection.model);
         assert.equal(target.searchParams.get("thinking_effort"), selection.effort);
+        state.model = selection.model;
+        state.effort = selection.effort;
         return textResponse("");
       }
       if (target.pathname === "/backend-api/conversation/conv-selection") {
@@ -629,7 +623,6 @@ test("ChatGPT fails closed when the native outgoing request uses the wrong effor
     model: "gpt-5-6-thinking",
     effort: "standard"
   };
-  state.ignoreModelCookie = true;
   const session = mockSession(async (url) => {
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
