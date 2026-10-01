@@ -81,7 +81,7 @@ function nativeChatGptWindow(state, session = null) {
   }
 
   const debug = new NativeDebugger();
-  let currentUrl = "https://chatgpt.com/";
+  let currentUrl = String(state.currentUrl || "https://chatgpt.com/");
   let composerText = "";
   let selectedAll = false;
 
@@ -116,7 +116,9 @@ function nativeChatGptWindow(state, session = null) {
           return;
 
         const url = new URL(currentUrl);
-        const continuation = /^\/c\/([^/]+)$/.exec(url.pathname);
+        const continuation =
+          /^\/c\/([^/]+)$/.exec(url.pathname) ||
+          /^\/g\/[^/]+\/c\/([^/]+)$/.exec(url.pathname);
         const project = /^\/g\/(g-p-[^/]+)\/project$/.exec(url.pathname);
         const requestMessageId = `request-${(state.posts || 0) + 1}`;
         state.posts = (state.posts || 0) + 1;
@@ -582,6 +584,51 @@ test("ChatGPT does not treat the model-preference PATCH as proof that the native
     }),
     /selected model 'gpt-5-6-thinking' instead of 'gpt-5-5-thinking'/
   );
+});
+
+test("ChatGPT continuation keeps an already-loaded project conversation page", async () => {
+  const chatgpt = loadChatGptModule();
+  const state = {
+    conversationId: "conv-project-existing",
+    currentUrl: "https://chatgpt.com/g/g-p-mezhs/c/conv-project-existing",
+    model: "gpt-5-6-thinking",
+    effort: "extended",
+    parentMessageId: "assistant-old"
+  };
+  const session = mockSession(async (url) => {
+    const target = new URL(String(url));
+    if (target.pathname === "/api/auth/session")
+      return jsonResponse({ accessToken: "token" });
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config")
+      return textResponse("");
+    if (target.pathname === "/backend-api/conversation/conv-project-existing") {
+      return jsonResponse(completedConversation(
+        "conv-project-existing",
+        "g-p-mezhs",
+        "served-continuation",
+        state.lastBody.messages[0].id,
+        "gpt-5-6-thinking"
+      ));
+    }
+    throw new Error(`Unexpected request ${target}`);
+  });
+
+  const result = await chatgpt.operations.send({
+    window: nativeChatGptWindow(state),
+    session,
+    args: {
+      prompt: "continue without reload",
+      conversationId: "conv-project-existing",
+      parentMessageId: "assistant-old",
+      model: "gpt-5-6-thinking::thinking-effort=extended",
+      files: []
+    },
+    sleep: async () => {}
+  });
+
+  assert.equal(state.loadedUrl, undefined);
+  assert.equal(state.lastBody.conversation_id, "conv-project-existing");
+  assert.equal(result.projectId, "g-p-mezhs");
 });
 
 test("ChatGPT send continues the existing conversation through the native composer", async () => {
