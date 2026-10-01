@@ -460,15 +460,14 @@ function isNativeConversationRequest(request) {
 
 function conversationIdFromNativeRequest(request) {
   try {
+    if (String(request?.method || "").toUpperCase() !== "GET")
+      return null;
+
     const url = new URL(String(request?.url || ""));
     if (url.origin !== ORIGIN)
       return null;
 
-    let match = /^\/backend-api\/conversation\/([^/?#]+)$/.exec(url.pathname);
-    if (match)
-      return decodeURIComponent(match[1]);
-
-    match = /^\/c\/([^/?#]+)$/.exec(url.pathname);
+    const match = /^\/backend-api\/conversation\/([^/?#]+)$/.exec(url.pathname);
     return match ? decodeURIComponent(match[1]) : null;
   } catch {
     return null;
