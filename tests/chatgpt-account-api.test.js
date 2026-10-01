@@ -200,8 +200,19 @@ function nativeBrowserSurface(session) {
             response: { status: 200 }
           });
 
-          if (!continuation && state.conversationId)
+          if (!continuation && state.conversationId && !state.stayOnProjectUrl)
             currentUrl = `https://chatgpt.com/c/${state.conversationId}`;
+
+          if (state.emitConversationReadRequest && state.conversationId) {
+            debug.emit("message", {}, "Network.requestWillBeSent", {
+              requestId: `${requestId}-conversation`,
+              request: {
+                url: `https://chatgpt.com/backend-api/conversation/${state.conversationId}`,
+                method: "GET",
+                headers: {}
+              }
+            });
+          }
 
           if (state.abortAfterResponse) {
             debug.emit("message", {}, "Network.loadingFailed", {
@@ -310,6 +321,8 @@ test("ChatGPT continues after a successful native response is renderer-aborted",
   });
   session.__native.abortAfterResponse = true;
   session.__native.responseBodyUnavailable = true;
+  session.__native.stayOnProjectUrl = true;
+  session.__native.emitConversationReadRequest = true;
 
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
