@@ -312,6 +312,7 @@ async function submitNativeConversationTurn(
   let responseStatus = null;
   let responseCapture = null;
   const responseChunks = [];
+  const observedPostPaths = new Set();
   let resolveRequest;
   let resolveConversationId;
   let rejectCompletion;
@@ -327,6 +328,10 @@ async function submitNativeConversationTurn(
 
   const onMessage = (_event, method, params) => {
     if (method === "Network.requestWillBeSent") {
+      const postPath = sameOriginPostPath(params?.request);
+      if (postPath)
+        observedPostPaths.add(postPath);
+
       if (!requestEvent && isNativeConversationRequest(params?.request)) {
         requestEvent = params;
         responseCapture = debug.sendCommand("Network.streamResourceContent", {
@@ -387,9 +392,11 @@ async function submitNativeConversationTurn(
   debug.on("message", onMessage);
   try {
     await debug.sendCommand("Network.enable", { maxPostDataSize: 1024 * 1024 });
-    await focusNativeComposer(window);
+    const focusedComposer = await focusNativeComposer(window);
     window.webContents.selectAll();
     await Promise.resolve(window.webContents.insertText(prompt));
+    const insertedComposer =
+      await inspectNativeComposerState(window).catch(() => null);
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
 
@@ -402,8 +409,14 @@ async function submitNativeConversationTurn(
       );
     } catch (error) {
       const state = await inspectNativeComposerState(window).catch(() => null);
+      const details = [
+        focusedComposer ? `focused={${formatNativeComposerState(focusedComposer)}}` : null,
+        insertedComposer ? `inserted={${formatNativeComposerState(insertedComposer)}}` : null,
+        state ? `timeout={${formatNativeComposerState(state)}}` : null,
+        `posts=${[...observedPostPaths].join("|") || "none"}`
+      ].filter(Boolean).join("; ");
       throw new Error(
-        `${error?.message || error}${state ? ` (${formatNativeComposerState(state)})` : ""}`
+        `${error?.message || error}${details ? ` (${details})` : ""}`
       );
     }
     const body = await nativeConversationRequestBody(debug, event);
@@ -472,6 +485,17 @@ async function submitNativeConversationTurn(
     debug.removeListener("message", onMessage);
     if (attachedByMezhs && debug.isAttached())
       debug.detach();
+  }
+}
+
+function sameOriginPostPath(request) {
+  if (String(request?.method || "").toUpperCase() !== "POST")
+    return null;
+  try {
+    const url = new URL(String(request?.url || ""));
+    return url.origin === ORIGIN ? url.pathname : null;
+  } catch {
+    return null;
   }
 }
 
@@ -588,9 +612,18 @@ async function inspectNativeComposerState(window) {
         editorFound: Boolean(editor),
         editorActive: Boolean(editor && document.activeElement === editor),
         editorLength: String(text).length,
-        editorEditable: editor
-          ? editor.isContentEditable || !editor.disabled
-          : false,
+        editorTag: editor?.tagName || null,
+        editorId: editor?.id || null,
+        editorTestId: editor?.getAttribute?.("data-testid") || null,
+        editorRole: editor?.getAttribute?.("role") || null,
+        editorContentEditable: editor?.getAttribute?.("contenteditable") || null,
+        editorEditable: Boolean(
+          editor && (
+            editor.isContentEditable ||
+            ((editor.tagName === "TEXTAREA" || editor.tagName === "INPUT") &&
+             !editor.disabled && !editor.readOnly)
+          )
+        ),
         sendFound: Boolean(send),
         sendDisabled: Boolean(send?.disabled || send?.getAttribute("aria-disabled") === "true"),
         stopFound: Boolean(stop)
@@ -616,6 +649,11 @@ function formatNativeComposerState(state) {
     `url=${state.urlPath}`,
     `ready=${state.readyState || "unknown"}`,
     `editor=${state.editorFound ? "yes" : "no"}`,
+    `tag=${state.editorTag || "none"}`,
+    `id=${state.editorId || "none"}`,
+    `testid=${state.editorTestId || "none"}`,
+    `role=${state.editorRole || "none"}`,
+    `contenteditable=${state.editorContentEditable || "none"}`,
     `active=${state.editorActive ? "yes" : "no"}`,
     `length=${Number(state.editorLength) || 0}`,
     `editable=${state.editorEditable ? "yes" : "no"}`,
@@ -639,12 +677,42 @@ async function focusNativeComposer(window) {
         return { ok: false, error: "ChatGPT prompt editor was not found." };
 
       editor.focus();
-      return { ok: true };
+      const text = editor.tagName === "TEXTAREA" || editor.tagName === "INPUT"
+        ? editor.value || ""
+        : editor.innerText || editor.textContent || "";
+      return {
+        ok: true,
+        readyState: document.readyState,
+        editorFound: true,
+        editorActive: document.activeElement === editor,
+        editorLength: String(text).length,
+        editorTag: editor.tagName || null,
+        editorId: editor.id || null,
+        editorTestId: editor.getAttribute?.("data-testid") || null,
+        editorRole: editor.getAttribute?.("role") || null,
+        editorContentEditable: editor.getAttribute?.("contenteditable") || null,
+        editorEditable: Boolean(
+          editor.isContentEditable ||
+          ((editor.tagName === "TEXTAREA" || editor.tagName === "INPUT") &&
+           !editor.disabled && !editor.readOnly)
+        ),
+        sendFound: Boolean(document.querySelector(
+          'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
+        )),
+        sendDisabled: false,
+        stopFound: Boolean(document.querySelector(
+          'button[data-testid="stop-button"], button[aria-label="Stop streaming"]'
+        ))
+      };
     })()
   `, true);
 
   if (!result?.ok)
     throw new Error(result?.error || "ChatGPT prompt editor could not be focused.");
+  return {
+    urlPath: safeUrlPath(window.webContents.getURL?.()),
+    ...result
+  };
 }
 
 function inspectConversationStreamText(text, reportProgress) {
