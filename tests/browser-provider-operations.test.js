@@ -53,9 +53,15 @@ function nativeChatGptWindow(state) {
       this.attached = true;
     }
     detach() { this.attached = false; }
-    async sendCommand(method) {
+    async sendCommand(method, args = {}) {
       if (method === "Network.enable")
         return {};
+      if (method === "Network.streamResourceContent") {
+        state.streamResourceRequestId = args.requestId;
+        return {
+          bufferedData: Buffer.from(state.streamBody || "", "utf8").toString("base64")
+        };
+      }
       if (method === "Network.getResponseBody") {
         if (state.responseBodyUnavailable)
           throw new Error("No resource with given identifier found");
@@ -479,6 +485,8 @@ test("ChatGPT browser module delegates conversation security to the native front
   assert.match(source, /insertText\(prompt\)/);
   assert.match(source, /sendInputEvent\(\{ type: "keyDown", keyCode: "Enter" \}\)/);
   assert.match(source, /Network\.requestWillBeSent/);
+  assert.match(source, /Network\.streamResourceContent/);
+  assert.match(source, /Network\.dataReceived/);
   assert.match(source, /Network\.responseReceived/);
   assert.match(source, /conversationIdFromNativeRequest/);
   assert.match(source, /backend-api\\\/conversation\\\//);
