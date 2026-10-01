@@ -326,7 +326,7 @@ test("ChatGPT getModels follows the native picker instead of the raw catalog", a
             intelligence_presets: [
               {
                 title: "Instant",
-                model_slug: "gpt-5-6",
+                model_slug: "gpt-5-6-instant",
                 lane: "instant",
                 preset_type: "available"
               },
@@ -394,7 +394,7 @@ test("ChatGPT getModels follows the native picker instead of the raw catalog", a
   });
 
   assert.deepEqual(await chatgpt.operations.getModels({ session }), [
-    { id: "gpt-5-6", name: "GPT-5.6 Sol · Instant" },
+    { id: "gpt-5-6-instant", name: "GPT-5.6 Sol · Instant" },
     {
       id: "gpt-5-6-thinking::thinking-effort=standard",
       name: "GPT-5.6 Sol · Medium"
