@@ -72,9 +72,19 @@ function completedConversation(
 }
 
 function apiSession(handler) {
+  const cookies = new Map();
   return {
     fetch: handler,
-    cookies: { get: async () => [] }
+    cookies: {
+      get: async ({ name } = {}) => {
+        const value = cookies.get(name);
+        return value == null ? [] : [{ name, value }];
+      },
+      set: async cookie => {
+        cookies.set(cookie.name, cookie.value);
+      }
+    },
+    __cookies: cookies
   };
 }
 
@@ -125,6 +135,15 @@ function nativeBrowserSurface(session) {
         currentUrl = String(url);
         composerText = String(state.draft || "");
         selectedAll = false;
+
+        if (!state.ignoreModelCookie) {
+          const encoded = session.__cookies?.get("oai-last-model-config");
+          if (encoded) {
+            const preference = JSON.parse(decodeURIComponent(encoded));
+            state.model = preference.model || state.model;
+            state.thinkingEffort = preference.effort ?? null;
+          }
+        }
       },
       webContents: {
         debugger: debug,
@@ -273,8 +292,8 @@ function protocolSession({
       return jsonResponse({ accessToken: "token", user: { id: "account-1" } });
 
     if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
-      state.model = target.searchParams.get("model_slug") || state.model;
-      state.thinkingEffort = target.searchParams.get("thinking_effort");
+      state.patchedModel = target.searchParams.get("model_slug");
+      state.patchedThinkingEffort = target.searchParams.get("thinking_effort");
       return textResponse("");
     }
 
@@ -316,6 +335,48 @@ test("ChatGPT account newChat submits through the native composer and reads the 
   assert.equal(session.__native.selectAllCalls, 1);
   assert.equal(result.conversationId, "conv-api");
   assert.equal(result.text, "API_OK");
+});
+
+test("ChatGPT native page loads the requested Instant model from the preference cookie", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+
+  const session = protocolSession({
+    conversationId: "conv-instant",
+    onConversationPost: body => {
+      requestMessageId = body.messages[0].id;
+      assert.equal(body.model, "gpt-5-6-instant");
+      assert.equal(body.thinking_effort ?? null, null);
+    },
+    onConversationRead: () =>
+      jsonResponse(completedConversation(
+        "conv-instant",
+        requestMessageId,
+        "INSTANT_OK",
+        "gpt-5-6-instant",
+        "gpt-5-6-instant"
+      ))
+  });
+
+  session.__native.model = "gpt-5-6-thinking";
+  session.__native.thinkingEffort = "extended";
+
+  const result = await chatgpt.operations.newChat({
+    ...nativeBrowserSurface(session),
+    session,
+    args: { prompt: "instant", model: "gpt-5-6-instant", files: [] },
+    sleep: async () => {}
+  });
+
+  assert.equal(session.__native.patchedModel, "gpt-5-6-instant");
+  assert.equal(session.__native.patchedThinkingEffort, null);
+  assert.equal(
+    JSON.parse(decodeURIComponent(
+      session.__cookies.get("oai-last-model-config")
+    )).model,
+    "gpt-5-6-instant"
+  );
+  assert.equal(result.model, "gpt-5-6-instant");
 });
 
 test("ChatGPT continues after a successful native response is renderer-aborted", async () => {
