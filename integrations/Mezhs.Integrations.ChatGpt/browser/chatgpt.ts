@@ -303,8 +303,9 @@ async function sendNativeAccountMessage(
   });
 
   await window.loadURL(nativeConversationUrl(isNew, args));
-  if (nativePreset)
-    await selectNativePickerPreset(window, nativePreset);
+  const nativePickerEvidence = nativePreset
+    ? await selectNativePickerPreset(window, nativePreset)
+    : null;
 
   const execution = {
     requestedModel: selection.model === "auto" ? null : selection.model,
@@ -316,7 +317,8 @@ async function sendNativeAccountMessage(
     selection,
     isNew ? null : args.conversationId,
     isNew ? args.projectId : null,
-    reportProgress
+    reportProgress,
+    nativePickerEvidence
   );
   mergeExecutionMetadata(execution, posted.execution);
 
@@ -363,6 +365,13 @@ async function selectNativePickerPreset(window, target) {
     3000,
     "ChatGPT native model picker did not close after selection."
   );
+
+  return {
+    menuText: menu.text || null,
+    optionText: option.text || null,
+    optionAriaChecked: option.ariaChecked || null,
+    optionDataState: option.dataState || null
+  };
 }
 
 function nativePickerMenuProbe() {
@@ -388,7 +397,8 @@ function nativePickerMenuProbe() {
       return {
         found: true,
         x: Math.round(rect.left + rect.width / 2),
-        y: Math.round(rect.top + rect.height / 2)
+        y: Math.round(rect.top + rect.height / 2),
+        text: String(button.textContent || "").replace(/\\s+/g, " ").trim()
       };
     })()
   `;
@@ -427,15 +437,23 @@ function nativePickerOptionProbe(target) {
         });
       });
 
-      if (!option && Number.isInteger(target.order))
-        option = options[target.order] || null;
-      if (!option) return { found: false };
+      if (!option) {
+        return {
+          found: false,
+          available: options.map(candidate =>
+            String(candidate.textContent || "").replace(/\\s+/g, " ").trim()
+          )
+        };
+      }
 
       const rect = option.getBoundingClientRect();
       return {
         found: true,
         x: Math.round(rect.left + rect.width / 2),
-        y: Math.round(rect.top + rect.height / 2)
+        y: Math.round(rect.top + rect.height / 2),
+        text: String(option.textContent || "").replace(/\\s+/g, " ").trim(),
+        ariaChecked: option.getAttribute("aria-checked"),
+        dataState: option.getAttribute("data-state")
       };
     })()
   `;
@@ -505,7 +523,8 @@ async function submitNativeConversationTurn(
   selection,
   expectedConversationId,
   expectedProjectId,
-  reportProgress
+  reportProgress,
+  nativePickerEvidence = null
 ) {
   const debug = window.webContents.debugger;
   if (!debug ||
@@ -642,7 +661,8 @@ async function submitNativeConversationTurn(
       body,
       selection,
       expectedConversationId,
-      expectedProjectId
+      expectedProjectId,
+      nativePickerEvidence
     );
 
     const requestMessageId = String(body?.messages?.[0]?.id || "").trim();
@@ -781,11 +801,15 @@ function validateNativeConversationRequest(
   body,
   selection,
   expectedConversationId,
-  expectedProjectId
+  expectedProjectId,
+  nativePickerEvidence = null
 ) {
   if (selection.model && selection.model !== "auto" && body?.model !== selection.model) {
+    const picker = nativePickerEvidence
+      ? ` Native picker: button='${nativePickerEvidence.menuText || "unknown"}', clicked='${nativePickerEvidence.optionText || "unknown"}', aria-checked='${nativePickerEvidence.optionAriaChecked || "none"}', data-state='${nativePickerEvidence.optionDataState || "none"}'.`
+      : "";
     throw new Error(
-      `ChatGPT native composer selected model '${body?.model || "unknown"}' instead of '${selection.model}'.`
+      `ChatGPT native composer selected model '${body?.model || "unknown"}' instead of '${selection.model}'.${picker}`
     );
   }
   if (selection.thinkingEffort &&
