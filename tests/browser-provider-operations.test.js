@@ -416,12 +416,12 @@ test("ChatGPT getModels follows the native picker instead of the raw catalog", a
   ]);
 });
 
-test("ChatGPT o3 newChat uses the native project composer and reports the served model", async () => {
+test("ChatGPT o3 newChat verifies the native project composer and reports the served model", async () => {
   const chatgpt = loadChatGptModule();
   const state = {
     conversationId: "conv-1",
     projectId: "g-p-mezhs",
-    model: "gpt-5-6-thinking",
+    model: "o3",
     effort: null
   };
 
@@ -433,8 +433,6 @@ test("ChatGPT o3 newChat uses the native project composer and reports the served
 
     if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
       assert.equal(target.search, "?model_slug=o3");
-      state.model = target.searchParams.get("model_slug");
-      state.effort = target.searchParams.get("thinking_effort");
       return textResponse("");
     }
 
@@ -509,66 +507,81 @@ test("ChatGPT browser module delegates conversation security to the native front
   assert.doesNotMatch(source, /apiFetch\(session, token, API\.conversation/);
 });
 
-test("ChatGPT picker selections are verified on the native outgoing request", async () => {
+test("ChatGPT verifies a requested selection against the native outgoing request", async () => {
   const chatgpt = loadChatGptModule();
-  const selections = [
-    { selected: undefined, model: "gpt-5-6-thinking", effort: null },
-    { selected: "gpt-5-6", model: "gpt-5-6", effort: null },
-    {
-      selected: "gpt-5-6-thinking::thinking-effort=standard",
-      model: "gpt-5-6-thinking",
-      effort: "standard"
+  const state = {
+    conversationId: "conv-selection",
+    model: "gpt-5-6-thinking",
+    effort: "extended"
+  };
+  const session = mockSession(async (url) => {
+    const target = new URL(String(url));
+    if (target.pathname === "/api/auth/session")
+      return jsonResponse({ accessToken: "token" });
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
+      assert.equal(target.searchParams.get("model_slug"), "gpt-5-6-thinking");
+      assert.equal(target.searchParams.get("thinking_effort"), "extended");
+      return textResponse("");
+    }
+    if (target.pathname === "/backend-api/conversation/conv-selection") {
+      return jsonResponse(completedConversation(
+        "conv-selection",
+        null,
+        "gpt-5-6-thinking",
+        state.lastBody.messages[0].id,
+        "gpt-5-6-thinking"
+      ));
+    }
+    throw new Error(`Unexpected request ${target}`);
+  });
+
+  await chatgpt.operations.newChat({
+    window: nativeChatGptWindow(state, session),
+    session,
+    args: {
+      prompt: "test selection",
+      model: "gpt-5-6-thinking::thinking-effort=extended",
+      files: []
     },
-    {
-      selected: "gpt-5-6-thinking::thinking-effort=extended",
-      model: "gpt-5-6-thinking",
-      effort: "extended"
-    },
-    { selected: "o3", model: "o3", effort: null }
-  ];
+    sleep: async () => {}
+  });
 
-  for (const selection of selections) {
-    const state = {
-      conversationId: "conv-selection",
-      model: "gpt-5-6-thinking",
-      effort: null
-    };
-    const session = mockSession(async (url) => {
-      const target = new URL(String(url));
-      if (target.pathname === "/api/auth/session")
-        return jsonResponse({ accessToken: "token" });
-      if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
-        assert.equal(target.searchParams.get("model_slug"), selection.model);
-        assert.equal(target.searchParams.get("thinking_effort"), selection.effort);
-        state.model = selection.model;
-        state.effort = selection.effort;
-        return textResponse("");
-      }
-      if (target.pathname === "/backend-api/conversation/conv-selection") {
-        return jsonResponse(completedConversation(
-          "conv-selection",
-          null,
-          selection.model,
-          state.lastBody.messages[0].id,
-          selection.model
-        ));
-      }
-      throw new Error(`Unexpected request ${target}`);
-    });
+  assert.equal(state.lastBody.model, "gpt-5-6-thinking");
+  assert.equal(state.lastBody.thinking_effort, "extended");
+});
 
-    if (!selection.selected)
-      state.model = selection.model;
+test("ChatGPT does not treat the model-preference PATCH as proof that the native composer switched models", async () => {
+  const chatgpt = loadChatGptModule();
+  const state = {
+    conversationId: "conv-selection-mismatch",
+    model: "gpt-5-6-thinking",
+    effort: "extended"
+  };
+  const session = mockSession(async (url) => {
+    const target = new URL(String(url));
+    if (target.pathname === "/api/auth/session")
+      return jsonResponse({ accessToken: "token" });
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
+      assert.equal(target.searchParams.get("model_slug"), "gpt-5-5-thinking");
+      assert.equal(target.searchParams.get("thinking_effort"), "standard");
+      return textResponse("");
+    }
+    throw new Error(`Unexpected request ${target}`);
+  });
 
-    await chatgpt.operations.newChat({
+  await assert.rejects(
+    chatgpt.operations.newChat({
       window: nativeChatGptWindow(state, session),
       session,
-      args: { prompt: "test selection", model: selection.selected, files: [] },
+      args: {
+        prompt: "switch model",
+        model: "gpt-5-5-thinking::thinking-effort=standard",
+        files: []
+      },
       sleep: async () => {}
-    });
-
-    assert.equal(state.lastBody.model, selection.model, selection.selected);
-    assert.equal(state.lastBody.thinking_effort ?? null, selection.effort, selection.selected);
-  }
+    }),
+    /selected model 'gpt-5-6-thinking' instead of 'gpt-5-5-thinking'/
+  );
 });
 
 test("ChatGPT send continues the existing conversation through the native composer", async () => {
