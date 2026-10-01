@@ -220,12 +220,12 @@ async function sendAccountMessage(context, isNew) {
     );
   }
 
-  const nativePreset = await resolveNativePickerPreset(
+  const nativePicker = await resolveNativePickerPreset(
     context.session,
     token,
     selection
   );
-  if (!nativePreset)
+  if (!nativePicker.preset)
     await setModelPreference(context.session, token, selection);
 
   return sendNativeAccountMessage(
@@ -233,15 +233,16 @@ async function sendAccountMessage(context, isNew) {
     isNew,
     token,
     selection,
-    nativePreset
+    nativePicker
   );
 }
 
 async function resolveNativePickerPreset(session, token, selection) {
   if (!selection.model || selection.model === "auto")
-    return null;
+    return { preset: null, available: [] };
 
   const catalog = await apiJson(session, token, API.models);
+  const available = [];
   for (const version of Array.isArray(catalog?.versions) ? catalog.versions : []) {
     if (version?.enabled === false)
       continue;
@@ -258,26 +259,27 @@ async function resolveNativePickerPreset(session, token, selection) {
       const preset = presets[order];
       const model = String(preset?.model_slug || "").trim();
       const effort = String(preset?.thinking_effort || "").trim() || null;
-      if (model !== selection.model || effort !== selection.thinkingEffort)
-        continue;
-
       const labels = [
         preset?.selected_display_title,
         preset?.title
       ]
         .map(value => String(value || "").trim())
         .filter(Boolean);
-
-      return {
+      const candidate = {
         model,
         thinkingEffort: effort,
         labels: [...new Set(labels)],
         order
       };
+      available.push(candidate);
+
+      if (model === selection.model && effort === selection.thinkingEffort)
+        return { preset: candidate, available };
+      continue;
     }
   }
 
-  return null;
+  return { preset: null, available };
 }
 
 async function setModelPreference(session, token, selection) {
@@ -295,7 +297,7 @@ async function sendNativeAccountMessage(
   isNew,
   token,
   selection,
-  nativePreset
+  nativePicker
 ) {
   reportProgress?.({
     state: "submitting",
@@ -303,9 +305,14 @@ async function sendNativeAccountMessage(
   });
 
   await window.loadURL(nativeConversationUrl(isNew, args));
-  const nativePickerEvidence = nativePreset
-    ? await selectNativePickerPreset(window, nativePreset)
-    : null;
+  const nativePickerEvidence = nativePicker.preset
+    ? {
+        ...(await selectNativePickerPreset(window, nativePicker.preset)),
+        availablePresets: nativePicker.available
+      }
+    : {
+        availablePresets: nativePicker.available
+      };
 
   const execution = {
     requestedModel: selection.model === "auto" ? null : selection.model,
@@ -805,9 +812,14 @@ function validateNativeConversationRequest(
   nativePickerEvidence = null
 ) {
   if (selection.model && selection.model !== "auto" && body?.model !== selection.model) {
-    const picker = nativePickerEvidence
-      ? ` Native picker: button='${nativePickerEvidence.menuText || "unknown"}', clicked='${nativePickerEvidence.optionText || "unknown"}', aria-checked='${nativePickerEvidence.optionAriaChecked || "none"}', data-state='${nativePickerEvidence.optionDataState || "none"}'.`
-      : "";
+    const available = (nativePickerEvidence?.availablePresets || [])
+      .map(preset =>
+        `${preset.labels?.[0] || "unnamed"}=${preset.model}${preset.thinkingEffort ? `::${preset.thinkingEffort}` : ""}`
+      )
+      .join(", ");
+    const picker = nativePickerEvidence?.optionText
+      ? ` Native picker: button='${nativePickerEvidence.menuText || "unknown"}', clicked='${nativePickerEvidence.optionText}', aria-checked='${nativePickerEvidence.optionAriaChecked || "none"}', data-state='${nativePickerEvidence.optionDataState || "none"}'.`
+      : ` Native picker preset was not resolved from the live catalog. Available presets: ${available || "none"}.`;
     throw new Error(
       `ChatGPT native composer selected model '${body?.model || "unknown"}' instead of '${selection.model}'.${picker}`
     );
