@@ -58,7 +58,8 @@ module.exports = {
 
     async getModels({ session }) {
       const token = await requireToken(session);
-      return nativePickerModels(await apiJson(session, token, API.models));
+      const response = await apiJson(session, token, API.models);
+      return nativePickerModels(response);
     },
 
     newChat(context) {
@@ -220,66 +221,8 @@ async function sendAccountMessage(context, isNew) {
     );
   }
 
-  const nativePicker = await resolveNativePickerPreset(
-    context.session,
-    token,
-    selection
-  );
-  if (!nativePicker.preset)
-    await setModelPreference(context.session, token, selection);
-
-  return sendNativeAccountMessage(
-    context,
-    isNew,
-    token,
-    selection,
-    nativePicker
-  );
-}
-
-async function resolveNativePickerPreset(session, token, selection) {
-  if (!selection.model || selection.model === "auto")
-    return { preset: null, available: [] };
-
-  const catalog = await apiJson(session, token, API.models);
-  const available = [];
-  for (const version of Array.isArray(catalog?.versions) ? catalog.versions : []) {
-    if (version?.enabled === false)
-      continue;
-
-    const presets = (Array.isArray(version?.intelligence_presets)
-      ? version.intelligence_presets
-      : [])
-      .filter(preset =>
-        preset?.preset_type === "available" &&
-        preset?.enabled !== false
-      );
-
-    for (let order = 0; order < presets.length; order++) {
-      const preset = presets[order];
-      const model = String(preset?.model_slug || "").trim();
-      const effort = String(preset?.thinking_effort || "").trim() || null;
-      const labels = [
-        preset?.selected_display_title,
-        preset?.title
-      ]
-        .map(value => String(value || "").trim())
-        .filter(Boolean);
-      const candidate = {
-        model,
-        thinkingEffort: effort,
-        labels: [...new Set(labels)],
-        order
-      };
-      available.push(candidate);
-
-      if (model === selection.model && effort === selection.thinkingEffort)
-        return { preset: candidate, available };
-      continue;
-    }
-  }
-
-  return { preset: null, available };
+  await setModelPreference(context.session, token, selection);
+  return sendNativeAccountMessage(context, isNew, token, selection);
 }
 
 async function setModelPreference(session, token, selection) {
@@ -296,8 +239,7 @@ async function sendNativeAccountMessage(
   { window, session, args, sleep, reportProgress },
   isNew,
   token,
-  selection,
-  nativePicker
+  selection
 ) {
   reportProgress?.({
     state: "submitting",
@@ -305,14 +247,6 @@ async function sendNativeAccountMessage(
   });
 
   await window.loadURL(nativeConversationUrl(isNew, args));
-  const nativePickerEvidence = nativePicker.preset
-    ? {
-        ...(await selectNativePickerPreset(window, nativePicker.preset)),
-        availablePresets: nativePicker.available
-      }
-    : {
-        availablePresets: nativePicker.available
-      };
 
   const execution = {
     requestedModel: selection.model === "auto" ? null : selection.model,
@@ -324,8 +258,7 @@ async function sendNativeAccountMessage(
     selection,
     isNew ? null : args.conversationId,
     isNew ? args.projectId : null,
-    reportProgress,
-    nativePickerEvidence
+    reportProgress
   );
   mergeExecutionMetadata(execution, posted.execution);
 
@@ -349,189 +282,13 @@ function nativeConversationUrl(isNew, args) {
   return ORIGIN + "/";
 }
 
-async function selectNativePickerPreset(window, target) {
-  const menu = await waitForNativePickerProbe(
-    window,
-    nativePickerMenuProbe(),
-    5000,
-    "ChatGPT native model picker button was not found."
-  );
-  nativeMouseClick(window, menu);
-
-  const option = await waitForNativePickerProbe(
-    window,
-    nativePickerOptionProbe(target),
-    5000,
-    `ChatGPT native model preset '${target.labels[0] || target.model}' was not found.`
-  );
-  nativeMouseClick(window, option);
-
-  await waitForNativePickerProbe(
-    window,
-    nativePickerClosedProbe(),
-    3000,
-    "ChatGPT native model picker did not close after selection."
-  );
-
-  return {
-    menuText: menu.text || null,
-    optionText: option.text || null,
-    optionAriaChecked: option.ariaChecked || null,
-    optionDataState: option.dataState || null
-  };
-}
-
-function nativePickerMenuProbe() {
-  return `
-    (() => {
-      /* MEZHS_NATIVE_MODEL_MENU */
-      const isVisible = element => {
-        if (!(element instanceof HTMLElement)) return false;
-        const style = window.getComputedStyle(element);
-        if (style.display === "none" || style.visibility === "hidden") return false;
-        const rect = element.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
-      };
-      const selectors = [
-        'button[data-testid="model-switcher-dropdown-button"]',
-        'button[aria-label*="model" i]'
-      ];
-      const button = selectors
-        .map(selector => document.querySelector(selector))
-        .find(element => isVisible(element));
-      if (!button) return { found: false };
-      const rect = button.getBoundingClientRect();
-      return {
-        found: true,
-        x: Math.round(rect.left + rect.width / 2),
-        y: Math.round(rect.top + rect.height / 2),
-        text: String(button.textContent || "").replace(/\\s+/g, " ").trim()
-      };
-    })()
-  `;
-}
-
-function nativePickerOptionProbe(target) {
-  const serializedTarget = JSON.stringify(target);
-  return `
-    (() => {
-      /* MEZHS_NATIVE_MODEL_OPTION */
-      const target = ${serializedTarget};
-      const targetModel = target.model;
-      const targetEffort = target.thinkingEffort;
-      void targetModel;
-      void targetEffort;
-
-      const isVisible = element => {
-        if (!(element instanceof HTMLElement)) return false;
-        const style = window.getComputedStyle(element);
-        if (style.display === "none" || style.visibility === "hidden") return false;
-        const rect = element.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
-      };
-      const normalize = value => String(value || "").replace(/\\s+/g, " ").trim().toLowerCase();
-      const root =
-        document.querySelector('[data-testid="composer-intelligence-picker-content"]') ||
-        document;
-      const options = Array.from(root.querySelectorAll('[role="menuitemradio"]'))
-        .filter(isVisible);
-
-      let option = options.find(candidate => {
-        const text = normalize(candidate.textContent);
-        return target.labels.some(label => {
-          const expected = normalize(label);
-          return text === expected || text.includes(expected);
-        });
-      });
-
-      if (!option) {
-        return {
-          found: false,
-          available: options.map(candidate =>
-            String(candidate.textContent || "").replace(/\\s+/g, " ").trim()
-          )
-        };
-      }
-
-      const rect = option.getBoundingClientRect();
-      return {
-        found: true,
-        x: Math.round(rect.left + rect.width / 2),
-        y: Math.round(rect.top + rect.height / 2),
-        text: String(option.textContent || "").replace(/\\s+/g, " ").trim(),
-        ariaChecked: option.getAttribute("aria-checked"),
-        dataState: option.getAttribute("data-state")
-      };
-    })()
-  `;
-}
-
-function nativePickerClosedProbe() {
-  return `
-    (() => {
-      /* MEZHS_NATIVE_MODEL_CLOSED */
-      const root = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
-      if (!root) return { found: true, x: 0, y: 0 };
-      const style = window.getComputedStyle(root);
-      const rect = root.getBoundingClientRect();
-      const visible =
-        style.display !== "none" &&
-        style.visibility !== "hidden" &&
-        rect.width > 0 &&
-        rect.height > 0;
-      return { found: !visible, x: 0, y: 0 };
-    })()
-  `;
-}
-
-async function waitForNativePickerProbe(
-  window,
-  source,
-  timeoutMs,
-  failureMessage
-) {
-  const deadline = Date.now() + timeoutMs;
-  while (true) {
-    const result = await window.webContents.executeJavaScript(source, true);
-    if (result?.found)
-      return result;
-    if (Date.now() >= deadline)
-      throw new Error(failureMessage);
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-}
-
-function nativeMouseClick(window, point) {
-  const x = Number(point?.x);
-  const y = Number(point?.y);
-  if (!Number.isFinite(x) || !Number.isFinite(y))
-    throw new Error("ChatGPT native model picker returned invalid click coordinates.");
-
-  window.webContents.sendInputEvent({ type: "mouseMove", x, y });
-  window.webContents.sendInputEvent({
-    type: "mouseDown",
-    x,
-    y,
-    button: "left",
-    clickCount: 1
-  });
-  window.webContents.sendInputEvent({
-    type: "mouseUp",
-    x,
-    y,
-    button: "left",
-    clickCount: 1
-  });
-}
-
 async function submitNativeConversationTurn(
   window,
   prompt,
   selection,
   expectedConversationId,
   expectedProjectId,
-  reportProgress,
-  nativePickerEvidence = null
+  reportProgress
 ) {
   const debug = window.webContents.debugger;
   if (!debug ||
@@ -668,8 +425,7 @@ async function submitNativeConversationTurn(
       body,
       selection,
       expectedConversationId,
-      expectedProjectId,
-      nativePickerEvidence
+      expectedProjectId
     );
 
     const requestMessageId = String(body?.messages?.[0]?.id || "").trim();
@@ -808,20 +564,11 @@ function validateNativeConversationRequest(
   body,
   selection,
   expectedConversationId,
-  expectedProjectId,
-  nativePickerEvidence = null
+  expectedProjectId
 ) {
   if (selection.model && selection.model !== "auto" && body?.model !== selection.model) {
-    const available = (nativePickerEvidence?.availablePresets || [])
-      .map(preset =>
-        `${preset.labels?.[0] || "unnamed"}=${preset.model}${preset.thinkingEffort ? `::${preset.thinkingEffort}` : ""}`
-      )
-      .join(", ");
-    const picker = nativePickerEvidence?.optionText
-      ? ` Native picker: button='${nativePickerEvidence.menuText || "unknown"}', clicked='${nativePickerEvidence.optionText}', aria-checked='${nativePickerEvidence.optionAriaChecked || "none"}', data-state='${nativePickerEvidence.optionDataState || "none"}'.`
-      : ` Native picker preset was not resolved from the live catalog. Available presets: ${available || "none"}.`;
     throw new Error(
-      `ChatGPT native composer selected model '${body?.model || "unknown"}' instead of '${selection.model}'.${picker}`
+      `ChatGPT native composer selected model '${body?.model || "unknown"}' instead of '${selection.model}'.`
     );
   }
   if (selection.thinkingEffort &&
