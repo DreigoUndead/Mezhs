@@ -99,6 +99,47 @@ function nativeChatGptWindow(state, session = null) {
       getURL: () => currentUrl,
       executeJavaScript: async source => {
         assert.doesNotThrow(() => new Function(`return ${source};`));
+
+        if (source.includes("MEZHS_NATIVE_MODEL_MENU"))
+          return { found: true, x: 10, y: 10 };
+
+        if (source.includes("MEZHS_NATIVE_MODEL_CHOICE")) {
+          const match = /const labels = (\[[^;]+\]);/.exec(source);
+          const labels = match ? JSON.parse(match[1]) : [];
+          const normalized = labels.map(value => String(value).toLowerCase());
+          const isPreset = normalized.some(value =>
+            value === "instant" || value === "medium" || value === "high"
+          );
+          const selectedVersion = String(state.model || "")
+            .replace("gpt-", "")
+            .replace("-instant", "")
+            .replace("-thinking", "")
+            .replace(/-/g, ".");
+          const selectedPreset =
+            String(state.model || "").endsWith("-instant")
+              ? "instant"
+              : state.effort === "extended"
+                ? "high"
+                : state.effort === "standard"
+                  ? "medium"
+                  : "";
+
+          const selected = isPreset
+            ? normalized.includes(selectedPreset)
+            : normalized.some(value =>
+                value.includes(selectedVersion) ||
+                (state.model === "o3" && value.includes("o3"))
+              );
+          return {
+            found: true,
+            selected: state.pickerPretendSelected ? true : selected,
+            x: isPreset ? 30 : 20,
+            y: isPreset ? 30 : 20,
+            text: labels[0] || "",
+            available: labels
+          };
+        }
+
         return { ok: true };
       },
       selectAll: () => {
@@ -112,6 +153,37 @@ function nativeChatGptWindow(state, session = null) {
         selectedAll = false;
       },
       sendInputEvent: event => {
+        if (event.type === "mouseUp") {
+          if (event.x === 10 && event.y === 10) {
+            state.pickerOpen = true;
+            return;
+          }
+          if (event.x === 20 && event.y === 20) {
+            state.pickerVersionClicked = true;
+            return;
+          }
+          if (event.x === 30 && event.y === 30) {
+            if (state.pickerSelection) {
+              state.model = state.pickerSelection.model;
+              state.effort = state.pickerSelection.effort || null;
+              debug.emit("message", {}, "Network.requestWillBeSent", {
+                requestId: "picker-transition",
+                request: {
+                  url: "https://chatgpt.com/backend-api/f/conversation/prepare",
+                  method: "POST",
+                  headers: {},
+                  postData: JSON.stringify({
+                    model: state.model,
+                    ...(state.effort ? { thinking_effort: state.effort } : {}),
+                    client_prepare_source: "context_change"
+                  })
+                }
+              });
+            }
+            return;
+          }
+        }
+
         if (event.type !== "keyDown" || event.keyCode !== "Enter")
           return;
 
@@ -174,6 +246,76 @@ function nativeChatGptWindow(state, session = null) {
         debug.emit("message", {}, "Network.loadingFinished", { requestId });
       }
     }
+  };
+}
+
+function nativeModelCatalog() {
+  return {
+    models: [
+      { slug: "gpt-5-6-instant", title: "GPT-5.6 Instant" },
+      { slug: "gpt-5-6-thinking", title: "GPT-5.6 Thinking" },
+      { slug: "gpt-5-5-instant", title: "GPT-5.5 Instant" },
+      { slug: "gpt-5-5-thinking", title: "GPT-5.5 Thinking" },
+      { slug: "o3", title: "o3" }
+    ],
+    versions: [
+      {
+        id: "5.6",
+        display_text_for_intelligence: "GPT-5.6 Sol",
+        slugs: ["gpt-5-6-instant", "gpt-5-6-thinking"],
+        intelligence_presets: [
+          {
+            title: "Instant",
+            model_slug: "gpt-5-6-instant",
+            preset_type: "available"
+          },
+          {
+            title: "Medium",
+            model_slug: "gpt-5-6-thinking",
+            thinking_effort: "standard",
+            preset_type: "available"
+          },
+          {
+            title: "High",
+            model_slug: "gpt-5-6-thinking",
+            thinking_effort: "extended",
+            preset_type: "available"
+          }
+        ],
+        enabled: true
+      },
+      {
+        id: "5.5",
+        display_text_for_intelligence: "GPT-5.5",
+        slugs: ["gpt-5-5-instant", "gpt-5-5-thinking"],
+        intelligence_presets: [
+          {
+            title: "Instant",
+            model_slug: "gpt-5-5-instant",
+            preset_type: "available"
+          },
+          {
+            title: "Medium",
+            model_slug: "gpt-5-5-thinking",
+            thinking_effort: "standard",
+            preset_type: "available"
+          },
+          {
+            title: "High",
+            model_slug: "gpt-5-5-thinking",
+            thinking_effort: "extended",
+            preset_type: "available"
+          }
+        ],
+        enabled: true
+      },
+      {
+        id: "o3",
+        display_text_for_intelligence: "o3",
+        slugs: ["o3"],
+        enabled: true
+      }
+    ]
   };
 }
 
@@ -306,91 +448,7 @@ test("ChatGPT getModels follows the native picker instead of the raw catalog", a
   const session = mockSession(async (url, options = {}) => {
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
-      return jsonResponse({ accessToken: "token" });
-    if (target.pathname === "/backend-api/models") {
-      assert.equal(options.headers.Authorization, "Bearer token");
-      assert.equal(target.searchParams.get("history_and_training_disabled"), "false");
-      return jsonResponse({
-        models: [
-          { slug: "gpt-5-6-instant", title: "GPT-5.6 Instant" },
-          { slug: "gpt-5-6-thinking", title: "GPT-5.6 Thinking" },
-          { slug: "gpt-5-5-instant", title: "GPT-5.5 Instant" },
-          { slug: "gpt-5-5-thinking", title: "GPT-5.5 Thinking" },
-          { slug: "o3", title: "o3" },
-          { slug: "gpt-5-3-mini", title: "GPT-5.3 Mini" },
-          { slug: "gpt-5.6-luna-wm", title: "GPT-5.6 Luna" }
-        ],
-        versions: [
-          {
-            id: "5.6",
-            display_text_for_intelligence: "GPT-5.6 Sol",
-            slugs: ["gpt-5-6", "gpt-5-6-instant", "gpt-5-6-thinking"],
-            intelligence_presets: [
-              {
-                title: "Instant",
-                model_slug: "gpt-5-6-instant",
-                lane: "instant",
-                preset_type: "available"
-              },
-              {
-                title: "Medium",
-                model_slug: "gpt-5-6-thinking",
-                lane: "thinking",
-                thinking_effort: "standard",
-                preset_type: "available"
-              },
-              {
-                title: "High",
-                model_slug: "gpt-5-6-thinking",
-                lane: "thinking",
-                thinking_effort: "extended",
-                preset_type: "available"
-              }
-            ],
-            enabled: true
-          },
-          {
-            id: "5.5",
-            display_text_for_intelligence: "GPT-5.5",
-            slugs: ["gpt-5-5-instant", "gpt-5-5-thinking"],
-            intelligence_presets: [
-              {
-                title: "Instant",
-                model_slug: "gpt-5-5-instant",
-                lane: "instant",
-                preset_type: "available"
-              },
-              {
-                title: "Medium",
-                model_slug: "gpt-5-5-thinking",
-                lane: "thinking",
-                thinking_effort: "standard",
-                preset_type: "available"
-              },
-              {
-                title: "High",
-                model_slug: "gpt-5-5-thinking",
-                lane: "thinking",
-                thinking_effort: "extended",
-                preset_type: "available"
-              }
-            ],
-            enabled: true
-          },
-          {
-            id: "o3",
-            display_text_for_intelligence: "o3",
-            slugs: ["o3"],
-            enabled: true
-          },
-          {
-            id: "5.3",
-            display_text_for_intelligence: "GPT-5.3 Mini",
-            slugs: ["gpt-5-3-mini"],
-            enabled: false
-          }
-        ]
-      });
+      return jsonResponse(nativeModelCatalog());
     }
     throw new Error(`Unexpected request ${target}`);
   });
