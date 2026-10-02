@@ -448,6 +448,10 @@ test("ChatGPT getModels follows the native picker instead of the raw catalog", a
   const session = mockSession(async (url, options = {}) => {
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
+      return jsonResponse({ accessToken: "token" });
+    if (target.pathname === "/backend-api/models") {
+      assert.equal(options.headers.Authorization, "Bearer token");
+      assert.equal(target.searchParams.get("history_and_training_disabled"), "false");
       return jsonResponse(nativeModelCatalog());
     }
     throw new Error(`Unexpected request ${target}`);
