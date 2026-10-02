@@ -103,6 +103,9 @@ function nativeChatGptWindow(state, session = null) {
         if (source.includes("MEZHS_NATIVE_MODEL_MENU"))
           return { found: true, x: 10, y: 10 };
 
+        if (source.includes("MEZHS_NATIVE_EFFORT_MENU"))
+          return { found: true, x: 40, y: 40, text: "power" };
+
         if (source.includes("MEZHS_NATIVE_MODEL_CHOICE")) {
           const match = /const labels = (\[[^;]+\]);/.exec(source);
           const labels = match ? JSON.parse(match[1]) : [];
@@ -123,6 +126,16 @@ function nativeChatGptWindow(state, session = null) {
                 : state.effort === "standard"
                   ? "medium"
                   : "";
+
+          if (isPreset &&
+              state.requireEffortMenu &&
+              !state.effortMenuOpened) {
+            return {
+              found: false,
+              selected: false,
+              available: ["select model", "power", "gpt-5.6 sol", "gpt-5.5"]
+            };
+          }
 
           const selected = isPreset
             ? normalized.includes(selectedPreset)
@@ -160,6 +173,10 @@ function nativeChatGptWindow(state, session = null) {
           }
           if (event.x === 20 && event.y === 20) {
             state.pickerVersionClicked = true;
+            return;
+          }
+          if (event.x === 40 && event.y === 40) {
+            state.effortMenuOpened = true;
             return;
           }
           if (event.x === 30 && event.y === 30) {
@@ -621,7 +638,8 @@ test("ChatGPT switches model version and preset through the native picker before
     pickerSelection: {
       model: "gpt-5-5-instant",
       effort: null
-    }
+    },
+    requireEffortMenu: true
   };
   const session = mockSession(async (url) => {
     const target = new URL(String(url));
@@ -653,6 +671,7 @@ test("ChatGPT switches model version and preset through the native picker before
   });
 
   assert.equal(state.pickerVersionClicked, true);
+  assert.equal(state.effortMenuOpened, true);
   assert.equal(state.model, "gpt-5-5-instant");
   assert.equal(state.effort, null);
   assert.equal(state.lastBody.model, "gpt-5-5-instant");
