@@ -501,7 +501,7 @@ function nativePickerChoiceProbe(labels) {
       /* MEZHS_NATIVE_MODEL_CHOICE */
       const labels = ${serializedLabels};
       const normalize = value =>
-        String(value || "").replace(/\\\\s+/g, " ").trim().toLowerCase();
+        String(value || "").replace(/\\s+/g, " ").trim().toLowerCase();
       const isVisible = element => {
         if (!(element instanceof HTMLElement)) return false;
         const style = window.getComputedStyle(element);
