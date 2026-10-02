@@ -416,28 +416,16 @@ async function selectNativePickerTarget(window, target) {
       5000,
       "model version"
     );
-    if (!version.selected) {
-      nativeMouseClick(window, version);
+    if (!version.selected)
       changed = true;
+
+    if (!version.selected || target.presetLabels.length) {
+      nativeMouseClick(window, version);
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     if (target.presetLabels.length) {
-      let preset = await findNativePickerChoice(
-        window,
-        target.presetLabels
-      );
-      if (!preset?.found) {
-        const reopened = await waitForNativePickerProbe(
-          window,
-          nativePickerMenuProbe(),
-          3000,
-          "ChatGPT native model picker button was not found after version selection."
-        );
-        nativeMouseClick(window, reopened);
-      }
-
-      preset = await waitForNativePickerChoice(
+      const preset = await waitForNativePickerChoice(
         window,
         target.presetLabels,
         5000,
@@ -520,19 +508,21 @@ function nativePickerChoiceProbe(labels) {
       )).filter(isVisible);
 
       const expected = labels.map(normalize).filter(Boolean);
-      const option = candidates.find(candidate => {
-        const values = [
-          candidate.textContent,
-          candidate.getAttribute("aria-label")
-        ].map(normalize).filter(Boolean);
-        return expected.some(label =>
-          values.some(value =>
-            value === label ||
-            value.includes(label) ||
-            label.includes(value)
+      const valuesFor = candidate => [
+        candidate.textContent,
+        candidate.getAttribute("aria-label")
+      ].map(normalize).filter(Boolean);
+      const option =
+        candidates.find(candidate =>
+          expected.some(label => valuesFor(candidate).includes(label))
+        ) ||
+        candidates.find(candidate =>
+          expected.some(label =>
+            valuesFor(candidate).some(value =>
+              value.includes(label) || label.includes(value)
+            )
           )
         );
-      });
 
       const available = candidates
         .map(candidate => normalize(
@@ -565,13 +555,6 @@ function nativePickerChoiceProbe(labels) {
   `;
 }
 
-async function findNativePickerChoice(window, labels) {
-  return window.webContents.executeJavaScript(
-    nativePickerChoiceProbe(labels),
-    true
-  );
-}
-
 async function waitForNativePickerChoice(
   window,
   labels,
@@ -581,7 +564,10 @@ async function waitForNativePickerChoice(
   const deadline = Date.now() + timeoutMs;
   let last = null;
   while (true) {
-    last = await findNativePickerChoice(window, labels);
+    last = await window.webContents.executeJavaScript(
+      nativePickerChoiceProbe(labels),
+      true
+    );
     if (last?.found)
       return last;
     if (Date.now() >= deadline) {
