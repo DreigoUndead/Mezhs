@@ -142,6 +142,10 @@ function nativeBrowserSurface(session) {
         getURL: () => currentUrl,
         executeJavaScript: async source => {
           assert.doesNotThrow(() => new Function(`return ${source};`));
+          if (source.includes("MEZHS_NATIVE_MODEL_MENU"))
+            return { found: true, x: 10, y: 10 };
+          if (source.includes("MEZHS_NATIVE_MODEL_CHOICE"))
+            return { found: true, selected: true, x: 20, y: 20 };
           return { ok: true };
         },
         selectAll: () => {
@@ -261,6 +265,38 @@ function nativeBrowserSurface(session) {
   };
 }
 
+function nativeCatalogForState(state) {
+  const model = String(state.model || "gpt-5-6-thinking");
+  const effort = String(state.thinkingEffort || "").trim() || null;
+  const presetTitle =
+    model.endsWith("-instant")
+      ? "Instant"
+      : effort === "extended"
+        ? "High"
+        : effort === "standard"
+          ? "Medium"
+          : null;
+
+  return {
+    versions: [{
+      id: model,
+      display_text_for_intelligence: model,
+      slugs: [model],
+      ...(presetTitle
+        ? {
+            intelligence_presets: [{
+              title: presetTitle,
+              model_slug: model,
+              ...(effort ? { thinking_effort: effort } : {}),
+              preset_type: "available"
+            }]
+          }
+        : {}),
+      enabled: true
+    }]
+  };
+}
+
 function protocolSession({
   conversationId,
   onConversationRead,
@@ -283,11 +319,8 @@ function protocolSession({
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token", user: { id: "account-1" } });
 
-    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
-      state.patchedModel = target.searchParams.get("model_slug");
-      state.patchedThinkingEffort = target.searchParams.get("thinking_effort");
-      return textResponse("");
-    }
+    if (target.pathname === "/backend-api/models")
+      return jsonResponse(nativeCatalogForState(state));
 
     if (target.pathname === `/backend-api/conversation/${conversationId}`)
       return onConversationRead();
