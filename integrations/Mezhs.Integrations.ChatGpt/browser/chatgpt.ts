@@ -347,109 +347,36 @@ async function sendNativeAccountMessage(
 
 
 async function selectNativePickerTarget(window, target) {
-  const debug = window.webContents.debugger;
-  if (!debug ||
-      typeof debug.isAttached !== "function" ||
-      typeof debug.attach !== "function" ||
-      typeof debug.sendCommand !== "function" ||
-      typeof debug.on !== "function" ||
-      typeof debug.removeListener !== "function") {
-    throw new Error(
-      "Electron debugger API is unavailable for native ChatGPT model selection."
-    );
+  const menu = await waitForNativePickerProbe(
+    window,
+    nativePickerMenuProbe(),
+    5000,
+    "ChatGPT native model picker button was not found."
+  );
+  nativeMouseClick(window, menu);
+
+  const version = await waitForNativePickerChoice(
+    window,
+    target.versionLabels,
+    5000,
+    "model version"
+  );
+  if (!version.selected || target.presetLabels.length) {
+    nativeMouseClick(window, version);
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
 
-  const attachedByMezhs = !debug.isAttached();
-  if (attachedByMezhs)
-    debug.attach("1.3");
+  if (!target.presetLabels.length)
+    return;
 
-  let resolveTransition;
-  const transitionSeen = new Promise(resolve => {
-    resolveTransition = resolve;
-  });
-  const onMessage = (_event, method, params) => {
-    if (method !== "Network.requestWillBeSent")
-      return;
-
-    const request = params?.request;
-    let url;
-    try {
-      url = new URL(String(request?.url || ""));
-    } catch {
-      return;
-    }
-    if (url.origin !== ORIGIN ||
-        url.pathname !== "/backend-api/f/conversation/prepare" ||
-        String(request?.method || "").toUpperCase() !== "POST") {
-      return;
-    }
-
-    try {
-      const body = JSON.parse(String(request?.postData || "{}"));
-      const effort = String(body?.thinking_effort || "").trim() || null;
-      if (body?.client_prepare_source === "context_change" &&
-          String(body?.model || "") === target.model &&
-          effort === target.thinkingEffort) {
-        resolveTransition(body);
-      }
-    } catch {
-      // Ignore unrelated/unparseable prepare traffic.
-    }
-  };
-
-  debug.on("message", onMessage);
-  try {
-    await debug.sendCommand("Network.enable", { maxPostDataSize: 1024 * 1024 });
-
-    const menu = await waitForNativePickerProbe(
-      window,
-      nativePickerMenuProbe(),
-      5000,
-      "ChatGPT native model picker button was not found."
-    );
-    nativeMouseClick(window, menu);
-
-    let changed = false;
-    const version = await waitForNativePickerChoice(
-      window,
-      target.versionLabels,
-      5000,
-      "model version"
-    );
-    if (!version.selected)
-      changed = true;
-
-    if (!version.selected || target.presetLabels.length) {
-      nativeMouseClick(window, version);
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-
-    if (target.presetLabels.length) {
-      const preset = await waitForNativePickerChoice(
-        window,
-        target.presetLabels,
-        5000,
-        "intelligence preset"
-      );
-      if (!preset.selected) {
-        nativeMouseClick(window, preset);
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      await withTimeout(
-        transitionSeen,
-        5000,
-        "Timed out waiting for ChatGPT's native model transition to " +
-          modelSelectionId(target.model, target.thinkingEffort) + "."
-      );
-    }
-  } finally {
-    debug.removeListener("message", onMessage);
-    if (attachedByMezhs && debug.isAttached())
-      debug.detach();
-  }
+  const preset = await waitForNativePickerChoice(
+    window,
+    target.presetLabels,
+    5000,
+    "intelligence preset"
+  );
+  if (!preset.selected)
+    nativeMouseClick(window, preset);
 }
 
 function nativePickerMenuProbe() {
