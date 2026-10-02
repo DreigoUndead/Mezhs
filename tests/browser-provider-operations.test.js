@@ -495,10 +495,8 @@ test("ChatGPT o3 newChat verifies the native project composer and reports the se
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
 
-    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
-      assert.equal(target.search, "?model_slug=o3");
-      return textResponse("");
-    }
+    if (target.pathname === "/backend-api/models")
+      return jsonResponse(nativeModelCatalog());
 
     if (target.pathname === "/backend-api/conversation/conv-1") {
       return jsonResponse(completedConversation(
@@ -582,11 +580,8 @@ test("ChatGPT verifies a requested selection against the native outgoing request
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
-    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
-      assert.equal(target.searchParams.get("model_slug"), "gpt-5-6-thinking");
-      assert.equal(target.searchParams.get("thinking_effort"), "extended");
-      return textResponse("");
-    }
+    if (target.pathname === "/backend-api/models")
+      return jsonResponse(nativeModelCatalog());
     if (target.pathname === "/backend-api/conversation/conv-selection") {
       return jsonResponse(completedConversation(
         "conv-selection",
@@ -614,38 +609,51 @@ test("ChatGPT verifies a requested selection against the native outgoing request
   assert.equal(state.lastBody.thinking_effort, "extended");
 });
 
-test("ChatGPT does not treat the model-preference PATCH as proof that the native composer switched models", async () => {
+test("ChatGPT switches model version and preset through the native picker before send", async () => {
   const chatgpt = loadChatGptModule();
   const state = {
-    conversationId: "conv-selection-mismatch",
+    conversationId: "conv-selection-switch",
     model: "gpt-5-6-thinking",
-    effort: "extended"
+    effort: "extended",
+    pickerSelection: {
+      model: "gpt-5-5-instant",
+      effort: null
+    }
   };
   const session = mockSession(async (url) => {
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
-    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
-      assert.equal(target.searchParams.get("model_slug"), "gpt-5-5-thinking");
-      assert.equal(target.searchParams.get("thinking_effort"), "standard");
-      return textResponse("");
+    if (target.pathname === "/backend-api/models")
+      return jsonResponse(nativeModelCatalog());
+    if (target.pathname === "/backend-api/conversation/conv-selection-switch") {
+      return jsonResponse(completedConversation(
+        "conv-selection-switch",
+        null,
+        "gpt-5-5-instant",
+        state.lastBody.messages[0].id,
+        "gpt-5-5-instant"
+      ));
     }
     throw new Error(`Unexpected request ${target}`);
   });
 
-  await assert.rejects(
-    chatgpt.operations.newChat({
-      window: nativeChatGptWindow(state, session),
-      session,
-      args: {
-        prompt: "switch model",
-        model: "gpt-5-5-thinking::thinking-effort=standard",
-        files: []
-      },
-      sleep: async () => {}
-    }),
-    /selected model 'gpt-5-6-thinking' instead of 'gpt-5-5-thinking'/
-  );
+  await chatgpt.operations.newChat({
+    window: nativeChatGptWindow(state, session),
+    session,
+    args: {
+      prompt: "switch model",
+      model: "gpt-5-5-instant",
+      files: []
+    },
+    sleep: async () => {}
+  });
+
+  assert.equal(state.pickerVersionClicked, true);
+  assert.equal(state.model, "gpt-5-5-instant");
+  assert.equal(state.effort, null);
+  assert.equal(state.lastBody.model, "gpt-5-5-instant");
+  assert.equal("thinking_effort" in state.lastBody, false);
 });
 
 test("ChatGPT continuation keeps an already-loaded project conversation page", async () => {
@@ -661,8 +669,8 @@ test("ChatGPT continuation keeps an already-loaded project conversation page", a
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
-    if (target.pathname === "/backend-api/settings/user_last_used_model_config")
-      return textResponse("");
+    if (target.pathname === "/backend-api/models")
+      return jsonResponse(nativeModelCatalog());
     if (target.pathname === "/backend-api/conversation/conv-project-existing") {
       return jsonResponse(completedConversation(
         "conv-project-existing",
@@ -743,16 +751,15 @@ test("ChatGPT fails closed when the native outgoing request uses the wrong effor
   const state = {
     conversationId: "conv-wrong-effort",
     model: "gpt-5-6-thinking",
-    effort: "standard"
+    effort: "standard",
+    pickerPretendSelected: true
   };
   const session = mockSession(async (url) => {
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
-    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
-      // Simulate the frontend ignoring the requested preference after the PATCH.
-      return textResponse("");
-    }
+    if (target.pathname === "/backend-api/models")
+      return jsonResponse(nativeModelCatalog());
     throw new Error(`Unexpected request ${target}`);
   });
 
