@@ -369,7 +369,18 @@ async function selectNativePickerTarget(window, target) {
   if (!target.presetLabels.length)
     return;
 
-  const preset = await waitForNativePickerChoice(
+  let preset = await findNativePickerChoice(window, target.presetLabels);
+  if (!preset?.found) {
+    const effortMenu = await waitForNativePickerProbe(
+      window,
+      nativeThinkingEffortMenuProbe(),
+      3000,
+      "ChatGPT native thinking-effort control was not found."
+    );
+    nativeMouseClick(window, effortMenu);
+  }
+
+  preset = await waitForNativePickerChoice(
     window,
     target.presetLabels,
     5000,
@@ -377,6 +388,55 @@ async function selectNativePickerTarget(window, target) {
   );
   if (!preset.selected)
     nativeMouseClick(window, preset);
+}
+
+function nativeThinkingEffortMenuProbe() {
+  return `
+    (() => {
+      /* MEZHS_NATIVE_EFFORT_MENU */
+      const normalize = value =>
+        String(value || "").replace(/\\s+/g, " ").trim().toLowerCase();
+      const isVisible = element => {
+        if (!(element instanceof HTMLElement)) return false;
+        const style = window.getComputedStyle(element);
+        if (style.display === "none" || style.visibility === "hidden")
+          return false;
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      };
+      const buttons = Array.from(document.querySelectorAll("button"))
+        .filter(isVisible);
+      const control =
+        buttons.find(button =>
+          /thinking|effort/i.test(button.getAttribute("data-testid") || "") ||
+          /thinking|effort/i.test(button.getAttribute("aria-label") || "")
+        ) ||
+        buttons.find(button =>
+          normalize(button.getAttribute("aria-label") || button.textContent) === "power"
+        );
+
+      const available = buttons
+        .map(button => normalize(
+          button.getAttribute("aria-label") || button.textContent
+        ))
+        .filter(Boolean)
+        .slice(0, 20);
+
+      if (!control)
+        return { found: false, available };
+
+      const rect = control.getBoundingClientRect();
+      return {
+        found: true,
+        x: Math.round(rect.left + rect.width / 2),
+        y: Math.round(rect.top + rect.height / 2),
+        text: normalize(
+          control.getAttribute("aria-label") || control.textContent
+        ),
+        available
+      };
+    })()
+  `;
 }
 
 function nativePickerMenuProbe() {
@@ -484,6 +544,13 @@ function nativePickerChoiceProbe(labels) {
   `;
 }
 
+async function findNativePickerChoice(window, labels) {
+  return window.webContents.executeJavaScript(
+    nativePickerChoiceProbe(labels),
+    true
+  );
+}
+
 async function waitForNativePickerChoice(
   window,
   labels,
@@ -493,10 +560,7 @@ async function waitForNativePickerChoice(
   const deadline = Date.now() + timeoutMs;
   let last = null;
   while (true) {
-    last = await window.webContents.executeJavaScript(
-      nativePickerChoiceProbe(labels),
-      true
-    );
+    last = await findNativePickerChoice(window, labels);
     if (last?.found)
       return last;
     if (Date.now() >= deadline) {
