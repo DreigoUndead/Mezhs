@@ -465,7 +465,7 @@ async function selectNativePickerTarget(window, target) {
 }
 
 function nativePickerMenuProbe() {
-  return \`
+  return `
     (() => {
       /* MEZHS_NATIVE_MODEL_MENU */
       const isVisible = element => {
@@ -491,15 +491,15 @@ function nativePickerMenuProbe() {
         y: Math.round(rect.top + rect.height / 2)
       };
     })()
-  \`;
+  `;
 }
 
 function nativePickerChoiceProbe(labels) {
   const serializedLabels = JSON.stringify(labels);
-  return \`
+  return `
     (() => {
       /* MEZHS_NATIVE_MODEL_CHOICE */
-      const labels = \${serializedLabels};
+      const labels = ${serializedLabels};
       const normalize = value =>
         String(value || "").replace(/\\\\s+/g, " ").trim().toLowerCase();
       const isVisible = element => {
@@ -562,7 +562,7 @@ function nativePickerChoiceProbe(labels) {
         available
       };
     })()
-  \`;
+  `;
 }
 
 async function findNativePickerChoice(window, labels) {
