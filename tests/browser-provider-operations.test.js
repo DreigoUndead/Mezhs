@@ -566,6 +566,9 @@ test("ChatGPT browser module delegates conversation security to the native front
   assert.doesNotMatch(source, /conversation-small/);
   assert.doesNotMatch(source, /chat-requirements|Turnstile|Proof-Token|x-conduit-token/i);
   assert.doesNotMatch(source, /conversationPreparePayload|getConduitToken|webApiHeaders/);
+  assert.doesNotMatch(source, /user_last_used_model_config/);
+  assert.match(source, /MEZHS_NATIVE_MODEL_MENU/);
+  assert.match(source, /MEZHS_NATIVE_MODEL_CHOICE/);
   assert.doesNotMatch(source, /apiFetch\(session, token, API\.conversation/);
 });
 
