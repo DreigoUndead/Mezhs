@@ -429,10 +429,12 @@ function nativePickerChoiceProbe(labels) {
         document.querySelector('[data-testid="composer-intelligence-picker-content"]'),
         ...Array.from(document.querySelectorAll('[role="menu"]'))
       ].filter(root => root && isVisible(root));
-      const root = roots[0] || document.body;
-      const candidates = Array.from(root.querySelectorAll(
-        '[role="menuitemradio"],[role="menuitem"],[role="option"],button'
-      )).filter(isVisible);
+      const scopes = roots.length ? roots : [document.body];
+      const candidates = [...new Set(scopes.flatMap(root =>
+        Array.from(root.querySelectorAll(
+          '[role="menuitemradio"],[role="menuitem"],[role="option"],button'
+        ))
+      ))].filter(isVisible);
 
       const expected = labels.map(normalize).filter(Boolean);
       const valuesFor = candidate => [
