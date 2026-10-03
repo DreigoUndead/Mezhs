@@ -113,6 +113,17 @@ function nativeChatGptWindow(state, session = null) {
           const isPreset = normalized.some(value =>
             value === "instant" || value === "medium" || value === "high"
           );
+          const isVersion = !isPreset;
+          if (isVersion &&
+              state.requireEffortBeforeVersion &&
+              !state.effortMenuOpened) {
+            return {
+              found: false,
+              selected: false,
+              available: ["select model", "power"]
+            };
+          }
+
           const selectedVersion = String(state.model || "")
             .replace("gpt-", "")
             .replace("-instant", "")
@@ -639,7 +650,8 @@ test("ChatGPT switches model version and preset through the native picker before
       model: "gpt-5-5-instant",
       effort: null
     },
-    requireEffortMenu: true
+    requireEffortMenu: true,
+    requireEffortBeforeVersion: true
   };
   const session = mockSession(async (url) => {
     const target = new URL(String(url));
