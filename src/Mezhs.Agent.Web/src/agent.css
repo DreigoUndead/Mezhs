@@ -227,64 +227,168 @@
   font-size: 10px;
 }
 
-.agent-new-chat {
-  width: min(720px, calc(100% - 48px));
-  margin: auto;
-  padding: 26px;
-  border: 1px solid #dfdbd1;
-  border-radius: 16px;
-  background: rgba(255,255,255,.62);
+.agent-main-panel > .composer-wrap {
+  margin-top: auto;
 }
 
-.agent-new-chat > p {
-  margin: 0 0 20px;
-  color: #777169;
-  font-size: 13px;
-  line-height: 1.6;
+.agent-composer-settings {
+  width: 252px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
 }
 
-.agent-field-label {
-  display: block;
-  margin-bottom: 7px;
+.agent-composer-settings > .target-picker-field,
+.agent-target-picker-composer .target-picker-field {
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 7px;
+  min-height: 34px;
+  padding: 4px 6px;
+  border-color: #dfdad0;
   color: #888279;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: .14em;
-  text-transform: uppercase;
+  background: #fbfaf7;
 }
 
-.agent-new-chat select {
-  width: 100%;
-  padding: 10px 11px;
-  border: 1px solid #d7d2c7;
-  border-radius: 10px;
-  outline: 0;
+.agent-composer-settings > .target-picker-field > span,
+.agent-target-picker-composer .target-picker-field > span {
+  font-size: 7px;
+}
+
+.agent-composer-settings > .target-picker-field select,
+.agent-target-picker-composer .target-picker-field select {
+  height: 26px;
+  padding: 0 6px;
+  border-color: #d7d2c7;
+  color: #464139;
+  background: #fffefa;
+  font-size: 9px;
+}
+
+.agent-composer-settings > .target-picker-field select:focus,
+.agent-target-picker-composer .target-picker-field select:focus {
+  border-color: #9aab64;
+  box-shadow: 0 0 0 2px rgba(154,171,100,.12);
+}
+
+.agent-composer-settings .target-picker-field select {
+  color-scheme: light;
+}
+
+.agent-composer-settings .target-picker-field option {
   color: #464139;
   background: #fffefa;
 }
 
-.agent-policy-summary {
-  margin-top: 12px;
-  padding: 12px 13px;
+.agent-composer-settings .target-picker-field option:checked {
+  color: #403b35;
+  background: #ebe7df;
+}
+
+.agent-composer-settings .connection-model-picker,
+.agent-target-picker-composer {
   display: grid;
-  gap: 4px;
-  border: 1px solid #e2ded5;
-  border-radius: 10px;
-  color: #817b72;
-  background: #fbfaf7;
+  gap: 6px;
+}
+
+.agent-target-picker {
+  min-width: 0;
+}
+
+.agent-policy-readonly {
+  min-width: 0;
+  height: 26px;
+  padding: 0 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #ddd8ce;
+  border-radius: 7px;
+  color: #5f5a52;
+  background: #f3f0e9;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.agent-policy-readonly > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-policy-readonly svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: #918a80;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.agent-policy-overview {
+  overflow: hidden;
+  border: 1px solid #ddd8ce;
+  border-radius: 11px;
+  color: #6f6960;
+  background: rgba(255,254,250,.96);
+}
+
+.agent-policy-overview > summary {
+  min-height: 38px;
+  padding: 7px 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.agent-policy-overview > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-policy-overview > summary > span:first-child {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.agent-policy-overview > summary strong {
+  color: #403b35;
   font-size: 10px;
 }
 
-.agent-policy-summary strong {
-  color: #403b35;
-  font-size: 11px;
+.agent-policy-overview > summary small {
+  min-width: 0;
+  overflow: hidden;
+  color: #918b82;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.agent-policy-summary pre {
-  margin: 6px 0 0;
+.agent-policy-overview > summary > span:last-child {
+  flex: 0 0 auto;
+  color: #7d776f;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.agent-policy-overview > pre {
+  max-height: 118px;
+  overflow: auto;
+  margin: 0;
+  padding: 9px 11px 10px;
+  border-top: 1px solid #ebe6dd;
   white-space: pre-wrap;
   color: #686259;
-  font: 10px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  background: #fbfaf7;
+  font: 9px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 .agent-execution-status {
@@ -605,5 +709,8 @@
   .agent-main-panel { height: auto; min-height: 58vh; }
   .agent-header { padding-inline: 18px; align-items: flex-start; }
   .agent-header-actions { flex-wrap: wrap; justify-content: flex-end; }
-  .agent-new-chat { width: calc(100% - 36px); margin: 24px auto; }
+}
+
+@media (max-width: 760px) {
+  .agent-composer-settings { width: 100%; }
 }

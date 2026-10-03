@@ -2,15 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   apiJson,
   ChatComposer,
+  ChatProviderRegistry,
   ChatTranscript,
+  ConnectionModelPicker,
   modelActivityLabel,
   useApiAvailability,
   type ChatSurfaceMessage,
+  type Connection,
+  type ConnectionModel,
 } from "@mezhs/web-lib";
 
 type AgentPolicy = {
   id: string;
+  name: string;
   connectionId: string;
+  defaultModel?: string | null;
   modelInstructions: string;
   snapshot: string;
 };
@@ -31,6 +37,7 @@ type AgentChatMessage = {
   messageId: string;
   chatId: string;
   connectionId: string;
+  model?: string | null;
   role: ChatSurfaceMessage["role"];
   origin: string;
   content: string;
@@ -63,6 +70,7 @@ type Execution = {
   chatId?: string;
   policyId: string;
   connectionId: string;
+  model?: string | null;
   source: string;
   sourceReference?: string;
   status: string;
@@ -356,6 +364,15 @@ function isStartPolicyPrompt(message: AgentChatMessage) {
     message.content.includes("Agent command protocol:");
 }
 
+function policyOrder(id: string) {
+  switch (id.toLocaleLowerCase()) {
+    case "low": return 0;
+    case "mid": return 1;
+    case "high": return 2;
+    default: return 3;
+  }
+}
+
 function findActiveUserMessage(messages: AgentChatMessage[]) {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
@@ -384,18 +401,26 @@ export default function App() {
   const apiAvailability = useApiAvailability("");
   const apiReady = apiAvailability === "online";
   const [policies, setPolicies] = useState<AgentPolicy[]>([]);
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [connectionId, setConnectionId] = useState("");
+  const [models, setModels] = useState<ConnectionModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelId, setModelId] = useState("");
+  const [modelSpecified, setModelSpecified] = useState(false);
   const [chats, setChats] = useState<AgentChat[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [creating, setCreating] = useState(false);
   const [policyId, setPolicyId] = useState("");
+  const [policyDetailsOpen, setPolicyDetailsOpen] = useState(true);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [togglingPause, setTogglingPause] = useState(false);
   const [stoppingExecutionId, setStoppingExecutionId] = useState<string | null>(null);
   const [shellActionExecutionId, setShellActionExecutionId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const providerRegistry = useRef(new ChatProviderRegistry());
   const messagesRef = useRef<AgentChatMessage[]>([]);
   const executionsRef = useRef<Execution[]>([]);
   const selectedLoadChatRef = useRef<string | null>(null);
@@ -403,6 +428,16 @@ export default function App() {
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
   const selectedPolicy = policies.find((policy) =>
     policy.id === (selectedChat?.policyId ?? policyId));
+  const selectedConnection = connections.find((connection) => connection.id === connectionId);
+  const orderedPolicies = useMemo(
+    () => [...policies].sort((left, right) =>
+      policyOrder(left.id) - policyOrder(right.id) || left.id.localeCompare(right.id)),
+    [policies],
+  );
+  const policyNames = useMemo(
+    () => new Map(policies.map((policy) => [policy.id, policy.name])),
+    [policies],
+  );
   const activeExecution = executions.find((execution) =>
     execution.kind === "Agent" && !execution.isTerminal);
   const activeShellExecution = executions.find((execution) =>
@@ -453,26 +488,40 @@ export default function App() {
   );
 
   useEffect(() => {
-  let cancelled = false;
-  void Promise.all([
-    apiJson<AgentPolicy[]>("", "/v1/policies"),
-    apiJson<AgentChat[]>("", "/v1/agent-chats"),
-  ])
-    .then(([policyValues, chatValues]) => {
-      if (cancelled) return;
-      setPolicies(policyValues);
-      setChats(chatValues);
-      setPolicyId(policyValues[0]?.id ?? "");
-      setNotice(null);
-      if (chatValues.length > 0)
-        setSelectedChatId(chatValues[0].chatId);
-    })
-    .catch((error) => {
-      if (!cancelled)
-        setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
-    });
-  return () => { cancelled = true; };
-}, []);
+    let cancelled = false;
+    void Promise.all([
+      apiJson<AgentPolicy[]>("", "/v1/policies"),
+      apiJson<Connection[]>("", "/v1/connections"),
+      apiJson<AgentChat[]>("", "/v1/agent-chats"),
+    ])
+      .then(([policyValues, connectionValues, chatValues]) => {
+        if (cancelled) return;
+        providerRegistry.current.configure("", connectionValues);
+        setPolicies(policyValues);
+        setConnections(connectionValues);
+        setChats(chatValues);
+        const preferredPolicy = policyValues.find((policy) => policy.id.toLocaleLowerCase() === "high") ??
+          policyValues[0];
+        const preferredConnectionId = preferredPolicy?.connectionId ??
+          connectionValues[0]?.id ??
+          "";
+        const preferredConnection = connectionValues.find((connection) => connection.id === preferredConnectionId);
+        setPolicyId(preferredPolicy?.id ?? "");
+        setConnectionId(preferredConnectionId);
+        setModelId(preferredPolicy?.defaultModel ?? preferredConnection?.defaultModel ?? "");
+        setModelSpecified(preferredPolicy?.defaultModel != null);
+        setNotice(null);
+        if (chatValues.length > 0)
+          setSelectedChatId(chatValues[0].chatId);
+      })
+      .catch((error) => {
+        if (!cancelled)
+          setNotice(error instanceof Error ? error.message : "Could not load MEŽS Agent.");
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => () => providerRegistry.current.dispose(), []);
 
 useEffect(() => {
   if (!selectedChatId || creating) {
@@ -487,7 +536,7 @@ useEffect(() => {
     const chatId = selectedChatId;
     const controller = new AbortController();
     selectedLoadChatRef.current = chatId;
-    void loadSelected(chatId, true, controller.signal)
+    void loadSelected(chatId, true, true, controller.signal)
       .finally(() => {
         if (selectedLoadChatRef.current === chatId)
           selectedLoadChatRef.current = null;
@@ -498,6 +547,31 @@ useEffect(() => {
         selectedLoadChatRef.current = null;
     };
   }, [selectedChatId, creating]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setModels([]);
+    if (!selectedConnection?.supportsModels) {
+      setModelsLoading(false);
+      return () => { cancelled = true; };
+    }
+
+    setModelsLoading(true);
+    void providerRegistry.current.get(selectedConnection.id).getModels()
+      .then((available) => {
+        if (!cancelled)
+          setModels(available);
+      })
+      .catch((error) => {
+        if (!cancelled)
+          setNotice(error instanceof Error ? error.message : "Could not load models.");
+      })
+      .finally(() => {
+        if (!cancelled)
+          setModelsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedConnection]);
 
   useEffect(() => {
     let cancelled = false;
@@ -548,7 +622,7 @@ useEffect(() => {
     }
   }
 
-  async function loadMessages(chatId: string, signal?: AbortSignal) {
+  async function loadMessages(chatId: string, syncModel = false, signal?: AbortSignal) {
     const values = await apiJson<AgentChatMessage[]>(
       "",
       `/v1/agent-chats/${encodeURIComponent(chatId)}/messages`,
@@ -556,6 +630,14 @@ useEffect(() => {
     );
     if (signal?.aborted)
       return;
+    if (syncModel) {
+      const lastUser = [...values].reverse().find((message) => message.role === "user");
+      if (lastUser) {
+        setConnectionId(lastUser.connectionId);
+        setModelId(lastUser.model ?? "");
+        setModelSpecified(true);
+      }
+    }
     messagesRef.current = values;
     setMessages(values);
   }
@@ -572,9 +654,14 @@ useEffect(() => {
     setExecutions(values);
   }
 
-  async function loadSelected(chatId: string, reportErrors = true, signal?: AbortSignal) {
+  async function loadSelected(
+    chatId: string,
+    reportErrors = true,
+    syncModel = false,
+    signal?: AbortSignal,
+  ) {
     const results = await Promise.allSettled([
-      loadMessages(chatId, signal),
+      loadMessages(chatId, syncModel, signal),
       loadExecutions(chatId, signal),
     ]);
     if (!reportErrors || signal?.aborted)
@@ -604,7 +691,7 @@ useEffect(() => {
       (runtime.activeMessage?.messageId ?? null) !== (currentActive?.messageId ?? null);
 
     if (messageStructureChanged) {
-      await loadMessages(chatId, signal);
+      await loadMessages(chatId, false, signal);
     } else if (runtime.activeMessage && currentActive) {
       const activity = runtime.activeMessage;
       const activityChanged =
@@ -646,6 +733,46 @@ useEffect(() => {
       await loadExecutions(chatId, signal);
   }
 
+  function defaultModelFor(targetConnectionId: string) {
+    return connections.find((connection) => connection.id === targetConnectionId)?.defaultModel ?? "";
+  }
+
+  function selectTargetConnection(targetConnectionId: string) {
+    setConnectionId(targetConnectionId);
+    if (selectedChat) {
+      const previous = [...messages].reverse().find((message) =>
+        message.role === "user" && message.connectionId === targetConnectionId);
+      setModelId(previous?.model ?? defaultModelFor(targetConnectionId));
+      setModelSpecified(previous != null);
+      return;
+    }
+
+    const policyDefault = selectedPolicy?.connectionId === targetConnectionId
+      ? selectedPolicy.defaultModel
+      : null;
+    setModelId(policyDefault ?? defaultModelFor(targetConnectionId));
+    setModelSpecified(policyDefault != null);
+  }
+
+  function selectPolicy(nextPolicyId: string) {
+    const policy = policies.find((candidate) => candidate.id === nextPolicyId);
+    setPolicyId(nextPolicyId);
+    if (policy) {
+      setConnectionId(policy.connectionId);
+      setModelId(policy.defaultModel ?? defaultModelFor(policy.connectionId));
+      setModelSpecified(policy.defaultModel != null);
+    } else {
+      setConnectionId("");
+      setModelId("");
+      setModelSpecified(false);
+    }
+  }
+
+  function selectModel(value: string) {
+    setModelId(value);
+    setModelSpecified(true);
+  }
+
   function beginNewChat() {
     setCreating(true);
     setSelectedChatId(null);
@@ -655,14 +782,17 @@ useEffect(() => {
     setExecutions([]);
     setDraft("");
     setNotice(null);
-    if (!policyId && policies.length > 0)
-      setPolicyId(policies[0].id);
+    setPolicyDetailsOpen(true);
+    const preferred = policies.find((policy) => policy.id.toLocaleLowerCase() === "high") ??
+      policies[0];
+    if (preferred)
+      selectPolicy(preferred.id);
   }
 
   async function submit() {
     const input = draft.trim();
     const effectivePolicyId = selectedChat?.policyId ?? policyId;
-    if (!input || !effectivePolicyId || sending || activeExecution || selectedChat?.paused)
+    if (!input || !effectivePolicyId || !connectionId || sending || activeExecution || selectedChat?.paused)
       return;
 
     setSending(true);
@@ -674,7 +804,9 @@ useEffect(() => {
         body: JSON.stringify({
           policyId: effectivePolicyId,
           input,
+          connectionId,
           ...(selectedChat ? { chatId: selectedChat.chatId } : {}),
+          ...(modelSpecified ? { model: modelId } : {}),
         }),
       });
       setDraft("");
@@ -690,7 +822,7 @@ useEffect(() => {
       setCreating(false);
       setSelectedChatId(attachedChatId);
       await refreshChats();
-      await loadSelected(attachedChatId);
+      await loadSelected(attachedChatId, true, true);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Agent execution could not be started.");
     } finally {
@@ -805,7 +937,7 @@ useEffect(() => {
               onClick={() => selectChat(chat.chatId)}
             >
               <span className="agent-chat-title">{displayTitle(chat)}</span>
-              <small>{chat.policyId} · {chat.originSource}</small>
+              <small>{policyNames.get(chat.policyId) ?? chat.policyId} · {chat.originSource}</small>
               {chat.paused && <i>paused</i>}
             </button>
           ))}
@@ -829,37 +961,64 @@ useEffect(() => {
               </div>
             </header>
 
-            <section className="agent-new-chat">
-              <p>Choose a policy for this chat. The policy fixes its rules, connection and executable capabilities.</p>
-              <label className="agent-field-label" htmlFor="policy">Policy</label>
-              <select
-                id="policy"
-                value={policyId}
-                onChange={(event) => setPolicyId(event.target.value)}
-                disabled={sending}
-              >
-                {policies.map((policy) => (
-                  <option key={policy.id} value={policy.id}>{policy.id} · {policy.connectionId}</option>
-                ))}
-              </select>
-              {selectedPolicy && (
-                <div className="agent-policy-summary">
-                  <strong>{selectedPolicy.id}</strong>
-                  <span>Connection: {selectedPolicy.connectionId}</span>
-                  {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
-                </div>
-              )}
-            </section>
-
             <ChatComposer
               value={draft}
               onChange={setDraft}
               onSubmit={submit}
               placeholder={composerPlaceholder}
-              disabled={!policyId}
+              disabled={!policyId || !connectionId}
               busy={sending}
               notice={notice}
               onDismissNotice={() => setNotice(null)}
+              topContent={selectedPolicy ? (
+                <details
+                  className="agent-policy-overview"
+                  open={policyDetailsOpen}
+                  onToggle={(event) => setPolicyDetailsOpen(event.currentTarget.open)}
+                >
+                  <summary>
+                    <span>
+                      <strong>{selectedPolicy.name}</strong>
+                      <small>
+                        {selectedPolicy.connectionId} · {selectedPolicy.defaultModel || "Integration default"}
+                      </small>
+                    </span>
+                    <span>{policyDetailsOpen ? "Hide details" : "Show details"}</span>
+                  </summary>
+                  {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
+                </details>
+              ) : undefined}
+              sideControls={(
+                <div className="agent-composer-settings">
+                  <label className="target-picker-field" htmlFor="agent-policy">
+                    <span>Policy</span>
+                    <select
+                      id="agent-policy"
+                      value={policyId}
+                      onChange={(event) => selectPolicy(event.target.value)}
+                      disabled={sending}
+                    >
+                      {orderedPolicies.map((policy) => (
+                        <option key={policy.id} value={policy.id}>{policy.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <ConnectionModelPicker
+                    className="agent-target-picker agent-target-picker-composer"
+                    connections={connections}
+                    connectionId={connectionId}
+                    models={models}
+                    modelId={modelId}
+                    onConnectionChange={selectTargetConnection}
+                    onModelChange={selectModel}
+                    connectionLabel="Integration"
+                    modelLabel="Model / effort"
+                    connectionDisabled={sending}
+                    modelDisabled={sending}
+                    modelsLoading={modelsLoading}
+                  />
+                </div>
+              )}
               disclaimer="Agent actions are governed by the selected policy and recorded in execution history."
             />
           </>
@@ -867,7 +1026,7 @@ useEffect(() => {
           <>
             <header className="agent-header">
               <div>
-                <span className="eyebrow">{selectedChat.originSource} · {selectedChat.policyId}</span>
+                <span className="eyebrow">{selectedChat.originSource} · {selectedPolicy?.name ?? selectedChat.policyId}</span>
                 <h1>{displayTitle(selectedChat)}</h1>
                 <div className="agent-header-meta">
                   <span>{selectedChat.connectionId || selectedPolicy?.connectionId || "connection unavailable"}</span>
@@ -1095,6 +1254,34 @@ useEffect(() => {
               busy={sending}
               notice={notice}
               onDismissNotice={() => setNotice(null)}
+              sideControls={(
+                <div className="agent-composer-settings">
+                  <div className="target-picker-field">
+                    <span>Policy</span>
+                    <div className="agent-policy-readonly" title="Policy is fixed after the chat starts">
+                      <span>{selectedPolicy?.name ?? selectedChat.policyId}</span>
+                      <svg viewBox="0 0 20 20" aria-hidden="true">
+                        <rect x="5.5" y="9" width="9" height="7" rx="1.5" />
+                        <path d="M7.5 9V6.8a2.5 2.5 0 0 1 5 0V9" />
+                      </svg>
+                    </div>
+                  </div>
+                  <ConnectionModelPicker
+                    className="agent-target-picker agent-target-picker-composer"
+                    connections={connections}
+                    connectionId={connectionId}
+                    models={models}
+                    modelId={modelId}
+                    onConnectionChange={selectTargetConnection}
+                    onModelChange={selectModel}
+                    connectionLabel="Integration"
+                    modelLabel="Model / effort"
+                    connectionDisabled={sending || !!activeExecution}
+                    modelDisabled={sending || !!activeExecution}
+                    modelsLoading={modelsLoading}
+                  />
+                </div>
+              )}
               disclaimer="Agent actions are governed by policy and recorded in execution history."
             />
 

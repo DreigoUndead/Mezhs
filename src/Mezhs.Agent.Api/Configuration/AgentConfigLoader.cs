@@ -33,6 +33,7 @@ public static class AgentConfigLoader
 
         options.Policies = new PolicyDecoder().DecodePolicies(
             RequiredMapping(root, "policies", "policies"));
+        ValidatePolicyConnections(options.Policies, options.Connections);
         return options;
     }
 
@@ -57,6 +58,26 @@ public static class AgentConfigLoader
             throw new InvalidOperationException($"{path} configuration is required.");
         return node as YamlMappingNode
             ?? throw new InvalidOperationException($"{path} must be a YAML mapping.");
+    }
+
+    private static void ValidatePolicyConnections(
+        IReadOnlyDictionary<string, PolicyContext> policies,
+        IReadOnlyList<ConnectionOptions> connections)
+    {
+        foreach (var policy in policies.Values)
+            ValidateConnection(policy.ConnectionId, connections, $"policies.{policy.Id}.connectionId");
+    }
+
+    private static void ValidateConnection(
+        string connectionId,
+        IReadOnlyList<ConnectionOptions> connections,
+        string path)
+    {
+        if (connections.Any(connection =>
+                string.Equals(connection.Id, connectionId, StringComparison.OrdinalIgnoreCase)))
+            return;
+        throw new InvalidOperationException(
+            $"{path} references unknown connection '{connectionId}'.");
     }
 
     private static string Resolve(string baseDirectory, string path) =>

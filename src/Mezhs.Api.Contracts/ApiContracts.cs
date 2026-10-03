@@ -46,7 +46,8 @@ public sealed class PostMessageRequest
         string? ChatId = null,
         string? CategoryId = null,
         IReadOnlyList<string>? FileIds = null,
-        string? Origin = null)
+        string? Origin = null,
+        string? Model = null)
     {
         this.Content = Content;
         this.ConnectionId = ConnectionId;
@@ -54,6 +55,8 @@ public sealed class PostMessageRequest
         this.CategoryId = CategoryId;
         this.FileIds = FileIds;
         this.Origin = Origin;
+        if (Model is not null)
+            this.Model = Model;
     }
 
     public string Content { get; init; } = "";
