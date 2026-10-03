@@ -355,6 +355,17 @@ async function selectNativePickerTarget(window, target) {
   );
   nativeMouseClick(window, menu);
 
+  if (target.presetLabels.length) {
+    const effortMenu = await waitForNativePickerProbe(
+      window,
+      nativeThinkingEffortMenuProbe(),
+      3000,
+      "ChatGPT native thinking-effort control was not found."
+    );
+    nativeMouseClick(window, effortMenu);
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+
   const version = await waitForNativePickerChoice(
     window,
     target.versionLabels,
@@ -369,18 +380,7 @@ async function selectNativePickerTarget(window, target) {
   if (!target.presetLabels.length)
     return;
 
-  let preset = await findNativePickerChoice(window, target.presetLabels);
-  if (!preset?.found) {
-    const effortMenu = await waitForNativePickerProbe(
-      window,
-      nativeThinkingEffortMenuProbe(),
-      3000,
-      "ChatGPT native thinking-effort control was not found."
-    );
-    nativeMouseClick(window, effortMenu);
-  }
-
-  preset = await waitForNativePickerChoice(
+  const preset = await waitForNativePickerChoice(
     window,
     target.presetLabels,
     5000,
@@ -544,13 +544,6 @@ function nativePickerChoiceProbe(labels) {
   `;
 }
 
-async function findNativePickerChoice(window, labels) {
-  return window.webContents.executeJavaScript(
-    nativePickerChoiceProbe(labels),
-    true
-  );
-}
-
 async function waitForNativePickerChoice(
   window,
   labels,
@@ -560,7 +553,10 @@ async function waitForNativePickerChoice(
   const deadline = Date.now() + timeoutMs;
   let last = null;
   while (true) {
-    last = await findNativePickerChoice(window, labels);
+    last = await window.webContents.executeJavaScript(
+      nativePickerChoiceProbe(labels),
+      true
+    );
     if (last?.found)
       return last;
     if (Date.now() >= deadline) {
