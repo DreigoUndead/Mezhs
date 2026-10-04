@@ -1,0 +1,49 @@
+name: temp-agent-model-presets-validation
+
+on:
+  push:
+    branches:
+      - agent-model-presets
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent-model-presets
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Validate
+        shell: bash
+        run: |
+          set +e
+          node --test tests/chatgpt-account-api.test.js tests/browser-provider-operations.test.js > _validation.log 2>&1
+          NODE_EXIT=$?
+          dotnet build Mezhs.sln --configuration Release >> _validation.log 2>&1
+          BUILD_EXIT=$?
+          if [ "$NODE_EXIT" -eq 0 ] && [ "$BUILD_EXIT" -eq 0 ]; then
+            OVERALL=PASS
+          else
+            OVERALL=FAIL
+          fi
+          {
+            echo "OVERALL=$OVERALL"
+            echo "NODE_EXIT=$NODE_EXIT"
+            echo "BUILD_EXIT=$BUILD_EXIT"
+            echo
+            cat _validation.log
+          } > _temp_agent_model_presets_validation_result.txt
+          exit 0
+      - name: Commit validation result
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add _temp_agent_model_presets_validation_result.txt
+          git commit -m "Record temporary validation result [skip ci]"
+          git push origin HEAD:agent-model-presets
