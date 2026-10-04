@@ -99,71 +99,6 @@ function nativeChatGptWindow(state, session = null) {
       getURL: () => currentUrl,
       executeJavaScript: async source => {
         assert.doesNotThrow(() => new Function(`return ${source};`));
-
-        if (source.includes("MEZHS_NATIVE_MODEL_MENU"))
-          return { found: true, x: 10, y: 10 };
-
-        if (source.includes("MEZHS_NATIVE_EFFORT_MENU"))
-          return { found: true, x: 40, y: 40, text: "power" };
-
-        if (source.includes("MEZHS_NATIVE_MODEL_CHOICE")) {
-          const match = /const labels = (\[[^;]+\]);/.exec(source);
-          const labels = match ? JSON.parse(match[1]) : [];
-          const normalized = labels.map(value => String(value).toLowerCase());
-          const isPreset = normalized.some(value =>
-            value === "instant" || value === "medium" || value === "high"
-          );
-          const isVersion = !isPreset;
-          if (isVersion &&
-              state.requireEffortBeforeVersion &&
-              !state.effortMenuOpened) {
-            return {
-              found: false,
-              selected: false,
-              available: ["select model", "power"]
-            };
-          }
-
-          const selectedVersion = String(state.model || "")
-            .replace("gpt-", "")
-            .replace("-instant", "")
-            .replace("-thinking", "")
-            .replace(/-/g, ".");
-          const selectedPreset =
-            String(state.model || "").endsWith("-instant")
-              ? "instant"
-              : state.effort === "extended"
-                ? "high"
-                : state.effort === "standard"
-                  ? "medium"
-                  : "";
-
-          if (isPreset &&
-              state.requireEffortMenu &&
-              !state.effortMenuOpened) {
-            return {
-              found: false,
-              selected: false,
-              available: ["select model", "power", "gpt-5.6 sol", "gpt-5.5"]
-            };
-          }
-
-          const selected = isPreset
-            ? normalized.includes(selectedPreset)
-            : normalized.some(value =>
-                value.includes(selectedVersion) ||
-                (state.model === "o3" && value.includes("o3"))
-              );
-          return {
-            found: true,
-            selected: state.pickerPretendSelected ? true : selected,
-            x: isPreset ? 30 : 20,
-            y: isPreset ? 30 : 20,
-            text: labels[0] || "",
-            available: labels
-          };
-        }
-
         return { ok: true };
       },
       selectAll: () => {
@@ -177,41 +112,6 @@ function nativeChatGptWindow(state, session = null) {
         selectedAll = false;
       },
       sendInputEvent: event => {
-        if (event.type === "mouseUp") {
-          if (event.x === 10 && event.y === 10) {
-            state.pickerOpen = true;
-            return;
-          }
-          if (event.x === 20 && event.y === 20) {
-            state.pickerVersionClicked = true;
-            return;
-          }
-          if (event.x === 40 && event.y === 40) {
-            state.effortMenuOpened = true;
-            return;
-          }
-          if (event.x === 30 && event.y === 30) {
-            if (state.pickerSelection) {
-              state.model = state.pickerSelection.model;
-              state.effort = state.pickerSelection.effort || null;
-              debug.emit("message", {}, "Network.requestWillBeSent", {
-                requestId: "picker-transition",
-                request: {
-                  url: "https://chatgpt.com/backend-api/f/conversation/prepare",
-                  method: "POST",
-                  headers: {},
-                  postData: JSON.stringify({
-                    model: state.model,
-                    ...(state.effort ? { thinking_effort: state.effort } : {}),
-                    client_prepare_source: "context_change"
-                  })
-                }
-              });
-            }
-            return;
-          }
-        }
-
         if (event.type !== "keyDown" || event.keyCode !== "Enter")
           return;
 
@@ -274,76 +174,6 @@ function nativeChatGptWindow(state, session = null) {
         debug.emit("message", {}, "Network.loadingFinished", { requestId });
       }
     }
-  };
-}
-
-function nativeModelCatalog() {
-  return {
-    models: [
-      { slug: "gpt-5-6-instant", title: "GPT-5.6 Instant" },
-      { slug: "gpt-5-6-thinking", title: "GPT-5.6 Thinking" },
-      { slug: "gpt-5-5-instant", title: "GPT-5.5 Instant" },
-      { slug: "gpt-5-5-thinking", title: "GPT-5.5 Thinking" },
-      { slug: "o3", title: "o3" }
-    ],
-    versions: [
-      {
-        id: "5.6",
-        display_text_for_intelligence: "GPT-5.6 Sol",
-        slugs: ["gpt-5-6-instant", "gpt-5-6-thinking"],
-        intelligence_presets: [
-          {
-            title: "Instant",
-            model_slug: "gpt-5-6-instant",
-            preset_type: "available"
-          },
-          {
-            title: "Medium",
-            model_slug: "gpt-5-6-thinking",
-            thinking_effort: "standard",
-            preset_type: "available"
-          },
-          {
-            title: "High",
-            model_slug: "gpt-5-6-thinking",
-            thinking_effort: "extended",
-            preset_type: "available"
-          }
-        ],
-        enabled: true
-      },
-      {
-        id: "5.5",
-        display_text_for_intelligence: "GPT-5.5",
-        slugs: ["gpt-5-5-instant", "gpt-5-5-thinking"],
-        intelligence_presets: [
-          {
-            title: "Instant",
-            model_slug: "gpt-5-5-instant",
-            preset_type: "available"
-          },
-          {
-            title: "Medium",
-            model_slug: "gpt-5-5-thinking",
-            thinking_effort: "standard",
-            preset_type: "available"
-          },
-          {
-            title: "High",
-            model_slug: "gpt-5-5-thinking",
-            thinking_effort: "extended",
-            preset_type: "available"
-          }
-        ],
-        enabled: true
-      },
-      {
-        id: "o3",
-        display_text_for_intelligence: "o3",
-        slugs: ["o3"],
-        enabled: true
-      }
-    ]
   };
 }
 
@@ -480,7 +310,87 @@ test("ChatGPT getModels follows the native picker instead of the raw catalog", a
     if (target.pathname === "/backend-api/models") {
       assert.equal(options.headers.Authorization, "Bearer token");
       assert.equal(target.searchParams.get("history_and_training_disabled"), "false");
-      return jsonResponse(nativeModelCatalog());
+      return jsonResponse({
+        models: [
+          { slug: "gpt-5-6-instant", title: "GPT-5.6 Instant" },
+          { slug: "gpt-5-6-thinking", title: "GPT-5.6 Thinking" },
+          { slug: "gpt-5-5-instant", title: "GPT-5.5 Instant" },
+          { slug: "gpt-5-5-thinking", title: "GPT-5.5 Thinking" },
+          { slug: "o3", title: "o3" },
+          { slug: "gpt-5-3-mini", title: "GPT-5.3 Mini" },
+          { slug: "gpt-5.6-luna-wm", title: "GPT-5.6 Luna" }
+        ],
+        versions: [
+          {
+            id: "5.6",
+            display_text_for_intelligence: "GPT-5.6 Sol",
+            slugs: ["gpt-5-6", "gpt-5-6-instant", "gpt-5-6-thinking"],
+            intelligence_presets: [
+              {
+                title: "Instant",
+                model_slug: "gpt-5-6-instant",
+                lane: "instant",
+                preset_type: "available"
+              },
+              {
+                title: "Medium",
+                model_slug: "gpt-5-6-thinking",
+                lane: "thinking",
+                thinking_effort: "standard",
+                preset_type: "available"
+              },
+              {
+                title: "High",
+                model_slug: "gpt-5-6-thinking",
+                lane: "thinking",
+                thinking_effort: "extended",
+                preset_type: "available"
+              }
+            ],
+            enabled: true
+          },
+          {
+            id: "5.5",
+            display_text_for_intelligence: "GPT-5.5",
+            slugs: ["gpt-5-5-instant", "gpt-5-5-thinking"],
+            intelligence_presets: [
+              {
+                title: "Instant",
+                model_slug: "gpt-5-5-instant",
+                lane: "instant",
+                preset_type: "available"
+              },
+              {
+                title: "Medium",
+                model_slug: "gpt-5-5-thinking",
+                lane: "thinking",
+                thinking_effort: "standard",
+                preset_type: "available"
+              },
+              {
+                title: "High",
+                model_slug: "gpt-5-5-thinking",
+                lane: "thinking",
+                thinking_effort: "extended",
+                preset_type: "available"
+              }
+            ],
+            enabled: true
+          },
+          {
+            id: "o3",
+            display_text_for_intelligence: "o3",
+            slugs: ["o3"],
+            enabled: true
+          },
+          {
+            id: "5.3",
+            display_text_for_intelligence: "GPT-5.3 Mini",
+            slugs: ["gpt-5-3-mini"],
+            enabled: false
+          }
+        ]
+      });
     }
     throw new Error(`Unexpected request ${target}`);
   });
@@ -523,8 +433,10 @@ test("ChatGPT o3 newChat verifies the native project composer and reports the se
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
 
-    if (target.pathname === "/backend-api/models")
-      return jsonResponse(nativeModelCatalog());
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
+      assert.equal(target.search, "?model_slug=o3");
+      return textResponse("");
+    }
 
     if (target.pathname === "/backend-api/conversation/conv-1") {
       return jsonResponse(completedConversation(
@@ -594,9 +506,6 @@ test("ChatGPT browser module delegates conversation security to the native front
   assert.doesNotMatch(source, /conversation-small/);
   assert.doesNotMatch(source, /chat-requirements|Turnstile|Proof-Token|x-conduit-token/i);
   assert.doesNotMatch(source, /conversationPreparePayload|getConduitToken|webApiHeaders/);
-  assert.doesNotMatch(source, /user_last_used_model_config/);
-  assert.match(source, /MEZHS_NATIVE_MODEL_MENU/);
-  assert.match(source, /MEZHS_NATIVE_MODEL_CHOICE/);
   assert.doesNotMatch(source, /apiFetch\(session, token, API\.conversation/);
 });
 
@@ -611,8 +520,11 @@ test("ChatGPT verifies a requested selection against the native outgoing request
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
-    if (target.pathname === "/backend-api/models")
-      return jsonResponse(nativeModelCatalog());
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
+      assert.equal(target.searchParams.get("model_slug"), "gpt-5-6-thinking");
+      assert.equal(target.searchParams.get("thinking_effort"), "extended");
+      return textResponse("");
+    }
     if (target.pathname === "/backend-api/conversation/conv-selection") {
       return jsonResponse(completedConversation(
         "conv-selection",
@@ -640,54 +552,38 @@ test("ChatGPT verifies a requested selection against the native outgoing request
   assert.equal(state.lastBody.thinking_effort, "extended");
 });
 
-test("ChatGPT switches model version and preset through the native picker before send", async () => {
+test("ChatGPT does not treat the model-preference PATCH as proof that the native composer switched models", async () => {
   const chatgpt = loadChatGptModule();
   const state = {
-    conversationId: "conv-selection-switch",
+    conversationId: "conv-selection-mismatch",
     model: "gpt-5-6-thinking",
-    effort: "extended",
-    pickerSelection: {
-      model: "gpt-5-5-instant",
-      effort: null
-    },
-    requireEffortMenu: true,
-    requireEffortBeforeVersion: true
+    effort: "extended"
   };
   const session = mockSession(async (url) => {
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
-    if (target.pathname === "/backend-api/models")
-      return jsonResponse(nativeModelCatalog());
-    if (target.pathname === "/backend-api/conversation/conv-selection-switch") {
-      return jsonResponse(completedConversation(
-        "conv-selection-switch",
-        null,
-        "gpt-5-5-instant",
-        state.lastBody.messages[0].id,
-        "gpt-5-5-instant"
-      ));
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
+      assert.equal(target.searchParams.get("model_slug"), "gpt-5-5-thinking");
+      assert.equal(target.searchParams.get("thinking_effort"), "standard");
+      return textResponse("");
     }
     throw new Error(`Unexpected request ${target}`);
   });
 
-  await chatgpt.operations.newChat({
-    window: nativeChatGptWindow(state, session),
-    session,
-    args: {
-      prompt: "switch model",
-      model: "gpt-5-5-instant",
-      files: []
-    },
-    sleep: async () => {}
-  });
-
-  assert.equal(state.pickerVersionClicked, true);
-  assert.equal(state.effortMenuOpened, true);
-  assert.equal(state.model, "gpt-5-5-instant");
-  assert.equal(state.effort, null);
-  assert.equal(state.lastBody.model, "gpt-5-5-instant");
-  assert.equal("thinking_effort" in state.lastBody, false);
+  await assert.rejects(
+    chatgpt.operations.newChat({
+      window: nativeChatGptWindow(state, session),
+      session,
+      args: {
+        prompt: "switch model",
+        model: "gpt-5-5-thinking::thinking-effort=standard",
+        files: []
+      },
+      sleep: async () => {}
+    }),
+    /selected model 'gpt-5-6-thinking' instead of 'gpt-5-5-thinking'/
+  );
 });
 
 test("ChatGPT continuation keeps an already-loaded project conversation page", async () => {
@@ -703,8 +599,8 @@ test("ChatGPT continuation keeps an already-loaded project conversation page", a
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
-    if (target.pathname === "/backend-api/models")
-      return jsonResponse(nativeModelCatalog());
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config")
+      return textResponse("");
     if (target.pathname === "/backend-api/conversation/conv-project-existing") {
       return jsonResponse(completedConversation(
         "conv-project-existing",
@@ -785,15 +681,16 @@ test("ChatGPT fails closed when the native outgoing request uses the wrong effor
   const state = {
     conversationId: "conv-wrong-effort",
     model: "gpt-5-6-thinking",
-    effort: "standard",
-    pickerPretendSelected: true
+    effort: "standard"
   };
   const session = mockSession(async (url) => {
     const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token" });
-    if (target.pathname === "/backend-api/models")
-      return jsonResponse(nativeModelCatalog());
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
+      // Simulate the frontend ignoring the requested preference after the PATCH.
+      return textResponse("");
+    }
     throw new Error(`Unexpected request ${target}`);
   });
 
