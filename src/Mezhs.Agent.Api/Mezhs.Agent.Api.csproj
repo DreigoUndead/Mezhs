@@ -10,6 +10,7 @@
     <ProjectReference Include="..\Mezhs.Api\Mezhs.Api.csproj" />
     <ProjectReference Include="..\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj" />
     <ProjectReference Include="..\Mezhs.Executor\Mezhs.Executor.csproj" />
+    <ProjectReference Include="..\Mezhs.Diagnostics\Mezhs.Diagnostics.csproj" />
     <ProjectReference Include="..\Mezhs.Sqlite\Mezhs.Sqlite.csproj" />
   </ItemGroup>
   <ItemGroup>

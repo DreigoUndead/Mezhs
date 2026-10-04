@@ -9,16 +9,21 @@ using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
 using Mezhs.Agent.Services;
 using Mezhs.Configuration;
+using Mezhs.Diagnostics;
 using Mezhs.Executor;
 using Mezhs.Services;
 
-var configPath = ConfigPath.Find(args, "agent.yaml");
+var enableDiagnostics = args.Any(arg =>
+    string.Equals(arg, "--diagnostics", StringComparison.OrdinalIgnoreCase));
+var hostArgs = args.Where(arg =>
+    !string.Equals(arg, "--diagnostics", StringComparison.OrdinalIgnoreCase)).ToArray();
+var configPath = ConfigPath.Find(hostArgs, "agent.yaml");
 var options = AgentConfigLoader.Load(configPath);
 var executorStorage = Path.Combine(
     Path.GetDirectoryName(options.AgentStorage) ?? Environment.CurrentDirectory,
     "executor.sqlite");
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(hostArgs);
 builder.AddMezhsApi(options);
 builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
     policy.SetIsOriginAllowed(origin =>
@@ -67,6 +72,8 @@ app.MapGet("/", () => Results.Ok(new
     }
 }));
 app.MapMezhsApi();
+if (enableDiagnostics)
+    app.MapMezhsDiagnostics();
 
 app.MapGet("/v1/policies", (PolicyRegistry policies) =>
     Results.Ok(policies.GetViews()));

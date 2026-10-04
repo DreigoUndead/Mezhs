@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Mezhs.Api\Mezhs.Api.csproj" />
+    <ProjectReference Include="..\Mezhs.Diagnostics\Mezhs.Diagnostics.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\mezhs.yaml" Link="mezhs.yaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
