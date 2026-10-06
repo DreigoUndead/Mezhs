@@ -36,6 +36,7 @@ public sealed class IntegrationRegistry : IAsyncDisposable
         integration = integration.Connection.Type,
         requiresLogin = integration.Login is not null,
         supportsModels = integration.Models is not null,
+        supportsDiagnostics = integration.Diagnostics is not null,
         defaultModel = integration.Connection.GetSetting("defaultModel"),
         workspace = integration.Connection.GetSetting("workspace"),
         capabilities = integration.Capabilities

@@ -1,8 +1,6 @@
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { Buffer } = require("node:buffer");
-const { randomUUID } = require("node:crypto");
 
 const ORIGIN = "https://chatgpt.com";
 const accountIds = new WeakMap();
@@ -11,13 +9,8 @@ const API = Object.freeze({
   projects: "/backend-api/gizmos/snorlax/sidebar",
   models: "/backend-api/models?history_and_training_disabled=false",
   modelPreference: "/backend-api/settings/user_last_used_model_config",
-  conversationPrepare: "/backend-api/f/conversation/prepare",
-  requirementsPrepare: "/backend-api/sentinel/chat-requirements/prepare",
-  requirementsFinalize: "/backend-api/sentinel/chat-requirements/finalize",
   conversation: "/backend-api/f/conversation",
   conversationById: id => `/backend-api/conversation/${encodeURIComponent(id)}`,
-  files: "/backend-api/files",
-  fileUploaded: id => `/backend-api/files/${encodeURIComponent(id)}/uploaded`,
   fileDownload: id => `/backend-api/files/${encodeURIComponent(id)}/download`
 });
 
@@ -33,7 +26,6 @@ const PROMPT_EDITOR_SELECTOR = [
 const CONVERSATION_POLL_INTERVAL_MS = 2000;
 const CONVERSATION_RATE_LIMIT_MAX_FALLBACK_MS = 30000;
 const TURN_INACTIVITY_WATCHDOG_MS = 20000;
-const TURN_RECOVERY_RETRY_LIMIT = 1;
 
 module.exports = {
   name: "ChatGPT",
@@ -132,25 +124,24 @@ module.exports = {
 };
 
 function nativePickerModels(catalog) {
-  const models = new Map(
-    (catalog?.models || []).map(model => [
-      String(model?.slug || model?.id || "").trim().toLowerCase(),
-      model
-    ])
-  );
   const result = [];
   const seen = new Set();
-  for (const version of catalog?.versions || []) {
+  const versions = Array.isArray(catalog?.versions) ? catalog.versions : [];
+
+  for (const version of versions) {
     if (version?.enabled === false) continue;
-    const versionId = String(version?.id || "").trim();
     const versionName = String(
       version?.display_text_for_intelligence ||
       version?.display_text ||
-      versionId
+      ""
     ).trim();
-    const nativePresets = version?.intelligence_presets || [];
-    const presets = nativePresets
-      .filter(preset => preset?.preset_type === "available" && preset?.enabled !== false);
+    const nativePresets = Array.isArray(version?.intelligence_presets)
+      ? version.intelligence_presets
+      : [];
+    const presets = nativePresets.filter(preset =>
+      preset?.preset_type === "available" &&
+      preset?.enabled !== false
+    );
 
     if (nativePresets.length) {
       for (const preset of presets) {
@@ -161,48 +152,48 @@ function nativePickerModels(catalog) {
           preset?.title ||
           ""
         ).trim();
-        const id = modelSelectionId(model, effort);
-        const name = [versionName, presetName].filter(Boolean).join(" · ");
-        const key = id.toLowerCase();
-        if (!model || !name || seen.has(key)) continue;
-        seen.add(key);
-        result.push({ id, name });
+        addModelOption(
+          result,
+          seen,
+          modelSelectionId(model, effort),
+          [versionName, presetName].filter(Boolean).join(" · ")
+        );
       }
       continue;
     }
 
-    const canonicalId = versionId.toLowerCase() === "o3"
-      ? "o3"
-      : `gpt-${versionId.replace(/\./g, "-")}`;
-    const candidates = (version?.slugs || [])
+    const model = (Array.isArray(version?.slugs) ? version.slugs : [])
       .map(value => String(value || "").trim())
-      .filter(Boolean);
-    const id = candidates.find(candidate => candidate.toLowerCase() === canonicalId.toLowerCase()) ||
-      (models.has(canonicalId.toLowerCase()) ? canonicalId : null) ||
-      candidates.find(candidate => models.has(candidate.toLowerCase())) ||
-      candidates[0];
-    const model = id ? models.get(id.toLowerCase()) : null;
+      .find(Boolean);
+    addModelOption(result, seen, model, versionName || model);
+  }
+
+  if (result.length)
+    return result;
+
+  for (const model of catalog?.models || []) {
+    const id = String(model?.slug || model?.id || "").trim();
     const name = String(
-      versionName ||
       model?.title ||
       model?.display_name ||
       model?.name ||
-      id ||
-      ""
+      id
     ).trim();
-    const key = String(id || "").toLowerCase();
-    if (!id || !name || seen.has(key)) continue;
-    seen.add(key);
-    result.push({ id, name });
+    addModelOption(result, seen, id, name);
   }
   return result;
 }
 
+function addModelOption(result, seen, id, name) {
+  const normalizedId = String(id || "").trim();
+  const normalizedName = String(name || "").trim();
+  const key = normalizedId.toLowerCase();
+  if (!normalizedId || !normalizedName || seen.has(key)) return;
+  seen.add(key);
+  result.push({ id: normalizedId, name: normalizedName });
+}
+
 const MODEL_SELECTION_SEPARATOR = "::thinking-effort=";
-const CHATGPT_WIRE_MODEL = Object.freeze({
-  "gpt-5-6-instant": "gpt-5-5",
-  "gpt-5-5-instant": "gpt-5-5"
-});
 
 function modelSelectionId(model, thinkingEffort) {
   return thinkingEffort
@@ -213,26 +204,30 @@ function modelSelectionId(model, thinkingEffort) {
 function parseModelSelection(value) {
   const selected = String(value || "auto").trim() || "auto";
   const separator = selected.lastIndexOf(MODEL_SELECTION_SEPARATOR);
-  const model = separator > 0 ? selected.slice(0, separator) : selected;
-  const thinkingEffort = separator > 0
-    ? selected.slice(separator + MODEL_SELECTION_SEPARATOR.length).trim() || null
-    : null;
   return {
-    model: CHATGPT_WIRE_MODEL[model.toLowerCase()] || model,
-    thinkingEffort
+    model: separator > 0 ? selected.slice(0, separator) : selected,
+    thinkingEffort: separator > 0
+      ? selected.slice(separator + MODEL_SELECTION_SEPARATOR.length).trim() || null
+      : null
   };
 }
 
 async function sendAccountMessage(context, isNew) {
   const token = await requireToken(context.session);
   const selection = parseModelSelection(context.args.model);
+  if (context.args.files?.length) {
+    throw new Error(
+      "ChatGPT Account file input is temporarily unavailable while native composer submission is used."
+    );
+  }
 
   await setModelPreference(context.session, token, selection);
-  return sendApiAccountMessage(context, isNew, token, selection);
+  return sendNativeAccountMessage(context, isNew, token, selection);
 }
 
 async function setModelPreference(session, token, selection) {
   if (!selection.model || selection.model === "auto") return;
+
   const url = new URL(API.modelPreference, ORIGIN);
   url.searchParams.set("model_slug", selection.model);
   if (selection.thinkingEffort)
@@ -240,150 +235,723 @@ async function setModelPreference(session, token, selection) {
   await apiFetch(session, token, url.pathname + url.search, { method: "PATCH" });
 }
 
-async function sendApiAccountMessage({ window, session, args, sleep, reportProgress }, isNew, token, selection) {
-  const uploaded = await uploadFiles(session, token, args.files || []);
-  const imageParts = uploaded
-    .filter(file => file.contentType.startsWith("image/"))
-    .map(file => ({
-      content_type: "image_asset_pointer",
-      asset_pointer: `file-service://${file.id}`,
-      size_bytes: file.size
-    }));
-  const attachments = uploaded.map(file => ({
-    id: file.id,
-    name: file.name,
-    mimeType: file.contentType,
-    size: file.size
-  }));
-  const metadata = {
-    selected_sources: [],
-    serialization_metadata: { custom_symbol_offsets: [] },
-    ...(attachments.length ? { attachments } : {})
-  };
-  const projectMode = isNew && args.projectId
-    ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
-    : isNew
-      ? { kind: "primary_assistant" }
-      : undefined;
-  const parentMessageId = isNew ? "client-created-root" : args.parentMessageId;
-
-  function buildPayload(messageId, conversationId) {
-    const payload = {
-      action: "next",
-      conversation_id: conversationId,
-      messages: [{
-        id: messageId,
-        author: { role: "user" },
-        create_time: Date.now() / 1000,
-        content: {
-          content_type: imageParts.length ? "multimodal_text" : "text",
-          parts: [...imageParts, String(args.prompt || "")]
-        },
-        metadata
-      }],
-      model: selection.model,
-      parent_message_id: parentMessageId,
-      client_prepare_state: "success",
-      timezone_offset_min: new Date().getTimezoneOffset(),
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-      conversation_mode: projectMode,
-      system_hints: [],
-      supports_buffering: true,
-      supported_encodings: ["v1"],
-      client_contextual_info: clientContext(window),
-      paragen_cot_summary_display_override: "allow",
-      force_parallel_switch: "auto",
-      local_function_names: ["local.continue_in_work"]
-    };
-    if (selection.thinkingEffort)
-      payload.thinking_effort = selection.thinkingEffort;
-    return payload;
-  }
-
+async function sendNativeAccountMessage(
+  { window, session, args, sleep, reportProgress },
+  isNew,
+  token,
+  selection
+) {
   reportProgress?.({
     state: "submitting",
-    detail: "Submitting prompt to ChatGPT."
+    detail: "Submitting prompt through the native ChatGPT composer."
   });
 
-  let requestMessageId = randomUUID();
-  let conversationId = await postConversationTurn(
+  if (isNew || !nativeConversationAlreadyLoaded(window, args.conversationId))
+    await window.loadURL(nativeConversationUrl(isNew, args));
+
+  const execution = {
+    requestedModel: selection.model === "auto" ? null : selection.model,
+    requestedThinkingEffort: selection.thinkingEffort
+  };
+  const posted = await submitNativeConversationTurn(
     window,
-    session,
-    token,
-    buildPayload(requestMessageId, isNew ? undefined : args.conversationId),
-    args.conversationId
+    String(args.prompt || ""),
+    selection,
+    isNew ? null : args.conversationId,
+    isNew ? args.projectId : null,
+    reportProgress
   );
-  if (!conversationId)
-    throw new Error("ChatGPT did not return a conversation id.");
-
-  reportProgress?.({
-    state: "waiting",
-    detail: "Prompt accepted; waiting for model activity."
-  });
+  mergeExecutionMetadata(execution, posted.execution);
 
   return completeAccountMessage(
     session,
     token,
-    conversationId,
-    requestMessageId,
+    posted.conversationId,
+    posted.requestMessageId,
     sleep,
     isNew,
     reportProgress,
-    async () => {
-      const retryMessageId = randomUUID();
-      reportProgress?.({
-        state: "retrying",
-        detail: `No active model generation was detected for ${TURN_INACTIVITY_WATCHDOG_MS / 1000}s; reposting the prompt once.`
-      });
-      const retryConversationId = await postConversationTurn(
-        window,
-        session,
-        token,
-        buildPayload(retryMessageId, conversationId),
-        conversationId
-      );
-      if (retryConversationId !== conversationId)
-        throw new Error(
-          `ChatGPT retry switched conversation from '${conversationId}' to '${retryConversationId}'.`
-        );
-      return retryMessageId;
-    }
+    execution
   );
 }
 
-async function postConversationTurn(window, session, token, payload, fallbackConversationId = null) {
-  const config = sentinelConfig(window);
-  const turnTraceId = randomUUID();
-  const conduitToken = await getConduitToken(
-    session,
-    token,
-    turnTraceId,
-    conversationPreparePayload(payload)
-  );
-  const requirements = await getSentinelToken(session, token, config);
+function nativeConversationUrl(isNew, args) {
+  if (!isNew && args.conversationId)
+    return `${ORIGIN}/c/${encodeURIComponent(args.conversationId)}`;
+  if (args.projectId)
+    return `${ORIGIN}/g/${encodeURIComponent(args.projectId)}/project`;
+  return ORIGIN + "/";
+}
 
-  const headers = {
-    "Content-Type": "application/json",
-    "Accept": "text/event-stream",
-    "Oai-Language": "en-US",
-    "Oai-Session-Id": randomUUID(),
-    "openai-sentinel-chat-requirements-token": requirements.token,
-    "x-conduit-token": conduitToken,
-    "x-oai-turn-trace-id": turnTraceId,
-    "x-openai-target-path": API.conversation,
-    "x-openai-target-route": API.conversation
-  };
-  const deviceId = (await session.cookies.get({ url: ORIGIN, name: "oai-did" }))[0]?.value;
-  if (deviceId) headers["Oai-Device-Id"] = deviceId;
-  if (requirements.proofToken)
-    headers["openai-sentinel-proof-token"] = requirements.proofToken;
+function nativeConversationAlreadyLoaded(window, conversationId) {
+  if (!conversationId || typeof window.webContents.getURL !== "function")
+    return false;
 
-  const response = await apiFetch(session, token, API.conversation, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload)
+  try {
+    const url = new URL(String(window.webContents.getURL() || ""));
+    if (url.origin !== ORIGIN)
+      return false;
+
+    const id = decodeURIComponent(String(conversationId));
+    const segments = url.pathname.split('/').filter(Boolean).map(segment => {
+      try { return decodeURIComponent(segment); }
+      catch { return segment; }
+    });
+    return segments.at(-2) === 'c' && segments.at(-1) === id;
+  } catch {
+    return false;
+  }
+}
+async function submitNativeConversationTurn(
+  window,
+  prompt,
+  selection,
+  expectedConversationId,
+  expectedProjectId,
+  reportProgress
+) {
+  const debug = window.webContents.debugger;
+  if (!debug ||
+      typeof debug.isAttached !== "function" ||
+      typeof debug.attach !== "function" ||
+      typeof debug.sendCommand !== "function" ||
+      typeof debug.on !== "function" ||
+      typeof debug.removeListener !== "function") {
+    throw new Error("Electron debugger API is unavailable for native ChatGPT submission.");
+  }
+  if (typeof window.webContents.selectAll !== "function" ||
+      typeof window.webContents.insertText !== "function" ||
+      typeof window.webContents.sendInputEvent !== "function") {
+    throw new Error("Electron native input APIs are unavailable for native ChatGPT submission.");
+  }
+
+  const attachedByMezhs = !debug.isAttached();
+  if (attachedByMezhs)
+    debug.attach("1.3");
+
+  let requestEvent = null;
+  let responseStatus = null;
+  let responseCapture = null;
+  const responseChunks = [];
+  const observedPostPaths = new Set();
+  let resolveRequest;
+  let resolveConversationId;
+  let rejectCompletion;
+  let resolveCompletion;
+  const requestSeen = new Promise(resolve => { resolveRequest = resolve; });
+  const conversationIdSeen = new Promise(resolve => {
+    resolveConversationId = resolve;
   });
-  return findConversationId(await response.text()) || fallbackConversationId;
+  const completionSeen = new Promise((resolve, reject) => {
+    resolveCompletion = resolve;
+    rejectCompletion = reject;
+  });
+
+  const onMessage = (_event, method, params) => {
+    if (method === "Network.requestWillBeSent") {
+      const postPath = sameOriginPostPath(params?.request);
+      if (postPath)
+        observedPostPaths.add(postPath);
+
+      if (!requestEvent && isNativeConversationRequest(params?.request)) {
+        requestEvent = params;
+        responseCapture = debug.sendCommand("Network.streamResourceContent", {
+          requestId: params.requestId
+        }).catch(() => null);
+        resolveRequest(params);
+        return;
+      }
+
+      if (requestEvent) {
+        const conversationId =
+          conversationIdFromNativeRequest(params?.request);
+        if (conversationId)
+          resolveConversationId(conversationId);
+      }
+    }
+
+    if (!requestEvent || params?.requestId !== requestEvent.requestId)
+      return;
+
+    if (method === "Network.dataReceived" && params?.data) {
+      responseChunks.push(Buffer.from(String(params.data), "base64"));
+      return;
+    }
+
+    if (method === "Network.responseReceived") {
+      responseStatus = Number(params?.response?.status) || null;
+      return;
+    }
+
+    if (method === "Network.loadingFinished") {
+      if (responseStatus !== null &&
+          (responseStatus < 200 || responseStatus >= 300)) {
+        rejectCompletion(new Error(
+          `Native ChatGPT request returned HTTP ${responseStatus}.`
+        ));
+      } else {
+        resolveCompletion({ aborted: false });
+      }
+      return;
+    }
+
+    if (method === "Network.loadingFailed") {
+      const errorText = String(params?.errorText || "network failure");
+      if (errorText === "net::ERR_ABORTED" &&
+          responseStatus >= 200 &&
+          responseStatus < 300) {
+        resolveCompletion({ aborted: true });
+        return;
+      }
+
+      rejectCompletion(new Error(
+        `Native ChatGPT request failed: ${errorText}.`
+      ));
+    }
+  };
+
+  debug.on("message", onMessage);
+  try {
+    await debug.sendCommand("Network.enable", { maxPostDataSize: 1024 * 1024 });
+    const focusedComposer = await focusNativeComposer(window);
+    window.webContents.selectAll();
+    await Promise.resolve(window.webContents.insertText(prompt));
+    const insertedComposer =
+      await inspectNativeComposerState(window).catch(() => null);
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
+
+    let event;
+    try {
+      event = await withTimeout(
+        requestSeen,
+        30000,
+        "Timed out waiting for ChatGPT's native conversation request."
+      );
+    } catch (error) {
+      const state = await inspectNativeComposerState(window).catch(() => null);
+      const details = [
+        focusedComposer ? `focused={${formatNativeComposerState(focusedComposer)}}` : null,
+        insertedComposer ? `inserted={${formatNativeComposerState(insertedComposer)}}` : null,
+        state ? `timeout={${formatNativeComposerState(state)}}` : null,
+        `posts=${[...observedPostPaths].join("|") || "none"}`
+      ].filter(Boolean).join("; ");
+      throw new Error(
+        `${error?.message || error}${details ? ` (${details})` : ""}`
+      );
+    }
+    const body = await nativeConversationRequestBody(debug, event);
+    validateNativeConversationRequest(
+      body,
+      selection,
+      expectedConversationId,
+      expectedProjectId
+    );
+
+    const requestMessageId = String(body?.messages?.[0]?.id || "").trim();
+    if (!requestMessageId)
+      throw new Error("ChatGPT native request did not contain a user message id.");
+
+    reportProgress?.({
+      state: "waiting",
+      detail: "Native ChatGPT request accepted; waiting for model completion."
+    });
+
+    await completionSeen;
+
+    let responseBody = "";
+    const captured = responseCapture ? await responseCapture : null;
+    const buffered = String(captured?.bufferedData || "");
+    if (buffered || responseChunks.length) {
+      const chunks = [
+        ...(buffered ? [Buffer.from(buffered, "base64")] : []),
+        ...responseChunks
+      ];
+      responseBody = Buffer.concat(chunks).toString("utf8");
+    } else {
+      try {
+        const response = await debug.sendCommand("Network.getResponseBody", {
+          requestId: event.requestId
+        });
+        responseBody = response?.base64Encoded
+          ? Buffer.from(String(response.body || ""), "base64").toString("utf8")
+          : String(response?.body || "");
+      } catch {
+        // A successful native fetch can be renderer-aborted after ChatGPT has
+        // accepted the turn. URL/network state remains a last-resort id source.
+      }
+    }
+
+    const stream = inspectConversationStreamText(responseBody, reportProgress);
+    const immediateConversationId =
+      stream.conversationId ||
+      String(body?.conversation_id || "").trim() ||
+      String(expectedConversationId || "").trim();
+    const conversationId = immediateConversationId ||
+      await Promise.race([
+        conversationIdSeen,
+        waitForNativeConversationId(window)
+      ]);
+    if (!conversationId)
+      throw new Error(
+        `ChatGPT native send did not reveal a conversation id after HTTP ${responseStatus ?? "unknown"}.`
+      );
+
+    return {
+      conversationId,
+      requestMessageId,
+      execution: stream.execution
+    };
+  } finally {
+    debug.removeListener("message", onMessage);
+    if (attachedByMezhs && debug.isAttached())
+      debug.detach();
+  }
+}
+
+function sameOriginPostPath(request) {
+  if (String(request?.method || "").toUpperCase() !== "POST")
+    return null;
+  try {
+    const url = new URL(String(request?.url || ""));
+    return url.origin === ORIGIN ? url.pathname : null;
+  } catch {
+    return null;
+  }
+}
+
+function isNativeConversationRequest(request) {
+  if (String(request?.method || "").toUpperCase() !== "POST")
+    return false;
+  try {
+    const url = new URL(String(request?.url || ""));
+    return url.origin === ORIGIN && url.pathname === API.conversation;
+  } catch {
+    return false;
+  }
+}
+
+function conversationIdFromNativeRequest(request) {
+  try {
+    if (String(request?.method || "").toUpperCase() !== "GET")
+      return null;
+
+    const url = new URL(String(request?.url || ""));
+    if (url.origin !== ORIGIN)
+      return null;
+
+    const match = /^\/backend-api\/conversation\/([^/?#]+)$/.exec(url.pathname);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function waitForNativeConversationId(window) {
+  if (typeof window.webContents.getURL !== "function")
+    return null;
+
+  for (let attempt = 0; attempt < 150; attempt++) {
+    try {
+      const url = new URL(String(window.webContents.getURL() || ""));
+      const match = /^\/c\/([^/]+)$/.exec(url.pathname);
+      if (match)
+        return decodeURIComponent(match[1]);
+    } catch {
+      // The page may be between navigations while ChatGPT creates the chat.
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  return null;
+}
+
+async function nativeConversationRequestBody(debug, event) {
+  let postData = String(event?.request?.postData || "");
+  if (!postData) {
+    const result = await debug.sendCommand("Network.getRequestPostData", {
+      requestId: event.requestId
+    });
+    postData = String(result?.postData || "");
+  }
+  try {
+    return JSON.parse(postData);
+  } catch {
+    throw new Error("ChatGPT native conversation request body was not valid JSON.");
+  }
+}
+
+function validateNativeConversationRequest(
+  body,
+  selection,
+  expectedConversationId,
+  expectedProjectId
+) {
+  if (selection.model && selection.model !== "auto" && body?.model !== selection.model) {
+    throw new Error(
+      `ChatGPT native composer selected model '${body?.model || "unknown"}' instead of '${selection.model}'.`
+    );
+  }
+  if (selection.thinkingEffort &&
+      body?.thinking_effort !== selection.thinkingEffort) {
+    throw new Error(
+      `ChatGPT native composer selected thinking effort '${body?.thinking_effort || "none"}' instead of '${selection.thinkingEffort}'.`
+    );
+  }
+
+  if (expectedConversationId &&
+      body?.conversation_id !== expectedConversationId) {
+    throw new Error(
+      `ChatGPT native continuation targeted '${body?.conversation_id || "new chat"}' instead of '${expectedConversationId}'.`
+    );
+  }
+  if (expectedProjectId &&
+      body?.conversation_mode?.gizmo_id !== expectedProjectId) {
+    throw new Error(
+      `ChatGPT native composer did not submit inside project '${expectedProjectId}'.`
+    );
+  }
+}
+
+async function inspectNativeComposerState(window) {
+  const selector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
+  const result = await window.webContents.executeJavaScript(`
+    (() => {
+      const editor = document.querySelector(${selector});
+      const send = document.querySelector(
+        'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
+      );
+      const stop = document.querySelector(
+        'button[data-testid="stop-button"], button[aria-label="Stop streaming"]'
+      );
+      const text = !editor
+        ? ""
+        : editor.tagName === "TEXTAREA" || editor.tagName === "INPUT"
+          ? editor.value || ""
+          : editor.innerText || editor.textContent || "";
+      return {
+        readyState: document.readyState,
+        editorFound: Boolean(editor),
+        editorActive: Boolean(editor && document.activeElement === editor),
+        editorLength: String(text).length,
+        editorTag: editor?.tagName || null,
+        editorId: editor?.id || null,
+        editorTestId: editor?.getAttribute?.("data-testid") || null,
+        editorRole: editor?.getAttribute?.("role") || null,
+        editorContentEditable: editor?.getAttribute?.("contenteditable") || null,
+        editorEditable: Boolean(
+          editor && (
+            editor.isContentEditable ||
+            ((editor.tagName === "TEXTAREA" || editor.tagName === "INPUT") &&
+             !editor.disabled && !editor.readOnly)
+          )
+        ),
+        sendFound: Boolean(send),
+        sendDisabled: Boolean(send?.disabled || send?.getAttribute("aria-disabled") === "true"),
+        stopFound: Boolean(stop)
+      };
+    })()
+  `, true);
+  return {
+    urlPath: safeUrlPath(window.webContents.getURL?.()),
+    ...result
+  };
+}
+
+function safeUrlPath(value) {
+  try {
+    return new URL(String(value || "")).pathname || "/";
+  } catch {
+    return "unknown";
+  }
+}
+
+function formatNativeComposerState(state) {
+  return [
+    `url=${state.urlPath}`,
+    `ready=${state.readyState || "unknown"}`,
+    `editor=${state.editorFound ? "yes" : "no"}`,
+    `tag=${state.editorTag || "none"}`,
+    `id=${state.editorId || "none"}`,
+    `testid=${state.editorTestId || "none"}`,
+    `role=${state.editorRole || "none"}`,
+    `contenteditable=${state.editorContentEditable || "none"}`,
+    `active=${state.editorActive ? "yes" : "no"}`,
+    `length=${Number(state.editorLength) || 0}`,
+    `editable=${state.editorEditable ? "yes" : "no"}`,
+    `send=${state.sendFound ? (state.sendDisabled ? "disabled" : "enabled") : "missing"}`,
+    `stop=${state.stopFound ? "yes" : "no"}`
+  ].join(", ");
+}
+
+async function focusNativeComposer(window) {
+  const selector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
+  const result = await window.webContents.executeJavaScript(`
+    (async () => {
+      const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+      const selector = ${selector};
+      let editor = null;
+      for (let i = 0; i < 120 && !editor; i++) {
+        editor = document.querySelector(selector);
+        if (!editor) await sleep(250);
+      }
+      if (!editor)
+        return { ok: false, error: "ChatGPT prompt editor was not found." };
+
+      editor.focus();
+      const text = editor.tagName === "TEXTAREA" || editor.tagName === "INPUT"
+        ? editor.value || ""
+        : editor.innerText || editor.textContent || "";
+      return {
+        ok: true,
+        readyState: document.readyState,
+        editorFound: true,
+        editorActive: document.activeElement === editor,
+        editorLength: String(text).length,
+        editorTag: editor.tagName || null,
+        editorId: editor.id || null,
+        editorTestId: editor.getAttribute?.("data-testid") || null,
+        editorRole: editor.getAttribute?.("role") || null,
+        editorContentEditable: editor.getAttribute?.("contenteditable") || null,
+        editorEditable: Boolean(
+          editor.isContentEditable ||
+          ((editor.tagName === "TEXTAREA" || editor.tagName === "INPUT") &&
+           !editor.disabled && !editor.readOnly)
+        ),
+        sendFound: Boolean(document.querySelector(
+          'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
+        )),
+        sendDisabled: false,
+        stopFound: Boolean(document.querySelector(
+          'button[data-testid="stop-button"], button[aria-label="Stop streaming"]'
+        ))
+      };
+    })()
+  `, true);
+
+  if (!result?.ok)
+    throw new Error(result?.error || "ChatGPT prompt editor could not be focused.");
+  return {
+    urlPath: safeUrlPath(window.webContents.getURL?.()),
+    ...result
+  };
+}
+
+function inspectConversationStreamText(text, reportProgress) {
+  const state = {
+    conversationId: null,
+    execution: {},
+    thinkingReported: false,
+    respondingReported: false
+  };
+  for (const line of String(text || "").split(/\r?\n/))
+    inspectConversationStreamLine(line, state, reportProgress);
+  return {
+    conversationId: state.conversationId,
+    execution: state.execution
+  };
+}
+
+function withTimeout(promise, milliseconds, message) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), milliseconds);
+    })
+  ]).finally(() => clearTimeout(timer));
+}
+
+function inspectConversationStreamLine(line, state, reportProgress) {
+  if (!line.startsWith("data:")) return;
+  const data = line.slice(5).trim();
+  if (!data || data === "[DONE]") return;
+
+  let value;
+  try {
+    value = JSON.parse(data);
+  } catch {
+    return;
+  }
+
+  if (!state.conversationId)
+    state.conversationId = findConversationIdInValue(value);
+
+  collectStreamExecutionMetadata(value, state.execution);
+
+  if (value?.type === "message_marker" && value.marker === "cot_token") {
+    state.execution.reasoningObserved = true;
+    if (!state.thinkingReported) {
+      state.thinkingReported = true;
+      reportProgress?.({
+        state: "thinking",
+        detail: "ChatGPT reported reasoning activity."
+      });
+    }
+  }
+
+  if (value?.type === "message_marker" && value.marker === "final_channel_token") {
+    if (!state.respondingReported) {
+      state.respondingReported = true;
+      reportProgress?.({
+        state: "responding",
+        detail: "ChatGPT is generating the visible response."
+      });
+    }
+  }
+}
+
+function findConversationIdInValue(value) {
+  if (!value || typeof value !== "object") return null;
+  if (typeof value.conversation_id === "string" && value.conversation_id)
+    return value.conversation_id;
+  for (const nested of Object.values(value)) {
+    const found = findConversationIdInValue(nested);
+    if (found) return found;
+  }
+  return null;
+}
+
+function collectStreamExecutionMetadata(value, execution) {
+  if (!value || typeof value !== "object") return;
+
+  if (value?.content?.content_type === "reasoning_recap")
+    execution.reasoningObserved = true;
+
+  collectToolMetadata(value, execution);
+
+  const metadata = value.metadata;
+  if (metadata && typeof metadata === "object")
+    collectMetadataFields(metadata, execution);
+
+  if (value.type === "server_ste_metadata" && metadata) {
+    const experience = String(metadata.requested_model_experience || "").trim();
+    if (experience) execution.requestedModelExperience ??= experience;
+    const ttfvt = finiteNumber(metadata.server_ttfvt_ms);
+    if (ttfvt !== null) execution.serverTtfvtMs ??= ttfvt;
+  }
+
+  for (const nested of Object.values(value))
+    if (nested && typeof nested === "object")
+      collectStreamExecutionMetadata(nested, execution);
+}
+
+function collectToolMetadata(value, execution) {
+  const role = String(value?.author?.role || "").trim().toLowerCase();
+  const recipient = String(value?.recipient || "").trim();
+  const authorName = String(value?.author?.name || "").trim();
+  const metadata = value?.metadata || {};
+
+  if (role === "assistant" && recipient && recipient.toLowerCase() !== "all")
+    addExecutionTool(execution, recipient);
+  if (role === "tool" && authorName)
+    addExecutionTool(execution, authorName);
+
+  const metadataTool = String(metadata.tool_name || "").trim();
+  if (metadataTool && metadata.tool_invoked !== false)
+    addExecutionTool(execution, metadataTool);
+}
+
+function addExecutionTool(execution, tool) {
+  const value = String(tool || "").trim();
+  if (!value) return;
+  execution.tools ??= [];
+  if (!execution.tools.includes(value))
+    execution.tools.push(value);
+}
+
+function collectMetadataFields(metadata, execution) {
+  const model = String(
+    metadata.resolved_model_slug ||
+    metadata.model_slug ||
+    ""
+  ).trim();
+  const thinkingEffort = String(metadata.thinking_effort || "").trim();
+  const reasoningStatus = String(metadata.reasoning_status || "").trim();
+  const reasoningStart = finiteNumber(metadata.reasoning_start_time);
+  const reasoningEnd = finiteNumber(metadata.reasoning_end_time);
+
+  if (model) execution.model ??= model;
+  if (thinkingEffort) execution.thinkingEffort ??= thinkingEffort;
+  if (reasoningStatus) execution.reasoningStatus ??= reasoningStatus;
+  if (reasoningStatus || reasoningStart !== null || reasoningEnd !== null)
+    execution.reasoningObserved = true;
+  if (reasoningStart !== null)
+    execution.reasoningStart = execution.reasoningStart === undefined
+      ? reasoningStart
+      : Math.min(execution.reasoningStart, reasoningStart);
+  if (reasoningEnd !== null)
+    execution.reasoningEnd = execution.reasoningEnd === undefined
+      ? reasoningEnd
+      : Math.max(execution.reasoningEnd, reasoningEnd);
+}
+
+function mergeExecutionMetadata(target, source, authoritative = false) {
+  if (!source) return target;
+  if (source.model) {
+    if (authoritative) {
+      target.model = source.model;
+      target.thinkingEffort = source.thinkingEffort || null;
+    } else {
+      target.model ??= source.model;
+    }
+  }
+  if (!authoritative && source.thinkingEffort)
+    target.thinkingEffort ??= source.thinkingEffort;
+  if (source.reasoningStatus) target.reasoningStatus ??= source.reasoningStatus;
+  if (source.requestedModelExperience)
+    target.requestedModelExperience ??= source.requestedModelExperience;
+  if (source.serverTtfvtMs !== undefined)
+    target.serverTtfvtMs ??= source.serverTtfvtMs;
+  if (source.reasoningObserved)
+    target.reasoningObserved = true;
+  for (const tool of source.tools || [])
+    addExecutionTool(target, tool);
+
+  const start = finiteNumber(source.reasoningStart);
+  const end = finiteNumber(source.reasoningEnd);
+  if (start !== null)
+    target.reasoningStart = target.reasoningStart === undefined
+      ? start
+      : Math.min(target.reasoningStart, start);
+  if (end !== null)
+    target.reasoningEnd = target.reasoningEnd === undefined
+      ? end
+      : Math.max(target.reasoningEnd, end);
+  return target;
+}
+
+function finiteNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function completionDetail(execution) {
+  const facts = [];
+  if (execution?.model) facts.push(`served model ${execution.model}`);
+  if (execution?.requestedModel &&
+      execution?.model &&
+      execution.requestedModel !== execution.model)
+    facts.push(`requested model ${execution.requestedModel}`);
+  if (execution?.thinkingEffort) {
+    facts.push(`effort ${execution.thinkingEffort}`);
+  } else if (execution?.requestedThinkingEffort) {
+    facts.push(`requested effort ${execution.requestedThinkingEffort}, not confirmed by provider`);
+  }
+
+  const start = finiteNumber(execution?.reasoningStart);
+  const end = finiteNumber(execution?.reasoningEnd);
+  if (start !== null && end !== null && end >= start) {
+    facts.push(`reasoning ${(end - start).toFixed(1)}s`);
+  } else if (execution?.reasoningObserved) {
+    facts.push("reasoning observed");
+  }
+  if (execution?.tools?.length)
+    facts.push(`tools ${execution.tools.join(", ")}`);
+
+  return facts.length
+    ? `Model response received (${facts.join(", ")}).`
+    : "Model response received.";
 }
 
 async function completeAccountMessage(
@@ -394,7 +962,7 @@ async function completeAccountMessage(
   sleep,
   isNew,
   reportProgress,
-  retryTurn
+  execution
 ) {
   let result;
   try {
@@ -405,7 +973,7 @@ async function completeAccountMessage(
       requestMessageId,
       sleep,
       reportProgress,
-      retryTurn
+      execution
     );
   } catch (error) {
     if (!isNew && isConversationUnavailable(error, conversationId))
@@ -422,247 +990,6 @@ async function completeAccountMessage(
     artifacts: await downloadFiles(session, token, result.files),
     model: result.model
   };
-}
-
-function conversationPreparePayload(payload) {
-  const message = payload.messages?.at(-1);
-  const prepared = {
-    action: payload.action,
-    conversation_id: payload.conversation_id,
-    parent_message_id: payload.parent_message_id || "client-created-root",
-    model: payload.model,
-    client_prepare_state: "success",
-    client_prepare_dispatch: "immediate",
-    client_prepare_source: "context_change",
-    timezone_offset_min: payload.timezone_offset_min,
-    timezone: payload.timezone,
-    conversation_mode: payload.conversation_mode || { kind: "primary_assistant" },
-    system_hints: payload.system_hints || [],
-    partial_query: message ? {
-      id: message.id,
-      author: message.author,
-      content: message.content
-    } : undefined,
-    supports_buffering: payload.supports_buffering,
-    supported_encodings: payload.supported_encodings,
-    client_contextual_info: {
-      app_name: payload.client_contextual_info?.app_name || "chatgpt.com",
-      has_web_push_capabilities: Boolean(
-        payload.client_contextual_info?.has_web_push_capabilities
-      ),
-      web_push_notification_permission:
-        payload.client_contextual_info?.web_push_notification_permission || "default"
-    },
-    local_function_names: payload.local_function_names || []
-  };
-  if (payload.thinking_effort)
-    prepared.thinking_effort = payload.thinking_effort;
-  return prepared;
-}
-
-async function getConduitToken(session, token, turnTraceId, body) {
-  const response = await apiJson(session, token, API.conversationPrepare, {
-    method: "POST",
-    headers: {
-      "Accept": "*/*",
-      "Content-Type": "application/json",
-      "x-oai-turn-trace-id": turnTraceId,
-      "x-openai-target-path": API.conversationPrepare,
-      "x-openai-target-route": API.conversationPrepare
-    },
-    body: JSON.stringify(body)
-  });
-  const conduitToken = String(response?.conduit_token || "").trim();
-  if (!conduitToken)
-    throw new Error("ChatGPT conversation prepare did not return a conduit token.");
-  return conduitToken;
-}
-
-async function getSentinelToken(session, token, config) {
-  const prepared = await apiJson(session, token, API.requirementsPrepare, {
-    method: "POST",
-    headers: targetHeaders(API.requirementsPrepare),
-    body: JSON.stringify({ p: sentinelRequirementsToken(config) })
-  });
-  const prepareToken = String(prepared?.prepare_token || "").trim();
-  if (!prepareToken)
-    throw new Error("ChatGPT Sentinel prepare did not return a prepare token.");
-
-  const proofToken = prepared?.proofofwork?.required
-    ? sentinelProofToken(prepared.proofofwork, config)
-    : null;
-  const body = { prepare_token: prepareToken };
-  if (proofToken) body.proofofwork = proofToken;
-
-  const finalized = await apiJson(session, token, API.requirementsFinalize, {
-    method: "POST",
-    headers: targetHeaders(API.requirementsFinalize),
-    body: JSON.stringify(body)
-  });
-  const sentinelToken = String(finalized?.token || "").trim();
-  if (!sentinelToken)
-    throw new Error("ChatGPT Sentinel finalize did not return a token.");
-  return { token: sentinelToken, proofToken };
-}
-
-function targetHeaders(endpoint) {
-  return {
-    "Accept": "*/*",
-    "Content-Type": "application/json",
-    "x-openai-target-path": endpoint,
-    "x-openai-target-route": endpoint
-  };
-}
-
-function clientContext(window) {
-  const bounds = window?.getBounds?.() || {};
-  const width = Number(bounds.width) || 1200;
-  const height = Number(bounds.height) || 850;
-  return {
-    is_dark_mode: false,
-    time_since_loaded: 0,
-    page_height: height,
-    page_width: width,
-    pixel_ratio: 1,
-    screen_height: height,
-    screen_width: width,
-    app_name: "chatgpt.com",
-    has_web_push_capabilities: true,
-    web_push_notification_permission: "default"
-  };
-}
-
-function sentinelConfig(window) {
-  const userAgent = window?.webContents?.getUserAgent?.() || "Mozilla/5.0";
-  return [
-    3000,
-    new Date().toString(),
-    4294705152,
-    0,
-    userAgent,
-    "",
-    "",
-    "en-US",
-    "en-US,en",
-    0,
-    "vendor−Google Inc.",
-    "location",
-    "navigator",
-    0,
-    randomUUID(),
-    "",
-    8,
-    Date.now()
-  ];
-}
-
-function sentinelRequirementsToken(config) {
-  return solveSentinelProof(String(Math.random()), "0fffff", config, "gAAAAAC");
-}
-
-function sentinelProofToken(challenge, config) {
-  const seed = String(challenge?.seed || "");
-  const difficulty = String(challenge?.difficulty || "");
-  if (!seed || !/^[0-9a-f]+$/i.test(difficulty) || difficulty.length % 2)
-    throw new Error("ChatGPT returned an invalid Sentinel proof-of-work challenge.");
-  return solveSentinelProof(seed, difficulty, config, "gAAAAAB");
-}
-
-function solveSentinelProof(seed, difficulty, config, prefix) {
-  const target = Buffer.from(difficulty, "hex");
-  for (let counter = 0; counter < 500000; counter++) {
-    const candidate = [...config];
-    candidate[3] = counter;
-    candidate[9] = counter >> 1;
-    const encoded = Buffer.from(JSON.stringify(candidate)).toString("base64");
-    const digest = sha3_512(Buffer.from(seed + encoded));
-    if (digest.subarray(0, target.length).compare(target) < 0)
-      return prefix + encoded;
-  }
-  throw new Error("ChatGPT Sentinel proof-of-work could not be solved.");
-}
-
-const KECCAK_MASK = (1n << 64n) - 1n;
-const KECCAK_ROTATION = [
-  0, 1, 62, 28, 27,
-  36, 44, 6, 55, 20,
-  3, 10, 43, 25, 39,
-  41, 45, 15, 21, 8,
-  18, 2, 61, 56, 14
-];
-const KECCAK_ROUND_CONSTANTS = [
-  0x0000000000000001n, 0x0000000000008082n, 0x800000000000808an,
-  0x8000000080008000n, 0x000000000000808bn, 0x0000000080000001n,
-  0x8000000080008081n, 0x8000000000008009n, 0x000000000000008an,
-  0x0000000000000088n, 0x0000000080008009n, 0x000000008000000an,
-  0x000000008000808bn, 0x800000000000008bn, 0x8000000000008089n,
-  0x8000000000008003n, 0x8000000000008002n, 0x8000000000000080n,
-  0x000000000000800an, 0x800000008000000an, 0x8000000080008081n,
-  0x8000000000008080n, 0x0000000080000001n, 0x8000000080008008n
-];
-
-function sha3_512(input) {
-  const rate = 72;
-  const state = new Array(25).fill(0n);
-  let offset = 0;
-
-  while (offset + rate <= input.length) {
-    absorbKeccakBlock(state, input.subarray(offset, offset + rate));
-    offset += rate;
-  }
-
-  const block = Buffer.alloc(rate);
-  input.copy(block, 0, offset);
-  block[input.length - offset] = 0x06;
-  block[rate - 1] |= 0x80;
-  absorbKeccakBlock(state, block);
-
-  const output = Buffer.alloc(64);
-  for (let index = 0; index < output.length; index++)
-    output[index] = Number((state[Math.floor(index / 8)] >> BigInt(8 * (index % 8))) & 0xffn);
-  return output;
-}
-
-function absorbKeccakBlock(state, block) {
-  for (let lane = 0; lane < 9; lane++) {
-    let value = 0n;
-    for (let byte = 0; byte < 8; byte++)
-      value |= BigInt(block[lane * 8 + byte]) << BigInt(byte * 8);
-    state[lane] ^= value;
-  }
-  keccakF1600(state);
-}
-
-function keccakF1600(state) {
-  for (const roundConstant of KECCAK_ROUND_CONSTANTS) {
-    const column = new Array(5);
-    const delta = new Array(5);
-    for (let x = 0; x < 5; x++)
-      column[x] = state[x] ^ state[x + 5] ^ state[x + 10] ^ state[x + 15] ^ state[x + 20];
-    for (let x = 0; x < 5; x++)
-      delta[x] = column[(x + 4) % 5] ^ rotateKeccak(column[(x + 1) % 5], 1);
-    for (let y = 0; y < 5; y++)
-      for (let x = 0; x < 5; x++)
-        state[x + 5 * y] ^= delta[x];
-
-    const rotated = new Array(25).fill(0n);
-    for (let y = 0; y < 5; y++)
-      for (let x = 0; x < 5; x++)
-        rotated[y + 5 * ((2 * x + 3 * y) % 5)] =
-          rotateKeccak(state[x + 5 * y], KECCAK_ROTATION[x + 5 * y]);
-
-    for (let y = 0; y < 5; y++)
-      for (let x = 0; x < 5; x++)
-        state[x + 5 * y] = rotated[x + 5 * y] ^
-          ((~rotated[(x + 1) % 5 + 5 * y]) & rotated[(x + 2) % 5 + 5 * y]);
-    state[0] ^= roundConstant;
-  }
-}
-
-function rotateKeccak(value, bits) {
-  if (!bits) return value;
-  const shift = BigInt(bits);
-  return ((value << shift) | (value >> (64n - shift))) & KECCAK_MASK;
 }
 
 async function accessToken(session) {
@@ -694,18 +1021,29 @@ async function requireToken(session) {
   return token;
 }
 
+const INTEGRITY_STATE_COOKIE = "__Secure-oai-is";
+const INTEGRITY_STATE_PATTERN =
+  /^ois1\.[A-Za-z0-9_-]+\.([A-Za-z0-9_-]{16})\.[A-Za-z0-9_-]+$/;
+const INTEGRITY_STATE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+
 async function apiFetch(session, token, endpoint, options = {}) {
   const accountId = accountIds.get(session);
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
+    ...(options["headers"] || {})
+  };
+  headers["X-OAI-IS-Client-Observation"] =
+    await integrityStateObservation(session);
+
   const response = await session.fetch(ORIGIN + endpoint, {
     ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
-      ...(options["headers"] || {})
-    },
+    headers,
     credentials: "include",
     cache: "no-store"
   });
+  await applyIntegrityStateUpdate(session, response.headers);
+
   if (response.ok) return response;
 
   const detail = (await response.text()).slice(0, 1000);
@@ -719,6 +1057,39 @@ async function apiFetch(session, token, endpoint, options = {}) {
     }
   );
   throw error;
+}
+
+async function integrityStateObservation(session) {
+  try {
+    const cookies = await session.cookies.get({
+      url: ORIGIN,
+      name: INTEGRITY_STATE_COOKIE
+    });
+    const value = String(cookies?.[0]?.value || "").trim();
+    if (!value) return "v1.r.m";
+    const match = INTEGRITY_STATE_PATTERN.exec(value);
+    return match
+      ? `v1.r.p.${match[1]}`
+      : "v1.r.i";
+  } catch {
+    return "v1.r.r";
+  }
+}
+
+async function applyIntegrityStateUpdate(session, headers) {
+  const update = String(headers?.get?.("x-oai-is-update") || "").trim();
+  if (!INTEGRITY_STATE_PATTERN.test(update) || !session.cookies?.set)
+    return;
+
+  await session.cookies.set({
+    url: ORIGIN,
+    name: INTEGRITY_STATE_COOKIE,
+    value: update,
+    path: "/",
+    secure: true,
+    sameSite: "lax",
+    expirationDate: Date.now() / 1000 + INTEGRITY_STATE_MAX_AGE_SECONDS
+  });
 }
 
 function parseRetryAfterMs(value) {
@@ -742,48 +1113,6 @@ async function apiJson(session, token, endpoint, options = {}) {
   return text ? JSON.parse(text) : null;
 }
 
-async function uploadFiles(session, token, files) {
-  const result = [];
-  for (const file of files) {
-    const bytes = await fs.readFile(file.path);
-    const contentType = String(file.contentType || "application/octet-stream");
-    const upload = await apiJson(session, token, API.files, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        file_name: file.name,
-        file_size: bytes.length,
-        use_case: contentType.startsWith("image/") ? "multimodal" : "my_files"
-      })
-    });
-    const put = await session.fetch(upload.upload_url, {
-      method: "PUT",
-      headers: { "Content-Type": contentType, "x-ms-blob-type": "BlockBlob" },
-      body: bytes
-    });
-    if (!put.ok) throw new Error(`ChatGPT file upload failed with HTTP ${put.status}.`);
-    await apiJson(session, token, API.fileUploaded(upload.file_id), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}"
-    });
-    result.push({ id: upload.file_id, name: file.name, contentType, size: bytes.length });
-  }
-  return result;
-}
-
-function findConversationId(text) {
-  for (const value of text.split(/\r?\n/)) {
-    const json = value.startsWith("data:") ? value.slice(5).trim() : value.trim();
-    if (!json || json === "[DONE]") continue;
-    try {
-      const id = JSON.parse(json)?.conversation_id;
-      if (id) return id;
-    } catch { }
-  }
-  return null;
-}
-
 async function waitForConversation(
   session,
   token,
@@ -791,13 +1120,12 @@ async function waitForConversation(
   requestMessageId,
   sleep,
   reportProgress,
-  retryTurn
+  execution
 ) {
   const endpoint = API.conversationById(conversationId);
   let consecutiveRateLimits = 0;
   let inactiveWaitMs = 0;
   let lastProgressKey = null;
-  let retries = 0;
 
   while (true) {
     let conversation;
@@ -828,9 +1156,13 @@ async function waitForConversation(
 
     const turn = inspectConversationTurn(conversation, requestMessageId);
     if (turn.reply) {
+      mergeExecutionMetadata(execution, turn.reply.execution, true);
+      if (execution.model)
+        turn.reply.model = modelSelectionId(execution.model, execution.thinkingEffort);
+      turn.reply.execution = execution;
       reportProgress?.({
         state: "completed",
-        detail: "Model response received.",
+        detail: completionDetail(execution),
         analysis: turn.analysis
       });
       return turn.reply;
@@ -851,20 +1183,9 @@ async function waitForConversation(
     if (turn.active || progressObserved) {
       inactiveWaitMs = 0;
     } else if (inactiveWaitMs >= TURN_INACTIVITY_WATCHDOG_MS) {
-      if (retries >= TURN_RECOVERY_RETRY_LIMIT)
-        throw new Error(
-          `ChatGPT showed no active generation for ${TURN_INACTIVITY_WATCHDOG_MS / 1000}s after the automatic retry.`
-        );
-
-      requestMessageId = await retryTurn();
-      retries++;
-      inactiveWaitMs = 0;
-      lastProgressKey = null;
-      reportProgress?.({
-        state: "waiting",
-        detail: "Prompt reposted; waiting for model activity."
-      });
-      continue;
+      throw new Error(
+        `ChatGPT showed no active generation for ${TURN_INACTIVITY_WATCHDOG_MS / 1000}s after the native request completed.`
+      );
     }
 
     await sleep(CONVERSATION_POLL_INTERVAL_MS);
@@ -908,7 +1229,7 @@ function inspectConversationTurn(conversation, requestMessageId) {
         if (text) analysis.push(text);
       }
       if (!inProgress && message.status === "in_progress")
-        inProgress = { channel };
+        inProgress = { channel, reasoning: hasReasoningMetadata(message) };
     }
 
     node = mapping[node.parent];
@@ -927,7 +1248,7 @@ function inspectConversationTurn(conversation, requestMessageId) {
   }
 
   if (inProgress) {
-    const thinking = inProgress.channel === "analysis";
+    const thinking = inProgress.channel === "analysis" || inProgress.reasoning;
     return {
       reply: null,
       active: true,
@@ -982,24 +1303,26 @@ function findVisibleAssistantReply(conversation, requestMessageId) {
   let node = mapping[conversation?.current_node];
   let assistant = null;
   const files = new Map();
+  const execution = {};
 
   while (node) {
     const message = node.message;
+    collectConversationExecutionMetadata(message, execution);
+
     if (message?.id === requestMessageId) {
       if (!assistant) return null;
-      const assistantModel = String(
-        assistant.metadata?.resolved_model_slug ||
-        assistant.metadata?.model_slug ||
-        ""
-      ).trim() || null;
       const requestResolvedModel = String(
         message.metadata?.resolved_model_slug || ""
       ).trim() || null;
+      const resolvedModel = execution.model || requestResolvedModel;
       return {
         text: visibleAssistantText(assistant),
         parentMessageId: assistant.id,
         projectId: conversation.gizmo_id || null,
-        model: assistantModel || requestResolvedModel,
+        model: resolvedModel
+          ? modelSelectionId(resolvedModel, execution.thinkingEffort)
+          : null,
+        execution,
         files
       };
     }
@@ -1011,6 +1334,25 @@ function findVisibleAssistantReply(conversation, requestMessageId) {
   }
 
   return null;
+}
+
+function collectConversationExecutionMetadata(message, execution) {
+  if (!message) return;
+  collectToolMetadata(message, execution);
+  if (message?.author?.role !== "assistant") return;
+  collectMetadataFields(message.metadata || {}, execution);
+  if (message?.content?.content_type === "reasoning_recap")
+    execution.reasoningObserved = true;
+}
+
+function hasReasoningMetadata(message) {
+  const metadata = message?.metadata || {};
+  return Boolean(
+    message?.content?.content_type === "reasoning_recap" ||
+    String(metadata.reasoning_status || "").trim() ||
+    finiteNumber(metadata.reasoning_start_time) !== null ||
+    finiteNumber(metadata.reasoning_end_time) !== null
+  );
 }
 
 function isVisibleAssistantMessage(message) {

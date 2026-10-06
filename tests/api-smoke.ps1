@@ -234,8 +234,8 @@ try {
         if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Attachment message polling timed out.' }
         Start-Sleep -Milliseconds 50
     } while ($true)
-    if ($null -ne $attachmentCompleted.model -or $attachmentCompleted.reply.model -ne 'mock-served') {
-        throw 'New chat with an omitted requested model did not use provider Default.'
+    if ($attachmentCompleted.model -ne 'mock-fast' -or $attachmentCompleted.reply.model -ne 'mock-served') {
+        throw 'New chat with an omitted requested model did not use the connection defaultModel.'
     }
 
     $echoedFile = $attachmentCompleted.reply.files | Select-Object -First 1

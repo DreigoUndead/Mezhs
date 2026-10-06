@@ -85,6 +85,8 @@ public sealed class AgentDebugLogBuilder(
         {
             log.AppendLine(
                 $"[{Format(message.CreatedAt)}] message={message.MessageId} role={message.Role} origin={message.Origin} status={message.Status}");
+            if (!string.IsNullOrWhiteSpace(message.Model))
+                log.AppendLine($"model: {message.Model}");
             if (!string.IsNullOrWhiteSpace(message.ParentMessageId))
                 log.AppendLine($"parentMessageId: {message.ParentMessageId}");
             if (!string.IsNullOrWhiteSpace(message.ReplyMessageId))
@@ -137,6 +139,7 @@ public sealed class AgentDebugLogBuilder(
         log.AppendLine($"parentExecutionId: {execution.ParentExecutionId ?? "-"}");
         log.AppendLine($"correlationId: {execution.CorrelationId}");
         log.AppendLine($"source: {execution.Source}");
+        log.AppendLine($"model: {execution.Model ?? "-"}");
         if (!string.IsNullOrWhiteSpace(execution.SourceReference))
             log.AppendLine($"sourceReference: {execution.SourceReference}");
         log.AppendLine($"startedAt: {(execution.StartedAt is { } started ? Format(started) : "-")}");

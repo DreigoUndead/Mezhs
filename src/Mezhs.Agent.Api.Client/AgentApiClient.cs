@@ -109,7 +109,9 @@ public sealed class AgentApiClient : MezhsApiClient
 
 public sealed record AgentPolicyView(
     string Id,
+    string Name,
     string ConnectionId,
+    string? DefaultModel,
     string ModelInstructions,
     string Snapshot);
 
@@ -128,7 +130,9 @@ public sealed record CreateAgentExecutionRequest(
     string PolicyId,
     string Input,
     string? ChatId = null,
-    IReadOnlyDictionary<string, string>? Environment = null);
+    IReadOnlyDictionary<string, string>? Environment = null,
+    string? ConnectionId = null,
+    string? Model = null);
 
 public sealed record AgentExecutionView(
     string ExecutionId,
@@ -141,6 +145,7 @@ public sealed record AgentExecutionView(
     string? ChatId,
     string PolicyId,
     string ConnectionId,
+    string? Model,
     string Source,
     string? SourceReference,
     string Status,

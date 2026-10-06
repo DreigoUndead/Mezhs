@@ -37,6 +37,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
     private readonly BrowserAccountSession _session;
     private readonly ILoginModule _login;
     private readonly IModelModule _models;
+    private readonly IIntegrationDiagnosticsModule _diagnostics;
 
     public ChatGptAccountIntegration(
         IntegrationConnection connection,
@@ -45,15 +46,17 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         _session = CreateAccountSession();
         _login = new LoginModule(_session);
         _models = new ModelModule(_session);
+        _diagnostics = new BrowserDiagnosticsModule(_session);
     }
 
     public override IntegrationCapabilities Capabilities => new(
-        FileInput: true,
-        ImageInput: true,
+        FileInput: false,
+        ImageInput: false,
         FileOutput: true,
         ImageOutput: true);
     public override ILoginModule Login => _login;
     public override IModelModule Models => _models;
+    public override IIntegrationDiagnosticsModule Diagnostics => _diagnostics;
 
     public override Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
