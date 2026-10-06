@@ -4,11 +4,11 @@ using System.Text.Json;
 using Mezhs.Services;
 using Mezhs.Integrations;
 
-namespace Mezhs.Diagnostics;
+namespace Mezhs.Agent;
 
-public static class DiagnosticsApi
+public static class AgentDiagnosticsApi
 {
-    public static WebApplication MapMezhsDiagnostics(this WebApplication app)
+    public static WebApplication MapAgentDiagnostics(this WebApplication app)
     {
         app.MapPost(
             "/v1/diagnostics/connections/{connectionId}/browser/{operation}",

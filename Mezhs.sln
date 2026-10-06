@@ -1,3 +1,4 @@
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -47,10 +48,6 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Common", "src\Mezhs.Common\Mezhs.Common.csproj", "{098C4223-1AC5-4F37-A476-D1664223C2B1}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.WhatsApp", "src\Mezhs.WhatsApp\Mezhs.WhatsApp.csproj", "{4B959CCB-D991-4B2F-8B87-AE635ED91C68}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Diagnostics", "src\Mezhs.Diagnostics\Mezhs.Diagnostics.csproj", "{04A3BFAE-9214-4D9A-A947-19274730E4DF}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mezhs.Diagnostics.Api", "src\Mezhs.Diagnostics.Api\Mezhs.Diagnostics.Api.csproj", "{A44A6009-C52C-472B-A7C1-02236232483A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -150,14 +147,6 @@ Global
 		{4B959CCB-D991-4B2F-8B87-AE635ED91C68}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4B959CCB-D991-4B2F-8B87-AE635ED91C68}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4B959CCB-D991-4B2F-8B87-AE635ED91C68}.Release|Any CPU.Build.0 = Release|Any CPU
-		{04A3BFAE-9214-4D9A-A947-19274730E4DF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{04A3BFAE-9214-4D9A-A947-19274730E4DF}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{04A3BFAE-9214-4D9A-A947-19274730E4DF}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{04A3BFAE-9214-4D9A-A947-19274730E4DF}.Release|Any CPU.Build.0 = Release|Any CPU
-		{A44A6009-C52C-472B-A7C1-02236232483A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{A44A6009-C52C-472B-A7C1-02236232483A}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{A44A6009-C52C-472B-A7C1-02236232483A}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{A44A6009-C52C-472B-A7C1-02236232483A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

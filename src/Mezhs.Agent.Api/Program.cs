@@ -9,21 +9,16 @@ using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
 using Mezhs.Agent.Services;
 using Mezhs.Configuration;
-using Mezhs.Diagnostics;
 using Mezhs.Executor;
 using Mezhs.Services;
 
-var enableDiagnostics = args.Any(arg =>
-    string.Equals(arg, "--diagnostics", StringComparison.OrdinalIgnoreCase));
-var hostArgs = args.Where(arg =>
-    !string.Equals(arg, "--diagnostics", StringComparison.OrdinalIgnoreCase)).ToArray();
-var configPath = ConfigPath.Find(hostArgs, "agent.yaml");
+var configPath = ConfigPath.Find(args, "agent.yaml");
 var options = AgentConfigLoader.Load(configPath);
 var executorStorage = Path.Combine(
     Path.GetDirectoryName(options.AgentStorage) ?? Environment.CurrentDirectory,
     "executor.sqlite");
 
-var builder = WebApplication.CreateBuilder(hostArgs);
+var builder = WebApplication.CreateBuilder(args);
 builder.AddMezhsApi(options);
 builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
     policy.SetIsOriginAllowed(origin =>
@@ -68,12 +63,12 @@ app.MapGet("/", () => Results.Ok(new
         "/v1/files",
         "/v1/policies",
         "/v1/agent-chats",
-        "/v1/executions"
+        "/v1/executions",
+        "/v1/diagnostics/connections/{connectionId}/browser/{operation}"
     }
 }));
 app.MapMezhsApi();
-if (enableDiagnostics)
-    app.MapMezhsDiagnostics();
+app.MapAgentDiagnostics();
 
 app.MapGet("/v1/policies", (PolicyRegistry policies) =>
     Results.Ok(policies.GetViews()));

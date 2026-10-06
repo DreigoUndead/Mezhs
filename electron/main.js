@@ -177,7 +177,7 @@ function invokeProvider({ operation, arguments: args }, reportProgress) {
 
 function diagnosticElementSnapshot() {
   return `(() => {
-    const clean = value => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 240);
+    const clean = value => String(value ?? '').replace(/\\s+/g, ' ').trim().slice(0, 240);
     const visible = element => {
       const rect = element.getBoundingClientRect();
       const style = getComputedStyle(element);

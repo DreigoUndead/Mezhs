@@ -130,11 +130,11 @@ try {
     $editorX = [int]($editor.x + ($editor.width / 2))
     $editorY = [int]($editor.y + ($editor.height / 2))
     Invoke-Diagnostic 'click' @{ x = $editorX; y = $editorY; waitMs = 50 } | Out-Null
-    Invoke-Diagnostic 'type' @{ text = 'abc123' } | Out-Null
+    Invoke-Diagnostic 'type' @{ text = 'diagnostics text' } | Out-Null
 
     $typed = Invoke-Diagnostic 'snapshot'
     $typedText = (($typed.activeElement.text -replace '\s+', ' ').Trim())
-   if ($typed.activeElement.ariaLabel -ne 'Prompt' -or $typedText -ne 'abc123') {
+   if ($typed.activeElement.ariaLabel -ne 'Prompt' -or $typedText -ne 'diagnostics text') {
         throw "Typing did not affect the focused prompt input: $($typed.activeElement | ConvertTo-Json -Compress)"
     }
 

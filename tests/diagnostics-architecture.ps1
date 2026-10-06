@@ -14,8 +14,7 @@ $browserDiagnostics = Read-Source 'src\Mezhs.Integration.Browser\BrowserDiagnost
 $chatGpt = Read-Source 'integrations\Mezhs.Integrations.ChatGpt\ChatGptIntegration.cs'
 $grok = Read-Source 'integrations\Mezhs.Integrations.Grok\GrokIntegration.cs'
 $agentProgram = Read-Source 'src\Mezhs.Agent.Api\Program.cs'
-$diagnosticsApi = Read-Source 'src\Mezhs.Diagnostics\DiagnosticsApi.cs'
-$diagnosticsHost = Read-Source 'src\Mezhs.Diagnostics.Api\Program.cs'
+$diagnosticsApi = Read-Source 'src\Mezhs.Agent.Api\DiagnosticsApi.cs'
 $electron = Read-Source 'electron\main.js'
 $solution = Read-Source 'Mezhs.sln'
 
@@ -35,19 +34,17 @@ foreach ($source in @($chatGpt, $grok)) {
         'An account integration does not share its exact BrowserAccountSession with diagnostics.'
 }
 
-Assert ($agentProgram.Contains('--diagnostics') -and
-        $agentProgram.Contains('if (enableDiagnostics)') -and
-        $agentProgram.Contains('app.MapMezhsDiagnostics();')) `
-    'Agent API does not keep live browser diagnostics behind the explicit --diagnostics switch.'
+Assert (-not $agentProgram.Contains('--diagnostics') -and
+        $agentProgram.Contains('app.MapAgentDiagnostics();')) `
+    'Agent API diagnostics must be an ordinary always-mapped endpoint, not a launch mode.'
 
 Assert ($diagnosticsApi.Contains('/v1/diagnostics/connections/{connectionId}/browser/{operation}') -and
         $diagnosticsApi.Contains('integration.Diagnostics.InvokeAsync')) `
     'Diagnostics API does not route through the integration-owned diagnostics capability.'
 
-Assert ($diagnosticsHost.Contains('ConfigPath.Find(args, "mezhs.yaml")') -and
-        $diagnosticsHost.Contains('listen.IsLoopback') -and
-        $diagnosticsHost.Contains('app.MapMezhsDiagnostics();')) `
-    'Standalone diagnostics host must reuse normal MEZS configuration and remain loopback-only.'
+Assert (-not $solution.Contains('Mezhs.Diagnostics.Api') -and
+        -not $solution.Contains('src\Mezhs.Diagnostics\Mezhs.Diagnostics.csproj')) `
+    'Obsolete standalone diagnostics projects remain in the solution.'
 
 foreach ($marker in @(
     'startsWith("$diagnostics/")',
@@ -68,8 +65,4 @@ Assert ($electron.Contains('url: parsed.origin + parsed.pathname') -and
 Assert ($electron.Contains("element.type === 'password' ? ''")) `
     'Diagnostic snapshots can expose password field values.'
 
-Assert ($solution.Contains('Mezhs.Diagnostics') -and
-        $solution.Contains('Mezhs.Diagnostics.Api')) `
-    'Diagnostics projects are missing from the solution.'
-
-Write-Host 'PASS: diagnostics reuse the integration-owned authenticated BrowserAccountSession, stay opt-in on Agent.Api, and keep generic browser probes in Electron.'
+Write-Host 'PASS: diagnostics reuse the integration-owned authenticated BrowserAccountSession, are ordinary Agent.Api endpoints, and keep generic browser probes in Electron.'
