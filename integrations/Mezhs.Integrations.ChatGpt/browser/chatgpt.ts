@@ -759,7 +759,7 @@ async function nativeChatRequirementsHeaders(window, session, token) {
         throw new Error(runtimeUrl
           ? "ChatGPT native requirements provider lXE.f is unavailable."
           : "ChatGPT native requirements provider was not observed in this document " +
-            "(resourceEntries=" + resources.length + ", readyState=" + document.readyState + ").");
+            "(resourceEntries=" + resources.length + ", cachedProvider=false).");
       }
 
       const prepared = await provider(async requirementsKey => {
