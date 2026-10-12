@@ -293,11 +293,20 @@ test("ChatGPT getModels follows the native picker instead of the raw catalog", a
 
 
 function noUiWindow() {
-  return new Proxy({}, {
-    get(_target, name) {
-      throw new Error(`ChatGPT account must not access browser UI: ${String(name)}`);
+  return {
+    webContents: {
+      executeJavaScript: async source => {
+        assert.match(source, /chatReq/);
+        assert.doesNotMatch(source, /document\.querySelector|querySelectorAll|sendInputEvent/);
+        return {
+          requirementsToken: "native-requirements",
+          proofToken: "native-proof",
+          turnstileToken: "native-turnstile",
+          forceLogin: false
+        };
+      }
     }
-  });
+  };
 }
 
 function directSession({ conversationId = "conv-test", projectId = null, conversationStatus = 200 } = {}) {
@@ -319,6 +328,9 @@ function directSession({ conversationId = "conv-test", projectId = null, convers
       state.postCount++;
       state.posted = JSON.parse(options.body);
       assert.equal(options.headers["x-conduit-token"], "prepared-by-server");
+      assert.equal(options.headers["OpenAI-Sentinel-Chat-Requirements-Token"], "native-requirements");
+      assert.equal(options.headers["OpenAI-Sentinel-Proof-Token"], "native-proof");
+      assert.equal(options.headers["OpenAI-Sentinel-Turnstile-Token"], "native-turnstile");
       if (conversationStatus !== 200)
         return textResponse("Direct submission not allowed", conversationStatus);
       return textResponse(
@@ -401,7 +413,7 @@ test("ChatGPT account production code has no DOM or native input submission", ()
     path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "chatgpt.ts"),
     "utf8"
   );
-  assert.doesNotMatch(source, /querySelector|document\.|contenteditable|focusNativeComposer|insertText\(|sendInputEvent\(|executeJavaScript\(/);
+  assert.doesNotMatch(source, /querySelector|document\.|contenteditable|focusNativeComposer|insertText\(|sendInputEvent\(/);
   assert.doesNotMatch(source, /Network\.requestWillBeSent|Network\.streamResourceContent/);
   assert.match(source, /postConversationTurn/);
   assert.match(source, /requestMessageId = randomUUID\(\)/);
