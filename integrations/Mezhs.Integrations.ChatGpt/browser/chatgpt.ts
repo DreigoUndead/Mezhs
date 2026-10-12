@@ -1,6 +1,7 @@
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
+const { randomUUID } = require("node:crypto");
 
 const ORIGIN = "https://chatgpt.com";
 const accountIds = new WeakMap();
@@ -10,18 +11,11 @@ const API = Object.freeze({
   models: "/backend-api/models?history_and_training_disabled=false",
   modelPreference: "/backend-api/settings/user_last_used_model_config",
   conversation: "/backend-api/f/conversation",
+  conversationPrepare: "/backend-api/f/conversation/prepare",
+  conversationInit: "/backend-api/conversation/init",
   conversationById: id => `/backend-api/conversation/${encodeURIComponent(id)}`,
   fileDownload: id => `/backend-api/files/${encodeURIComponent(id)}/download`
 });
-
-const PROMPT_EDITOR_SELECTOR = [
-  '#prompt-textarea',
-  'textarea[name="prompt-textarea"]',
-  '[data-testid="prompt-textarea"]',
-  '.ProseMirror[contenteditable="true"]',
-  '[contenteditable="true"][role="textbox"]',
-  '[contenteditable="true"][data-virtualkeyboard="true"]'
-].join(', ');
 
 const CONVERSATION_POLL_INTERVAL_MS = 2000;
 const CONVERSATION_RATE_LIMIT_MAX_FALLBACK_MS = 30000;
@@ -70,55 +64,9 @@ module.exports = {
       return sendAccountMessage(context, false);
     },
 
-    // Anonymous ChatGPT remains on its old browser path.
-    async sendPrompt({ window, args }) {
-      if (args.newChat) await window.loadURL(module.exports.homeUrl);
-      const prompt = JSON.stringify(String(args.prompt || ""));
-      const promptEditorSelector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
-      return window.webContents.executeJavaScript(`
-        (async () => {
-          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-          const selector = '[data-message-author-role="assistant"]';
-          const before = document.querySelectorAll(selector).length;
-          let editor = null;
-          for (let i = 0; i < 120 && !editor; i++) {
-            editor = document.querySelector(${promptEditorSelector});
-            if (!editor) await sleep(250);
-          }
-          if (!editor) return { ok: false, error: 'ChatGPT prompt editor was not found.' };
-          editor.focus();
-          if (editor.tagName === 'TEXTAREA' || editor.tagName === 'INPUT') {
-            const prototype = editor.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-            const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-            if (setter) setter.call(editor, ${prompt});
-            else editor.value = ${prompt};
-            editor.dispatchEvent(new Event('input', { bubbles: true }));
-          } else {
-            document.execCommand('selectAll', false, null);
-            document.execCommand('insertText', false, ${prompt});
-            editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
-          }
-          let send = null;
-          for (let i = 0; i < 360 && (!send || send.disabled); i++) {
-            send = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
-            if (!send || send.disabled) await sleep(250);
-          }
-          if (!send || send.disabled) return { ok: false, error: 'ChatGPT send button did not become available.' };
-          send.click();
-          let last = '';
-          let stable = 0;
-          while (true) {
-            const messages = document.querySelectorAll(selector);
-            const text = messages[messages.length - 1]?.innerText?.trim() || '';
-            const stop = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"]');
-            stable = text && text === last ? stable + 1 : 0;
-            last = text;
-            if (messages.length > before && text && !stop && stable >= 6)
-              return { ok: true, text };
-            await sleep(500);
-          }
-        })()
-      `, true);
+    // Anonymous browser composer automation is intentionally not supported.
+    async sendPrompt() {
+      throw new Error("Anonymous ChatGPT submission has no supported DOM-free transport.");
     }
   }
 };
@@ -222,7 +170,7 @@ async function sendAccountMessage(context, isNew) {
   }
 
   await setModelPreference(context.session, token, selection);
-  return sendNativeAccountMessage(context, isNew, token, selection);
+  return sendApiAccountMessage(context, isNew, token, selection);
 }
 
 async function setModelPreference(session, token, selection) {
@@ -235,530 +183,201 @@ async function setModelPreference(session, token, selection) {
   await apiFetch(session, token, url.pathname + url.search, { method: "PATCH" });
 }
 
-async function sendNativeAccountMessage(
-  { window, session, args, sleep, reportProgress },
-  isNew,
-  token,
-  selection
-) {
+async function sendApiAccountMessage({ window, session, args, sleep, reportProgress }, isNew, token, selection) {
+  const uploaded = [];
+  const imageParts = uploaded
+    .filter(file => file.contentType.startsWith("image/"))
+    .map(file => ({
+      content_type: "image_asset_pointer",
+      asset_pointer: `file-service://${file.id}`,
+      size_bytes: file.size
+    }));
+  const attachments = uploaded.map(file => ({
+    id: file.id,
+    name: file.name,
+    mimeType: file.contentType,
+    size: file.size
+  }));
+  const metadata = {
+    selected_sources: [],
+    serialization_metadata: { custom_symbol_offsets: [] },
+    submission_mode: "manual_send",
+    ...(attachments.length ? { attachments } : {})
+  };
+  const projectMode = isNew && args.projectId
+    ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
+    : isNew
+      ? { kind: "primary_assistant" }
+      : undefined;
+  const parentMessageId = isNew ? "client-created-root" : args.parentMessageId;
+
+  function buildPayload(messageId, conversationId) {
+    const payload = {
+      action: "next",
+      conversation_id: conversationId,
+      messages: [{
+        id: messageId,
+        author: { role: "user" },
+        create_time: Date.now() / 1000,
+        content: {
+          content_type: imageParts.length ? "multimodal_text" : "text",
+          parts: [...imageParts, String(args.prompt || "")]
+        },
+        metadata
+      }],
+      model: selection.model,
+      parent_message_id: parentMessageId,
+      client_prepare_state: "success",
+      timezone_offset_min: new Date().getTimezoneOffset(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+      conversation_mode: projectMode,
+      enable_message_followups: true,
+      system_hints: [],
+      supports_buffering: true,
+      supported_encodings: ["v1"],
+      client_contextual_info: clientContext(window),
+      paragen_cot_summary_display_override: "allow",
+      force_parallel_switch: "auto",
+      local_function_names: ["local.continue_in_work"]
+    };
+    if (selection.thinkingEffort)
+      payload.thinking_effort = selection.thinkingEffort;
+    return payload;
+  }
+
   reportProgress?.({
     state: "submitting",
-    detail: "Submitting prompt through the native ChatGPT composer."
+    detail: "Submitting prompt to ChatGPT."
   });
 
-  if (isNew || !nativeConversationAlreadyLoaded(window, args.conversationId))
-    await window.loadURL(nativeConversationUrl(isNew, args));
-
+  const clientSessionId = randomUUID();
   const execution = {
     requestedModel: selection.model === "auto" ? null : selection.model,
     requestedThinkingEffort: selection.thinkingEffort
   };
-  const posted = await submitNativeConversationTurn(
-    window,
-    String(args.prompt || ""),
-    selection,
-    isNew ? null : args.conversationId,
-    isNew ? args.projectId : null,
-    reportProgress
-  );
-  mergeExecutionMetadata(execution, posted.execution);
+  if (isNew && args.projectId) {
+    const initialized = await initializeConversation(
+      session,
+      token,
+      args.projectId,
+      clientSessionId
+    );
+    const initializedModel = String(
+      initialized?.intended_default_model_slug ||
+      initialized?.default_model_slug ||
+      ""
+    ).trim();
+    if (initializedModel)
+      execution.initializedDefaultModel = initializedModel;
+  }
 
-  return completeAccountMessage(
+  const requestMessageId = randomUUID();
+  const posted = await postConversationTurn(
+    window,
     session,
     token,
-    posted.conversationId,
-    posted.requestMessageId,
-    sleep,
-    isNew,
+    buildPayload(requestMessageId, isNew ? undefined : args.conversationId),
+    args.conversationId,
     reportProgress,
-    execution
+    clientSessionId
+  );
+  let conversationId = posted.conversationId;
+  mergeExecutionMetadata(execution, posted.execution);
+  if (!conversationId)
+    throw new Error("ChatGPT did not return a conversation id.");
+
+  return completeAccountMessage(
+    session, token, conversationId, requestMessageId, sleep, isNew,
+    reportProgress, execution
   );
 }
 
-function nativeConversationUrl(isNew, args) {
-  if (!isNew && args.conversationId)
-    return `${ORIGIN}/c/${encodeURIComponent(args.conversationId)}`;
-  if (args.projectId)
-    return `${ORIGIN}/g/${encodeURIComponent(args.projectId)}/project`;
-  return ORIGIN + "/";
-}
-
-function nativeConversationAlreadyLoaded(window, conversationId) {
-  if (!conversationId || typeof window.webContents.getURL !== "function")
-    return false;
-
-  try {
-    const url = new URL(String(window.webContents.getURL() || ""));
-    if (url.origin !== ORIGIN)
-      return false;
-
-    const id = decodeURIComponent(String(conversationId));
-    const segments = url.pathname.split('/').filter(Boolean).map(segment => {
-      try { return decodeURIComponent(segment); }
-      catch { return segment; }
-    });
-    return segments.at(-2) === 'c' && segments.at(-1) === id;
-  } catch {
-    return false;
-  }
-}
-async function submitNativeConversationTurn(
+async function postConversationTurn(
   window,
-  prompt,
-  selection,
-  expectedConversationId,
-  expectedProjectId,
-  reportProgress
+  session,
+  token,
+  payload,
+  fallbackConversationId = null,
+  reportProgress,
+  clientSessionId
 ) {
-  const debug = window.webContents.debugger;
-  if (!debug ||
-      typeof debug.isAttached !== "function" ||
-      typeof debug.attach !== "function" ||
-      typeof debug.sendCommand !== "function" ||
-      typeof debug.on !== "function" ||
-      typeof debug.removeListener !== "function") {
-    throw new Error("Electron debugger API is unavailable for native ChatGPT submission.");
-  }
-  if (typeof window.webContents.selectAll !== "function" ||
-      typeof window.webContents.insertText !== "function" ||
-      typeof window.webContents.sendInputEvent !== "function") {
-    throw new Error("Electron native input APIs are unavailable for native ChatGPT submission.");
-  }
+  const turnTraceId = randomUUID();
+  const conduitToken = await getConduitToken(
+    session,
+    token,
+    turnTraceId,
+    conversationPreparePayload(payload),
+    clientSessionId
+  );
 
-  const attachedByMezhs = !debug.isAttached();
-  if (attachedByMezhs)
-    debug.attach("1.3");
+  const headers = await webApiHeaders(
+    session,
+    API.conversation,
+    clientSessionId,
+    {
+      "Content-Type": "application/json",
+      "Accept": "text/event-stream",
+      "x-conduit-token": conduitToken,
+      "x-oai-turn-trace-id": turnTraceId
+    }
+  );
 
-  let requestEvent = null;
-  let responseStatus = null;
-  let responseCapture = null;
-  const responseChunks = [];
-  const observedPostPaths = new Set();
-  let resolveRequest;
-  let resolveConversationId;
-  let rejectCompletion;
-  let resolveCompletion;
-  const requestSeen = new Promise(resolve => { resolveRequest = resolve; });
-  const conversationIdSeen = new Promise(resolve => {
-    resolveConversationId = resolve;
+  const response = await apiFetch(session, token, API.conversation, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload)
   });
-  const completionSeen = new Promise((resolve, reject) => {
-    resolveCompletion = resolve;
-    rejectCompletion = reject;
+  reportProgress?.({
+    state: "waiting",
+    detail: "Prompt accepted; waiting for model activity."
   });
-
-  const onMessage = (_event, method, params) => {
-    if (method === "Network.requestWillBeSent") {
-      const postPath = sameOriginPostPath(params?.request);
-      if (postPath)
-        observedPostPaths.add(postPath);
-
-      if (!requestEvent && isNativeConversationRequest(params?.request)) {
-        requestEvent = params;
-        responseCapture = debug.sendCommand("Network.streamResourceContent", {
-          requestId: params.requestId
-        }).catch(() => null);
-        resolveRequest(params);
-        return;
-      }
-
-      if (requestEvent) {
-        const conversationId =
-          conversationIdFromNativeRequest(params?.request);
-        if (conversationId)
-          resolveConversationId(conversationId);
-      }
-    }
-
-    if (!requestEvent || params?.requestId !== requestEvent.requestId)
-      return;
-
-    if (method === "Network.dataReceived" && params?.data) {
-      responseChunks.push(Buffer.from(String(params.data), "base64"));
-      return;
-    }
-
-    if (method === "Network.responseReceived") {
-      responseStatus = Number(params?.response?.status) || null;
-      return;
-    }
-
-    if (method === "Network.loadingFinished") {
-      if (responseStatus !== null &&
-          (responseStatus < 200 || responseStatus >= 300)) {
-        rejectCompletion(new Error(
-          `Native ChatGPT request returned HTTP ${responseStatus}.`
-        ));
-      } else {
-        resolveCompletion({ aborted: false });
-      }
-      return;
-    }
-
-    if (method === "Network.loadingFailed") {
-      const errorText = String(params?.errorText || "network failure");
-      if (errorText === "net::ERR_ABORTED" &&
-          responseStatus >= 200 &&
-          responseStatus < 300) {
-        resolveCompletion({ aborted: true });
-        return;
-      }
-
-      rejectCompletion(new Error(
-        `Native ChatGPT request failed: ${errorText}.`
-      ));
-    }
-  };
-
-  debug.on("message", onMessage);
-  try {
-    await debug.sendCommand("Network.enable", { maxPostDataSize: 1024 * 1024 });
-    const focusedComposer = await focusNativeComposer(window);
-    window.webContents.selectAll();
-    await Promise.resolve(window.webContents.insertText(prompt));
-    const insertedComposer =
-      await inspectNativeComposerState(window).catch(() => null);
-    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
-    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
-
-    let event;
-    try {
-      event = await withTimeout(
-        requestSeen,
-        30000,
-        "Timed out waiting for ChatGPT's native conversation request."
-      );
-    } catch (error) {
-      const state = await inspectNativeComposerState(window).catch(() => null);
-      const details = [
-        focusedComposer ? `focused={${formatNativeComposerState(focusedComposer)}}` : null,
-        insertedComposer ? `inserted={${formatNativeComposerState(insertedComposer)}}` : null,
-        state ? `timeout={${formatNativeComposerState(state)}}` : null,
-        `posts=${[...observedPostPaths].join("|") || "none"}`
-      ].filter(Boolean).join("; ");
-      throw new Error(
-        `${error?.message || error}${details ? ` (${details})` : ""}`
-      );
-    }
-    const body = await nativeConversationRequestBody(debug, event);
-    validateNativeConversationRequest(
-      body,
-      selection,
-      expectedConversationId,
-      expectedProjectId
-    );
-
-    const requestMessageId = String(body?.messages?.[0]?.id || "").trim();
-    if (!requestMessageId)
-      throw new Error("ChatGPT native request did not contain a user message id.");
-
-    reportProgress?.({
-      state: "waiting",
-      detail: "Native ChatGPT request accepted; waiting for model completion."
-    });
-
-    await completionSeen;
-
-    let responseBody = "";
-    const captured = responseCapture ? await responseCapture : null;
-    const buffered = String(captured?.bufferedData || "");
-    if (buffered || responseChunks.length) {
-      const chunks = [
-        ...(buffered ? [Buffer.from(buffered, "base64")] : []),
-        ...responseChunks
-      ];
-      responseBody = Buffer.concat(chunks).toString("utf8");
-    } else {
-      try {
-        const response = await debug.sendCommand("Network.getResponseBody", {
-          requestId: event.requestId
-        });
-        responseBody = response?.base64Encoded
-          ? Buffer.from(String(response.body || ""), "base64").toString("utf8")
-          : String(response?.body || "");
-      } catch {
-        // A successful native fetch can be renderer-aborted after ChatGPT has
-        // accepted the turn. URL/network state remains a last-resort id source.
-      }
-    }
-
-    const stream = inspectConversationStreamText(responseBody, reportProgress);
-    const immediateConversationId =
-      stream.conversationId ||
-      String(body?.conversation_id || "").trim() ||
-      String(expectedConversationId || "").trim();
-    const conversationId = immediateConversationId ||
-      await Promise.race([
-        conversationIdSeen,
-        waitForNativeConversationId(window)
-      ]);
-    if (!conversationId)
-      throw new Error(
-        `ChatGPT native send did not reveal a conversation id after HTTP ${responseStatus ?? "unknown"}.`
-      );
-
-    return {
-      conversationId,
-      requestMessageId,
-      execution: stream.execution
-    };
-  } finally {
-    debug.removeListener("message", onMessage);
-    if (attachedByMezhs && debug.isAttached())
-      debug.detach();
-  }
-}
-
-function sameOriginPostPath(request) {
-  if (String(request?.method || "").toUpperCase() !== "POST")
-    return null;
-  try {
-    const url = new URL(String(request?.url || ""));
-    return url.origin === ORIGIN ? url.pathname : null;
-  } catch {
-    return null;
-  }
-}
-
-function isNativeConversationRequest(request) {
-  if (String(request?.method || "").toUpperCase() !== "POST")
-    return false;
-  try {
-    const url = new URL(String(request?.url || ""));
-    return url.origin === ORIGIN && url.pathname === API.conversation;
-  } catch {
-    return false;
-  }
-}
-
-function conversationIdFromNativeRequest(request) {
-  try {
-    if (String(request?.method || "").toUpperCase() !== "GET")
-      return null;
-
-    const url = new URL(String(request?.url || ""));
-    if (url.origin !== ORIGIN)
-      return null;
-
-    const match = /^\/backend-api\/conversation\/([^/?#]+)$/.exec(url.pathname);
-    return match ? decodeURIComponent(match[1]) : null;
-  } catch {
-    return null;
-  }
-}
-
-async function waitForNativeConversationId(window) {
-  if (typeof window.webContents.getURL !== "function")
-    return null;
-
-  for (let attempt = 0; attempt < 150; attempt++) {
-    try {
-      const url = new URL(String(window.webContents.getURL() || ""));
-      const match = /^\/c\/([^/]+)$/.exec(url.pathname);
-      if (match)
-        return decodeURIComponent(match[1]);
-    } catch {
-      // The page may be between navigations while ChatGPT creates the chat.
-    }
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  return null;
-}
-
-async function nativeConversationRequestBody(debug, event) {
-  let postData = String(event?.request?.postData || "");
-  if (!postData) {
-    const result = await debug.sendCommand("Network.getRequestPostData", {
-      requestId: event.requestId
-    });
-    postData = String(result?.postData || "");
-  }
-  try {
-    return JSON.parse(postData);
-  } catch {
-    throw new Error("ChatGPT native conversation request body was not valid JSON.");
-  }
-}
-
-function validateNativeConversationRequest(
-  body,
-  selection,
-  expectedConversationId,
-  expectedProjectId
-) {
-  if (selection.model && selection.model !== "auto" && body?.model !== selection.model) {
-    throw new Error(
-      `ChatGPT native composer selected model '${body?.model || "unknown"}' instead of '${selection.model}'.`
-    );
-  }
-  if (selection.thinkingEffort &&
-      body?.thinking_effort !== selection.thinkingEffort) {
-    throw new Error(
-      `ChatGPT native composer selected thinking effort '${body?.thinking_effort || "none"}' instead of '${selection.thinkingEffort}'.`
-    );
-  }
-
-  if (expectedConversationId &&
-      body?.conversation_id !== expectedConversationId) {
-    throw new Error(
-      `ChatGPT native continuation targeted '${body?.conversation_id || "new chat"}' instead of '${expectedConversationId}'.`
-    );
-  }
-  if (expectedProjectId &&
-      body?.conversation_mode?.gizmo_id !== expectedProjectId) {
-    throw new Error(
-      `ChatGPT native composer did not submit inside project '${expectedProjectId}'.`
-    );
-  }
-}
-
-async function inspectNativeComposerState(window) {
-  const selector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
-  const result = await window.webContents.executeJavaScript(`
-    (() => {
-      const editor = document.querySelector(${selector});
-      const send = document.querySelector(
-        'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
-      );
-      const stop = document.querySelector(
-        'button[data-testid="stop-button"], button[aria-label="Stop streaming"]'
-      );
-      const text = !editor
-        ? ""
-        : editor.tagName === "TEXTAREA" || editor.tagName === "INPUT"
-          ? editor.value || ""
-          : editor.innerText || editor.textContent || "";
-      return {
-        readyState: document.readyState,
-        editorFound: Boolean(editor),
-        editorActive: Boolean(editor && document.activeElement === editor),
-        editorLength: String(text).length,
-        editorTag: editor?.tagName || null,
-        editorId: editor?.id || null,
-        editorTestId: editor?.getAttribute?.("data-testid") || null,
-        editorRole: editor?.getAttribute?.("role") || null,
-        editorContentEditable: editor?.getAttribute?.("contenteditable") || null,
-        editorEditable: Boolean(
-          editor && (
-            editor.isContentEditable ||
-            ((editor.tagName === "TEXTAREA" || editor.tagName === "INPUT") &&
-             !editor.disabled && !editor.readOnly)
-          )
-        ),
-        sendFound: Boolean(send),
-        sendDisabled: Boolean(send?.disabled || send?.getAttribute("aria-disabled") === "true"),
-        stopFound: Boolean(stop)
-      };
-    })()
-  `, true);
+  const stream = await readConversationStream(response, reportProgress);
   return {
-    urlPath: safeUrlPath(window.webContents.getURL?.()),
-    ...result
+    conversationId: stream.conversationId || fallbackConversationId,
+    execution: stream.execution
   };
 }
 
-function safeUrlPath(value) {
-  try {
-    return new URL(String(value || "")).pathname || "/";
-  } catch {
-    return "unknown";
-  }
-}
-
-function formatNativeComposerState(state) {
-  return [
-    `url=${state.urlPath}`,
-    `ready=${state.readyState || "unknown"}`,
-    `editor=${state.editorFound ? "yes" : "no"}`,
-    `tag=${state.editorTag || "none"}`,
-    `id=${state.editorId || "none"}`,
-    `testid=${state.editorTestId || "none"}`,
-    `role=${state.editorRole || "none"}`,
-    `contenteditable=${state.editorContentEditable || "none"}`,
-    `active=${state.editorActive ? "yes" : "no"}`,
-    `length=${Number(state.editorLength) || 0}`,
-    `editable=${state.editorEditable ? "yes" : "no"}`,
-    `send=${state.sendFound ? (state.sendDisabled ? "disabled" : "enabled") : "missing"}`,
-    `stop=${state.stopFound ? "yes" : "no"}`
-  ].join(", ");
-}
-
-async function focusNativeComposer(window) {
-  const selector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
-  const result = await window.webContents.executeJavaScript(`
-    (async () => {
-      const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-      const selector = ${selector};
-      let editor = null;
-      for (let i = 0; i < 120 && !editor; i++) {
-        editor = document.querySelector(selector);
-        if (!editor) await sleep(250);
-      }
-      if (!editor)
-        return { ok: false, error: "ChatGPT prompt editor was not found." };
-
-      editor.focus();
-      const text = editor.tagName === "TEXTAREA" || editor.tagName === "INPUT"
-        ? editor.value || ""
-        : editor.innerText || editor.textContent || "";
-      return {
-        ok: true,
-        readyState: document.readyState,
-        editorFound: true,
-        editorActive: document.activeElement === editor,
-        editorLength: String(text).length,
-        editorTag: editor.tagName || null,
-        editorId: editor.id || null,
-        editorTestId: editor.getAttribute?.("data-testid") || null,
-        editorRole: editor.getAttribute?.("role") || null,
-        editorContentEditable: editor.getAttribute?.("contenteditable") || null,
-        editorEditable: Boolean(
-          editor.isContentEditable ||
-          ((editor.tagName === "TEXTAREA" || editor.tagName === "INPUT") &&
-           !editor.disabled && !editor.readOnly)
-        ),
-        sendFound: Boolean(document.querySelector(
-          'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]'
-        )),
-        sendDisabled: false,
-        stopFound: Boolean(document.querySelector(
-          'button[data-testid="stop-button"], button[aria-label="Stop streaming"]'
-        ))
-      };
-    })()
-  `, true);
-
-  if (!result?.ok)
-    throw new Error(result?.error || "ChatGPT prompt editor could not be focused.");
-  return {
-    urlPath: safeUrlPath(window.webContents.getURL?.()),
-    ...result
-  };
-}
-
-function inspectConversationStreamText(text, reportProgress) {
+async function readConversationStream(response, reportProgress) {
   const state = {
     conversationId: null,
     execution: {},
+    pending: "",
     thinkingReported: false,
     respondingReported: false
   };
-  for (const line of String(text || "").split(/\r?\n/))
-    inspectConversationStreamLine(line, state, reportProgress);
+
+  const consume = text => {
+    state.pending += text;
+    while (true) {
+      const newline = state.pending.indexOf("\n");
+      if (newline < 0) break;
+      const line = state.pending.slice(0, newline).replace(/\r$/, "");
+      state.pending = state.pending.slice(newline + 1);
+      inspectConversationStreamLine(line, state, reportProgress);
+    }
+  };
+
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      consume(decoder.decode(value, { stream: true }));
+    }
+    consume(decoder.decode());
+  } else {
+    consume(await response.text());
+  }
+
+  if (state.pending)
+    inspectConversationStreamLine(state.pending.replace(/\r$/, ""), state, reportProgress);
+
   return {
     conversationId: state.conversationId,
     execution: state.execution
   };
-}
-
-function withTimeout(promise, milliseconds, message) {
-  let timer;
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), milliseconds);
-    })
-  ]).finally(() => clearTimeout(timer));
 }
 
 function inspectConversationStreamLine(line, state, reportProgress) {
@@ -989,6 +608,134 @@ async function completeAccountMessage(
     chatUrl: `${ORIGIN}/c/${conversationId}`,
     artifacts: await downloadFiles(session, token, result.files),
     model: result.model
+  };
+}
+
+function conversationPreparePayload(payload) {
+  const message = payload.messages?.at(-1);
+  const prepared = {
+    action: payload.action,
+    conversation_id: payload.conversation_id,
+    parent_message_id: payload.parent_message_id || "client-created-root",
+    model: payload.model,
+    client_prepare_state: "none",
+    client_prepare_dispatch: "debounced",
+    client_prepare_source: "composer_editor_state",
+    timezone_offset_min: payload.timezone_offset_min,
+    timezone: payload.timezone,
+    conversation_mode: payload.conversation_mode || { kind: "primary_assistant" },
+    system_hints: payload.system_hints || [],
+    partial_query: message ? {
+      id: message.id,
+      author: message.author,
+      content: message.content
+    } : undefined,
+    supports_buffering: payload.supports_buffering,
+    supported_encodings: payload.supported_encodings,
+    client_contextual_info: {
+      app_name: payload.client_contextual_info?.app_name || "chatgpt.com",
+      has_web_push_capabilities: Boolean(
+        payload.client_contextual_info?.has_web_push_capabilities
+      ),
+      web_push_notification_permission:
+        payload.client_contextual_info?.web_push_notification_permission || "default"
+    },
+    local_function_names: payload.local_function_names || []
+  };
+  if (payload.thinking_effort)
+    prepared.thinking_effort = payload.thinking_effort;
+  return prepared;
+}
+
+async function initializeConversation(
+  session,
+  token,
+  projectId,
+  clientSessionId
+) {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const headers = await webApiHeaders(
+    session,
+    API.conversationInit,
+    clientSessionId,
+    {
+      "Accept": "*/*",
+      "Content-Type": "application/json"
+    }
+  );
+  return apiJson(session, token, API.conversationInit, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      gizmo_id: projectId,
+      requested_default_model: null,
+      conversation_id: null,
+      timezone,
+      timezone_offset_min: new Date().getTimezoneOffset(),
+      conversation_origin: null
+    })
+  });
+}
+
+async function getConduitToken(
+  session,
+  token,
+  turnTraceId,
+  body,
+  clientSessionId
+) {
+  const headers = await webApiHeaders(
+    session,
+    API.conversationPrepare,
+    clientSessionId,
+    {
+      "Accept": "*/*",
+      "Content-Type": "application/json",
+      "x-oai-turn-trace-id": turnTraceId
+    }
+  );
+  const response = await apiJson(session, token, API.conversationPrepare, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body)
+  });
+  const conduitToken = String(response?.conduit_token || "").trim();
+  if (!conduitToken)
+    throw new Error("ChatGPT conversation prepare did not return a conduit token.");
+  return conduitToken;
+}
+
+async function webApiHeaders(session, endpoint, clientSessionId, extra = {}) {
+  const headers = {
+    "Oai-Language": "en-US",
+    "Oai-Session-Id": clientSessionId,
+    "x-openai-web-frontend": "core_web",
+    "x-openai-target-path": endpoint,
+    "x-openai-target-route": endpoint,
+    ...extra
+  };
+  const deviceId = (
+    await session.cookies.get({ url: ORIGIN, name: "oai-did" })
+  )[0]?.value;
+  if (deviceId) headers["Oai-Device-Id"] = deviceId;
+  return headers;
+}
+
+function clientContext(window) {
+  const bounds = window?.getBounds?.() || {};
+  const width = Number(bounds.width) || 1200;
+  const height = Number(bounds.height) || 850;
+  return {
+    is_dark_mode: false,
+    time_since_loaded: 0,
+    page_height: height,
+    page_width: width,
+    pixel_ratio: 1,
+    screen_height: height,
+    screen_width: width,
+    app_name: "chatgpt.com",
+    has_web_push_capabilities: true,
+    web_push_notification_permission: "default"
   };
 }
 
