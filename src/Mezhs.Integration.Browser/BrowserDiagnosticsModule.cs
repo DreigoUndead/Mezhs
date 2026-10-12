@@ -15,6 +15,7 @@ public sealed class BrowserDiagnosticsModule(BrowserAccountSession session)
         "key",
         "screenshot",
         "networkTrace",
+        "inspectRspackExports",
         "show"
     ];
 
