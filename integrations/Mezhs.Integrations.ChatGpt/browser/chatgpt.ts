@@ -1122,7 +1122,7 @@ function findVisibleAssistantReply(conversation, requestMessageId) {
       ).trim() || null;
       const resolvedModel = execution.model || requestResolvedModel;
       return {
-        text: visibleAssistantText(assistant),
+        text: citedAssistantText(assistant),
         parentMessageId: assistant.id,
         projectId: conversation.gizmo_id || null,
         model: resolvedModel
@@ -1187,6 +1187,25 @@ function visibleAssistantText(message) {
     .filter(part => typeof part === "string")
     .join("\n")
     .trim();
+}
+
+function citedAssistantText(message) {
+  let text = visibleAssistantText(message);
+  // ChatGPT embeds citation glyphs in text and provides their rendered
+  // Markdown equivalents in metadata.content_references.
+  for (const reference of message?.metadata?.content_references || []) {
+    const marker = reference?.matched_text;
+    const replacement = reference?.alt;
+    if (typeof marker !== "string" || !/[\uE200-\uE203]/.test(marker) ||
+        typeof replacement !== "string" || !marker)
+      continue;
+    text = text.split(marker).join(replacement);
+  }
+
+  // Keep missing citations visible as unresolved, never invent a source URL.
+  return text
+    .replace(/\uE200cite\uE202[^\uE201]*\uE201/g, "[citation unavailable]")
+    .replace(/\uE200memcite\uE201/g, "");
 }
 
 function collectFileRefs(value, refs) {
