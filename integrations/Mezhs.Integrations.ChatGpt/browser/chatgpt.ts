@@ -780,7 +780,46 @@ async function nativeChatRequirementsHeaders(window, payload) {
           loaders: 0,
           cachedModules: 0,
           inspectedExports: 0,
-          matchingProviders: 0
+          matchingProviders: 0,
+          functionsInspected: 0,
+          markerCounts: {
+            chatReq: 0,
+            turnstileToken: 0,
+            proofToken: 0,
+            getEnforcementTokenSync: 0,
+            getEnforcementToken: 0
+          },
+          markerCoverage: [0, 0, 0, 0, 0, 0],
+          enforcementObjectExports: 0
+        };
+        const examinedFunctions = new Set();
+        const markerNames = Object.keys(observed.markerCounts);
+        const inspectSignature = value => {
+          if (typeof value !== "function" || examinedFunctions.has(value)) return;
+          examinedFunctions.add(value);
+          observed.functionsInspected++;
+          let source;
+          try { source = Function.prototype.toString.call(value); }
+          catch { return; }
+          let coverage = 0;
+          for (const marker of markerNames) {
+            if (source.includes(marker)) {
+              observed.markerCounts[marker]++;
+              coverage++;
+            }
+          }
+          observed.markerCoverage[coverage]++;
+        };
+        const inspectObjectShape = value => {
+          if (!value || typeof value !== "object") return;
+          try {
+            if (typeof value.getEnforcementTokenSync === "function" ||
+                typeof value.getRequirementsTokenBlocking === "function")
+              observed.enforcementObjectExports++;
+          } catch {
+            // Inspection is diagnostic-only; hostile export getters are ignored.
+          }
+        };
         };
         for (const runtimeUrl of rspackRuntimeUrls) {
           let runtime;
@@ -817,6 +856,10 @@ async function nativeChatRequirementsHeaders(window, payload) {
           }
 
           observed.inspectedExports += values.length;
+          for (const value of values) {
+            inspectSignature(value);
+            inspectObjectShape(value);
+          }
           observed.matchingProviders += values.filter(isSecurityProvider).length;
           securityProvider = uniqueSecurityProvider(values);
           if (securityProvider)
