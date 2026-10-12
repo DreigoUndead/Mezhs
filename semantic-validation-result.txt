@@ -2,462 +2,169 @@ TAP version 13
 # Subtest: browser transport polls long provider operations through short HTTP requests
 ok 1 - browser transport polls long provider operations through short HTTP requests
   ---
-  duration_ms: 1.419497
+  duration_ms: 1.328791
   type: 'test'
   ...
 # Subtest: provider response lifetime is not capped by wall-clock deadlines
 ok 2 - provider response lifetime is not capped by wall-clock deadlines
   ---
-  duration_ms: 0.742868
+  duration_ms: 0.613304
   type: 'test'
   ...
 # Subtest: ChatGPT getProjects uses the private API and follows pagination
 ok 3 - ChatGPT getProjects uses the private API and follows pagination
   ---
-  duration_ms: 31.291081
+  duration_ms: 130.105939
   type: 'test'
   ...
 # Subtest: ChatGPT getModels follows the native picker instead of the raw catalog
 ok 4 - ChatGPT getModels follows the native picker instead of the raw catalog
   ---
-  duration_ms: 2.687496
+  duration_ms: 4.456381
   type: 'test'
   ...
 # Subtest: ChatGPT account sends project turns through semantic HTTP with the requested effort
-not ok 5 - ChatGPT account sends project turns through semantic HTTP with the requested effort
+ok 5 - ChatGPT account sends project turns through semantic HTTP with the requested effort
   ---
-  duration_ms: 30.985687
+  duration_ms: 550.866635
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:343:1'
-  failureType: 'testCodeFailure'
-  error: 'ChatGPT account must not access browser UI: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:298:13)
-    clientContext (/tmp/mezhs-chatgpt-test-dgmQkz/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-test-dgmQkz/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-test-dgmQkz/chatgpt.cjs:279:5)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:346:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT account continuations target the known conversation without UI navigation
-not ok 6 - ChatGPT account continuations target the known conversation without UI navigation
+ok 6 - ChatGPT account continuations target the known conversation without UI navigation
   ---
-  duration_ms: 2.823609
+  duration_ms: 7.000538
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:365:1'
-  failureType: 'testCodeFailure'
-  error: 'ChatGPT account must not access browser UI: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:298:13)
-    clientContext (/tmp/mezhs-chatgpt-test-HJxVsi/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-test-HJxVsi/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-test-HJxVsi/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-test-HJxVsi/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:368:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT does not replay a turn when the backend rejects direct submission
-not ok 7 - ChatGPT does not replay a turn when the backend rejects direct submission
+ok 7 - ChatGPT does not replay a turn when the backend rejects direct submission
   ---
-  duration_ms: 3.54814
+  duration_ms: 5.420761
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:384:1'
-  failureType: 'testCodeFailure'
-  error: |-
-    The input did not match the regular expression /HTTP 403/. Input:
-    
-    'Error: ChatGPT account must not access browser UI: getBounds'
-    
-  code: 'ERR_ASSERTION'
-  name: 'AssertionError'
-  expected:
-  actual:
-  error: 'ChatGPT account must not access browser UI: getBounds'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:298:13)
-    clientContext (/tmp/mezhs-chatgpt-test-XDpPnS/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-test-XDpPnS/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-test-XDpPnS/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-test-XDpPnS/chatgpt.cjs:173:10)
-    async waitForActual (node:assert:644:5)
-    async Function.rejects (node:assert:767:25)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:387:3)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
-  operator: 'rejects'
-  stack: |-
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/browser-provider-operations.test.js:387:3)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT account production code has no DOM or native input submission
 ok 8 - ChatGPT account production code has no DOM or native input submission
   ---
-  duration_ms: 0.537391
+  duration_ms: 0.658709
   type: 'test'
   ...
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
+# ChatGPT conversation poll rate-limited; retrying in 2000 ms.
 # Subtest: ChatGPT account newChat submits a semantic request and reads conversation state
-not ok 9 - ChatGPT account newChat submits a semantic request and reads conversation state
+ok 9 - ChatGPT account newChat submits a semantic request and reads conversation state
   ---
-  duration_ms: 70.68171
+  duration_ms: 670.011374
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:165:1'
-  failureType: 'testCodeFailure'
-  error: 'Unexpected UI access: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-rVY4po/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-rVY4po/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-rVY4po/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-rVY4po/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:183:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
   ...
 # Subtest: ChatGPT continues after a partial semantic response stream is aborted
-not ok 10 - ChatGPT continues after a partial semantic response stream is aborted
+ok 10 - ChatGPT continues after a partial semantic response stream is aborted
   ---
-  duration_ms: 3.439227
+  duration_ms: 6.381723
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:195:1'
-  failureType: 'testCodeFailure'
-  error: 'Unexpected UI access: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-rgzzpj/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-rgzzpj/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-rgzzpj/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-rgzzpj/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:220:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT does not retry when the semantic request aborts before a response
-not ok 11 - ChatGPT does not retry when the semantic request aborts before a response
+ok 11 - ChatGPT does not retry when the semantic request aborts before a response
   ---
-  duration_ms: 3.014153
+  duration_ms: 4.13351
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:236:1'
-  failureType: 'testCodeFailure'
-  error: |-
-    The input did not match the regular expression /Native network connection aborted before HTTP response/. Input:
-    
-    'Error: Unexpected UI access: getBounds'
-    
-  code: 'ERR_ASSERTION'
-  name: 'AssertionError'
-  expected:
-  actual:
-  error: 'Unexpected UI access: getBounds'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-8APcii/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-8APcii/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-8APcii/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-8APcii/chatgpt.cjs:173:10)
-    async waitForActual (node:assert:644:5)
-    async Function.rejects (node:assert:767:25)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:248:3)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
-  operator: 'rejects'
-  stack: |-
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:248:3)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT follow-up ignores a stale assistant until its user message appears in ancestry
-not ok 12 - ChatGPT follow-up ignores a stale assistant until its user message appears in ancestry
+ok 12 - ChatGPT follow-up ignores a stale assistant until its user message appears in ancestry
   ---
-  duration_ms: 2.486667
+  duration_ms: 7.233132
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:259:1'
-  failureType: 'testCodeFailure'
-  error: 'Unexpected UI access: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-CipeeC/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-CipeeC/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-CipeeC/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-CipeeC/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:301:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT final conversation metadata overrides earlier stream model metadata
-not ok 13 - ChatGPT final conversation metadata overrides earlier stream model metadata
+ok 13 - ChatGPT final conversation metadata overrides earlier stream model metadata
   ---
-  duration_ms: 3.196045
+  duration_ms: 7.531789
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:317:1'
-  failureType: 'testCodeFailure'
-  error: 'Unexpected UI access: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-cEvZWO/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-cEvZWO/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-cEvZWO/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-cEvZWO/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:342:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT conversation polling backs off on 429 without resending the turn
-not ok 14 - ChatGPT conversation polling backs off on 429 without resending the turn
+ok 14 - ChatGPT conversation polling backs off on 429 without resending the turn
   ---
-  duration_ms: 2.452767
+  duration_ms: 10.875973
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:362:1'
-  failureType: 'testCodeFailure'
-  error: 'Unexpected UI access: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-uHR2Q1/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-uHR2Q1/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-uHR2Q1/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-uHR2Q1/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:389:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT inactivity watchdog resets when the conversation advances
-not ok 15 - ChatGPT inactivity watchdog resets when the conversation advances
+ok 15 - ChatGPT inactivity watchdog resets when the conversation advances
   ---
-  duration_ms: 2.612776
+  duration_ms: 8.599681
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:403:1'
-  failureType: 'testCodeFailure'
-  error: 'Unexpected UI access: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-y1mBNp/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-y1mBNp/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-y1mBNp/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-y1mBNp/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:456:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT keeps waiting while explicit in-progress analysis remains active
-not ok 16 - ChatGPT keeps waiting while explicit in-progress analysis remains active
+ok 16 - ChatGPT keeps waiting while explicit in-progress analysis remains active
   ---
-  duration_ms: 2.815187
+  duration_ms: 9.818393
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:468:1'
-  failureType: 'testCodeFailure'
-  error: 'Unexpected UI access: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-XEZFcs/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-XEZFcs/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-XEZFcs/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-XEZFcs/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:516:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT captures transient provider reasoning metadata from the response stream
-not ok 17 - ChatGPT captures transient provider reasoning metadata from the response stream
+ok 17 - ChatGPT captures transient provider reasoning metadata from the response stream
   ---
-  duration_ms: 4.522202
+  duration_ms: 7.462069
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:533:1'
-  failureType: 'testCodeFailure'
-  error: 'Unexpected UI access: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-uXi2xZ/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-uXi2xZ/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-uXi2xZ/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-uXi2xZ/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:576:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT distinguishes requested thinking effort from provider-confirmed effort
-not ok 18 - ChatGPT distinguishes requested thinking effort from provider-confirmed effort
+ok 18 - ChatGPT distinguishes requested thinking effort from provider-confirmed effort
   ---
-  duration_ms: 7.250099
+  duration_ms: 6.965692
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:613:1'
-  failureType: 'testCodeFailure'
-  error: 'Unexpected UI access: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-FZ2s7B/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-FZ2s7B/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-FZ2s7B/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-FZ2s7B/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:630:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: rate-limited state checks do not consume the turn-start watchdog
-not ok 19 - rate-limited state checks do not consume the turn-start watchdog
+ok 19 - rate-limited state checks do not consume the turn-start watchdog
   ---
-  duration_ms: 2.256604
+  duration_ms: 8.500566
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:650:1'
-  failureType: 'testCodeFailure'
-  error: 'Unexpected UI access: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-HB7SsB/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-HB7SsB/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-HB7SsB/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-HB7SsB/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:676:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT fails stalled state polling without replaying a request
-not ok 20 - ChatGPT fails stalled state polling without replaying a request
+ok 20 - ChatGPT fails stalled state polling without replaying a request
   ---
-  duration_ms: 2.313479
+  duration_ms: 7.604755
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:688:1'
-  failureType: 'testCodeFailure'
-  error: |-
-    The input did not match the regular expression /showed no active generation for 20s after the native request completed/. Input:
-    
-    'Error: Unexpected UI access: getBounds'
-    
-  code: 'ERR_ASSERTION'
-  name: 'AssertionError'
-  expected:
-  actual:
-  error: 'Unexpected UI access: getBounds'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-Qfr9mk/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-Qfr9mk/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-Qfr9mk/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-Qfr9mk/chatgpt.cjs:173:10)
-    async waitForActual (node:assert:644:5)
-    async Function.rejects (node:assert:767:25)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:716:3)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
-  operator: 'rejects'
-  stack: |-
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:716:3)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT account does not surface analysis-channel control text as the reply
-not ok 21 - ChatGPT account does not surface analysis-channel control text as the reply
+ok 21 - ChatGPT account does not surface analysis-channel control text as the reply
   ---
-  duration_ms: 2.093601
+  duration_ms: 5.135699
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:728:1'
-  failureType: 'testCodeFailure'
-  error: 'Unexpected UI access: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-UI75hF/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-UI75hF/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-UI75hF/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-UI75hF/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:794:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT account walks past hidden current nodes to the visible final reply
-not ok 22 - ChatGPT account walks past hidden current nodes to the visible final reply
+ok 22 - ChatGPT account walks past hidden current nodes to the visible final reply
   ---
-  duration_ms: 2.047523
+  duration_ms: 3.969434
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:808:1'
-  failureType: 'testCodeFailure'
-  error: 'Unexpected UI access: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:96:15)
-    clientContext (/tmp/mezhs-chatgpt-api-bqcldl/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-api-bqcldl/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-api-bqcldl/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-api-bqcldl/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-account-api.test.js:856:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 # Subtest: ChatGPT inaccessible continuation returns provider state instead of throwing
-not ok 23 - ChatGPT inaccessible continuation returns provider state instead of throwing
+ok 23 - ChatGPT inaccessible continuation returns provider state instead of throwing
   ---
-  duration_ms: 62.336268
+  duration_ms: 669.05043
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-conversation-unavailable.test.js:91:1'
-  failureType: 'testCodeFailure'
-  error: 'Unexpected browser UI access: getBounds'
-  code: 'ERR_TEST_FAILURE'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-conversation-unavailable.test.js:72:13)
-    clientContext (/tmp/mezhs-chatgpt-unavailable-test-FBMdKL/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-unavailable-test-FBMdKL/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-unavailable-test-FBMdKL/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-unavailable-test-FBMdKL/chatgpt.cjs:173:10)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-conversation-unavailable.test.js:93:18)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
   ...
 # Subtest: ChatGPT unrelated conversation 404 still fails
-not ok 24 - ChatGPT unrelated conversation 404 still fails
+ok 24 - ChatGPT unrelated conversation 404 still fails
   ---
-  duration_ms: 4.720218
+  duration_ms: 7.125591
   type: 'test'
-  location: '/home/runner/work/Mezhs/Mezhs/tests/chatgpt-conversation-unavailable.test.js:97:1'
-  failureType: 'testCodeFailure'
-  error: |-
-    The input did not match the regular expression /ChatGPT \/backend-api\/conversation\/stale-conversation failed with HTTP 404/. Input:
-    
-    'Error: Unexpected browser UI access: getBounds'
-    
-  code: 'ERR_ASSERTION'
-  name: 'AssertionError'
-  expected:
-  actual:
-  error: 'Unexpected browser UI access: getBounds'
-  stack: |-
-    Object.get (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-conversation-unavailable.test.js:72:13)
-    clientContext (/tmp/mezhs-chatgpt-unavailable-test-pDq6Us/chatgpt.cjs:742:24)
-    buildPayload (/tmp/mezhs-chatgpt-unavailable-test-pDq6Us/chatgpt.cjs:238:31)
-    sendApiAccountMessage (/tmp/mezhs-chatgpt-unavailable-test-pDq6Us/chatgpt.cjs:279:5)
-    sendAccountMessage (/tmp/mezhs-chatgpt-unavailable-test-pDq6Us/chatgpt.cjs:173:10)
-    async waitForActual (node:assert:644:5)
-    async Function.rejects (node:assert:767:25)
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-conversation-unavailable.test.js:99:3)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
-  operator: 'rejects'
-  stack: |-
-    async TestContext.<anonymous> (/home/runner/work/Mezhs/Mezhs/tests/chatgpt-conversation-unavailable.test.js:99:3)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
   ...
 1..24
 # tests 24
 # suites 0
-# pass 5
-# fail 19
+# pass 24
+# fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 175.793102
+# duration_ms 859.932861
 
-CHECK=0 0 0 TESTS=1
-OVERALL=FAIL
+CHECK=0 0 0 TESTS=0
+OVERALL=PASS
