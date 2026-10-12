@@ -739,15 +739,28 @@ async function nativeChatRequirementsHeaders(window, session, token) {
   const accountId = accountIds.get(session) || null;
   const script = `
     (async () => {
-      const runtimeUrl = performance.getEntriesByType("resource")
+      const providerCacheKey = Symbol.for("mezhs.chatgpt.nativeRequirementsProvider");
+      const resources = performance.getEntriesByType("resource");
+      const runtimeUrl = resources
         .map(entry => String(entry.name || ""))
         .find(url => /^https:\\/\\/chatgpt\\.com\\/cdn\\/assets\\/633146\\.[a-f0-9]+\\.js(?:[?#].*)?$/i.test(url));
-      if (!runtimeUrl)
-        throw new Error("ChatGPT Rspack runtime is not loaded.");
-      const runtime = await import(runtimeUrl);
-      const provider = runtime?.__webpack_require__?.c?.lXE?.exports?.f;
-      if (typeof provider !== "function" || provider.length !== 1)
-        throw new Error("ChatGPT native requirements provider lXE.f is unavailable.");
+
+      // Resource Timing can be cleared or truncated without unloading the page.
+      // Keep only the verified function for this renderer document, not credentials
+      // or challenge results. A real page navigation resets globalThis.
+      let provider = globalThis[providerCacheKey];
+      if (runtimeUrl) {
+        const runtime = await import(runtimeUrl);
+        provider = runtime?.__webpack_require__?.c?.lXE?.exports?.f;
+        if (typeof provider === "function" && provider.length === 1)
+          globalThis[providerCacheKey] = provider;
+      }
+      if (typeof provider !== "function" || provider.length !== 1) {
+        throw new Error(runtimeUrl
+          ? "ChatGPT native requirements provider lXE.f is unavailable."
+          : "ChatGPT native requirements provider was not observed in this document " +
+            "(resourceEntries=" + resources.length + ", readyState=" + document.readyState + ").");
+      }
 
       const prepared = await provider(async requirementsKey => {
         const response = await fetch("/backend-api/sentinel/chat-requirements/prepare", {
