@@ -223,31 +223,47 @@ function diagnosticElementSnapshot() {
   })()`;
 }
 
-async function captureDiagnosticNetwork(action, waitMs) {
+async function captureDiagnosticNetwork(action, waitMs, { traceHeaders = false } = {}) {
   const debuggerClient = window.webContents.debugger;
   const alreadyAttached = debuggerClient.isAttached();
   const requests = [];
   const responses = new Map();
+  const additionalHeaders = new Map();
   const listener = (_event, method, params) => {
     if (method === 'Network.requestWillBeSent') {
       try {
         const parsed = new URL(params.request.url);
+        if (traceHeaders && (
+          parsed.origin !== 'https://chatgpt.com' ||
+          !parsed.pathname.startsWith('/backend-api/')
+        )) return;
         requests.push({
           id: params.requestId,
           method: params.request.method,
           url: parsed.origin + parsed.pathname,
-          resourceType: params.type || null
+          resourceType: params.type || null,
+          ...(traceHeaders ? {
+            // Names only: never record cookies, auth tokens, payloads, or header values.
+            headerNames: Object.keys(params.request.headers || {})
+          } : {})
         });
       } catch {
-        requests.push({
-          id: params.requestId,
-          method: params.request.method,
-          url: null,
-          resourceType: params.type || null
-        });
+        if (!traceHeaders) {
+          requests.push({
+            id: params.requestId,
+            method: params.request.method,
+            url: null,
+            resourceType: params.type || null
+          });
+        }
       }
+    } else if (traceHeaders && method === 'Network.requestWillBeSentExtraInfo') {
+      additionalHeaders.set(params.requestId, Object.keys(params.headers || {}));
     } else if (method === 'Network.responseReceived') {
       responses.set(params.requestId, params.response.status);
+    } else if (traceHeaders && method === 'Network.responseReceivedExtraInfo') {
+      if (!responses.has(params.requestId))
+        responses.set(params.requestId, params.statusCode);
     }
   };
 
@@ -259,6 +275,12 @@ async function captureDiagnosticNetwork(action, waitMs) {
     if (waitMs > 0) await sleep(waitMs);
     return requests.map(request => ({
       ...request,
+      ...(traceHeaders ? {
+        headerNames: [...new Set([
+          ...(request.headerNames || []),
+          ...(additionalHeaders.get(request.id) || [])
+        ])].sort()
+      } : {}),
       status: responses.get(request.id) ?? null
     }));
   } finally {
@@ -278,6 +300,15 @@ async function invokeDiagnostic(operation, args) {
   };
 
   switch (operation) {
+    case 'networkTrace': {
+      // Observe a manual browser action. No DOM selectors, request bodies, or secret values.
+      const waitMs = Math.max(1000, Math.min(Number(args?.waitMs ?? 30000), 60000));
+      return captureDiagnosticNetwork(() => {
+        window.show();
+        window.focus();
+      }, waitMs, { traceHeaders: true });
+    }
+
     case 'snapshot':
       return window.webContents.executeJavaScript(diagnosticElementSnapshot());
 
