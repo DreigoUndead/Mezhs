@@ -204,6 +204,33 @@ test("ChatGPT account newChat submits a semantic request and reads conversation 
   assert.equal(result.text, "API_OK");
 });
 
+test("ChatGPT fails closed when browser-owned requirements are unavailable", async () => {
+  const chatgpt = loadChatGptModule();
+  let posts = 0;
+  const session = protocolSession({
+    conversationId: "conv-missing-requirements",
+    onConversationPost: () => { posts++; },
+    onConversationRead: () => {
+      throw new Error("No conversation polling should occur.");
+    }
+  });
+  const browser = nativeBrowserSurface();
+  browser.window.webContents.executeJavaScript = async () => ({
+    requirementsToken: null, prepareToken: null, forceLogin: false
+  });
+  await assert.rejects(
+    chatgpt.operations.newChat({
+      ...browser,
+      session,
+      args: { prompt: "should not submit", files: [] },
+      sleep: async () => {}
+    }),
+    /did not produce a requirements token/
+  );
+  assert.equal(posts, 0);
+  assert.equal(session.__native.posts, 0);
+});
+
 test("ChatGPT continues after a partial semantic response stream is aborted", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
