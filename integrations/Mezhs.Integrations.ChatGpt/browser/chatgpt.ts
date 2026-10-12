@@ -773,6 +773,15 @@ async function nativeChatRequirementsHeaders(window, payload) {
         /\\/cdn\\/assets\\/633146\\.[a-f0-9]+\\.js(?:[?#].*)?$/i.test(url));
 
       if (rspackRuntimeUrls.length) {
+        // Counts only: never include exports, token values or source in errors.
+        const observed = {
+          bundles: rspackRuntimeUrls.length,
+          imported: 0,
+          loaders: 0,
+          cachedModules: 0,
+          inspectedExports: 0,
+          matchingProviders: 0
+        };
         for (const runtimeUrl of rspackRuntimeUrls) {
           let runtime;
           try {
@@ -781,6 +790,7 @@ async function nativeChatRequirementsHeaders(window, payload) {
             continue;
           }
 
+          observed.imported++;
           const loader = runtime?.__webpack_require__;
           if (typeof loader !== "function" ||
               !loader.c ||
@@ -788,8 +798,11 @@ async function nativeChatRequirementsHeaders(window, payload) {
             continue;
           }
 
+          observed.loaders++;
           const values = [];
-          for (const record of Object.values(loader.c)) {
+          const cached = Object.values(loader.c);
+          observed.cachedModules += cached.length;
+          for (const record of cached) {
             const exported = record?.exports;
             if (exported === null || exported === undefined)
               continue;
@@ -803,6 +816,8 @@ async function nativeChatRequirementsHeaders(window, payload) {
             }
           }
 
+          observed.inspectedExports += values.length;
+          observed.matchingProviders += values.filter(isSecurityProvider).length;
           securityProvider = uniqueSecurityProvider(values);
           if (securityProvider)
             break;
@@ -810,7 +825,10 @@ async function nativeChatRequirementsHeaders(window, payload) {
 
         if (!securityProvider) {
           throw new Error(
-            "ChatGPT native chat requirements provider was not found in the loaded Rspack frontend."
+            "ChatGPT native chat requirements provider was not found in the loaded Rspack frontend " +
+            `(bundles=${observed.bundles}, imported=${observed.imported}, loaders=${observed.loaders}, ` +
+            `cachedModules=${observed.cachedModules}, inspectedExports=${observed.inspectedExports}, ` +
+            `matchingProviders=${observed.matchingProviders}).`
           );
         }
       } else {
