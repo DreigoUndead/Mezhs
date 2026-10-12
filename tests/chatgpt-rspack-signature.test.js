@@ -72,6 +72,12 @@ test("Rspack diagnostic counts partial provider signatures without guessing a re
       assert.equal(counts.markerCounts.getEnforcementToken, 1);
       assert.equal(counts.markerCoverage[2], 1);
       assert.equal(counts.markerCoverage[3], 1);
+      assert.equal(counts.candidates.length, 1);
+      assert.equal(counts.candidates[0].moduleId, "moduleB");
+      assert.equal(counts.candidates[0].exportKey, "separateEnforcement");
+      assert.equal(counts.candidates[0].arity, 0);
+      assert.ok(counts.candidates[0].sourceLength > 0);
+      assert.equal(counts.candidates[0].name, "separateEnforcement");
       assert.doesNotMatch(error.message, /Bearer |Cookie:|secret-token|source code/);
       return true;
     }
