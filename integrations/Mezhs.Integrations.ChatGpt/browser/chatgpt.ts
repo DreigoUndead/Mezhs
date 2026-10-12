@@ -296,7 +296,7 @@ async function postConversationTurn(
   );
   // The authenticated frontend owns Sentinel requirements and enforcement tokens.
   // Never invent or reuse tokens from a different turn/session.
-  const sentinelHeaders = await nativeChatRequirementsHeaders(window, payload);
+  const sentinelHeaders = await nativeChatRequirementsHeaders(window, session, token);
 
   const headers = await webApiHeaders(
     session,
@@ -735,249 +735,64 @@ function clientContext() {
   };
 }
 
-async function nativeChatRequirementsHeaders(window, payload) {
-  const securityMetadata = {
-    systemHints: Array.isArray(payload?.system_hints) ? payload.system_hints : [],
-    ...(payload?.conversation_mode?.gizmo_id
-      ? { conversationMode: payload.conversation_mode }
-      : {})
-  };
-  const metadata = JSON.stringify(securityMetadata);
+async function nativeChatRequirementsHeaders(window, session, token) {
+  const accountId = accountIds.get(session) || null;
   const script = `
     (async () => {
-      const resources = [...new Set(
-        performance.getEntriesByType("resource")
-          .map(entry => String(entry.name || ""))
-          .filter(url => /^https:\\/\\/chatgpt\\.com\\/cdn\\/assets\\/[^/?#]+\\.js(?:[?#].*)?$/i.test(url))
-      )].reverse();
+      const runtimeUrl = performance.getEntriesByType("resource")
+        .map(entry => String(entry.name || ""))
+        .find(url => /^https:\\/\\/chatgpt\\.com\\/cdn\\/assets\\/633146\\.[a-f0-9]+\\.js(?:[?#].*)?$/i.test(url));
+      if (!runtimeUrl)
+        throw new Error("ChatGPT Rspack runtime is not loaded.");
+      const runtime = await import(runtimeUrl);
+      const provider = runtime?.__webpack_require__?.c?.lXE?.exports?.f;
+      if (typeof provider !== "function" || provider.length !== 1)
+        throw new Error("ChatGPT native requirements provider lXE.f is unavailable.");
 
-      const isSecurityProvider = value => {
-        if (typeof value !== "function") return false;
-        const source = Function.prototype.toString.call(value);
-        return source.includes("chatReq") &&
-          source.includes("turnstileToken") &&
-          source.includes("proofToken") &&
-          source.includes("getEnforcementTokenSync") &&
-          source.includes("getEnforcementToken");
-      };
-
-      const uniqueSecurityProvider = values => {
-        const matches = [...new Set(values.filter(isSecurityProvider))];
-        if (matches.length > 1)
-          throw new Error("ChatGPT native chat requirements provider is ambiguous.");
-        return matches[0] || null;
-      };
-
-      let securityProvider = null;
-      const rspackRuntimeUrls = resources.filter(url =>
-        /\\/cdn\\/assets\\/633146\\.[a-f0-9]+\\.js(?:[?#].*)?$/i.test(url));
-
-      if (rspackRuntimeUrls.length) {
-        // Counts only: never include exports, token values or source in errors.
-        const observed = {
-          bundles: rspackRuntimeUrls.length,
-          imported: 0,
-          loaders: 0,
-          cachedModules: 0,
-          inspectedExports: 0,
-          matchingProviders: 0,
-          functionsInspected: 0,
-          markerCounts: {
-            chatReq: 0,
-            turnstileToken: 0,
-            proofToken: 0,
-            getEnforcementTokenSync: 0,
-            getEnforcementToken: 0
+      const prepared = await provider(async requirementsKey => {
+        const response = await fetch("/backend-api/sentinel/chat-requirements/prepare", {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Authorization": "Bearer " + ${JSON.stringify(token)},
+            ...(${JSON.stringify(accountId)} ? {
+              "ChatGPT-Account-Id": ${JSON.stringify(accountId)}
+            } : {}),
+            "Content-Type": "application/json",
+            "OAI-Language": "en-US"
           },
-          markerCoverage: [0, 0, 0, 0, 0, 0],
-          enforcementObjectExports: 0,
-          candidates: []
-        };
-        const examinedFunctions = new Set();
-        const candidateFunctions = new Map();
-        const markerNames = Object.keys(observed.markerCounts);
-        const inspectSignature = value => {
-          if (typeof value !== "function" || examinedFunctions.has(value)) return;
-          examinedFunctions.add(value);
-          observed.functionsInspected++;
-          let source;
-          try { source = Function.prototype.toString.call(value); }
-          catch { return; }
-          let coverage = 0;
-          for (const marker of markerNames) {
-            if (source.includes(marker)) {
-              observed.markerCounts[marker]++;
-              coverage++;
-            }
-          }
-          observed.markerCoverage[coverage]++;
-          if (coverage >= 3 && candidateFunctions.size < 4) {
-            candidateFunctions.set(value, {
-              name: String(value.name || "").slice(0, 64),
-              arity: value.length,
-              sourceLength: source.length,
-              moduleId: null,
-              exportKey: null
-            });
-          }
-        };
-        const inspectObjectShape = value => {
-          if (!value || typeof value !== "object") return;
-          try {
-            if (typeof value.getEnforcementTokenSync === "function" ||
-                typeof value.getRequirementsTokenBlocking === "function")
-              observed.enforcementObjectExports++;
-          } catch {
-            // Inspection is diagnostic-only; hostile export getters are ignored.
-          }
-        };
-        for (const runtimeUrl of rspackRuntimeUrls) {
-          let runtime;
-          try {
-            runtime = await import(runtimeUrl);
-          } catch {
-            continue;
-          }
-
-          observed.imported++;
-          const loader = runtime?.__webpack_require__;
-          if (typeof loader !== "function" ||
-              !loader.c ||
-              typeof loader.c !== "object") {
-            continue;
-          }
-
-          observed.loaders++;
-          const values = [];
-          const cached = Object.values(loader.c);
-          observed.cachedModules += cached.length;
-          for (const record of cached) {
-            const exported = record?.exports;
-            if (exported === null || exported === undefined)
-              continue;
-            values.push(exported);
-            if (typeof exported === "object" || typeof exported === "function") {
-              try {
-                values.push(...Object.values(exported));
-              } catch {
-                // An unrelated export getter must not make provider discovery fail.
-              }
-            }
-          }
-
-          observed.inspectedExports += values.length;
-          observed.matchingProviders += values.filter(isSecurityProvider).length;
-          securityProvider = uniqueSecurityProvider(values);
-          if (securityProvider)
-            break;
-          // Signature diagnostics run only if the known provider was not found.
-          for (const value of values) {
-            inspectSignature(value);
-            inspectObjectShape(value);
-          }
-          // Locate only the few partial matches; do not expose source or tokens.
-          if (candidateFunctions.size) {
-            for (const [moduleId, record] of Object.entries(loader.c)) {
-              const exported = record?.exports;
-              const root = candidateFunctions.get(exported);
-              if (root && root.moduleId === null) {
-                root.moduleId = String(moduleId);
-                root.exportKey = "(module)";
-              }
-              if (!exported ||
-                  (typeof exported !== "object" && typeof exported !== "function")) continue;
-              try {
-                for (const [key, value] of Object.entries(exported)) {
-                  const candidate = candidateFunctions.get(value);
-                  if (candidate && candidate.moduleId === null) {
-                    candidate.moduleId = String(moduleId);
-                    candidate.exportKey = String(key).slice(0, 64);
-                  }
-                }
-              } catch {
-                // A property getter in an unrelated export may throw.
-              }
-            }
-          }
-        }
-
-        observed.candidates = [...candidateFunctions.values()];
-        if (!securityProvider) {
-          throw new Error(
-            "ChatGPT native chat requirements provider was not found in the loaded Rspack frontend (counts=" +
-            JSON.stringify(observed) + ")."
-          );
-        }
-      } else {
-        const legacyModuleUrls = resources.filter(url =>
-          /\\/cdn\\/assets\\/conversation-small-[^/?#]+\\.js(?:[?#].*)?$/i.test(url));
-
-        for (const moduleUrl of legacyModuleUrls) {
-          const provider = await import(moduleUrl);
-          securityProvider = uniqueSecurityProvider(Object.values(provider));
-          if (securityProvider)
-            break;
-        }
-
-        if (!securityProvider) {
-          throw new Error(
-            "ChatGPT native chat requirements provider was not found in the loaded frontend."
-          );
-        }
-      }
-
-      const security = await Promise.resolve(securityProvider(${metadata}));
-      if (!security?.chatReq || typeof security.chatReq !== "object")
-        throw new Error("ChatGPT native chat requirements provider returned no requirements.");
-
-      const telemetry = await Promise.resolve(window.SentinelSDK?.timing?.() ?? null);
+          body: JSON.stringify({ p: requirementsKey })
+        });
+        if (!response.ok)
+          throw new Error("ChatGPT requirements prepare failed with HTTP " + response.status);
+        return response.json();
+      });
       return {
-        requirementsToken:
-          typeof security.chatReq.token === "string" ? security.chatReq.token : null,
-        prepareToken:
-          typeof security.chatReq.prepare_token === "string"
-            ? security.chatReq.prepare_token
-            : null,
-        forceLogin: security.chatReq.force_login === true,
-        turnstileToken:
-          typeof security.turnstileToken === "string"
-            ? security.turnstileToken
-            : null,
-        proofToken:
-          typeof security.proofToken === "string" ? security.proofToken : null,
-        telemetry: typeof telemetry === "string" ? telemetry : null
+        forceLogin: prepared?.chatRequirements?.force_login === true,
+        headers: prepared?.headers || null
       };
     })()
   `;
-
-  const security = await window.webContents.executeJavaScript(script, true);
-  if (!security || typeof security !== "object")
-    throw new Error("ChatGPT native chat requirements returned an invalid result.");
-  if (security.forceLogin)
+  const result = await window.webContents.executeJavaScript(script, true);
+  if (result?.forceLogin)
     throw new Error("ChatGPT native chat requirements require login.");
 
+  const allowed = new Set([
+    "openai-sentinel-chat-requirements-token",
+    "openai-sentinel-chat-requirements-prepare-token",
+    "openai-sentinel-proof-token",
+    "openai-sentinel-turnstile-token"
+  ]);
   const headers = {};
-  const addHeader = (name, value) => {
-    if (value === null || value === undefined || value === "") return;
+  for (const [name, value] of Object.entries(result?.headers || {})) {
+    if (!allowed.has(name.toLowerCase())) continue;
     if (typeof value !== "string" || /[\r\n]/.test(value))
-      throw new Error(`ChatGPT native chat requirements returned an invalid '${name}' header.`);
-    headers[name] = value;
-  };
-
-  addHeader(
-    "OpenAI-Sentinel-Chat-Requirements-Token",
-    security.requirementsToken
-  );
-  addHeader(
-    "OpenAI-Sentinel-Chat-Requirements-Prepare-Token",
-    security.prepareToken
-  );
-  addHeader("OpenAI-Sentinel-Turnstile-Token", security.turnstileToken);
-  addHeader("OpenAI-Sentinel-Proof-Token", security.proofToken);
-  addHeader("OAI-Telemetry", security.telemetry);
-
-  if (!headers["OpenAI-Sentinel-Chat-Requirements-Token"] &&
-      !headers["OpenAI-Sentinel-Chat-Requirements-Prepare-Token"]) {
+      throw new Error("ChatGPT native requirements returned an invalid header.");
+    if (value) headers[name] = value;
+  }
+  if (!Object.keys(headers).some(name =>
+    name.toLowerCase() === "openai-sentinel-chat-requirements-token" ||
+    name.toLowerCase() === "openai-sentinel-chat-requirements-prepare-token")) {
     throw new Error("ChatGPT native chat requirements did not produce a requirements token.");
   }
   return headers;
