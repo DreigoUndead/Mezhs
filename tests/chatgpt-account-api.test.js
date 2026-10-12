@@ -88,175 +88,16 @@ function apiSession(handler) {
   };
 }
 
-function nativeBrowserSurface(session) {
-  const state = session.__native;
-  if (!state)
-    throw new Error("Native browser fixture requires protocolSession().");
-
-  class NativeDebugger extends EventEmitter {
-    constructor() {
-      super();
-      this.attached = false;
-    }
-
-    isAttached() { return this.attached; }
-    attach(version) {
-      assert.equal(version, "1.3");
-      this.attached = true;
-    }
-    detach() { this.attached = false; }
-
-    async sendCommand(method, args = {}) {
-      if (method === "Network.enable")
-        return {};
-      if (method === "Network.streamResourceContent") {
-        state.streamResourceRequestId = args.requestId;
-        return {
-          bufferedData: Buffer.from(state.lastStream || "", "utf8").toString("base64")
-        };
-      }
-      if (method === "Network.getResponseBody") {
-        if (state.responseBodyUnavailable)
-          throw new Error("No resource with given identifier found");
-        return { body: state.lastStream || "", base64Encoded: false };
-      }
-      throw new Error(`Unexpected debugger command ${method}`);
-    }
-  }
-
-  const debug = new NativeDebugger();
-  let currentUrl = "https://chatgpt.com/";
-  let composerText = "";
-  let selectedAll = false;
-
+function nativeBrowserSurface() {
+  // Production account submission must not depend on any browser DOM or input APIs.
   return {
-    window: {
-      loadURL: async url => {
-        currentUrl = String(url);
-        composerText = String(state.draft || "");
-        selectedAll = false;
-
-      },
-      webContents: {
-        debugger: debug,
-        getURL: () => currentUrl,
-        executeJavaScript: async source => {
-          assert.doesNotThrow(() => new Function(`return ${source};`));
-          return { ok: true };
-        },
-        selectAll: () => {
-          selectedAll = true;
-          state.selectAllCalls = (state.selectAllCalls || 0) + 1;
-        },
-        insertText: async text => {
-          composerText = selectedAll
-            ? String(text)
-            : composerText + String(text);
-          selectedAll = false;
-        },
-        sendInputEvent: event => {
-          if (event.type !== "keyDown" || event.keyCode !== "Enter")
-            return;
-
-          const url = new URL(currentUrl);
-          const continuation = /^\/c\/([^/]+)$/.exec(url.pathname);
-          const project = /^\/g\/(g-p-[^/]+)\/project$/.exec(url.pathname);
-          const requestMessageId = `request-${++state.posts}`;
-          const body = {
-            action: "next",
-            model: state.model || "gpt-5-6-thinking",
-            parent_message_id: continuation ? "assistant-old" : "client-created-root",
-            client_prepare_state: "success",
-            supported_encodings: ["v1"],
-            messages: [{
-              id: requestMessageId,
-              author: { role: "user" },
-              content: { content_type: "text", parts: [composerText] }
-            }],
-            ...(state.thinkingEffort
-              ? { thinking_effort: state.thinkingEffort }
-              : {}),
-            ...(continuation
-              ? { conversation_id: decodeURIComponent(continuation[1]) }
-              : {}),
-            ...(project
-              ? {
-                  conversation_mode: {
-                    kind: "gizmo_interaction",
-                    gizmo_id: decodeURIComponent(project[1])
-                  }
-                }
-              : {})
-          };
-
-          state.onConversationPost?.(body);
-          state.lastStream = state.conversationStream?.(body) ??
-            `data: {"conversation_id":"${state.conversationId}"}\n\ndata: [DONE]\n\n`;
-
-          const requestId = `native-${state.posts}`;
-          debug.emit("message", {}, "Network.requestWillBeSent", {
-            requestId,
-            request: {
-              url: "https://chatgpt.com/backend-api/f/conversation",
-              method: "POST",
-              headers: {},
-              postData: JSON.stringify(body)
-            }
-          });
-
-          if (state.abortBeforeResponse) {
-            debug.emit("message", {}, "Network.loadingFailed", {
-              requestId,
-              errorText: "net::ERR_ABORTED"
-            });
-            return;
-          }
-
-          debug.emit("message", {}, "Network.responseReceived", {
-            requestId,
-            response: { status: 200 }
-          });
-
-          if (!continuation && state.conversationId && !state.stayOnProjectUrl)
-            currentUrl = `https://chatgpt.com/c/${state.conversationId}`;
-
-          if (state.emitConversationInitRequest) {
-            debug.emit("message", {}, "Network.requestWillBeSent", {
-              requestId: `${requestId}-init`,
-              request: {
-                url: "https://chatgpt.com/backend-api/conversation/init",
-                method: "POST",
-                headers: {}
-              }
-            });
-          }
-
-          if (state.emitConversationReadRequest && state.conversationId) {
-            debug.emit("message", {}, "Network.requestWillBeSent", {
-              requestId: `${requestId}-conversation`,
-              request: {
-                url: `https://chatgpt.com/backend-api/conversation/${state.conversationId}`,
-                method: "GET",
-                headers: {}
-              }
-            });
-          }
-
-          if (state.abortAfterResponse) {
-            debug.emit("message", {}, "Network.loadingFailed", {
-              requestId,
-              errorText: "net::ERR_ABORTED"
-            });
-          } else {
-            debug.emit("message", {}, "Network.loadingFinished", { requestId });
-          }
-        }
+    window: new Proxy({}, {
+      get(_target, key) {
+        throw new Error(`Unexpected UI access: ${String(key)}`);
       }
-    },
+    }),
     page: {
-      invoke: async () => {
-        throw new Error("ChatGPT account send must not invoke page operations.");
-      }
+      invoke: async () => { throw new Error("UI access is forbidden."); }
     }
   };
 }
@@ -279,26 +120,49 @@ function protocolSession({
 
   const session = apiSession(async (url, options = {}) => {
     const target = new URL(String(url));
-
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token", user: { id: "account-1" } });
-
     if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
       state.patchedModel = target.searchParams.get("model_slug");
       state.patchedThinkingEffort = target.searchParams.get("thinking_effort");
       return textResponse("");
     }
-
+    if (target.pathname === "/backend-api/conversation/init")
+      return jsonResponse({ default_model_slug: state.model });
+    if (target.pathname === "/backend-api/f/conversation/prepare")
+      return jsonResponse({ conduit_token: "conduit-server-issued" });
+    if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
+      const body = JSON.parse(options.body);
+      state.posts++;
+      state.onConversationPost?.(body);
+      if (state.abortBeforeResponse)
+        throw new Error("Native network connection aborted before HTTP response.");
+      const stream = state.conversationStream?.(body) ??
+        `data: {"conversation_id":"${conversationId}"}\n\ndata: [DONE]\n\n`;
+      if (state.abortAfterResponse) {
+        let sent = false;
+        return new Response(new ReadableStream({
+          pull(controller) {
+            if (!sent) {
+              sent = true;
+              controller.enqueue(new TextEncoder().encode(stream));
+            } else {
+              controller.error(new Error("response stream interrupted"));
+            }
+          }
+        }), { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      return textResponse(stream, 200, "text/event-stream");
+    }
     if (target.pathname === `/backend-api/conversation/${conversationId}`)
       return onConversationRead();
-
     throw new Error(`Unexpected request ${target}`);
   });
   session.__native = state;
   return session;
 }
 
-test("ChatGPT account newChat submits through the native composer and reads the semantic conversation API", async () => {
+test("ChatGPT account newChat submits a semantic request and reads conversation state", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
   let conversationPosts = 0;
@@ -324,12 +188,11 @@ test("ChatGPT account newChat submits through the native composer and reads the 
   });
 
   assert.equal(conversationPosts, 1);
-  assert.equal(session.__native.selectAllCalls, 1);
   assert.equal(result.conversationId, "conv-api");
   assert.equal(result.text, "API_OK");
 });
 
-test("ChatGPT continues after a successful native response is renderer-aborted", async () => {
+test("ChatGPT continues after a partial semantic response stream is aborted", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
   let posts = 0;
@@ -366,12 +229,11 @@ test("ChatGPT continues after a successful native response is renderer-aborted",
   });
 
   assert.equal(posts, 1);
-  assert.equal(session.__native.streamResourceRequestId, "native-1");
   assert.equal(result.conversationId, "conv-aborted");
   assert.equal(result.text, "ABORTED_STREAM_OK");
 });
 
-test("ChatGPT still fails when the native request aborts before a response", async () => {
+test("ChatGPT does not retry when the semantic request aborts before a response", async () => {
   const chatgpt = loadChatGptModule();
 
   const session = protocolSession({
@@ -390,11 +252,11 @@ test("ChatGPT still fails when the native request aborts before a response", asy
       args: { prompt: "must fail", files: [] },
       sleep: async () => {}
     }),
-    /Native ChatGPT request failed: net::ERR_ABORTED/
+    /Native network connection aborted before HTTP response/
   );
 });
 
-test("ChatGPT follow-up ignores a stale assistant until the native user message appears in ancestry", async () => {
+test("ChatGPT follow-up ignores a stale assistant until its user message appears in ancestry", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
   let reads = 0;
@@ -497,7 +359,7 @@ test("ChatGPT final conversation metadata overrides earlier stream model metadat
   ));
 });
 
-test("ChatGPT conversation polling backs off on 429 without resending the native turn", async () => {
+test("ChatGPT conversation polling backs off on 429 without resending the turn", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
   let reads = 0;
@@ -823,7 +685,7 @@ test("rate-limited state checks do not consume the turn-start watchdog", async (
   assert.equal(result.text, "after throttling");
 });
 
-test("ChatGPT fails stalled state polling without replaying a native send", async () => {
+test("ChatGPT fails stalled state polling without replaying a request", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
   let posts = 0;
