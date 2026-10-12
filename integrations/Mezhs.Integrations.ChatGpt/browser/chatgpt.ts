@@ -1193,7 +1193,8 @@ function citedAssistantText(message) {
   let text = visibleAssistantText(message);
   // ChatGPT embeds citation glyphs in text and provides their rendered
   // Markdown equivalents in metadata.content_references.
-  for (const reference of message?.metadata?.content_references || []) {
+  const references = message?.metadata?.content_references;
+  for (const reference of Array.isArray(references) ? references : []) {
     const marker = reference?.matched_text;
     const replacement = reference?.alt;
     if (typeof marker !== "string" || !/[\uE200-\uE203]/.test(marker) ||
@@ -1205,7 +1206,8 @@ function citedAssistantText(message) {
   // Keep missing citations visible as unresolved, never invent a source URL.
   return text
     .replace(/\uE200cite\uE202[^\uE201]*\uE201/g, "[citation unavailable]")
-    .replace(/\uE200memcite\uE201/g, "");
+    .replace(/\uE200memcite\uE201/g, "")
+    .trim();
 }
 
 function collectFileRefs(value, refs) {
