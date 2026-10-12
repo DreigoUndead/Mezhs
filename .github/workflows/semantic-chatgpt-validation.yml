@@ -17,6 +17,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
       - name: Run semantic ChatGPT tests and capture result
         shell: bash
         run: |
@@ -27,10 +30,12 @@ jobs:
           c2=$?
           node --check tests/chatgpt-account-api.test.js >> semantic-validation-result.txt 2>&1
           c3=$?
-          node --test tests/browser-provider-operations.test.js tests/chatgpt-account-api.test.js tests/chatgpt-conversation-unavailable.test.js >> semantic-validation-result.txt 2>&1
+          node --test tests/*.test.js >> semantic-validation-result.txt 2>&1
           tests=$?
-          printf '\nCHECK=%s %s %s TESTS=%s\n' "$c1" "$c2" "$c3" "$tests" >> semantic-validation-result.txt
-          if [ "$c1" -eq 0 ] && [ "$c2" -eq 0 ] && [ "$c3" -eq 0 ] && [ "$tests" -eq 0 ]; then
+          dotnet build Mezhs.sln -c Release --nologo >> semantic-validation-result.txt 2>&1
+          build=$?
+          printf '\nCHECK=%s %s %s TESTS=%s BUILD=%s\n' "$c1" "$c2" "$c3" "$tests" "$build" >> semantic-validation-result.txt
+          if [ "$c1" -eq 0 ] && [ "$c2" -eq 0 ] && [ "$c3" -eq 0 ] && [ "$tests" -eq 0 ] && [ "$build" -eq 0 ]; then
             echo 'OVERALL=PASS' >> semantic-validation-result.txt
           else
             echo 'OVERALL=FAIL' >> semantic-validation-result.txt
