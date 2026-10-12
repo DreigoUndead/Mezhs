@@ -94,13 +94,15 @@ function nativeBrowserSurface() {
     window: {
     webContents: {
       executeJavaScript: async source => {
-        assert.match(source, /chatReq/);
+        assert.match(source, /lXE/);
         assert.doesNotThrow(() => new Function(`return ${source};`));
         assert.doesNotMatch(source, /document\.querySelector|querySelectorAll|sendInputEvent/);
         return {
-          requirementsToken: "native-requirements",
-          proofToken: "native-proof",
-          turnstileToken: "native-turnstile",
+          headers: {
+            "OpenAI-Sentinel-Chat-Requirements-Token": "native-requirements",
+            "OpenAI-Sentinel-Proof-Token": "native-proof",
+            "OpenAI-Sentinel-Turnstile-Token": "native-turnstile"
+          },
           forceLogin: false
         };
       }
