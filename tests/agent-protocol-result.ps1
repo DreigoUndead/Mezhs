@@ -80,12 +80,12 @@ catch (CommandParseException)
 {
 }
 
-var escapedDone = parser.Parse("visible\\n<escape><DONE></escape>");
+var escapedDone = parser.Parse("visible\n<escape><DONE></escape>");
 if (escapedDone.Commands.Count != 1 || escapedDone.Commands[0].Name != "DONE" ||
     escapedDone.Commands[0].Body is not null || escapedDone.VisibleContent != "visible")
     throw new InvalidOperationException("Standalone escaped DONE should complete without visible markup.");
 
-var escapedShell = parser.Parse("<escape><SH></escape>\\necho should-not-run");
+var escapedShell = parser.Parse("<escape><SH></escape>\necho should-not-run");
 if (escapedShell.Commands.Count != 0 || !escapedShell.VisibleContent.Contains("should-not-run"))
     throw new InvalidOperationException("Escaped SH must remain non-executable visible content.");
 
@@ -93,7 +93,7 @@ var inline = parser.Parse("Explanation: <escape><DONE></escape>");
 if (inline.Commands.Count != 0)
     throw new InvalidOperationException("Inline escaped DONE must remain visible text.");
 
-var opaqueBody = parser.Parse("<SH>\\necho literal\\n<escape><DONE></escape>\\n</SH>");
+var opaqueBody = parser.Parse("<SH>\necho literal\n<escape><DONE></escape>\n</SH>");
 if (opaqueBody.Commands.Count != 1 ||
     !opaqueBody.Commands[0].Body!.Contains("<escape><DONE></escape>"))
     throw new InvalidOperationException("Escaped DONE inside SH body must remain opaque.");
