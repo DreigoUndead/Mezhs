@@ -241,7 +241,7 @@ test("ChatGPT resolves citation glyphs from matching content references", async 
   });
   assert.equal(
     result.text,
-    "Sources for fruit ([Growing guide](https://example.org/watermelons)) and [citation unavailable]. "
+    "Sources for fruit ([Growing guide](https://example.org/watermelons)) and [citation unavailable]."
   );
   assert.doesNotMatch(result.text, /[\uE200-\uE203]/);
 });
