@@ -290,6 +290,52 @@ async function captureDiagnosticNetwork(action, waitMs, { traceHeaders = false }
   }
 }
 
+function inspectRspackExportsScript(moduleId, exportKeys) {
+  return `
+    (async () => {
+      const resources = performance.getEntriesByType("resource")
+        .map(item => String(item.name || ""))
+        .filter(url => url.startsWith("https://chatgpt.com/cdn/assets/633146.") &&
+          url.split("?")[0].endsWith(".js"));
+      if (!resources.length)
+        throw new Error("ChatGPT Rspack runtime was not loaded.");
+      const runtime = await import(resources[resources.length - 1]);
+      const loader = runtime?.__webpack_require__;
+      const record = loader?.c?.[${JSON.stringify(moduleId)}];
+      if (!record)
+        throw new Error("Requested Rspack module was not present in the loaded cache.");
+      const exports = record.exports;
+      const keys = ${JSON.stringify(exportKeys)};
+      const markers = ["chatReq", "turnstileToken", "proofToken"];
+      const context = (source, marker) => {
+        const index = source.indexOf(marker);
+        return index < 0 ? null
+          : source.slice(Math.max(0, index - 90), Math.min(source.length, index + marker.length + 130));
+      };
+      const results = keys.map(key => {
+        const value = exports?.[key];
+        if (typeof value !== "function")
+          return { exportKey: key, type: typeof value };
+        const source = Function.prototype.toString.call(value);
+        return {
+          exportKey: key,
+          name: String(value.name || "").slice(0, 64),
+          arity: value.length,
+          sourceLength: source.length,
+          start: source.slice(0, 160),
+          end: source.slice(-100),
+          markerContexts: Object.fromEntries(markers.map(marker => [marker, context(source, marker)]))
+        };
+      });
+      return {
+        moduleId: ${JSON.stringify(moduleId)},
+        availableExportKeys: Object.keys(exports || {}).slice(0, 30),
+        results
+      };
+    })()
+  `;
+}
+
 async function invokeDiagnostic(operation, args) {
   const numericPoint = () => {
     const x = Number(args?.x);
@@ -300,6 +346,20 @@ async function invokeDiagnostic(operation, args) {
   };
 
   switch (operation) {
+    case 'inspectRspackExports': {
+      if (browserModule?.name !== 'ChatGPT')
+        throw new Error('Rspack export inspection is limited to ChatGPT diagnostics.');
+      const moduleId = String(args?.moduleId || '').trim();
+      const keys = args?.exportKeys;
+      if (!/^[A-Za-z0-9_$-]{1,32}$/.test(moduleId) ||
+          !Array.isArray(keys) || keys.length < 1 || keys.length > 4 ||
+          !keys.every(key => typeof key === 'string' &&
+            /^[A-Za-z0-9_$-]{1,32}$/.test(key)))
+        throw new Error('Invalid Rspack module id or export keys.');
+      return window.webContents.executeJavaScript(
+        inspectRspackExportsScript(moduleId, keys), true
+      );
+    }
     case 'networkTrace': {
       // Observe a manual browser action. No DOM selectors, request bodies, or secret values.
       const waitMs = Math.max(1000, Math.min(Number(args?.waitMs ?? 30000), 60000));
