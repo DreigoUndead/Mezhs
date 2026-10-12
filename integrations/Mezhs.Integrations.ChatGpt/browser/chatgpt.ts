@@ -790,9 +790,11 @@ async function nativeChatRequirementsHeaders(window, payload) {
             getEnforcementToken: 0
           },
           markerCoverage: [0, 0, 0, 0, 0, 0],
-          enforcementObjectExports: 0
+          enforcementObjectExports: 0,
+          candidates: []
         };
         const examinedFunctions = new Set();
+        const candidateFunctions = new Map();
         const markerNames = Object.keys(observed.markerCounts);
         const inspectSignature = value => {
           if (typeof value !== "function" || examinedFunctions.has(value)) return;
@@ -809,6 +811,15 @@ async function nativeChatRequirementsHeaders(window, payload) {
             }
           }
           observed.markerCoverage[coverage]++;
+          if (coverage >= 3 && candidateFunctions.size < 4) {
+            candidateFunctions.set(value, {
+              name: String(value.name || "").slice(0, 64),
+              arity: value.length,
+              sourceLength: source.length,
+              moduleId: null,
+              exportKey: null
+            });
+          }
         };
         const inspectObjectShape = value => {
           if (!value || typeof value !== "object") return;
@@ -864,8 +875,33 @@ async function nativeChatRequirementsHeaders(window, payload) {
             inspectSignature(value);
             inspectObjectShape(value);
           }
+          // Locate only the few partial matches; do not expose source or tokens.
+          if (candidateFunctions.size) {
+            for (const [moduleId, record] of Object.entries(loader.c)) {
+              const exported = record?.exports;
+              const root = candidateFunctions.get(exported);
+              if (root && root.moduleId === null) {
+                root.moduleId = String(moduleId);
+                root.exportKey = "(module)";
+              }
+              if (!exported ||
+                  (typeof exported !== "object" && typeof exported !== "function")) continue;
+              try {
+                for (const [key, value] of Object.entries(exported)) {
+                  const candidate = candidateFunctions.get(value);
+                  if (candidate && candidate.moduleId === null) {
+                    candidate.moduleId = String(moduleId);
+                    candidate.exportKey = String(key).slice(0, 64);
+                  }
+                }
+              } catch {
+                // A property getter in an unrelated export may throw.
+              }
+            }
+          }
         }
 
+        observed.candidates = [...candidateFunctions.values()];
         if (!securityProvider) {
           throw new Error(
             "ChatGPT native chat requirements provider was not found in the loaded Rspack frontend (counts=" +
