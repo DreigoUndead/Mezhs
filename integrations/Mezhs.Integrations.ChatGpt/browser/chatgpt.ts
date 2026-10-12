@@ -183,26 +183,11 @@ async function setModelPreference(session, token, selection) {
   await apiFetch(session, token, url.pathname + url.search, { method: "PATCH" });
 }
 
-async function sendApiAccountMessage({ window, session, args, sleep, reportProgress }, isNew, token, selection) {
-  const uploaded = [];
-  const imageParts = uploaded
-    .filter(file => file.contentType.startsWith("image/"))
-    .map(file => ({
-      content_type: "image_asset_pointer",
-      asset_pointer: `file-service://${file.id}`,
-      size_bytes: file.size
-    }));
-  const attachments = uploaded.map(file => ({
-    id: file.id,
-    name: file.name,
-    mimeType: file.contentType,
-    size: file.size
-  }));
+async function sendApiAccountMessage({ session, args, sleep, reportProgress }, isNew, token, selection) {
   const metadata = {
     selected_sources: [],
     serialization_metadata: { custom_symbol_offsets: [] },
-    submission_mode: "manual_send",
-    ...(attachments.length ? { attachments } : {})
+    submission_mode: "manual_send"
   };
   const projectMode = isNew && args.projectId
     ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
@@ -220,8 +205,8 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
         author: { role: "user" },
         create_time: Date.now() / 1000,
         content: {
-          content_type: imageParts.length ? "multimodal_text" : "text",
-          parts: [...imageParts, String(args.prompt || "")]
+          content_type: "text",
+          parts: [String(args.prompt || "")]
         },
         metadata
       }],
@@ -235,7 +220,7 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
       system_hints: [],
       supports_buffering: true,
       supported_encodings: ["v1"],
-      client_contextual_info: clientContext(window),
+      client_contextual_info: clientContext(),
       paragen_cot_summary_display_override: "allow",
       force_parallel_switch: "auto",
       local_function_names: ["local.continue_in_work"]
@@ -273,7 +258,6 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
 
   const requestMessageId = randomUUID();
   const posted = await postConversationTurn(
-    window,
     session,
     token,
     buildPayload(requestMessageId, isNew ? undefined : args.conversationId),
@@ -293,7 +277,6 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
 }
 
 async function postConversationTurn(
-  window,
   session,
   token,
   payload,
@@ -738,20 +721,10 @@ async function webApiHeaders(session, endpoint, clientSessionId, extra = {}) {
   return headers;
 }
 
-function clientContext(window) {
-  const bounds = window?.getBounds?.() || {};
-  const width = Number(bounds.width) || 1200;
-  const height = Number(bounds.height) || 850;
+function clientContext() {
   return {
-    is_dark_mode: false,
-    time_since_loaded: 0,
-    page_height: height,
-    page_width: width,
-    pixel_ratio: 1,
-    screen_height: height,
-    screen_width: width,
     app_name: "chatgpt.com",
-    has_web_push_capabilities: true,
+    has_web_push_capabilities: false,
     web_push_notification_permission: "default"
   };
 }
