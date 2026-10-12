@@ -825,10 +825,8 @@ async function nativeChatRequirementsHeaders(window, payload) {
 
         if (!securityProvider) {
           throw new Error(
-            "ChatGPT native chat requirements provider was not found in the loaded Rspack frontend " +
-            `(bundles=${observed.bundles}, imported=${observed.imported}, loaders=${observed.loaders}, ` +
-            `cachedModules=${observed.cachedModules}, inspectedExports=${observed.inspectedExports}, ` +
-            `matchingProviders=${observed.matchingProviders}).`
+            "ChatGPT native chat requirements provider was not found in the loaded Rspack frontend (counts=" +
+            JSON.stringify(observed) + ")."
           );
         }
       } else {
