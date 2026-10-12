@@ -38,7 +38,8 @@ function completedConversation(
   text = "answer",
   assistantModel = "gpt-5-6-thinking",
   requestResolvedModel = assistantModel,
-  thinkingEffort = null
+  thinkingEffort = null,
+  contentReferences = null
 ) {
   return {
     conversation_id: conversationId,
@@ -53,7 +54,8 @@ function completedConversation(
           content: { parts: [text] },
           metadata: {
             model_slug: assistantModel,
-            ...(thinkingEffort ? { thinking_effort: thinkingEffort } : {})
+            ...(thinkingEffort ? { thinking_effort: thinkingEffort } : {}),
+            ...(contentReferences ? { content_references: contentReferences } : {})
           }
         }
       },
@@ -205,6 +207,43 @@ test("ChatGPT account newChat submits a semantic request and reads conversation 
   assert.equal(conversationPosts, 1);
   assert.equal(result.conversationId, "conv-api");
   assert.equal(result.text, "API_OK");
+});
+
+test("ChatGPT resolves citation glyphs from matching content references", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  const cited = "\uE200cite\uE202turn0search0\uE201";
+  const unknown = "\uE200cite\uE202turn0search3\uE201";
+  const memory = "\uE200memcite\uE201";
+  const session = protocolSession({
+    conversationId: "conv-citations",
+    onConversationPost: body => { requestMessageId = body.messages[0].id; },
+    onConversationRead: () => jsonResponse(completedConversation(
+      "conv-citations",
+      requestMessageId,
+      "Sources for fruit " + cited + " and " + unknown + ". " + memory,
+      "gpt-5-6-thinking",
+      "gpt-5-6-thinking",
+      null,
+      [
+        { type: "grouped_webpages", matched_text: cited,
+          alt: "([Growing guide](https://example.org/watermelons))" },
+        { type: "sources_footnote", matched_text: " ", alt: "should NOT replace spaces" }
+      ]
+    ))
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...nativeBrowserSurface(),
+    session,
+    args: { prompt: "give sources", files: [] },
+    sleep: async () => {}
+  });
+  assert.equal(
+    result.text,
+    "Sources for fruit ([Growing guide](https://example.org/watermelons)) and [citation unavailable]. "
+  );
+  assert.doesNotMatch(result.text, /[\uE200-\uE203]/);
 });
 
 test("ChatGPT fails closed when browser-owned requirements are unavailable", async () => {
