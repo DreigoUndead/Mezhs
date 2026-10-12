@@ -331,7 +331,15 @@ async function postConversationTurn(
     state: "waiting",
     detail: "Prompt accepted; waiting for model activity."
   });
-  const stream = await readConversationStream(response, reportProgress);
+  let stream;
+  try {
+    stream = await readConversationStream(response, reportProgress);
+  } catch (error) {
+    if (!fallbackConversationId)
+      throw new Error(`ChatGPT stream failed after submission; delivery may have succeeded, so the turn must not be resent: ${error.message}`);
+    reportProgress?.({ state: "waiting", detail: "Stream interrupted; reconciling the existing conversation." });
+    stream = { conversationId: fallbackConversationId, execution: {} };
+  }
   return {
     conversationId: stream.conversationId || fallbackConversationId,
     execution: stream.execution
@@ -361,10 +369,19 @@ async function readConversationStream(response, reportProgress) {
   if (response.body?.getReader) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      consume(decoder.decode(value, { stream: true }));
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        consume(decoder.decode(value, { stream: true }));
+      }
+    } catch (error) {
+      if (!state.conversationId)
+        throw error;
+      reportProgress?.({
+        state: "waiting",
+        detail: "Stream interrupted after conversation identification; recovering response from conversation state."
+      });
     }
     consume(decoder.decode());
   } else {
