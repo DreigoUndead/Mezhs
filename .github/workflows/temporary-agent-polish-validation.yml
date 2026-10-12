@@ -1,0 +1,46 @@
+name: Temporary agent protocol and citation validation
+
+on:
+  push:
+    branches: [agent-model-presets]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Run regression tests and real Agent shell smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          node --check integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts *> agent-polish-validation.txt
+          $syntax = $LASTEXITCODE
+          $jsTests = @(Get-ChildItem -LiteralPath tests -Filter '*.test.js' | ForEach-Object { $_.FullName })
+          node --test @jsTests *>> agent-polish-validation.txt
+          $tests = $LASTEXITCODE
+          dotnet build Mezhs.sln -c Release --nologo *>> agent-polish-validation.txt
+          $build = $LASTEXITCODE
+          pwsh -NoProfile -File tests/agent-protocol-result.ps1 *>> agent-polish-validation.txt
+          $shell = $LASTEXITCODE
+          "SYNTAX=$syntax TESTS=$tests BUILD=$build SHELL=$shell" | Add-Content agent-polish-validation.txt
+          if ($syntax -eq 0 -and $tests -eq 0 -and $build -eq 0 -and $shell -eq 0) {
+            'OVERALL=PASS' | Add-Content agent-polish-validation.txt
+          } else {
+            'OVERALL=FAIL' | Add-Content agent-polish-validation.txt
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add agent-polish-validation.txt
+          git commit -m 'Record temporary Agent polish validation [skip ci]'
+          git push
