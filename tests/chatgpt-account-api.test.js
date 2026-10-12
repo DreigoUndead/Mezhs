@@ -91,11 +91,20 @@ function apiSession(handler) {
 function nativeBrowserSurface() {
   // Production account submission must not depend on any browser DOM or input APIs.
   return {
-    window: new Proxy({}, {
-      get(_target, key) {
-        throw new Error(`Unexpected UI access: ${String(key)}`);
+    window: {
+    webContents: {
+      executeJavaScript: async source => {
+        assert.match(source, /chatReq/);
+        assert.doesNotMatch(source, /document\.querySelector|querySelectorAll|sendInputEvent/);
+        return {
+          requirementsToken: "native-requirements",
+          proofToken: "native-proof",
+          turnstileToken: "native-turnstile",
+          forceLogin: false
+        };
       }
-    }),
+    }
+  },
     page: {
       invoke: async () => { throw new Error("UI access is forbidden."); }
     }
@@ -132,6 +141,9 @@ function protocolSession({
     if (target.pathname === "/backend-api/f/conversation/prepare")
       return jsonResponse({ conduit_token: "conduit-server-issued" });
     if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
+      assert.equal(options.headers["OpenAI-Sentinel-Chat-Requirements-Token"], "native-requirements");
+      assert.equal(options.headers["OpenAI-Sentinel-Proof-Token"], "native-proof");
+      assert.equal(options.headers["OpenAI-Sentinel-Turnstile-Token"], "native-turnstile");
       const body = JSON.parse(options.body);
       state.posts++;
       state.onConversationPost?.(body);
