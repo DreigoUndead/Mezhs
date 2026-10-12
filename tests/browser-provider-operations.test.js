@@ -297,6 +297,7 @@ function noUiWindow() {
     webContents: {
       executeJavaScript: async source => {
         assert.match(source, /chatReq/);
+        assert.doesNotThrow(() => new Function(`return ${source};`));
         assert.doesNotMatch(source, /document\.querySelector|querySelectorAll|sendInputEvent/);
         return {
           requirementsToken: "native-requirements",
