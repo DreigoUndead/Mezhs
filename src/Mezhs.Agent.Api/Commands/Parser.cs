@@ -19,6 +19,10 @@ public sealed class Parser
         for (var i = 0; i < lines.Count; i++)
         {
             var text = lines[i].Text.Trim();
+            // Some model renderers encode the standalone DONE marker as literal escaped markup.
+            // Only this exact marker is normalized; escaped executable tags remain inert.
+            if (text == "<escape><DONE></escape>")
+                text = "<DONE>";
             if (!TryTag(text, out var name, out var closing))
             {
                 visible.Add(lines[i].Text);
