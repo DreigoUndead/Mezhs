@@ -11,75 +11,85 @@ const source = fs.readFileSync(
 const start = source.indexOf("async function nativeChatRequirementsHeaders(");
 const end = source.indexOf("async function accessToken(", start);
 assert.ok(start >= 0 && end > start);
-
-const inspectRequirements = vm.runInNewContext(
+const getNativeHeaders = vm.runInNewContext(
+  "const accountIds = new WeakMap();\n" +
   source.slice(start, end) + "\nnativeChatRequirementsHeaders"
 );
 
-test("Rspack diagnostic counts partial provider signatures without guessing a replacement", async () => {
-  function partialRequirements() {
-    const chatReq = true, proofToken = false;
-    return { chatReq, proofToken };
-  }
-  function separateEnforcement() {
-    const turnstileToken = null, getEnforcementTokenSync = null;
-    return { turnstileToken, getEnforcementTokenSync };
-  }
-
-  const loader = function loader() {};
-  loader.c = {
-    moduleA: { exports: { partialRequirements } },
-    moduleB: { exports: { separateEnforcement } }
+function testBrowser({ requirements, returnedHeaders, status = 200, providerAvailable = true }) {
+  const calls = [];
+  const provider = async callback => {
+    const received = await callback("gAAAAAC-browser-generated");
+    assert.deepEqual(JSON.parse(JSON.stringify(received)), requirements);
+    return { chatRequirements: received, headers: returnedHeaders };
   };
-
-  const window = {
-    webContents: {
-      executeJavaScript: async script => {
-        assert.doesNotThrow(() => new Function(`return ${script};`));
-        const runnable = script.replace(
-          "await import(runtimeUrl)",
-          "await __testImport(runtimeUrl)"
-        );
-        const fakeContext = {
-          performance: {
-            getEntriesByType: () => [{
-              name: "https://chatgpt.com/cdn/assets/633146.abc123.js"
-            }]
-          },
-          __testImport: async () => ({ __webpack_require__: loader })
+  const loader = { c: { lXE: { exports: providerAvailable ? { f: provider } : {} } } };
+  const window = { webContents: { executeJavaScript: async script => {
+    assert.doesNotThrow(() => new Function(`return ${script};`));
+    const runnable = script.replace("await import(runtimeUrl)", "await __testImport(runtimeUrl)");
+    return vm.runInNewContext(runnable, {
+      performance: { getEntriesByType: () => [{
+        name: "https://chatgpt.com/cdn/assets/633146.abc123.js"
+      }] },
+      __testImport: async () => ({ __webpack_require__: loader }),
+      fetch: async (url, options) => {
+        calls.push({ url, ...options });
+        return {
+          ok: status === 200,
+          status,
+          json: async () => requirements
         };
-        return vm.runInNewContext(runnable, fakeContext);
       }
-    }
-  };
+    });
+  } } };
+  return { window, calls };
+}
 
-  await assert.rejects(
-    inspectRequirements(window, { system_hints: [] }),
-    error => {
-      assert.match(error.message, /provider was not found in the loaded Rspack frontend/);
-      const matches = /\(counts=(\{.*\})\)\./.exec(error.message);
-      assert.ok(matches, "diagnostic counters are present");
-      const counts = JSON.parse(matches[1]);
-      assert.equal(counts.bundles, 1);
-      assert.equal(counts.loaders, 1);
-      assert.equal(counts.cachedModules, 2);
-      assert.equal(counts.matchingProviders, 0);
-      assert.equal(counts.functionsInspected, 2);
-      assert.equal(counts.markerCounts.chatReq, 1);
-      assert.equal(counts.markerCounts.proofToken, 1);
-      assert.equal(counts.markerCounts.turnstileToken, 1);
-      assert.equal(counts.markerCounts.getEnforcementTokenSync, 1);
-      assert.equal(counts.markerCounts.getEnforcementToken, 1);
-      assert.equal(counts.markerCoverage[2], 1);
-      assert.equal(counts.markerCoverage[3], 1);
-      assert.equal(counts.candidates.length, 1);
-      assert.equal(counts.candidates[0].moduleId, "moduleB");
-      assert.equal(counts.candidates[0].exportKey, "separateEnforcement");
-      assert.equal(counts.candidates[0].arity, 0);
-      assert.ok(counts.candidates[0].sourceLength > 0);
-      assert.equal(counts.candidates[0].name, "separateEnforcement");
-      assert.doesNotMatch(error.message, /Bearer |Cookie:|secret-token|source code/);
-      return true;
+test("native requirements coordinator receives browser key and sends it to prepare", async () => {
+  const expected = { token: "server-issued-token", proofofwork: { required: false } };
+  const { window, calls } = testBrowser({
+    requirements: expected,
+    returnedHeaders: {
+      "OpenAI-Sentinel-Chat-Requirements-Token": "server-issued-token",
+      "OpenAI-Sentinel-Proof-Token": "server-issued-proof",
+      "Other-Header": "should-not-be-forwarded"
     }
+  });
+  const headers = await getNativeHeaders(window, {}, "access-secret");
+  assert.equal(headers["OpenAI-Sentinel-Chat-Requirements-Token"], "server-issued-token");
+  assert.equal(headers["OpenAI-Sentinel-Proof-Token"], "server-issued-proof");
+  assert.equal(headers["Other-Header"], undefined);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "/backend-api/sentinel/chat-requirements/prepare");
+  assert.equal(calls[0].method, "POST");
+  assert.equal(calls[0].credentials, "include");
+  assert.equal(calls[0].headers.Authorization, "Bearer access-secret");
+  assert.deepEqual(JSON.parse(calls[0].body), { p: "gAAAAAC-browser-generated" });
+});
+
+test("native requirements fail closed when frontend provider is unavailable", async () => {
+  const { window, calls } = testBrowser({ requirements: {}, providerAvailable: false });
+  await assert.rejects(
+    getNativeHeaders(window, {}, "access-secret"),
+    /native requirements provider lXE.f is unavailable/
   );
+  assert.equal(calls.length, 0);
+});
+
+test("native requirements preparation propagates HTTP failures without replay", async () => {
+  const { window, calls } = testBrowser({ requirements: {}, status: 403 });
+  await assert.rejects(
+    getNativeHeaders(window, {}, "access-secret"),
+    /requirements prepare failed with HTTP 403/
+  );
+  assert.equal(calls.length, 1);
+});
+
+test("native requirements fail closed for missing final requirements headers", async () => {
+  const { window, calls } = testBrowser({ requirements: { prepare_token: "server" }, returnedHeaders: {} });
+  await assert.rejects(
+    getNativeHeaders(window, {}, "access-secret"),
+    /did not produce a requirements token/
+  );
+  assert.equal(calls.length, 1);
 });
