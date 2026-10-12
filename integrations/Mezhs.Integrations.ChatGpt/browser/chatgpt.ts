@@ -820,7 +820,6 @@ async function nativeChatRequirementsHeaders(window, payload) {
             // Inspection is diagnostic-only; hostile export getters are ignored.
           }
         };
-        };
         for (const runtimeUrl of rspackRuntimeUrls) {
           let runtime;
           try {
@@ -856,14 +855,15 @@ async function nativeChatRequirementsHeaders(window, payload) {
           }
 
           observed.inspectedExports += values.length;
-          for (const value of values) {
-            inspectSignature(value);
-            inspectObjectShape(value);
-          }
           observed.matchingProviders += values.filter(isSecurityProvider).length;
           securityProvider = uniqueSecurityProvider(values);
           if (securityProvider)
             break;
+          // Signature diagnostics run only if the known provider was not found.
+          for (const value of values) {
+            inspectSignature(value);
+            inspectObjectShape(value);
+          }
         }
 
         if (!securityProvider) {
