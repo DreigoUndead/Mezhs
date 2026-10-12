@@ -67,11 +67,20 @@ function sessionForConversationError(code) {
 }
 
 function noBrowserUi() {
-  return new Proxy({}, {
-    get(_target, key) {
-      throw new Error(`Unexpected browser UI access: ${String(key)}`);
+  return {
+    webContents: {
+      executeJavaScript: async source => {
+        assert.match(source, /chatReq/);
+        assert.doesNotMatch(source, /document\.querySelector|querySelectorAll|sendInputEvent/);
+        return {
+          requirementsToken: "native-requirements",
+          proofToken: "native-proof",
+          turnstileToken: "native-turnstile",
+          forceLogin: false
+        };
+      }
     }
-  });
+  };
 }
 
 function send(chatgpt, session) {
