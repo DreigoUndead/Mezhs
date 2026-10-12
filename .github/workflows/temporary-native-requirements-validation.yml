@@ -1,0 +1,44 @@
+name: Temporary native requirements validation
+
+on:
+  push:
+    branches: [agent-model-presets]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Run tests and build
+        shell: bash
+        run: |
+          set +e
+          node --check electron/main.js > native-requirements-validation.txt 2>&1
+          main=$?
+          node --test tests/*.test.js >> native-requirements-validation.txt 2>&1
+          tests=$?
+          dotnet build Mezhs.sln -c Release --nologo >> native-requirements-validation.txt 2>&1
+          build=$?
+          printf '\nMAIN=%s TESTS=%s BUILD=%s\n' "$main" "$tests" "$build" >> native-requirements-validation.txt
+          if [ "$main" -eq 0 ] && [ "$tests" -eq 0 ] && [ "$build" -eq 0 ]; then
+            echo 'OVERALL=PASS' >> native-requirements-validation.txt
+          else
+            echo 'OVERALL=FAIL' >> native-requirements-validation.txt
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add native-requirements-validation.txt
+          git commit -m 'Record native requirements validation result [skip ci]'
+          git push
+          exit 0
