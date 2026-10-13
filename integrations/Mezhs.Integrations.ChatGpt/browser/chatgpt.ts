@@ -77,69 +77,79 @@ module.exports = {
 
     // Anonymous ChatGPT remains on its old browser path.
     async sendPrompt({ window, args }) {
-      if (args.newChat) await window.loadURL(module.exports.homeUrl);
-      const prompt = JSON.stringify(String(args.prompt || ""));
-      const promptEditorSelector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
-      return window.webContents.executeJavaScript(`
-        (async () => {
-          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-          const legacySelector = '[data-message-author-role="assistant"]';
-          const octaneSelector = '[data-conversation-transcript] [data-message-role="assistant"]';
-          const legacyBefore = document.querySelectorAll(legacySelector).length;
-          const octaneBefore = document.querySelectorAll(octaneSelector).length;
-          let editor = null;
-          for (let i = 0; i < 120 && !editor; i++) {
-            editor = document.querySelector(${promptEditorSelector});
-            if (!editor) await sleep(250);
-          }
-          if (!editor) return { ok: false, error: 'ChatGPT prompt editor was not found.' };
-          editor.focus();
-          if (editor.tagName === 'TEXTAREA' || editor.tagName === 'INPUT') {
-            const prototype = editor.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-            const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-            if (setter) setter.call(editor, ${prompt});
-            else editor.value = ${prompt};
-            editor.dispatchEvent(new Event('input', { bubbles: true }));
-          } else {
-            document.execCommand('selectAll', false, null);
-            document.execCommand('insertText', false, ${prompt});
-            editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
-          }
-          let send = null;
-          for (let i = 0; i < 360; i++) {
-            send = editor.closest('form')?.querySelector('button[aria-label="Send message"]')
-              || document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
-            if (send && !send.disabled && send.getAttribute('aria-disabled') !== 'true') break;
-            await sleep(250);
-          }
-          if (!send || send.disabled || send.getAttribute('aria-disabled') === 'true')
-            return { ok: false, error: 'ChatGPT send button did not become available.' };
-          send.click();
-          let last = '';
-          let stable = 0;
-          let emptyCompletedPolls = 0;
-          while (true) {
-            const octaneMessages = document.querySelectorAll(octaneSelector);
-            const octane = octaneMessages[octaneMessages.length - 1];
-            if (octaneMessages.length > octaneBefore && octane?.hasAttribute('data-message-complete')) {
-              // Octane can set the completion marker before its reply content is rendered.
-              const content = octane.children[1]?.innerText?.trim() || '';
-              if (content) return { ok: true, text: content };
-              // Completion can precede rendering, but a permanently blank reply must not block the agent.
-              if (++emptyCompletedPolls >= 10)
-                return { ok: false, error: 'ChatGPT completed the guest reply without readable text.' };
+      const submitOnce = async () => {
+        if (args.newChat) await window.loadURL(module.exports.homeUrl);
+        const prompt = JSON.stringify(String(args.prompt || ""));
+        const promptEditorSelector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
+        return window.webContents.executeJavaScript(`
+          (async () => {
+            const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+            const legacySelector = '[data-message-author-role="assistant"]';
+            const octaneSelector = '[data-conversation-transcript] [data-message-role="assistant"]';
+            const legacyBefore = document.querySelectorAll(legacySelector).length;
+            const octaneBefore = document.querySelectorAll(octaneSelector).length;
+            let editor = null;
+            for (let i = 0; i < 120 && !editor; i++) {
+              editor = document.querySelector(${promptEditorSelector});
+              if (!editor) await sleep(250);
             }
-            const messages = document.querySelectorAll(legacySelector);
-            const text = messages[messages.length - 1]?.innerText?.trim() || '';
-            const stop = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"]');
-            stable = text && text === last ? stable + 1 : 0;
-            last = text;
-            if (messages.length > legacyBefore && text && !stop && stable >= 6)
-              return { ok: true, text };
-            await sleep(500);
-          }
-        })()
-      `, true);
+            if (!editor) return { ok: false, error: 'ChatGPT prompt editor was not found.' };
+            editor.focus();
+            if (editor.tagName === 'TEXTAREA' || editor.tagName === 'INPUT') {
+              const prototype = editor.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+              const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+              if (setter) setter.call(editor, ${prompt});
+              else editor.value = ${prompt};
+              editor.dispatchEvent(new Event('input', { bubbles: true }));
+            } else {
+              document.execCommand('selectAll', false, null);
+              document.execCommand('insertText', false, ${prompt});
+              editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
+            }
+            let send = null;
+            for (let i = 0; i < 360; i++) {
+              send = editor.closest('form')?.querySelector('button[aria-label="Send message"]')
+                || document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
+              if (send && !send.disabled && send.getAttribute('aria-disabled') !== 'true') break;
+              await sleep(250);
+            }
+            if (!send || send.disabled || send.getAttribute('aria-disabled') === 'true')
+              return { ok: false, error: 'ChatGPT send button did not become available.' };
+            send.click();
+            let last = '';
+            let stable = 0;
+            let emptyCompletedPolls = 0;
+            while (true) {
+              const octaneMessages = document.querySelectorAll(octaneSelector);
+              const octane = octaneMessages[octaneMessages.length - 1];
+              if (octaneMessages.length > octaneBefore && octane?.hasAttribute('data-message-complete')) {
+                // Octane can set the completion marker before its reply content is rendered.
+                const content = octane.children[1]?.innerText?.trim() || '';
+                if (content) return { ok: true, text: content };
+                // Completion can precede rendering, but a permanently blank reply must not block the agent.
+                if (++emptyCompletedPolls >= 10)
+                  return { ok: false, errorCode: 'empty_guest_reply', error: 'ChatGPT completed the guest reply without readable text.' };
+              }
+              const messages = document.querySelectorAll(legacySelector);
+              const text = messages[messages.length - 1]?.innerText?.trim() || '';
+              const stop = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"]');
+              stable = text && text === last ? stable + 1 : 0;
+              last = text;
+              if (messages.length > legacyBefore && text && !stop && stable >= 6)
+                return { ok: true, text };
+              await sleep(500);
+            }
+          })()
+        `, true);
+      };
+      const first = await submitOnce();
+      if (first.ok || first.errorCode !== 'empty_guest_reply' || !args.newChat)
+        return first;
+      // Only retry a new chat; replaying an existing conversation can duplicate actions.
+      const second = await submitOnce();
+      if (!second.ok && second.errorCode === 'empty_guest_reply')
+        return { ...second, error: second.error + ' Fresh-conversation retry also returned an empty reply.' };
+      return second;
     }
   }
 };
