@@ -49,11 +49,16 @@ jobs:
           pwsh -NoProfile -File tests/diagnostics-architecture.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build Agent Web frontend
+      - name: Verify both frontend build outputs
         shell: pwsh
         run: |
-          # Agent Web has no lockfile yet; use exact direct package versions from package.json.
-          npm install --prefix src/Mezhs.Agent.Web --no-package-lock --ignore-scripts --no-audit --no-fund
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run build --prefix src/Mezhs.Agent.Web
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Mezhs.Agent.Web.csproj and Mezhs.Web.csproj already run npm build
+          # during dotnet build; do not reinstall and rebuild the same UI twice.
+          foreach ($path in @(
+            'src/Mezhs.Agent.Web/dist/index.html',
+            'src/Mezhs.Web/ClientApp/dist/index.html'
+          )) {
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "The solution build did not produce $path."
+            }
+          }
