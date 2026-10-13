@@ -23,6 +23,8 @@ const API = Object.freeze({
 
 const PROMPT_EDITOR_SELECTOR = [
   '#prompt-textarea',
+  '#mobile-composer-prompt',
+  '[data-mobile-composer-prompt]',
   'textarea[name="prompt-textarea"]',
   '[data-testid="prompt-textarea"]',
   '.ProseMirror[contenteditable="true"]',
@@ -86,8 +88,10 @@ module.exports = {
       return window.webContents.executeJavaScript(`
         (async () => {
           const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-          const selector = '[data-message-author-role="assistant"]';
-          const before = document.querySelectorAll(selector).length;
+          const legacySelector = '[data-message-author-role="assistant"]';
+          const octaneSelector = '[data-conversation-transcript] [data-message-role="assistant"]';
+          const legacyBefore = document.querySelectorAll(legacySelector).length;
+          const octaneBefore = document.querySelectorAll(octaneSelector).length;
           let editor = null;
           for (let i = 0; i < 120 && !editor; i++) {
             editor = document.querySelector(${promptEditorSelector});
@@ -107,21 +111,31 @@ module.exports = {
             editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
           }
           let send = null;
-          for (let i = 0; i < 360 && (!send || send.disabled); i++) {
-            send = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
-            if (!send || send.disabled) await sleep(250);
+          for (let i = 0; i < 360; i++) {
+            send = editor.closest('form')?.querySelector('button[aria-label="Send message"]')
+              || document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
+            if (send && !send.disabled && send.getAttribute('aria-disabled') !== 'true') break;
+            await sleep(250);
           }
-          if (!send || send.disabled) return { ok: false, error: 'ChatGPT send button did not become available.' };
+          if (!send || send.disabled || send.getAttribute('aria-disabled') === 'true')
+            return { ok: false, error: 'ChatGPT send button did not become available.' };
           send.click();
           let last = '';
           let stable = 0;
           while (true) {
-            const messages = document.querySelectorAll(selector);
+            const octaneMessages = document.querySelectorAll(octaneSelector);
+            const octane = octaneMessages[octaneMessages.length - 1];
+            if (octaneMessages.length > octaneBefore && octane?.hasAttribute('data-message-complete')) {
+              // Octane can set the completion marker before its reply content is rendered.
+              const content = octane.children[1]?.innerText?.trim() || '';
+              if (content) return { ok: true, text: content };
+            }
+            const messages = document.querySelectorAll(legacySelector);
             const text = messages[messages.length - 1]?.innerText?.trim() || '';
             const stop = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"]');
             stable = text && text === last ? stable + 1 : 0;
             last = text;
-            if (messages.length > before && text && !stop && stable >= 6)
+            if (messages.length > legacyBefore && text && !stop && stable >= 6)
               return { ok: true, text };
             await sleep(500);
           }
