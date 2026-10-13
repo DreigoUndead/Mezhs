@@ -87,6 +87,8 @@ This example uses **historical** module identities. The inspection diagnostic it
 
 ### Other browser diagnostics
 
+**Trust boundary:** The Agent API is configured to reject non-loopback listeners; diagnostics share that localhost endpoint and authenticated browser session but do **not** have independent per-user authorization. Treat the local Agent HTTP listener as a privileged interface. Do not publish it via port forwarding, LAN binding, shared proxy, or external ingress. Loopback reachability is not a substitute for authentication against untrusted local processes.
+
 `BrowserDiagnosticsModule.cs` allowlists: `snapshot`, `inspectPoint`, `click`, `type`, `key`, `screenshot`, `networkTrace`, `inspectRspackExports` and `show`. UI interaction methods are **for diagnostics only**, not ChatGPT production sending. Screenshot and page snapshots can contain personal data. General CDP mechanics are reusable for other browser integrations; ChatGPT Sentinel and Rspack implementation details are not.
 
 ## Tests and reproducibility
