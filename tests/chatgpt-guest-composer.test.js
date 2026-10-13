@@ -10,6 +10,8 @@ new Function('module', 'require', source)(moduleUnderTest, require);
 
 function mockPage(mode, options = {}) {
   let clicked = 0;
+  let submitted = false;
+  let navigations = 0;
   let ticks = 0;
   let entered = '';
   let enabled = false;
@@ -22,7 +24,7 @@ function mockPage(mode, options = {}) {
   const send = {
     disabled: false,
     getAttribute: name => name === 'aria-disabled' && octane && !enabled ? 'true' : null,
-    click() { clicked++; }
+    click() { clicked++; submitted = true; }
   };
   const form = { querySelector: selector => selector.includes('Send message') ? send : null };
   const editor = new TextArea();
@@ -33,7 +35,7 @@ function mockPage(mode, options = {}) {
   const assistant = octane
     ? {
         hasAttribute: name => name === 'data-message-complete',
-        children: [{ innerText: 'ChatGPT said:' }, { get innerText() { return ticks >= (options.contentAfterTicks ?? 2) && !options.emptyReply ? 'OCTANE_OK' : ''; } }]
+        children: [{ innerText: 'ChatGPT said:' }, { get innerText() { return ticks >= (options.contentAfterTicks ?? 2) && !options.emptyReply && !(options.emptyFirstReply && clicked === 1) ? 'OCTANE_OK' : ''; } }]
       }
     : { innerText: 'LEGACY_OK' };
   const document = {
@@ -44,7 +46,7 @@ function mockPage(mode, options = {}) {
       return null;
     },
     querySelectorAll(selector) {
-      if (!clicked) return [];
+      if (!submitted) return [];
       if (selector.includes('data-conversation-transcript')) return octane ? [assistant] : [];
       if (selector.includes('data-message-author-role')) return octane ? [] : [assistant];
       return [];
@@ -59,7 +61,8 @@ function mockPage(mode, options = {}) {
     setTimeout: callback => { ticks++; callback(); }
   };
   return {
-    window: { webContents: { executeJavaScript: script => vm.runInNewContext(script, context) } },
+    window: { loadURL: async () => { navigations++; submitted = false; ticks = 0; }, webContents: { executeJavaScript: script => vm.runInNewContext(script, context) } },
+    get navigations() { return navigations; },
     get clicked() { return clicked; },
     get entered() { return entered; },
     get ticks() { return ticks; }
@@ -115,4 +118,33 @@ test('Octane completion marker may precede text becoming visible', async () => {
   assert.equal(result.ok, true);
   assert.equal(result.text, 'OCTANE_OK');
   assert.ok(page.ticks >= 9);
+});
+
+test('new anonymous chat recovers from a completed empty reply with one fresh conversation', async () => {
+  const page = mockPage('octane', { emptyFirstReply: true });
+  const prompt = '[User]\\nTest received.\\n[User]\\nReturn <DONE>';
+  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt, newChat: true } });
+  assert.equal(result.ok, true);
+  assert.equal(result.text, 'OCTANE_OK');
+  assert.equal(page.clicked, 2);
+  assert.equal(page.navigations, 2);
+  assert.equal(page.entered, prompt);
+});
+
+test('anonymous guest retry is bounded and reports a second blank reply', async () => {
+  const page = mockPage('octane', { emptyReply: true });
+  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: '[User]\\nReturn <DONE>', newChat: true } });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /completed.*without readable text/i);
+  assert.match(result.error, /retry/i);
+  assert.equal(page.clicked, 2);
+  assert.equal(page.navigations, 2);
+});
+
+test('anonymous guest does not replay a failed reply into an existing conversation', async () => {
+  const page = mockPage('octane', { emptyReply: true });
+  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'Return <DONE>', newChat: false } });
+  assert.equal(result.ok, false);
+  assert.equal(page.clicked, 1);
+  assert.equal(page.navigations, 0);
 });
