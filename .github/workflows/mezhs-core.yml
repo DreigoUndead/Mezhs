@@ -1,0 +1,59 @@
+name: MEŽS Core
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mezhs-core-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Windows Agent and integrations
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: JavaScript syntax and provider regression tests
+        shell: pwsh
+        run: |
+          node --check integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --check electron/main.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $files = @(Get-ChildItem tests -Filter '*.test.js' | ForEach-Object FullName)
+          node --test @files
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build .NET solution
+        run: dotnet build Mezhs.sln -c Release --nologo
+
+      - name: Agent command protocol and real Executor smoke
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File tests/agent-protocol-result.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh -NoProfile -File tests/diagnostics-architecture.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build Agent Web frontend
+        shell: pwsh
+        run: |
+          # Agent Web has no lockfile yet; use exact direct package versions from package.json.
+          npm install --prefix src/Mezhs.Agent.Web --no-package-lock --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix src/Mezhs.Agent.Web
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
