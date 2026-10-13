@@ -33,7 +33,7 @@ function mockPage(mode, options = {}) {
   const assistant = octane
     ? {
         hasAttribute: name => name === 'data-message-complete',
-        children: [{ innerText: 'ChatGPT said:' }, { get innerText() { return ticks >= 2 ? 'OCTANE_OK' : ''; } }]
+        children: [{ innerText: 'ChatGPT said:' }, { get innerText() { return ticks >= (options.contentAfterTicks ?? 2) && !options.emptyReply ? 'OCTANE_OK' : ''; } }]
       }
     : { innerText: 'LEGACY_OK' };
   const document = {
@@ -98,4 +98,21 @@ test('missing editor fails without sending', async () => {
   assert.equal(result.ok, false);
   assert.match(result.error, /prompt editor was not found/i);
   assert.equal(page.clicked, 0);
+});
+
+test('completed blank Octane reply returns an error instead of waiting forever', async () => {
+  const page = mockPage('octane', { emptyReply: true });
+  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'Reply with the completion tag.' } });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /completed.*without readable text/i);
+  assert.equal(page.clicked, 1);
+  assert.ok(page.ticks >= 9);
+});
+
+test('Octane completion marker may precede text becoming visible', async () => {
+  const page = mockPage('octane', { contentAfterTicks: 9 });
+  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'slow render' } });
+  assert.equal(result.ok, true);
+  assert.equal(result.text, 'OCTANE_OK');
+  assert.ok(page.ticks >= 9);
 });

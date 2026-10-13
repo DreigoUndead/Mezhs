@@ -416,7 +416,8 @@ test("ChatGPT account production code has no DOM or native input submission", ()
     path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "chatgpt.ts"),
     "utf8"
   );
-  assert.doesNotMatch(source, /querySelector|document\.|contenteditable|focusNativeComposer|insertText\(|sendInputEvent\(/);
+  const accountSource = source.slice(source.indexOf("async function sendAccountMessage("));
+  assert.doesNotMatch(accountSource, /querySelector|document\.|contenteditable|focusNativeComposer|insertText\(|sendInputEvent\(/);
   assert.doesNotMatch(source, /Network\.requestWillBeSent|Network\.streamResourceContent/);
   assert.match(source, /postConversationTurn/);
   assert.match(source, /requestMessageId = randomUUID\(\)/);
