@@ -742,7 +742,7 @@ useEffect(() => {
     if (selectedChat) {
       const previous = [...messages].reverse().find((message) =>
         message.role === "user" && message.connectionId === targetConnectionId);
-      setModelId(previous?.model ?? defaultModelFor(targetConnectionId));
+      setModelId(previous ? (previous.model ?? "") : defaultModelFor(targetConnectionId));
       setModelSpecified(previous != null);
       return;
     }
