@@ -17,6 +17,17 @@ const API = Object.freeze({
   fileDownload: id => `/backend-api/files/${encodeURIComponent(id)}/download`
 });
 
+const PROMPT_EDITOR_SELECTOR = [
+  '#prompt-textarea',
+  '#mobile-composer-prompt',
+  '[data-mobile-composer-prompt]',
+  'textarea[name="prompt-textarea"]',
+  '[data-testid="prompt-textarea"]',
+  '.ProseMirror[contenteditable="true"]',
+  '[contenteditable="true"][role="textbox"]',
+  '[contenteditable="true"][data-virtualkeyboard="true"]'
+].join(', ');
+
 const CONVERSATION_POLL_INTERVAL_MS = 2000;
 const CONVERSATION_RATE_LIMIT_MAX_FALLBACK_MS = 30000;
 const TURN_INACTIVITY_WATCHDOG_MS = 20000;
@@ -64,18 +75,21 @@ module.exports = {
       return sendAccountMessage(context, false);
     },
 
-    // Guest uses the historical browser composer path, isolated from Account APIs.
+    // Anonymous ChatGPT remains on its old browser path.
     async sendPrompt({ window, args }) {
       if (args.newChat) await window.loadURL(module.exports.homeUrl);
       const prompt = JSON.stringify(String(args.prompt || ""));
+      const promptEditorSelector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
       return window.webContents.executeJavaScript(`
         (async () => {
           const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-          const selector = '[data-message-author-role="assistant"]';
-          const before = document.querySelectorAll(selector).length;
+          const legacySelector = '[data-message-author-role="assistant"]';
+          const octaneSelector = '[data-conversation-transcript] [data-message-role="assistant"]';
+          const legacyBefore = document.querySelectorAll(legacySelector).length;
+          const octaneBefore = document.querySelectorAll(octaneSelector).length;
           let editor = null;
           for (let i = 0; i < 120 && !editor; i++) {
-            editor = document.querySelector('#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]');
+            editor = document.querySelector(${promptEditorSelector});
             if (!editor) await sleep(250);
           }
           if (!editor) return { ok: false, error: 'ChatGPT prompt editor was not found.' };
@@ -92,25 +106,34 @@ module.exports = {
             editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
           }
           let send = null;
-          for (let i = 0; i < 360 && (!send || send.disabled); i++) {
-            send = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
-            if (!send || send.disabled) await sleep(250);
+          for (let i = 0; i < 360; i++) {
+            send = editor.closest('form')?.querySelector('button[aria-label="Send message"]')
+              || document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
+            if (send && !send.disabled && send.getAttribute('aria-disabled') !== 'true') break;
+            await sleep(250);
           }
-          if (!send || send.disabled) return { ok: false, error: 'ChatGPT send button did not become available.' };
+          if (!send || send.disabled || send.getAttribute('aria-disabled') === 'true')
+            return { ok: false, error: 'ChatGPT send button did not become available.' };
           send.click();
           let last = '';
           let stable = 0;
-          for (let i = 0; i < 480; i++) {
-            const messages = document.querySelectorAll(selector);
+          while (true) {
+            const octaneMessages = document.querySelectorAll(octaneSelector);
+            const octane = octaneMessages[octaneMessages.length - 1];
+            if (octaneMessages.length > octaneBefore && octane?.hasAttribute('data-message-complete')) {
+              // Octane can set the completion marker before its reply content is rendered.
+              const content = octane.children[1]?.innerText?.trim() || '';
+              if (content) return { ok: true, text: content };
+            }
+            const messages = document.querySelectorAll(legacySelector);
             const text = messages[messages.length - 1]?.innerText?.trim() || '';
             const stop = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"]');
             stable = text && text === last ? stable + 1 : 0;
             last = text;
-            if (messages.length > before && text && !stop && stable >= 6)
+            if (messages.length > legacyBefore && text && !stop && stable >= 6)
               return { ok: true, text };
             await sleep(500);
           }
-          return { ok: false, text: last, error: 'ChatGPT response timed out.' };
         })()
       `, true);
     }
