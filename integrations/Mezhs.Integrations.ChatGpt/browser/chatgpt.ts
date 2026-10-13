@@ -64,9 +64,55 @@ module.exports = {
       return sendAccountMessage(context, false);
     },
 
-    // Anonymous browser composer automation is intentionally not supported.
-    async sendPrompt() {
-      throw new Error("Anonymous ChatGPT submission has no supported DOM-free transport.");
+    // Guest uses the historical browser composer path, isolated from Account APIs.
+    async sendPrompt({ window, args }) {
+      if (args.newChat) await window.loadURL(module.exports.homeUrl);
+      const prompt = JSON.stringify(String(args.prompt || ""));
+      return window.webContents.executeJavaScript(`
+        (async () => {
+          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+          const selector = '[data-message-author-role="assistant"]';
+          const before = document.querySelectorAll(selector).length;
+          let editor = null;
+          for (let i = 0; i < 120 && !editor; i++) {
+            editor = document.querySelector('#prompt-textarea, [contenteditable="true"][data-virtualkeyboard="true"]');
+            if (!editor) await sleep(250);
+          }
+          if (!editor) return { ok: false, error: 'ChatGPT prompt editor was not found.' };
+          editor.focus();
+          if (editor.tagName === 'TEXTAREA' || editor.tagName === 'INPUT') {
+            const prototype = editor.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+            if (setter) setter.call(editor, ${prompt});
+            else editor.value = ${prompt};
+            editor.dispatchEvent(new Event('input', { bubbles: true }));
+          } else {
+            document.execCommand('selectAll', false, null);
+            document.execCommand('insertText', false, ${prompt});
+            editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
+          }
+          let send = null;
+          for (let i = 0; i < 360 && (!send || send.disabled); i++) {
+            send = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
+            if (!send || send.disabled) await sleep(250);
+          }
+          if (!send || send.disabled) return { ok: false, error: 'ChatGPT send button did not become available.' };
+          send.click();
+          let last = '';
+          let stable = 0;
+          for (let i = 0; i < 480; i++) {
+            const messages = document.querySelectorAll(selector);
+            const text = messages[messages.length - 1]?.innerText?.trim() || '';
+            const stop = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"]');
+            stable = text && text === last ? stable + 1 : 0;
+            last = text;
+            if (messages.length > before && text && !stop && stable >= 6)
+              return { ok: true, text };
+            await sleep(500);
+          }
+          return { ok: false, text: last, error: 'ChatGPT response timed out.' };
+        })()
+      `, true);
     }
   }
 };
