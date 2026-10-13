@@ -6,6 +6,10 @@ These skills are intentionally small and composable.
 - `software-change` — engineering/design judgment for non-trivial implementation, refactoring, architecture work, and code review. It continuously challenges ownership, duplication, regression risk, necessity, complexity, abstraction timing, maintainability, interface choice, async usage, and elegance, then chooses Reuse / Repair / Refactor / Redesign.
 - `systematic-debugging` — evidence-first root-cause investigation for bugs and unexpected behavior. Once the cause is established, it hands the scope decision back to `software-change`.
 
+## Incident handoffs
+
+- [ChatGPT Account private-API repair (October 2026)](chatgpt-private-api-debugging.md) — observed failures, how the browser-native requirements contract was recovered, diagnostics/commands, regressions, and triage for future integration breakage.
+
 There is deliberately no eFlex-specific skill in this repository. eFlex was used as evidence for the general reasoning principles, but Mezhs should acquire project-specific guidance only when its own architecture has enough real patterns and invariants to justify it.
 
 ## Shared foundation
