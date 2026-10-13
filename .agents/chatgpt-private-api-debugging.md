@@ -51,3 +51,96 @@ The conceptual request path is: logged-in Electron session → account identity/
 | `lXE.a` | object | Not established |
 
 Hardcoded `633146.<hash>.js` and `lXE.f` are minified upstream implementation identifiers, **not versioned public contracts**. Treat this record as a historical comparison point, not a recipe to guess future identifiers.
+
+## Live diagnostic tools
+
+**Documented local development endpoint:** `http://127.0.0.1:5060`; use the actual configured port/connection ID. Diagnostic endpoint pattern:
+
+`POST /v1/diagnostics/connections/{connectionId}/browser/{operation}`
+
+### Passive browser request trace
+
+`networkTrace` uses Electron CDP to observe **manual** activity while the browser is visible/focused. It reports backend path, HTTP method, response status and **header names**, not request bodies or credentials. Initiate the relevant browser action manually while tracing:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:5060/v1/diagnostics/connections/chatgpt-sub/browser/networkTrace" `
+  -ContentType "application/json" -Body '{"waitMs":30000}' |
+  ConvertTo-Json -Depth 12
+```
+
+Compare this trace with the failing MEŽS operation: same authenticated account, endpoint, request lifecycle and response. A trace alone is not proof that the whole Agent job completed.
+
+### Targeted Rspack export inspection
+
+`inspectRspackExports` accepts a module ID and up to four export keys. It reports function name, arity, source length and *bounded* source snippets/marker contexts. **It does not call these functions**.
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:5060/v1/diagnostics/connections/chatgpt-sub/browser/inspectRspackExports" `
+  -ContentType "application/json" `
+  -Body '{"moduleId":"lXE","exportKeys":["b","f"]}' |
+  ConvertTo-Json -Depth 12
+```
+
+This example uses **historical** module identities. The inspection diagnostic itself depends on the runtime's Resource Timing URL and can fail when that URL disappears. Failure does **not** prove the module was unloaded. Avoid scanning everything or dumping secret runtime data; review code excerpts before sharing.
+
+### Other browser diagnostics
+
+`BrowserDiagnosticsModule.cs` allowlists: `snapshot`, `inspectPoint`, `click`, `type`, `key`, `screenshot`, `networkTrace`, `inspectRspackExports` and `show`. UI interaction methods are **for diagnostics only**, not ChatGPT production sending. Screenshot and page snapshots can contain personal data. General CDP mechanics are reusable for other browser integrations; ChatGPT Sentinel and Rspack implementation details are not.
+
+## Tests and reproducibility
+
+Use a clean Windows PowerShell checkout; the last command starts a **local test Agent host** and test shell execution:
+
+```powershell
+node --check integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts
+node --test (Get-ChildItem tests -Filter *.test.js | ForEach-Object FullName)
+dotnet build Mezhs.sln -c Release --nologo
+pwsh -NoProfile -File tests/agent-protocol-result.ps1
+```
+
+- `tests/chatgpt-rspack-signature.test.js`: executes actual renderer-side coordinator script against a synthetic Rspack cache; validates callback/key, header filtering, HTTP failure without submission, lost Resource Timing in one persistent document, and a new-document fail-closed case.
+- `tests/chatgpt-account-api.test.js`: submission and response ancestry; no blind resend after uncertain failures; partial stream and HTTP 429 polling; served-model metadata; citation references.
+- `tests/electron-rspack-inspection.test.js`: bounded export inspection must **not invoke** inspected functions.
+- `tests/browser-provider-operations.test.js`: browser transport and provider boundaries.
+- `tests/agent-protocol-result.ps1`: parser safety, escaped `DONE`/`SH` behavior, actual test-host `SH` run, durable Executor evidence, same-turn completion and command-result continuation.
+
+**Last checked Windows CI (2026-10-12):** 48/48 Node tests, JavaScript syntax, .NET Release build and Agent/Executor shell smoke all passed. There was one pre-existing unrelated WhatsApp compiler warning. The **subsequent live 2026-10-13 log** recorded 5/5 completed Agent jobs and 4/4 completed Shell jobs with no Agent error.
+
+When tools are unavailable locally, `.agents/README.md` documents the repository's temporary GitHub Actions validation pattern: add the workflow **to the review branch**, write a sanitized PASS/FAIL report, inspect it, then delete **both** workflow and output before final review.
+
+## Failure triage
+
+| Symptom | What it establishes | Investigate next |
+| --- | --- | --- |
+| Older `ChatGPT Rspack runtime is not loaded` | No matching URL in Resource Timing on that request; **not proof of unload** | Compare new vs warmed renderer document, navigation and resource history |
+| `native requirements provider was not observed in this document (resourceEntries=0, cachedProvider=false)` | No verified cached provider and no matching timing entry | Cold-start readiness and page lifecycle; do not blind-resend |
+| `native requirements provider lXE.f is unavailable` | Runtime observed/imported but expected export incompatible | Check actual frontend module interface; minified IDs drift |
+| `requirements prepare failed with HTTP 403` | Requirements callback failed before model submission | Auth/account state, browser requirements behavior; do not fake challenge tokens |
+| `/backend-api/f/conversation` HTTP 403 | Conversation request rejected; **server-side reason unknown** | Compare known-good browser with MEŽS: method/path, sequencing, auth, conduit, **header names** |
+| HTTP 429 during conversation polling | State read was rate-limited; turn may be accepted | Back off reads; never auto-resubmit an uncertain/accepted turn |
+| Agent `Failed` after a completed `SH` | Shell side effect succeeded but later model communication failed | Inspect Executor evidence **separately** from the Agent message timeline; never rerun side effects blindly |
+| Escaped `DONE` / raw citation markers | Parser or text presentation issue, not an HTTP transport problem | Exact escaped-marker grammar and `content_references` metadata |
+
+## Next agent's checklist
+
+1. Read this file plus `systematic-debugging` and `repository-change-workflow`. Confirm which branch and frontend version are actually running.
+2. Find the **first incorrect stage**: session → model/init → conduit → native requirements → conversation submit → poll/reply → Agent parser → shell → command-result follow-up. Correlate Agent execution ID, message ID, conversation ID and Executor ID. A successful shell action is independent of the following model turn.
+3. Compare one successful and one failing request from the **same build/session**. State observed facts, hypotheses, and what measurement would disprove each hypothesis.
+4. Use passive `networkTrace` for protocol differences; capture paths, methods, statuses, header **names** and safe timings. Never capture/share cookie, bearer, Sentinel token, challenge payload or full request body values.
+5. For frontend compatibility, inspect **a few** candidate exports and their caller/callback relationship. Avoid blanket 9,000-module scans, weak three-marker selection, DOM send automation, and guessed function invocation.
+6. Add a deterministic regression for the precise failure mode (e.g., Resource Timing empty while same document survives). Preserve fresh per-turn requirements, do not cache proof data, and fail closed where the provider is unknown.
+7. Validate JS, Node, .NET, Agent smoke and one **live multi-turn Agent run** (harmless `SH` → durable shell result → command-result model submission → final `DONE`). Testing only the first prompt misses the regression we had.
+8. Review changes in **one PR**, leave it unmerged until the user explicitly approves *the completed reviewed changes*.
+
+## Known remaining risks and architectural notes
+
+- `633146.<hash>.js` and `lXE.f` are minified private frontend identities; either can change with a frontend deployment. Model catalogs, conduit flow, session state, citation metadata and conversation shape are similarly unversioned. Avoid promises that the integration is future-proof.
+- The same-document function cache **only** helps after the provider was found once in that document. A true cold-start/new-document failure still needs lifecycle evidence; do not paper over with arbitrary sleeps, reload loops or retries.
+- Long-term improvement: find a **single unambiguous native interface contract** if the current frontend exposes one, with a fail-closed test; do not grow a list of guessed module IDs or replicate security work.
+- The Agent/Executor boundary is valuable: host execution evidence is durable, and follow-up AI communication can fail independently. Recover safely without duplicating commands. Keep cause/correlation IDs.
+- **Reuse the investigation method**, generic CDP diagnostics, tests and Agent auditing across Gemini/Grok/other integrations. **Do not reuse ChatGPT-specific Sentinel tokens, module names or endpoints** as generic abstractions.
+- Keep diagnostics private and redacted. The authenticated browser owns requirements processing; never fabricate credentials or challenge results, extract token values for logging or commit test-session data.
+
+**Core lesson:** Compare the working browser with the failing semantic request, isolate the first wrong state, identify the actual browser-owned interface, test both endpoint **and document lifetime**, and confirm success in a real multi-turn Agent execution. A compile or mock alone did not establish compatibility.
