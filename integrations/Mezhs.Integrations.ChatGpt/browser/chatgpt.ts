@@ -117,6 +117,7 @@ module.exports = {
           send.click();
           let last = '';
           let stable = 0;
+          let emptyCompletedPolls = 0;
           while (true) {
             const octaneMessages = document.querySelectorAll(octaneSelector);
             const octane = octaneMessages[octaneMessages.length - 1];
@@ -124,6 +125,9 @@ module.exports = {
               // Octane can set the completion marker before its reply content is rendered.
               const content = octane.children[1]?.innerText?.trim() || '';
               if (content) return { ok: true, text: content };
+              // Completion can precede rendering, but a permanently blank reply must not block the agent.
+              if (++emptyCompletedPolls >= 10)
+                return { ok: false, error: 'ChatGPT completed the guest reply without readable text.' };
             }
             const messages = document.querySelectorAll(legacySelector);
             const text = messages[messages.length - 1]?.innerText?.trim() || '';
