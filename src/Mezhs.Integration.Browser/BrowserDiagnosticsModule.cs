@@ -39,8 +39,8 @@ public sealed class BrowserDiagnosticsModule(BrowserAccountSession session)
         }
 
         return session.UseAuthorizedAsync(
-            (transport, token) => transport.InvokeAsync<JsonElement>(
-                $"$diagnostics/{normalized}",
+            (transport, token) => transport.InvokeDiagnosticAsync<JsonElement>(
+                normalized,
                 arguments,
                 token),
             cancellationToken);
