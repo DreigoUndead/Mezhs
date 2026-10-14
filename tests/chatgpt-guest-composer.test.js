@@ -24,14 +24,18 @@ function mockPage(mode, options = {}) {
   const send = {
     disabled: false,
     getAttribute: name => name === 'aria-disabled' && octane && !enabled ? 'true' : null,
-    click() { clicked++; submitted = true; }
+    click() {
+      clicked++;
+      if (options.challengeFinalization) context.fetch('/unauth-mweb/sentinel/chat-requirements/finalize');
+      if (!options.noSubmission) submitted = true;
+    }
   };
   const form = { querySelector: selector => selector.includes('Send message') ? send : null };
   const editor = new TextArea();
   editor.tagName = 'TEXTAREA';
   editor.focus = () => {};
   editor.closest = () => octane ? form : null;
-  editor.dispatchEvent = event => { if (event.type === 'input' && !options.neverEnable) enabled = true; };
+  editor.dispatchEvent = event => { if (event.type === 'input') { if (!options.neverEnable) enabled = true; if (options.challengeOnInput) context.fetch('/unauth-mweb/sentinel/chat-requirements/finalize'); } };
   const assistant = octane
     ? {
         hasAttribute: name => name === 'data-message-complete',
@@ -58,6 +62,7 @@ function mockPage(mode, options = {}) {
     HTMLInputElement: TextArea,
     Event: class { constructor(type) { this.type = type; } },
     InputEvent: class { constructor(type) { this.type = type; } },
+    fetch: async () => ({ clone: () => ({ json: async () => ({ force_login: options.forceLogin === true }) }) }),
     setTimeout: callback => { ticks++; callback(); }
   };
   return {
@@ -147,4 +152,41 @@ test('anonymous guest does not replay a failed reply into an existing conversati
   assert.equal(result.ok, false);
   assert.equal(page.clicked, 1);
   assert.equal(page.navigations, 0);
+});
+
+test('guest login requirement stops without retrying another anonymous session', async () => {
+  const page = mockPage('octane', { challengeFinalization: true, forceLogin: true, noSubmission: true });
+  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'test', newChat: true } });
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, 'guest_login_required');
+  assert.match(result.error, /requires login/i);
+  assert.equal(page.clicked, 1);
+  assert.equal(page.navigations, 1);
+});
+
+test('guest login requirement interrupts send-button polling before a click', async () => {
+  const page = mockPage('octane', { challengeOnInput: true, forceLogin: true, neverEnable: true });
+  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'test', newChat: true } });
+  assert.equal(result.errorCode, 'guest_login_required');
+  assert.equal(page.clicked, 0);
+  assert.equal(page.navigations, 1);
+  assert.ok(page.ticks < 10);
+});
+
+test('guest send without a conversation fails after a bounded wait instead of hanging', async () => {
+  const page = mockPage('octane', { noSubmission: true });
+  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'test', newChat: true } });
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, 'guest_submission_timeout');
+  assert.equal(page.clicked, 1);
+  assert.equal(page.navigations, 1);
+  assert.ok(page.ticks >= 59);
+});
+
+test('guest challenge without force_login does not stop a successful reply', async () => {
+  const page = mockPage('octane', { challengeFinalization: true, forceLogin: false });
+  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'hello' } });
+  assert.equal(result.ok, true);
+  assert.equal(result.text, 'OCTANE_OK');
+  assert.equal(page.clicked, 1);
 });
