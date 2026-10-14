@@ -11,7 +11,7 @@ function executePageFunction(webContents, pageFunction, ...args) {
 }
 
 function inspectDocumentPage(point = null) {
-  const clean = value => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, 240);
+  const clean = value => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, point ? 500 : 240);
   const visible = element => {
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
