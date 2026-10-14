@@ -23,6 +23,14 @@ public interface IChatBrowserTransport : IAsyncDisposable
         CancellationToken cancellationToken = default) =>
         InvokeAsync<TResult>(operation, arguments, cancellationToken);
 
+    // Browser diagnostics are an explicit optional transport capability, not a
+    // magic provider operation name. Unsupported transports fail clearly.
+    Task<TResult> InvokeDiagnosticAsync<TResult>(
+        string operation,
+        object? arguments = null,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("Browser diagnostics are not supported by this transport.");
+
     Task ShowAsync(CancellationToken cancellationToken = default);
 }
 
