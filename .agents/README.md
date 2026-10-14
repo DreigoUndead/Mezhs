@@ -8,7 +8,7 @@ These skills are intentionally small and composable.
 
 ## Incident handoffs
 
-- [ChatGPT Account private-API repair (October 2026)](chatgpt-private-api-debugging.md) — observed failures, how the browser-native requirements contract was recovered, diagnostics/commands, regressions, and triage for future integration breakage.
+- [ChatGPT Account and anonymous guest integration incidents (October 2026)](chatgpt-private-api-debugging.md) — authenticated Account requirements repair, anonymous guest empty replies versus login-required failures, recovery rules, diagnostics, regressions, and future triage.
 
 There is deliberately no eFlex-specific skill in this repository. eFlex was used as evidence for the general reasoning principles, but Mezhs should acquire project-specific guidance only when its own architecture has enough real patterns and invariants to justify it.
 

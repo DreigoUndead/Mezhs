@@ -1,6 +1,6 @@
-# ChatGPT Account private-API repair: October 2026 handoff
+# ChatGPT Account and anonymous guest integration: October 2026 handoff
 
-**Read this when a ChatGPT Account integration breaks.** This is an incident record and debugging playbook, not a stable protocol specification. Current as of 2026-10-13, review branch `agent-model-presets`, PR [#21](https://github.com/DreigoUndead/Mezhs/pull/21). Follow `.agents/skills/systematic-debugging/SKILL.md`, `software-change` and `repository-change-workflow` before editing. Do not merge a review branch without explicit post-review approval.
+**Read this when either ChatGPT Account or anonymous guest integration breaks.** This is an incident record and debugging playbook, not a stable protocol specification. Current as of 2026-10-14, review branch `agent-model-presets`, PR [#21](https://github.com/DreigoUndead/Mezhs/pull/21). Follow `.agents/skills/systematic-debugging/SKILL.md`, `software-change` and `repository-change-workflow` before editing. Do not merge a review branch without explicit post-review approval.
 
 ## Executive summary
 
@@ -13,6 +13,42 @@ A **separate intermittent** failure remained: `ChatGPT Rspack runtime is not loa
 **Live result after these fixes:** the user’s 2026-10-13 Agent log has **5 completed Agent executions, 4 completed Shell executions, 0 Agent errors**. Tasks included multiple ChatGPT turns, file counts/names, size calculation, document reading and Agent follow-up. This is real integration evidence, not just mocks. It is *not* a promise that an undocumented upstream API will remain stable.
 
 **Causality discipline:** The missing Sentinel header names and subsequent successful corrected flow strongly indicate a protocol mismatch, but the complete upstream reason for the original HTTP 403 was not independently proven. An absent Resource Timing URL similarly **does not prove** the JS module was unloaded. Keep observed facts separate from hypotheses.
+
+## Anonymous guest incident: completed blank replies versus login required (2026-10-13/14)
+
+This is a **different path** from the authenticated Account transport above. Anonymous ChatGPT uses `operations.sendPrompt` in `integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts` with the guest web composer and DOM transcript; authenticated Account `newChat`/`send` uses semantic requests, native requirements and conversation IDs. Do not transfer guest DOM assumptions to Account sending, or apply the Account Rspack repair to guest failures without evidence.
+
+### Incident A: a completed assistant with no readable text
+
+- The original MEŽS Agent incident happened on a **follow-up** after an earlier successful reply. Its Octane transcript showed a new assistant element with `data-message-complete` but no readable reply for more than five seconds. This is a **response/display-stage** symptom: a conversation had already begun. The precise failing transport stream was **not** captured, so the underlying cause remains unknown.
+- In separate successful guest captures, `data-message-complete` appeared about **44–2,625 ms before** the reply text became readable. Some response streams ended before DOM text appeared. Incremental `/unauth-mweb/conversation/updates` NDJSON events may contain useful earlier `content` patches even when a final `complete` event has an empty `markdown` field. Therefore **neither the completion attribute nor an individual empty final markdown event proves a permanently blank response**.
+- Replaying the same reconstructed prompt often succeeded. That rules out a simple deterministic prompt rejection, but does **not** identify whether the original failure was rendering, a missing content event, or another upstream transient.
+- Existing mitigation (commits `31db329`, `ee20bca`): after **10 empty completed-message polls** at 500 ms intervals, return `empty_guest_reply`. Only a `newChat: true` attempt may retry once in a fresh chat; an existing conversation (`newChat: false`) must **not** replay a turn, especially a follow-up after executed Agent commands. This is bounded recovery, **not proof that the underlying issue is fixed**.
+
+### Incident B: the guest conversation never starts
+
+A separate live reproduction used an isolated Electron guest session with Chromium-native text input and a **trusted** mouse click. The send button was enabled; the form was valid and its `submit` event fired. The frontend then prevented the native HTML form submission. The following **browser-owned** fetch responses were observed:
+
+| Guest request | Observed result |
+| --- | --- |
+| `/unauth-mweb/sentinel/chat-requirements/prepare` | HTTP 200 |
+| `/unauth-mweb/conversation/prepare` | HTTP 200 |
+| `/unauth-mweb/sentinel/chat-requirements/finalize` | HTTP 200, JSON boolean `force_login: true` |
+| `/unauth-mweb/conversation/updates` | **Not initiated**; no user or assistant turn appeared |
+
+A 200 from preparation/finalization means the request completed, **not** that guest conversation creation was permitted. The explicit `force_login: true` establishes that the frontend was being instructed to require login. It does **not** establish *why* (rate limit, anti-abuse policy, guest quota and other eligibility restrictions remain unverified hypotheses). No evidence connects this new **no-submit** failure causally to the original **completed-but-empty** reply. Changing from synthetic `send.click()` to trusted CDP input/click did not restore submission.
+
+**Implementation (commit `0f561ac`):** The guest adapter temporarily observes the frontend's *existing* `fetch` calls during one `sendPrompt` attempt. It inspects only a cloned finalization response for `force_login === true`, without constructing challenge requests, capturing tokens or replacing response content; the original `fetch` is restored in `finally`. An explicit login requirement returns **non-retryable** `guest_login_required` (also during send-button polling). If the click produces no new user/assistant transcript element, it returns `guest_submission_timeout` after approximately **30 seconds** rather than hanging. A timeout **does not imply** `force_login`; no special retry is added for it. The existing `empty_guest_reply` handling is unchanged. The guest endpoint/field is an **undocumented, unstable** frontend contract: if the field is absent, retain a generic failure/timeout instead of assuming authorization or inventing a reason.
+
+### Safe diagnostic procedure for the next guest incident
+
+1. **Classify by the first missing stage:** editor/button ready -> form submit -> requirements prepare/finalize -> guest conversation request/stream -> user/assistant transcript -> assistant completion -> readable content. Check the new user turn as well as the assistant marker. *No user turn* is not an *empty completed assistant*.
+2. Capture bounded timestamps and safe facts: endpoint **paths**, response **status**, booleans such as `force_login`, whether a request/event occurred, transcript element counts, completion state and text **lengths**. When needed, inspect sequence of incremental stream event **types** rather than assuming the final event is the whole answer. Avoid storing full prompt text.
+3. Install observational hooks **before** composer input/navigation where possible: in the captured flow, prepare/finalize requests could begin **before** the send-button click. Distinguish a trusted click and intercepted form submit from actual accepted conversation creation. If using a test `fetch` wrapper, restore it and avoid persisting it in the page.
+4. Never dump or check in cookies, challenge/proof payloads, tokens or full sensitive network bodies. Do not attempt to bypass `force_login` with repeated new guest sessions. The user's original failure is still unresolved without a **failing response-stream capture**.
+5. Keep this separate from authenticated Account troubleshooting, whose request path and security coordination are different. Reuse the **observation method**, not ChatGPT-specific challenge mechanics.
+
+**Verification for commit `0f561ac`:** `tests/chatgpt-guest-composer.test.js` covers rendered/completed Octane responses, one bounded new-chat blank retry, existing-conversation no-replay, explicit login requirement before or after the click, stalled submission, and successful non-login finalization. On 2026-10-14 all **61/61 Node tests** passed and the ChatGPT integration .NET project built with **0 warnings / 0 errors** using an isolated output directory. The in-place full solution build was obstructed by locks from already-running MEŽS and Visual Studio processes; this does **not** demonstrate a compilation failure. The login-required logic has deterministic tests, but **was not verified by a new successful guest conversation** because the live anonymous session required login. The local sanitized diagnostic report was written to `%TEMP%/mezhs-guest-capture-summary.json` (temporary, **not** committed); raw test probes also lived in `%TEMP%`, not this repository.
 
 ## Owners / moving parts
 
@@ -104,6 +140,7 @@ pwsh -NoProfile -File tests/agent-protocol-result.ps1
 
 - `tests/chatgpt-rspack-signature.test.js`: executes actual renderer-side coordinator script against a synthetic Rspack cache; validates callback/key, header filtering, HTTP failure without submission, lost Resource Timing in one persistent document, and a new-document fail-closed case.
 - `tests/chatgpt-account-api.test.js`: submission and response ancestry; no blind resend after uncertain failures; partial stream and HTTP 429 polling; served-model metadata; citation references.
+- `tests/chatgpt-guest-composer.test.js`: anonymous Octane composer, delayed content, completed blank replies, new-chat-only retry, non-replay for existing conversations, explicit login requirement and no-submission timeout. **Guest UI tests do not validate authenticated Account semantic sending.**
 - `tests/electron-rspack-inspection.test.js`: bounded export inspection must **not invoke** inspected functions.
 - `tests/browser-provider-operations.test.js`: browser transport and provider boundaries.
 - `tests/agent-protocol-result.ps1`: parser safety, escaped `DONE`/`SH` behavior, actual test-host `SH` run, durable Executor evidence, same-turn completion and command-result continuation.
@@ -122,6 +159,9 @@ When tools are unavailable locally, `.agents/README.md` documents the repository
 | `requirements prepare failed with HTTP 403` | Requirements callback failed before model submission | Auth/account state, browser requirements behavior; do not fake challenge tokens |
 | `/backend-api/f/conversation` HTTP 403 | Conversation request rejected; **server-side reason unknown** | Compare known-good browser with MEŽS: method/path, sequencing, auth, conduit, **header names** |
 | HTTP 429 during conversation polling | State read was rate-limited; turn may be accepted | Back off reads; never auto-resubmit an uncertain/accepted turn |
+| Guest `guest_login_required` / finalization `force_login: true` | Explicit guest login requirement; no accepted turn was observed in the captured case | Stop without replay or guest-session cycling; upstream trigger remains unknown |
+| Guest `guest_submission_timeout` | Click did not produce a detectable new transcript turn within ~30 s; **not** necessarily a login requirement | Check preparation/finalization and whether a conversation request was actually made; do not blindly resend |
+| Guest `empty_guest_reply` | New assistant was marked complete but stayed unreadable through a bounded grace period | Distinguish DOM rendering from event stream; only the existing `newChat` path retries once, never an existing turn |
 | Agent `Failed` after a completed `SH` | Shell side effect succeeded but later model communication failed | Inspect Executor evidence **separately** from the Agent message timeline; never rerun side effects blindly |
 | Escaped `DONE` / raw citation markers | Parser or text presentation issue, not an HTTP transport problem | Exact escaped-marker grammar and `content_references` metadata |
 
