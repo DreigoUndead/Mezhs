@@ -944,3 +944,137 @@ test("ChatGPT account walks past hidden current nodes to the visible final reply
   assert.equal(result.text, "Actual visible reply");
   assert.equal(result.parentMessageId, "assistant-final");
 });
+
+test('ChatGPT Account uploads images and documents before one semantic turn', async () => {
+  const chatgpt = loadChatGptModule();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mezhs-upload-fixtures-'));
+  const image = path.join(dir, 'sample.png');
+  const document = path.join(dir, 'sample.txt');
+  fs.writeFileSync(image, Buffer.from([137, 80, 78, 71]));
+  fs.writeFileSync(document, 'hello file');
+  let requestMessageId;
+  const stages = [];
+  const session = protocolSession({
+    conversationId: 'conv-upload',
+    onConversationPost: body => {
+      stages.push('submit');
+      requestMessageId = body.messages[0].id;
+      const message = body.messages[0];
+      assert.equal(message.content.content_type, 'multimodal_text');
+      assert.deepEqual(message.content.parts, [{
+        content_type: 'image_asset_pointer',
+        asset_pointer: 'file-service://file-1',
+        size_bytes: 4
+      }, 'describe these']);
+      assert.deepEqual(message.metadata.attachments, [
+        { id: 'file-1', name: 'sample.png', mimeType: 'image/png', size: 4 },
+        { id: 'file-2', name: 'sample.txt', mimeType: 'text/plain', size: 10 }
+      ]);
+    },
+    onConversationRead: () => jsonResponse(completedConversation('conv-upload', requestMessageId, 'processed'))
+  });
+  const originalFetch = session.fetch;
+  let nextId = 0;
+  session.fetch = async (url, options = {}) => {
+    const target = new URL(String(url));
+    if (target.pathname === '/backend-api/files') {
+      const body = JSON.parse(options.body);
+      assert.equal(body.entry_surface, 'chat_composer');
+      assert.equal(body.use_case, nextId === 0 ? 'multimodal' : 'my_files');
+      assert.equal(body.mime_type, nextId === 0 ? 'image/png' : 'text/plain');
+      const id = 'file-' + (++nextId);
+      stages.push('create-' + id);
+      return jsonResponse({ status: 'success', file_id: id,
+        upload_url: 'https://uploads.blob.core.windows.net/test/' + id });
+    }
+    if (target.hostname === 'uploads.blob.core.windows.net') {
+      assert.equal(options.method, 'PUT');
+      assert.equal(options.credentials, 'omit');
+      assert.equal(options.headers['x-ms-blob-type'], 'BlockBlob');
+      assert.equal(options.headers['x-ms-version'], '2020-04-08');
+      const id = target.pathname.split('/').at(-1);
+      stages.push('transfer-' + id);
+      return textResponse('', 201);
+    }
+    if (target.pathname === '/backend-api/files/process_upload_stream') {
+      const body = JSON.parse(options.body);
+      assert.equal(options.method, 'POST');
+      assert.equal(body.entry_surface, 'chat_composer');
+      const id = body.file_id;
+      stages.push('process-' + id);
+      return textResponse('data: ' + JSON.stringify({
+        event: 'file.processing.completed', file_id: id
+      }) + String.fromCharCode(10, 10), 200, 'text/event-stream');
+    }
+    return originalFetch(url, options);
+  };
+  try {
+    const result = await chatgpt.operations.newChat({
+      ...nativeBrowserSurface(session), session,
+      args: { prompt: 'describe these', files: [
+        { path: image, name: 'sample.png', contentType: 'image/png' },
+        { path: document, name: 'sample.txt', contentType: 'text/plain' }
+      ] },
+      sleep: async () => {}
+    });
+    assert.equal(result.text, 'processed');
+    assert.deepEqual(stages, [
+      'create-file-1', 'transfer-file-1', 'process-file-1',
+      'create-file-2', 'transfer-file-2', 'process-file-2', 'submit'
+    ]);
+    assert.equal(session.__native.posts, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ChatGPT Account stops before semantic submission when attachment upload fails', async t => {
+  const chatgpt = loadChatGptModule();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mezhs-upload-errors-'));
+  const document = path.join(dir, 'sample.txt');
+  fs.writeFileSync(document, 'hello file');
+  try {
+    for (const failure of ['create', 'transfer', 'process-http', 'process-event', 'process-incomplete', 'multipart', 'estuary', 'unsafe-url']) {
+      await t.test(failure, async () => {
+        const session = protocolSession({
+          conversationId: 'conv-upload-error',
+          onConversationRead: () => { throw Error('Unexpected conversation read'); }
+        });
+        const originalFetch = session.fetch;
+        session.fetch = async (url, options = {}) => {
+          const target = new URL(String(url));
+          if (target.pathname === '/backend-api/files') return failure === 'multipart'
+            ? jsonResponse({ status: 'success', file_id: 'file-1', upload_url: 'https://uploads.blob.core.windows.net/test/file-1', direct_library_upload_strategy: { kind: 'direct_azure_multipart', part_count: 2 } })
+            : failure === 'estuary'
+            ? jsonResponse({ status: 'success', file_id: 'file-1', upload_url: 'https://chatgpt.com/backend-api/estuary/upload_content_bytes' })
+            : failure === 'unsafe-url'
+            ? jsonResponse({ status: 'success', file_id: 'file-1', upload_url: 'http://uploads.blob.core.windows.net/test/file-1' })
+            : failure === 'create'
+            ? jsonResponse({ status: 'error', error_code: 'quota' })
+            : jsonResponse({ status: 'success', file_id: 'file-1',
+              upload_url: 'https://uploads.blob.core.windows.net/test/file-1' });
+          if (target.hostname === 'uploads.blob.core.windows.net')
+            return textResponse('', failure === 'transfer' ? 403 : 201);
+          if (target.pathname === '/backend-api/files/process_upload_stream') {
+            if (failure === 'process-http') return textResponse('error', 500);
+            const event = failure === 'process-event'
+              ? 'file.processing.failed' : 'file.processing.in_progress';
+            return textResponse('data: ' + JSON.stringify({ event, file_id: 'file-1' }) +
+              String.fromCharCode(10, 10), 200, 'text/event-stream');
+          }
+          return originalFetch(url, options);
+        };
+        await assert.rejects(chatgpt.operations.newChat({
+          ...nativeBrowserSurface(session), session,
+          args: { prompt: 'should not send', files: [
+            { path: document, name: 'sample.txt', contentType: 'text/plain' }
+          ] },
+          sleep: async () => {}
+        }));
+        assert.equal(session.__native.posts, 0, 'must not send a prompt after an upload failure');
+      });
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
