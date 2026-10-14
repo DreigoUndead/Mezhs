@@ -1028,6 +1028,82 @@ test('ChatGPT Account uploads images and documents before one semantic turn', as
   }
 });
 
+test('ChatGPT Account uploads an attachment on an existing conversation turn', async () => {
+  const chatgpt = loadChatGptModule();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mezhs-upload-existing-'));
+  const document = path.join(dir, 'follow-up.txt');
+  fs.writeFileSync(document, 'follow-up file');
+  let requestMessageId;
+  const stages = [];
+  const session = protocolSession({
+    conversationId: 'conv-existing-upload',
+    onConversationPost: body => {
+      stages.push('submit');
+      requestMessageId = body.messages[0].id;
+      assert.equal(body.conversation_id, 'conv-existing-upload');
+      assert.equal(body.parent_message_id, 'assistant-existing');
+      assert.equal(body.messages[0].content.content_type, 'text');
+      assert.deepEqual(body.messages[0].content.parts, ['read this follow-up']);
+      assert.deepEqual(body.messages[0].metadata.attachments, [
+        { id: 'file-existing', name: 'follow-up.txt', mimeType: 'text/plain', size: 14 }
+      ]);
+    },
+    onConversationRead: () => jsonResponse(
+      completedConversation('conv-existing-upload', requestMessageId, 'existing processed')
+    )
+  });
+  const originalFetch = session.fetch;
+  session.fetch = async (url, options = {}) => {
+    const target = new URL(String(url));
+    if (target.pathname === '/backend-api/files') {
+      stages.push('create');
+      return jsonResponse({
+        status: 'success',
+        file_id: 'file-existing',
+        upload_url: 'https://uploads.blob.core.windows.net/test/file-existing'
+      });
+    }
+    if (target.hostname === 'uploads.blob.core.windows.net') {
+      stages.push('transfer');
+      return textResponse('', 201);
+    }
+    if (target.pathname === '/backend-api/files/process_upload_stream') {
+      stages.push('process');
+      return textResponse(
+        'data: ' + JSON.stringify({
+          event: 'file.processing.completed',
+          file_id: 'file-existing'
+        }) + String.fromCharCode(10, 10),
+        200,
+        'text/event-stream'
+      );
+    }
+    return originalFetch(url, options);
+  };
+
+  try {
+    const result = await chatgpt.operations.send({
+      ...nativeBrowserSurface(session),
+      session,
+      args: {
+        prompt: 'read this follow-up',
+        conversationId: 'conv-existing-upload',
+        parentMessageId: 'assistant-existing',
+        files: [
+          { path: document, name: 'follow-up.txt', contentType: 'text/plain' }
+        ]
+      },
+      sleep: async () => {}
+    });
+
+    assert.equal(result.text, 'existing processed');
+    assert.deepEqual(stages, ['create', 'transfer', 'process', 'submit']);
+    assert.equal(session.__native.posts, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('ChatGPT Account stops before semantic submission when attachment upload fails', async t => {
   const chatgpt = loadChatGptModule();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mezhs-upload-errors-'));
