@@ -1,15 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const vm = require("node:vm");
 const { EventEmitter } = require("node:events");
+const { captureDiagnosticNetwork } = require("../electron/diagnostics");
 
 function diagnosticHarness() {
-  const source = fs.readFileSync(path.resolve(__dirname, "../electron/main.js"), "utf8");
-  const start = source.indexOf("async function captureDiagnosticNetwork(");
-  const end = source.indexOf("async function invokeDiagnostic(", start);
-  assert.ok(start >= 0 && end > start);
   class Debugger extends EventEmitter {
     attached = false;
     isAttached() { return this.attached; }
@@ -20,13 +14,10 @@ function diagnosticHarness() {
   const debuggerClient = new Debugger();
   const context = {
     window: { webContents: { debugger: debuggerClient } },
-    URL,
     sleep: async () => {}
   };
-  const capture = vm.runInNewContext(
-    source.slice(start, end) + "\ncaptureDiagnosticNetwork",
-    context
-  );
+  const capture = (action, waitMs, options) =>
+    captureDiagnosticNetwork(context, action, waitMs, options);
   return { capture, debuggerClient };
 }
 
@@ -71,7 +62,7 @@ test("Manual network tracing records only header names, relevant paths and statu
   assert.equal(captured[0].method, "POST");
   assert.equal(captured[0].status, 200);
   assert.equal(captured[0].url, "https://chatgpt.com/backend-api/f/conversation");
-  assert.deepEqual(Array.from(captured[0].headerNames), [
+  assert.deepEqual(captured[0].headerNames, [
     "Authorization",
     "Content-Type",
     "Cookie",
@@ -103,4 +94,13 @@ test("Existing click diagnostics preserve path/status data without capturing hea
   assert.equal(captured[0].status, 204);
   assert.equal(captured[0].url, "https://other.invalid/static");
   assert.equal(captured[0].headerNames, undefined);
+});
+
+test("A failed trace always detaches the debugger it attached", async () => {
+  const { capture, debuggerClient } = diagnosticHarness();
+  await assert.rejects(capture(async () => {
+    throw new Error("action failed");
+  }, 0), /action failed/);
+  assert.equal(debuggerClient.isAttached(), false);
+  assert.equal(debuggerClient.listenerCount("message"), 0);
 });
