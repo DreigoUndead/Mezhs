@@ -41,7 +41,7 @@ $process = $null
 $port = $null
 
 function Invoke-Diagnostic([string]$operation, $arguments = @{}) {
-    $body = @{ operation = ('$diagnostics/' + $operation); arguments = $arguments } | ConvertTo-Json -Compress -Depth 8
+    $body = @{ kind = 'diagnostic'; operation = $operation; arguments = $arguments } | ConvertTo-Json -Compress -Depth 8
     $start = Invoke-RestMethod `
         -Method Post `
         -Uri "http://127.0.0.1:$port/invoke" `
