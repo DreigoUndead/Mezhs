@@ -12,6 +12,10 @@ These skills are intentionally small and composable.
 
 There is deliberately no eFlex-specific skill in this repository. eFlex was used as evidence for the general reasoning principles, but Mezhs should acquire project-specific guidance only when its own architecture has enough real patterns and invariants to justify it.
 
+## Agent improvement backlog
+
+- [Execution UX and efficiency TODO](todo-execution-ux-and-efficiency.md) - long-session review, prioritized issues, supporting evidence and next-chat acceptance criteria.
+
 ## Shared foundation
 
 `src/Mezhs.Common` contains generic reusable mechanisms shared across projects. Before adding project-local generic helpers, check whether the responsibility already exists there or belongs there.
