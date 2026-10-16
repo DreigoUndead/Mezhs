@@ -1162,17 +1162,19 @@ async function uploadFiles(session, token, files) {
     for (const raw of processingBody.split(String.fromCharCode(10))) {
       const line = raw.trim();
       if (line.startsWith('event:')) frameEvent = line.slice(6).trim();
-      if (!line.startsWith('data:')) continue;
+      const sseData = line.startsWith('data:');
+      // The live processing endpoint emits bare newline-delimited JSON despite its SSE content type.
+      if (!sseData && !line.startsWith('{')) continue;
       let event;
-      try { event = JSON.parse(line.slice(5).trim()); } catch { invalidJsonFrames++; continue; }
-      const eventName = event?.event || frameEvent;
+      try { event = JSON.parse(sseData ? line.slice(5).trim() : line); } catch { invalidJsonFrames++; continue; }
+      const eventName = event?.event || (sseData ? frameEvent : '');
       if (observations.length < 8) {
         const safeName = typeof eventName === 'string' && /^[A-Za-z][A-Za-z0-9._-]{0,79}$/.test(eventName) ? eventName : 'unnamed';
         const idState = value => value == null ? 'absent' : value === created.file_id ? 'match' : 'different';
         const nested = event?.data && typeof event.data === 'object' ? event.data : null;
         observations.push(safeName + '(topId=' + idState(event?.file_id) + ',dataId=' + idState(nested?.file_id) + ')');
       }
-      if (event?.file_id !== created.file_id) continue;
+      if (event?.file_id !== created.file_id || typeof eventName !== 'string') continue;
       if (eventName.endsWith('.error') || eventName.endsWith('.failed') ||
           eventName.endsWith('.cancelled') || eventName.endsWith('.unknown')) failed = true;
       if (eventName === 'file.processing.completed' ||
