@@ -1112,7 +1112,7 @@ test('ChatGPT Account stops before semantic submission when attachment upload fa
   const document = path.join(dir, 'sample.txt');
   fs.writeFileSync(document, 'hello file');
   try {
-    for (const failure of ['create', 'transfer', 'transfer-code', 'transfer-unsafe-code', 'process-http', 'process-event', 'process-incomplete', 'multipart', 'estuary', 'unsafe-url']) {
+    for (const failure of ['create', 'transfer', 'transfer-code', 'transfer-unsafe-code', 'process-http', 'process-event', 'process-incomplete', 'process-empty', 'process-json', 'multipart', 'estuary', 'unsafe-url']) {
       await t.test(failure, async () => {
         const session = protocolSession({
           conversationId: 'conv-upload-error',
@@ -1141,6 +1141,8 @@ test('ChatGPT Account stops before semantic submission when attachment upload fa
           }
           if (target.pathname === '/backend-api/files/process_upload_stream') {
             if (failure === 'process-http') return textResponse('error', 500);
+            if (failure === 'process-empty') return textResponse('', 200, 'text/event-stream');
+            if (failure === 'process-json') return jsonResponse({ status: 'success', private_value: 'PRIVATE_RESPONSE_BODY', upload_url: 'https://private.signed.url' });
             const event = failure === 'process-event'
               ? 'file.processing.failed' : 'file.processing.in_progress';
             return textResponse('data: ' + JSON.stringify({ event, file_id: 'file-1', private_value: 'PRIVATE_RESPONSE_BODY', upload_url: 'https://private.signed.url' }) +
@@ -1157,8 +1159,10 @@ test('ChatGPT Account stops before semantic submission when attachment upload fa
         }), error => {
           if (failure === 'transfer-code') assert.match(error.message, /HTTP 400 [(]InvalidHeaderValue[)]/);
           if (failure === 'transfer-unsafe-code') assert.match(error.message, /HTTP 400[.]/);
-          if (failure === 'process-event') assert.match(error.message, /HTTP 200; events=file[.]processing[.]failed[(]topId=match,dataId=absent[)]/);
-          if (failure === 'process-incomplete') assert.match(error.message, /HTTP 200; events=file[.]processing[.]in_progress[(]topId=match,dataId=absent[)]/);
+          if (failure === 'process-event') assert.match(error.message, /HTTP 200; type=text\/event-stream; size=\d+; shape=sse; jsonStatus=none; events=file[.]processing[.]failed[(]topId=match,dataId=absent[)]/);
+          if (failure === 'process-incomplete') assert.match(error.message, /HTTP 200; type=text\/event-stream; size=\d+; shape=sse; jsonStatus=none; events=file[.]processing[.]in_progress[(]topId=match,dataId=absent[)]/);
+          if (failure === 'process-empty') assert.match(error.message, /HTTP 200; type=text\/event-stream; size=0; shape=empty; jsonStatus=none; events=none;/);
+          if (failure === 'process-json') assert.match(error.message, /HTTP 200; type=application\/json; size=\d+; shape=json-object; jsonStatus=success; events=none;/);
           assert.doesNotMatch(error.message, /PRIVATE_RESPONSE_BODY|private[.]signed[.]url/);
           return true;
         });

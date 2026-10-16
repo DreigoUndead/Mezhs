@@ -1123,12 +1123,24 @@ async function uploadFiles(session, token, files) {
         mime_type: contentType
       })
     });
+    const processingBody = await processed.text();
+    const rawType = String(processed.headers?.get?.('content-type') || '').split(';')[0].trim().toLowerCase();
+    const safeType = ['text/event-stream', 'application/json', 'application/x-ndjson', 'text/plain'].includes(rawType) ? rawType : 'other';
+    const trimmedBody = processingBody.trim();
+    const bodyShape = !trimmedBody ? 'empty' : /^(data:|event:)/.test(trimmedBody) ? 'sse' : trimmedBody.startsWith('{') ? 'json-object' : trimmedBody.startsWith('[') ? 'json-array' : 'other';
+    let jsonStatus = 'none';
+    if (bodyShape === 'json-object') {
+      try {
+        const parsed = JSON.parse(trimmedBody);
+        if (typeof parsed?.status === 'string' && /^[A-Za-z][A-Za-z0-9._-]{0,39}$/.test(parsed.status)) jsonStatus = parsed.status;
+      } catch { jsonStatus = 'invalid-json'; }
+    }
     let ready = false;
     let failed = false;
     const observations = [];
     let invalidJsonFrames = 0;
     let frameEvent = '';
-    for (const raw of (await processed.text()).split(String.fromCharCode(10))) {
+    for (const raw of processingBody.split(String.fromCharCode(10))) {
       const line = raw.trim();
       if (line.startsWith('event:')) frameEvent = line.slice(6).trim();
       if (!line.startsWith('data:')) continue;
@@ -1148,7 +1160,7 @@ async function uploadFiles(session, token, files) {
           eventName === 'file.processing.file_ready') ready = true;
     }
     if (failed || !ready)
-      throw new Error('ChatGPT file processing did not confirm success (HTTP ' + processed.status + '; events=' + (observations.join(', ') || 'none') + '; invalidJsonFrames=' + invalidJsonFrames + ').');
+      throw new Error('ChatGPT file processing did not confirm success (HTTP ' + processed.status + '; type=' + safeType + '; size=' + Buffer.byteLength(processingBody) + '; shape=' + bodyShape + '; jsonStatus=' + jsonStatus + '; events=' + (observations.join(', ') || 'none') + '; invalidJsonFrames=' + invalidJsonFrames + ').');
     uploaded.push({ id: created.file_id, name: file.name, contentType, size: bytes.length });
   }
   return uploaded;
