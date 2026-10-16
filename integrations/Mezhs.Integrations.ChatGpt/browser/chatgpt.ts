@@ -1125,14 +1125,22 @@ async function uploadFiles(session, token, files) {
     });
     let ready = false;
     let failed = false;
+    const observations = [];
+    let invalidJsonFrames = 0;
     let frameEvent = '';
     for (const raw of (await processed.text()).split(String.fromCharCode(10))) {
       const line = raw.trim();
       if (line.startsWith('event:')) frameEvent = line.slice(6).trim();
       if (!line.startsWith('data:')) continue;
       let event;
-      try { event = JSON.parse(line.slice(5).trim()); } catch { continue; }
+      try { event = JSON.parse(line.slice(5).trim()); } catch { invalidJsonFrames++; continue; }
       const eventName = event?.event || frameEvent;
+      if (observations.length < 8) {
+        const safeName = typeof eventName === 'string' && /^[A-Za-z][A-Za-z0-9._-]{0,79}$/.test(eventName) ? eventName : 'unnamed';
+        const idState = value => value == null ? 'absent' : value === created.file_id ? 'match' : 'different';
+        const nested = event?.data && typeof event.data === 'object' ? event.data : null;
+        observations.push(safeName + '(topId=' + idState(event?.file_id) + ',dataId=' + idState(nested?.file_id) + ')');
+      }
       if (event?.file_id !== created.file_id) continue;
       if (eventName.endsWith('.error') || eventName.endsWith('.failed') ||
           eventName.endsWith('.cancelled') || eventName.endsWith('.unknown')) failed = true;
@@ -1140,7 +1148,7 @@ async function uploadFiles(session, token, files) {
           eventName === 'file.processing.file_ready') ready = true;
     }
     if (failed || !ready)
-      throw new Error('ChatGPT file processing did not confirm success.');
+      throw new Error('ChatGPT file processing did not confirm success (HTTP ' + processed.status + '; events=' + (observations.join(', ') || 'none') + '; invalidJsonFrames=' + invalidJsonFrames + ').');
     uploaded.push({ id: created.file_id, name: file.name, contentType, size: bytes.length });
   }
   return uploaded;

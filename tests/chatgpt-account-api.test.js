@@ -1143,7 +1143,7 @@ test('ChatGPT Account stops before semantic submission when attachment upload fa
             if (failure === 'process-http') return textResponse('error', 500);
             const event = failure === 'process-event'
               ? 'file.processing.failed' : 'file.processing.in_progress';
-            return textResponse('data: ' + JSON.stringify({ event, file_id: 'file-1' }) +
+            return textResponse('data: ' + JSON.stringify({ event, file_id: 'file-1', private_value: 'PRIVATE_RESPONSE_BODY', upload_url: 'https://private.signed.url' }) +
               String.fromCharCode(10, 10), 200, 'text/event-stream');
           }
           return originalFetch(url, options);
@@ -1157,6 +1157,8 @@ test('ChatGPT Account stops before semantic submission when attachment upload fa
         }), error => {
           if (failure === 'transfer-code') assert.match(error.message, /HTTP 400 [(]InvalidHeaderValue[)]/);
           if (failure === 'transfer-unsafe-code') assert.match(error.message, /HTTP 400[.]/);
+          if (failure === 'process-event') assert.match(error.message, /HTTP 200; events=file[.]processing[.]failed[(]topId=match,dataId=absent[)]/);
+          if (failure === 'process-incomplete') assert.match(error.message, /HTTP 200; events=file[.]processing[.]in_progress[(]topId=match,dataId=absent[)]/);
           assert.doesNotMatch(error.message, /PRIVATE_RESPONSE_BODY|private[.]signed[.]url/);
           return true;
         });
