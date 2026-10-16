@@ -1128,6 +1128,25 @@ async function uploadFiles(session, token, files) {
     const safeType = ['text/event-stream', 'application/json', 'application/x-ndjson', 'text/plain'].includes(rawType) ? rawType : 'other';
     const trimmedBody = processingBody.trim();
     const bodyShape = !trimmedBody ? 'empty' : /^(data:|event:)/.test(trimmedBody) ? 'sse' : trimmedBody.startsWith('{') ? 'json-object' : trimmedBody.startsWith('[') ? 'json-array' : 'other';
+    const safeState = value => {
+      if (typeof value !== 'string') return 'absent';
+      if (/^(?:pending|processing|started|in_progress|uploaded|ready|completed|complete|done|success|failed|error|cancelled|file_ready)$/.test(value)) return value;
+      if (/^file[._-](?:processing|upload)[._-][a-z0-9_.-]{1,60}$/i.test(value)) return value;
+      return 'other';
+    };
+    const jsonLines = processingBody.split(String.fromCharCode(10)).filter(line => line.trim());
+    const allowedKeys = ['event', 'type', 'status', 'file_id', 'id', 'data', 'payload', 'result', 'error', 'message', 'progress', 'files'];
+    const lineObservations = jsonLines.slice(0, 8).map(raw => {
+      const line = raw.trim();
+      if (line.startsWith('data:') || line.startsWith('event:')) return 'sse';
+      let obj;
+      try { obj = JSON.parse(line); } catch { return 'non-json'; }
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return 'non-object-json';
+      const keys = allowedKeys.filter(key => Object.prototype.hasOwnProperty.call(obj, key));
+      const nested = [obj.data, obj.payload, obj.result].find(x => x && typeof x === 'object' && !Array.isArray(x));
+      const nestedKeys = nested ? allowedKeys.filter(key => Object.prototype.hasOwnProperty.call(nested, key)) : [];
+      return 'object(keys=' + (keys.join('|') || 'none') + ',event=' + safeState(obj.event) + ',type=' + safeState(obj.type) + ',status=' + safeState(obj.status) + ',nestedKeys=' + (nestedKeys.join('|') || 'none') + ',nestedStatus=' + safeState(nested?.status) + ')';
+    });
     let jsonStatus = 'none';
     if (bodyShape === 'json-object') {
       try {
@@ -1160,7 +1179,7 @@ async function uploadFiles(session, token, files) {
           eventName === 'file.processing.file_ready') ready = true;
     }
     if (failed || !ready)
-      throw new Error('ChatGPT file processing did not confirm success (HTTP ' + processed.status + '; type=' + safeType + '; size=' + Buffer.byteLength(processingBody) + '; shape=' + bodyShape + '; jsonStatus=' + jsonStatus + '; events=' + (observations.join(', ') || 'none') + '; invalidJsonFrames=' + invalidJsonFrames + ').');
+      throw new Error('ChatGPT file processing did not confirm success (HTTP ' + processed.status + '; type=' + safeType + '; size=' + Buffer.byteLength(processingBody) + '; shape=' + bodyShape + '; jsonStatus=' + jsonStatus + '; lines=' + jsonLines.length + '; samples=' + (lineObservations.join(', ') || 'none') + '; events=' + (observations.join(', ') || 'none') + '; invalidJsonFrames=' + invalidJsonFrames + ').');
     uploaded.push({ id: created.file_id, name: file.name, contentType, size: bytes.length });
   }
   return uploaded;

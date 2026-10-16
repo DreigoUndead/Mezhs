@@ -1112,7 +1112,7 @@ test('ChatGPT Account stops before semantic submission when attachment upload fa
   const document = path.join(dir, 'sample.txt');
   fs.writeFileSync(document, 'hello file');
   try {
-    for (const failure of ['create', 'transfer', 'transfer-code', 'transfer-unsafe-code', 'process-http', 'process-event', 'process-incomplete', 'process-empty', 'process-json', 'multipart', 'estuary', 'unsafe-url']) {
+    for (const failure of ['create', 'transfer', 'transfer-code', 'transfer-unsafe-code', 'process-http', 'process-event', 'process-incomplete', 'process-empty', 'process-json', 'process-ndjson', 'multipart', 'estuary', 'unsafe-url']) {
       await t.test(failure, async () => {
         const session = protocolSession({
           conversationId: 'conv-upload-error',
@@ -1143,6 +1143,10 @@ test('ChatGPT Account stops before semantic submission when attachment upload fa
             if (failure === 'process-http') return textResponse('error', 500);
             if (failure === 'process-empty') return textResponse('', 200, 'text/event-stream');
             if (failure === 'process-json') return jsonResponse({ status: 'success', private_value: 'PRIVATE_RESPONSE_BODY', upload_url: 'https://private.signed.url' });
+            if (failure === 'process-ndjson') return textResponse([
+              JSON.stringify({ event: 'file.processing.started', file_id: 'file-1', status: 'processing', data: { status: 'processing', private_value: 'PRIVATE_RESPONSE_BODY' } }),
+              JSON.stringify({ event: 'file.processing.completed', file_id: 'file-1', status: 'completed', payload: { file_id: 'file-1', upload_url: 'https://private.signed.url' } })
+            ].join(String.fromCharCode(10)), 200, 'text/event-stream');
             const event = failure === 'process-event'
               ? 'file.processing.failed' : 'file.processing.in_progress';
             return textResponse('data: ' + JSON.stringify({ event, file_id: 'file-1', private_value: 'PRIVATE_RESPONSE_BODY', upload_url: 'https://private.signed.url' }) +
@@ -1159,10 +1163,15 @@ test('ChatGPT Account stops before semantic submission when attachment upload fa
         }), error => {
           if (failure === 'transfer-code') assert.match(error.message, /HTTP 400 [(]InvalidHeaderValue[)]/);
           if (failure === 'transfer-unsafe-code') assert.match(error.message, /HTTP 400[.]/);
-          if (failure === 'process-event') assert.match(error.message, /HTTP 200; type=text\/event-stream; size=\d+; shape=sse; jsonStatus=none; events=file[.]processing[.]failed[(]topId=match,dataId=absent[)]/);
-          if (failure === 'process-incomplete') assert.match(error.message, /HTTP 200; type=text\/event-stream; size=\d+; shape=sse; jsonStatus=none; events=file[.]processing[.]in_progress[(]topId=match,dataId=absent[)]/);
-          if (failure === 'process-empty') assert.match(error.message, /HTTP 200; type=text\/event-stream; size=0; shape=empty; jsonStatus=none; events=none;/);
-          if (failure === 'process-json') assert.match(error.message, /HTTP 200; type=application\/json; size=\d+; shape=json-object; jsonStatus=success; events=none;/);
+          if (failure === 'process-event') assert.match(error.message, /HTTP 200; type=text\/event-stream; size=\d+; shape=sse; jsonStatus=none; lines=1; samples=sse; events=file[.]processing[.]failed[(]topId=match,dataId=absent[)]/);
+          if (failure === 'process-incomplete') assert.match(error.message, /HTTP 200; type=text\/event-stream; size=\d+; shape=sse; jsonStatus=none; lines=1; samples=sse; events=file[.]processing[.]in_progress[(]topId=match,dataId=absent[)]/);
+          if (failure === 'process-empty') assert.match(error.message, /HTTP 200; type=text\/event-stream; size=0; shape=empty; jsonStatus=none; lines=0; samples=none; events=none;/);
+          if (failure === 'process-json') assert.match(error.message, /HTTP 200; type=application\/json; size=\d+; shape=json-object; jsonStatus=success; lines=1; samples=object[^;]+; events=none;/);
+          if (failure === 'process-ndjson') {
+            assert.match(error.message, /shape=json-object; jsonStatus=invalid-json; lines=2; samples=object/);
+            assert.match(error.message, /event=file[.]processing[.]completed,type=absent,status=completed/);
+            assert.match(error.message, /events=none; invalidJsonFrames=0/);
+          }
           assert.doesNotMatch(error.message, /PRIVATE_RESPONSE_BODY|private[.]signed[.]url/);
           return true;
         });
