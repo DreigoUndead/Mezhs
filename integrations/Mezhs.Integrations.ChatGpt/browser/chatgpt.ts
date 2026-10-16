@@ -1096,14 +1096,19 @@ async function uploadFiles(session, token, files) {
       credentials: 'omit',
       headers: {
         'Content-Type': contentType,
-        ...(destination.hostname.endsWith('.blob.core.windows.net')
-          ? { 'x-ms-blob-type': 'BlockBlob', 'x-ms-version': '2020-04-08' } : {}),
+        // Azure-backed signed destinations can have custom hostnames.
+        'x-ms-blob-type': 'BlockBlob',
+        'x-ms-version': '2020-04-08',
         ...(created.upload_headers || {})
       },
       body: bytes
     });
-    if (!transferred.ok)
-      throw new Error('ChatGPT file transfer failed with HTTP ' + transferred.status + '.');
+    if (!transferred.ok) {
+      // Log only validated storage error codes; signed upload URLs and response bodies are private.
+      const code = transferred.headers?.get('x-ms-error-code');
+      const safeCode = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(code || '') ? ' (' + code + ')' : '';
+      throw new Error('ChatGPT file transfer failed with HTTP ' + transferred.status + safeCode + '.');
+    }
 
     // Match the current frontend: processing stream, not /files/{id}/uploaded.
     const processed = await apiFetch(session, token, API.processFileUpload, {

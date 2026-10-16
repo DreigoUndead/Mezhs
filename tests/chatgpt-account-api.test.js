@@ -985,9 +985,11 @@ test('ChatGPT Account uploads images and documents before one semantic turn', as
       const id = 'file-' + (++nextId);
       stages.push('create-' + id);
       return jsonResponse({ status: 'success', file_id: id,
-        upload_url: 'https://uploads.blob.core.windows.net/test/' + id });
+        upload_url: id === 'file-1'
+          ? 'https://uploads.example.net/test/file-1'
+          : 'https://uploads.blob.core.windows.net/test/' + id });
     }
-    if (target.hostname === 'uploads.blob.core.windows.net') {
+    if (['uploads.example.net', 'uploads.blob.core.windows.net'].includes(target.hostname)) {
       assert.equal(options.method, 'PUT');
       assert.equal(options.credentials, 'omit');
       assert.equal(options.headers['x-ms-blob-type'], 'BlockBlob');
@@ -1110,7 +1112,7 @@ test('ChatGPT Account stops before semantic submission when attachment upload fa
   const document = path.join(dir, 'sample.txt');
   fs.writeFileSync(document, 'hello file');
   try {
-    for (const failure of ['create', 'transfer', 'process-http', 'process-event', 'process-incomplete', 'multipart', 'estuary', 'unsafe-url']) {
+    for (const failure of ['create', 'transfer', 'transfer-code', 'transfer-unsafe-code', 'process-http', 'process-event', 'process-incomplete', 'multipart', 'estuary', 'unsafe-url']) {
       await t.test(failure, async () => {
         const session = protocolSession({
           conversationId: 'conv-upload-error',
@@ -1129,8 +1131,14 @@ test('ChatGPT Account stops before semantic submission when attachment upload fa
             ? jsonResponse({ status: 'error', error_code: 'quota' })
             : jsonResponse({ status: 'success', file_id: 'file-1',
               upload_url: 'https://uploads.blob.core.windows.net/test/file-1' });
-          if (target.hostname === 'uploads.blob.core.windows.net')
+          if (target.hostname === 'uploads.blob.core.windows.net') {
+            if (failure === 'transfer-code' || failure === 'transfer-unsafe-code')
+              return new Response('PRIVATE_RESPONSE_BODY', {
+                status: 400, headers: { 'x-ms-error-code': failure === 'transfer-code'
+                  ? 'InvalidHeaderValue' : 'Bad https://private.signed.url' }
+              });
             return textResponse('', failure === 'transfer' ? 403 : 201);
+          }
           if (target.pathname === '/backend-api/files/process_upload_stream') {
             if (failure === 'process-http') return textResponse('error', 500);
             const event = failure === 'process-event'
@@ -1146,7 +1154,12 @@ test('ChatGPT Account stops before semantic submission when attachment upload fa
             { path: document, name: 'sample.txt', contentType: 'text/plain' }
           ] },
           sleep: async () => {}
-        }));
+        }), error => {
+          if (failure === 'transfer-code') assert.match(error.message, /HTTP 400 [(]InvalidHeaderValue[)]/);
+          if (failure === 'transfer-unsafe-code') assert.match(error.message, /HTTP 400[.]/);
+          assert.doesNotMatch(error.message, /PRIVATE_RESPONSE_BODY|private[.]signed[.]url/);
+          return true;
+        });
         assert.equal(session.__native.posts, 0, 'must not send a prompt after an upload failure');
       });
     }
