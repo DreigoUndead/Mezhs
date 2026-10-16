@@ -1068,26 +1068,214 @@ async function apiJson(session, token, endpoint, options = {}) {
 }
 
 function imageDimensions(bytes, contentType) {
-  // PNG dimensions are stored in the fixed IHDR header.
-  if (contentType !== 'image/png' ||
-      bytes.length < 24 ||
-      !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
-      bytes.toString('ascii', 12, 16) !== 'IHDR')
-    throw new Error('Unsupported or invalid image format (PNG required).');
+  const png = bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const jpeg = bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8;
+  const webp = bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' &&
+    bytes.toString('ascii', 8, 12) === 'WEBP';
+  const actualType = png ? 'image/png' : jpeg ? 'image/jpeg' : webp ? 'image/webp' : null;
+  if (!actualType && !contentType.startsWith('image/')) return null;
+  if (!actualType || actualType !== contentType)
+    throw new Error('Unsupported image format or MIME/signature mismatch (PNG, JPEG, WebP required).');
+  if (png) return pngDimensions(bytes);
+  if (jpeg) return jpegDimensions(bytes);
+  return webpDimensions(bytes);
+}
 
+function pngDimensions(bytes) {
+  if (bytes.length < 33 || bytes.readUInt32BE(8) !== 13 ||
+      bytes.toString('ascii', 12, 16) !== 'IHDR')
+    throw new Error('Invalid PNG IHDR.');
   const width = bytes.readUInt32BE(16);
   const height = bytes.readUInt32BE(20);
-  if (!width || !height)
-    throw new Error('Invalid PNG image dimensions.');
-  return { width, height };
+  const depth = bytes[24];
+  const color = bytes[25];
+  const allowedDepth = { 0: [1, 2, 4, 8, 16], 2: [8, 16], 3: [1, 2, 4, 8], 4: [8, 16], 6: [8, 16] };
+  if (!width || !height || width > 0x7fffffff || height > 0x7fffffff ||
+      !allowedDepth[color]?.includes(depth) || bytes[26] !== 0 ||
+      bytes[27] !== 0 || bytes[28] > 1)
+    throw new Error('Invalid PNG image dimensions or IHDR fields.');
+
+  // IHDR is fixed-size; checking its CRC catches corrupted dimension/header bytes.
+  let crc = 0xffffffff;
+  for (let i = 12; i < 29; i++) {
+    crc ^= bytes[i];
+    for (let bit = 0; bit < 8; bit++)
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  if (((crc ^ 0xffffffff) >>> 0) !== bytes.readUInt32BE(29))
+    throw new Error('Invalid PNG IHDR checksum.');
+
+  let offset = 8;
+  let hasData = false;
+  while (offset + 12 <= bytes.length) {
+    const size = bytes.readUInt32BE(offset);
+    const next = offset + 12 + size;
+    if (next > bytes.length) break;
+    const type = bytes.toString('ascii', offset + 4, offset + 8);
+    if (offset !== 8 && type === 'IHDR')
+      throw new Error('Invalid PNG duplicate IHDR.');
+    if (type === 'IDAT' && size > 0) hasData = true;
+    if (type === 'IEND') {
+      if (size !== 0 || !hasData || next !== bytes.length)
+        throw new Error('Invalid PNG image ending.');
+      return { width, height };
+    }
+    offset = next;
+  }
+  throw new Error('Truncated PNG image chunks.');
 }
+
+
+function jpegDimensions(bytes) {
+  let offset = 2;
+  let dimensions = null;
+  let hasScan = false;
+  let hasEntropy = false;
+  while (offset < bytes.length) {
+    if (bytes[offset++] !== 0xff)
+      throw new Error('Invalid JPEG marker boundary.');
+    while (offset < bytes.length && bytes[offset] === 0xff) offset++;
+    if (offset >= bytes.length) break;
+    const marker = bytes[offset++];
+    if (marker === 0xd9) {
+      if (!dimensions || !hasScan || !hasEntropy || offset !== bytes.length)
+        throw new Error('Invalid JPEG image ending.');
+      return dimensions;
+    }
+    if (marker === 0xd8 || marker === 0x00 || marker === 0x01 ||
+        (marker >= 0xd0 && marker <= 0xd7))
+      throw new Error('Invalid JPEG marker sequence.');
+    if (offset + 2 > bytes.length)
+      throw new Error('Truncated JPEG segment length.');
+    const length = bytes.readUInt16BE(offset);
+    const end = offset + length;
+    if (length < 2 || end > bytes.length)
+      throw new Error('Invalid JPEG segment length.');
+
+    // All SOF markers except DHT (C4), JPEG extensions (C8) and DAC (CC).
+    const isFrame = marker >= 0xc0 && marker <= 0xcf &&
+      ![0xc4, 0xc8, 0xcc].includes(marker);
+    if (isFrame) {
+      if (![0xc0, 0xc1, 0xc2].includes(marker))
+        throw new Error('Unsupported JPEG Start of Frame variant.');
+      if (dimensions || length < 11)
+        throw new Error('Invalid JPEG Start of Frame.');
+      const precision = bytes[offset + 2];
+      const height = bytes.readUInt16BE(offset + 3);
+      const width = bytes.readUInt16BE(offset + 5);
+      const components = bytes[offset + 7];
+      if (!width || !height || ![8, 12, 16].includes(precision) ||
+          !components || length !== 8 + 3 * components)
+        throw new Error('Invalid JPEG image dimensions or frame header.');
+      dimensions = { width, height };
+    }
+    if (marker === 0xda) {
+      if (!dimensions || length < 6)
+        throw new Error('Invalid JPEG Start of Scan.');
+      hasScan = true;
+      offset = end;
+      // Entropy-coded data may contain escaped FF bytes and restart markers.
+      // Find the next real marker without treating the compressed data as segments.
+      while (offset < bytes.length) {
+        if (bytes[offset] !== 0xff) { hasEntropy = true; offset++; continue; }
+        const markerOffset = offset;
+        while (offset < bytes.length && bytes[offset] === 0xff) offset++;
+        if (offset >= bytes.length) break;
+        const next = bytes[offset];
+        if (next === 0x00 || (next >= 0xd0 && next <= 0xd7)) {
+          if (next === 0x00) hasEntropy = true;
+          offset++;
+          continue;
+        }
+        offset = markerOffset;
+        break;
+      }
+    } else {
+      offset = end;
+    }
+  }
+  throw new Error('Truncated JPEG image or missing end marker.');
+}
+
+function webpDimensions(bytes) {
+  if (bytes.length < 20 || bytes.readUInt32LE(4) < 12 ||
+      bytes.readUInt32LE(4) + 8 !== bytes.length)
+    throw new Error('Invalid WebP RIFF container length.');
+
+  let offset = 12;
+  let variant = null;
+  let dimensions = null;
+  let bitstreamCount = 0;
+  while (offset < bytes.length) {
+    if (offset + 8 > bytes.length)
+      throw new Error('Truncated WebP chunk header.');
+    const type = bytes.toString('ascii', offset, offset + 4);
+    const size = bytes.readUInt32LE(offset + 4);
+    const data = offset + 8;
+    const end = data + size;
+    const next = end + (size & 1);
+    if (next > bytes.length || (size & 1 && bytes[end] !== 0))
+      throw new Error('Invalid WebP chunk length or padding.');
+    if (!variant) {
+      if (!['VP8 ', 'VP8L', 'VP8X'].includes(type))
+        throw new Error('Unsupported WebP image variant.');
+      variant = type;
+    }
+
+    if (type === 'VP8X') {
+      if (variant !== 'VP8X' || dimensions || size !== 10 ||
+          (bytes[data] & 0xc1) !== 0 || bytes[data + 1] ||
+          bytes[data + 2] || bytes[data + 3])
+        throw new Error('Invalid WebP extended header.');
+      if (bytes[data] & 0x02)
+        throw new Error('Animated WebP is not supported.');
+      const width = 1 + bytes.readUIntLE(data + 4, 3);
+      const height = 1 + bytes.readUIntLE(data + 7, 3);
+      if (width * height > 0xffffffff)
+        throw new Error('Invalid WebP canvas dimensions.');
+      dimensions = { width, height };
+    } else if (type === 'VP8 ' || type === 'VP8L') {
+      if (++bitstreamCount > 1 || (variant !== 'VP8X' && type !== variant))
+        throw new Error('Invalid WebP bitstream sequence.');
+      let width, height;
+      if (type === 'VP8 ') {
+        if (size <= 10 || (bytes[data] & 1) !== 0 ||
+            bytes[data + 3] !== 0x9d || bytes[data + 4] !== 0x01 ||
+            bytes[data + 5] !== 0x2a)
+          throw new Error('Invalid WebP VP8 keyframe header.');
+        width = bytes.readUInt16LE(data + 6) & 0x3fff;
+        height = bytes.readUInt16LE(data + 8) & 0x3fff;
+      } else {
+        if (size <= 5 || bytes[data] !== 0x2f)
+          throw new Error('Invalid WebP VP8L header.');
+        const packed = bytes.readUInt32LE(data + 1);
+        if ((packed >>> 29) !== 0)
+          throw new Error('Unsupported WebP VP8L bitstream version.');
+        width = 1 + (packed & 0x3fff);
+        height = 1 + ((packed >>> 14) & 0x3fff);
+      }
+      if (!width || !height || (dimensions &&
+          (width !== dimensions.width || height !== dimensions.height)))
+        throw new Error('Invalid WebP image dimensions.');
+      dimensions = { width, height };
+    } else if (type === 'ANIM' || type === 'ANMF' ||
+               (variant !== 'VP8X' && type !== variant)) {
+      throw new Error('Unsupported WebP chunk sequence.');
+    }
+    offset = next;
+  }
+  if (!dimensions || bitstreamCount !== 1)
+    throw new Error('WebP image bitstream is missing.');
+  return dimensions;
+}
+
 
 async function uploadFiles(session, token, files) {
   const uploaded = [];
   for (const file of files) {
     const bytes = await fs.readFile(file.path);
     const contentType = String(file.contentType || 'application/octet-stream');
-    const dimensions = contentType.startsWith('image/') ? imageDimensions(bytes, contentType) : null;
+    const dimensions = imageDimensions(bytes, contentType);
     const useCase = contentType.startsWith('image/') ? 'multimodal' : 'my_files';
     const created = await apiJson(session, token, API.files, {
       method: 'POST',

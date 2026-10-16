@@ -1325,3 +1325,198 @@ test('ChatGPT Account chains document and PNG existing-conversation attachments 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test('ChatGPT Account recognizes PNG JPEG and WebP image payload dimensions', async t => {
+  const chatgpt = loadChatGptModule();
+  const fixtures = [
+    ['sample.png', 'image/png', 7, 5],
+    ['baseline.jpg', 'image/jpeg', 9, 7],
+    ['progressive.jpg', 'image/jpeg', 11, 8],
+    ['vp8.webp', 'image/webp', 13, 9],
+    ['vp8l.webp', 'image/webp', 17, 10],
+    ['vp8x.webp', 'image/webp', 19, 12]
+  ];
+  for (const [name, mime, width, height] of fixtures) {
+    await t.test(name, async () => {
+      const file = path.join(__dirname, 'fixtures', 'chatgpt-images', name);
+      const bytes = fs.readFileSync(file);
+      let posted;
+      let registrations = 0;
+      let transfers = 0;
+      let processing = 0;
+      const session = protocolSession({
+        conversationId: 'conv-image-variants',
+        onConversationPost: body => { posted = body; },
+        onConversationRead: () => jsonResponse(completedConversation(
+          'conv-image-variants', posted.messages[0].id, 'image accepted'
+        ))
+      });
+      const originalFetch = session.fetch;
+      session.fetch = async (url, options = {}) => {
+        const target = new URL(String(url));
+        if (target.pathname === '/backend-api/files') {
+          registrations++;
+          const body = JSON.parse(options.body);
+          assert.equal(body.use_case, 'multimodal');
+          assert.equal(body.mime_type, mime);
+          assert.equal(body.file_size, bytes.length);
+          return jsonResponse({ status: 'success', file_id: 'image-1',
+            upload_url: 'https://uploads.blob.core.windows.net/test/image-1' });
+        }
+        if (target.hostname === 'uploads.blob.core.windows.net') {
+          transfers++;
+          assert.equal(options.method, 'PUT');
+          assert.equal(options.headers['Content-Type'], mime);
+          assert.deepEqual(Buffer.from(options.body), bytes);
+          return textResponse('', 201);
+        }
+        if (target.pathname === '/backend-api/files/process_upload_stream') {
+          processing++;
+          assert.equal(JSON.parse(options.body).mime_type, mime);
+          return textResponse('data: ' + JSON.stringify({
+            event: 'file.processing.completed', file_id: 'image-1'
+          }) + String.fromCharCode(10, 10), 200, 'text/event-stream');
+        }
+        return originalFetch(url, options);
+      };
+      const result = await chatgpt.operations.send({
+        ...nativeBrowserSurface(session), session,
+        args: {
+          conversationId: 'conv-image-variants',
+          parentMessageId: 'assistant-existing',
+          prompt: 'describe attached image',
+          // The caller-supplied name is not used as proof of the image format.
+          files: [{ path: file, name: 'deliberately-wrong-extension.png', contentType: mime }]
+        },
+        sleep: async () => {}
+      });
+      assert.equal(result.text, 'image accepted');
+      assert.equal(result.conversationId, 'conv-image-variants');
+      assert.equal(registrations, 1);
+      assert.equal(transfers, 1);
+      assert.equal(processing, 1);
+      assert.equal(session.__native.posts, 1);
+      assert.equal(posted.parent_message_id, 'assistant-existing');
+      assert.deepEqual(posted.messages[0].metadata.attachments, [{
+        id: 'image-1', name: 'deliberately-wrong-extension.png',
+        mimeType: mime, size: bytes.length, width, height
+      }]);
+      assert.deepEqual(posted.messages[0].content.parts[0], {
+        content_type: 'image_asset_pointer',
+        asset_pointer: 'file-service://image-1',
+        size_bytes: bytes.length, width, height
+      });
+    });
+  }
+});
+
+
+test('ChatGPT Account rejects malformed and mismatched image files before upload registration', async t => {
+  const chatgpt = loadChatGptModule();
+  const fixture = name => fs.readFileSync(path.join(__dirname, 'fixtures', 'chatgpt-images', name));
+  const modified = (source, offset, value) => {
+    const bytes = Buffer.from(source);
+    bytes[offset] = value;
+    return bytes;
+  };
+  const png = fixture('sample.png');
+  const jpeg = fixture('baseline.jpg');
+  const progressive = fixture('progressive.jpg');
+  const vp8 = fixture('vp8.webp');
+  const vp8l = fixture('vp8l.webp');
+  const vp8x = fixture('vp8x.webp');
+  const jpegSof = bytes => {
+    for (let i = 0; i < bytes.length - 2; i++)
+      if (bytes[i] === 0xff && [0xc0, 0xc2].includes(bytes[i + 1])) return i;
+    throw new Error('JPEG test fixture lacks a recognized SOF');
+  };
+  const jpegSofPos = jpegSof(jpeg);
+  const progressiveSofPos = jpegSof(progressive);
+  const sos = jpeg.indexOf(Buffer.from([0xff, 0xda]));
+  assert.ok(sos >= 0, 'baseline fixture must have SOS');
+  const scanDataStart = sos + 2 + jpeg.readUInt16BE(sos + 2);
+  const jpegWithoutEntropy = Buffer.concat([jpeg.subarray(0, scanDataStart), Buffer.from([0xff, 0xd9])]);
+  const vp8HeaderOnly = Buffer.from(vp8.subarray(0, 30));
+  vp8HeaderOnly.writeUInt32LE(22, 4);
+  vp8HeaderOnly.writeUInt32LE(10, 16);
+  const vp8lHeaderOnly = Buffer.from(vp8l.subarray(0, 26));
+  vp8lHeaderOnly.writeUInt32LE(18, 4);
+  vp8lHeaderOnly.writeUInt32LE(5, 16);
+  vp8lHeaderOnly[25] = 0;
+  const cases = [
+    ['PNG signature', modified(png, 0, 0), 'image/png'],
+    ['PNG wrong MIME', png, 'image/jpeg'],
+    ['PNG disguised as document', png, 'text/plain'],
+    ['PNG invalid IHDR size', modified(png, 11, 12), 'image/png'],
+    ['PNG zero width', modified(png, 19, 0), 'image/png'],
+    ['PNG truncated chunks', png.subarray(0, png.length - 4), 'image/png'],
+    ['PNG malformed chunk length', modified(png, 36, 0xff), 'image/png'],
+    ['JPEG declared PNG', jpeg, 'image/png'],
+    ['JPEG missing EOI', jpeg.subarray(0, jpeg.length - 2), 'image/jpeg'],
+    ['JPEG truncated SOF', jpeg.subarray(0, jpegSofPos + 9), 'image/jpeg'],
+    ['JPEG zero width', modified(modified(jpeg, jpegSofPos + 7, 0), jpegSofPos + 8, 0), 'image/jpeg'],
+    ['JPEG invalid SOF length', modified(jpeg, jpegSofPos + 3, 1), 'image/jpeg'],
+    ['Progressive JPEG truncated', progressive.subarray(0, progressiveSofPos + 8), 'image/jpeg'],
+    ['Progressive JPEG corrupt SOF', modified(progressive, progressiveSofPos + 3, 1), 'image/jpeg'],
+    ['WebP wrong MIME', vp8, 'image/jpeg'],
+    ['WebP unsupported MIME', vp8, 'image/gif'],
+    ['WebP invalid signature', modified(vp8, 8, 0), 'image/webp'],
+    ['WebP invalid RIFF length', modified(vp8, 4, 0xff), 'image/webp'],
+    ['WebP truncated chunk', vp8.subarray(0, vp8.length - 2), 'image/webp'],
+    ['WebP invalid chunk length', modified(vp8, 16, 0xff), 'image/webp'],
+    ['WebP VP8 zero width', modified(modified(vp8, 26, 0), 27, 0), 'image/webp'],
+    ['WebP VP8 invalid keyframe', modified(vp8, 23, 0), 'image/webp'],
+    ['WebP VP8L wrong magic', modified(vp8l, 20, 0), 'image/webp'],
+    ['WebP VP8L unsupported version', modified(vp8l, 24, 0xe0), 'image/webp'],
+    ['WebP VP8X animated', modified(vp8x, 20, vp8x[20] | 2), 'image/webp'],
+    ['WebP VP8X mismatched canvas', modified(vp8x, 24, 5), 'image/webp'],
+    ['JPEG scan without entropy', jpegWithoutEntropy, 'image/jpeg'],
+    ['JPEG unsupported lossless SOF', modified(jpeg, jpegSofPos + 1, 0xc3), 'image/jpeg'],
+    ['WebP VP8 without image data', vp8HeaderOnly, 'image/webp'],
+    ['WebP VP8L without image data', vp8lHeaderOnly, 'image/webp'],
+    ['Unsupported GIF', Buffer.from('GIF89a' + String.fromCharCode(1, 0, 1, 0)), 'image/gif'],
+    ['Unknown image MIME', Buffer.from('not an image'), 'image/avif']
+  ];
+  for (const [name, bytes, mime] of cases) {
+    await t.test(name, async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mezhs-invalid-image-'));
+      const file = path.join(dir, 'attachment.dat');
+      fs.writeFileSync(file, bytes);
+      let registrations = 0;
+      let transfers = 0;
+      let processing = 0;
+      let submissions = 0;
+      const session = protocolSession({
+        conversationId: 'conv-reject-images',
+        onConversationPost: () => { submissions++; }
+      });
+      const originalFetch = session.fetch;
+      session.fetch = async (url, options = {}) => {
+        const target = new URL(String(url));
+        if (target.pathname === '/backend-api/files') registrations++;
+        if (target.hostname === 'uploads.blob.core.windows.net') transfers++;
+        if (target.pathname === '/backend-api/files/process_upload_stream') processing++;
+        return originalFetch(url, options);
+      };
+      try {
+        await assert.rejects(chatgpt.operations.send({
+          ...nativeBrowserSurface(session), session,
+          args: {
+            conversationId: 'conv-reject-images', parentMessageId: 'assistant-existing',
+            prompt: 'inspect attached file',
+            files: [{ path: file, name: 'attachment.dat', contentType: mime }]
+          },
+          sleep: async () => {}
+        }), /image|JPEG|PNG|WebP|unsupported/i);
+        assert.equal(registrations, 0, 'invalid image must never be registered for upload');
+        assert.equal(transfers, 0);
+        assert.equal(processing, 0);
+        assert.equal(submissions, 0);
+        assert.equal(session.__native.posts, 0);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+});
