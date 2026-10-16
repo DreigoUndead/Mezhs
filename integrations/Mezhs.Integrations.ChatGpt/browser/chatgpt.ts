@@ -14,6 +14,8 @@ const API = Object.freeze({
   conversationPrepare: "/backend-api/f/conversation/prepare",
   conversationInit: "/backend-api/conversation/init",
   conversationById: id => `/backend-api/conversation/${encodeURIComponent(id)}`,
+  files: '/backend-api/files',
+  processFileUpload: '/backend-api/files/process_upload_stream',
   fileDownload: id => `/backend-api/files/${encodeURIComponent(id)}/download`
 });
 
@@ -282,12 +284,6 @@ function parseModelSelection(value) {
 async function sendAccountMessage(context, isNew) {
   const token = await requireToken(context.session);
   const selection = parseModelSelection(context.args.model);
-  if (context.args.files?.length) {
-    throw new Error(
-      "ChatGPT Account file input is temporarily unavailable while native composer submission is used."
-    );
-  }
-
   await setModelPreference(context.session, token, selection);
   return sendApiAccountMessage(context, isNew, token, selection);
 }
@@ -303,10 +299,28 @@ async function setModelPreference(session, token, selection) {
 }
 
 async function sendApiAccountMessage({ window, session, args, sleep, reportProgress }, isNew, token, selection) {
+  const uploaded = await uploadFiles(session, token, args.files || []);
+  const imageParts = uploaded
+    .filter(file => file.contentType.startsWith("image/"))
+    .map(file => ({
+      content_type: "image_asset_pointer",
+      asset_pointer: `file-service://${file.id}`,
+      size_bytes: file.size,
+      width: file.width,
+      height: file.height
+    }));
+  const attachments = uploaded.map(file => ({
+    id: file.id,
+    name: file.name,
+    mimeType: file.contentType,
+    size: file.size,
+    ...(file.width ? { width: file.width, height: file.height } : {})
+  }));
   const metadata = {
     selected_sources: [],
     serialization_metadata: { custom_symbol_offsets: [] },
-    submission_mode: "manual_send"
+    submission_mode: "manual_send",
+    ...(attachments.length ? { attachments } : {})
   };
   const projectMode = isNew && args.projectId
     ? { kind: "gizmo_interaction", gizmo_id: args.projectId }
@@ -324,8 +338,8 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
         author: { role: "user" },
         create_time: Date.now() / 1000,
         content: {
-          content_type: "text",
-          parts: [String(args.prompt || "")]
+          content_type: imageParts.length ? "multimodal_text" : "text",
+          parts: [...imageParts, String(args.prompt || "")]
         },
         metadata
       }],
@@ -753,7 +767,9 @@ function conversationPreparePayload(payload) {
     partial_query: message ? {
       id: message.id,
       author: message.author,
-      content: message.content
+      content: message.content.content_type === "multimodal_text"
+        ? { content_type: "text", parts: message.content.parts.filter(part => typeof part === "string") }
+        : message.content
     } : undefined,
     supports_buffering: payload.supports_buffering,
     supported_encodings: payload.supported_encodings,
@@ -1049,6 +1065,148 @@ async function apiJson(session, token, endpoint, options = {}) {
   const response = await apiFetch(session, token, endpoint, options);
   const text = await response.text();
   return text ? JSON.parse(text) : null;
+}
+
+function imageDimensions(bytes, contentType) {
+  // PNG dimensions are stored in the fixed IHDR header.
+  if (contentType !== 'image/png' ||
+      bytes.length < 24 ||
+      !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
+      bytes.toString('ascii', 12, 16) !== 'IHDR')
+    throw new Error('Unsupported or invalid image format (PNG required).');
+
+  const width = bytes.readUInt32BE(16);
+  const height = bytes.readUInt32BE(20);
+  if (!width || !height)
+    throw new Error('Invalid PNG image dimensions.');
+  return { width, height };
+}
+
+async function uploadFiles(session, token, files) {
+  const uploaded = [];
+  for (const file of files) {
+    const bytes = await fs.readFile(file.path);
+    const contentType = String(file.contentType || 'application/octet-stream');
+    const dimensions = contentType.startsWith('image/') ? imageDimensions(bytes, contentType) : null;
+    const useCase = contentType.startsWith('image/') ? 'multimodal' : 'my_files';
+    const created = await apiJson(session, token, API.files, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_name: file.name,
+        file_size: bytes.length,
+        use_case: useCase,
+        mime_type: contentType,
+        entry_surface: 'chat_composer',
+        timezone_offset_min: new Date().getTimezoneOffset()
+      })
+    });
+    if (created?.status === 'error' || !created?.file_id || !created?.upload_url)
+      throw new Error('ChatGPT did not provide a usable file upload destination.');
+
+    const strategy = created.direct_library_upload_strategy;
+    if (strategy?.kind === 'direct_azure_multipart' && strategy.part_count >= 2)
+      throw new Error('ChatGPT multipart file uploads are not supported by this integration.');
+    const destination = new URL(created.upload_url);
+    if (/^\/(?:backend-)?api\/estuary\//i.test(destination.pathname))
+      throw new Error('ChatGPT estuary file uploads are not supported by this integration.');
+    if (destination.protocol !== 'https:')
+      throw new Error('ChatGPT file upload destination must use HTTPS.');
+    const transferred = await session.fetch(destination.href, {
+      method: 'PUT',
+      credentials: 'omit',
+      headers: {
+        'Content-Type': contentType,
+        // Azure-backed signed destinations can have custom hostnames.
+        'x-ms-blob-type': 'BlockBlob',
+        'x-ms-version': '2020-04-08',
+        ...(created.upload_headers || {})
+      },
+      body: bytes
+    });
+    if (!transferred.ok) {
+      // Log only validated storage error codes; signed upload URLs and response bodies are private.
+      const code = transferred.headers?.get('x-ms-error-code');
+      const safeCode = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(code || '') ? ' (' + code + ')' : '';
+      throw new Error('ChatGPT file transfer failed with HTTP ' + transferred.status + safeCode + '.');
+    }
+
+    // Match the current frontend: processing stream, not /files/{id}/uploaded.
+    const processed = await apiFetch(session, token, API.processFileUpload, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_id: created.file_id,
+        use_case: useCase,
+        index_for_retrieval: useCase === 'my_files',
+        file_name: file.name,
+        entry_surface: 'chat_composer',
+        mime_type: contentType
+      })
+    });
+    const processingBody = await processed.text();
+    const rawType = String(processed.headers?.get?.('content-type') || '').split(';')[0].trim().toLowerCase();
+    const safeType = ['text/event-stream', 'application/json', 'application/x-ndjson', 'text/plain'].includes(rawType) ? rawType : 'other';
+    const trimmedBody = processingBody.trim();
+    const bodyShape = !trimmedBody ? 'empty' : /^(data:|event:)/.test(trimmedBody) ? 'sse' : trimmedBody.startsWith('{') ? 'json-object' : trimmedBody.startsWith('[') ? 'json-array' : 'other';
+    const safeState = value => {
+      if (typeof value !== 'string') return 'absent';
+      if (/^(?:pending|processing|started|in_progress|uploaded|ready|completed|complete|done|success|failed|error|cancelled|file_ready)$/.test(value)) return value;
+      if (/^file[._-](?:processing|upload)[._-][a-z0-9_.-]{1,60}$/i.test(value)) return value;
+      return 'other';
+    };
+    const jsonLines = processingBody.split(String.fromCharCode(10)).filter(line => line.trim());
+    const allowedKeys = ['event', 'type', 'status', 'file_id', 'id', 'data', 'payload', 'result', 'error', 'message', 'progress', 'files'];
+    const lineObservations = jsonLines.slice(0, 8).map(raw => {
+      const line = raw.trim();
+      if (line.startsWith('data:') || line.startsWith('event:')) return 'sse';
+      let obj;
+      try { obj = JSON.parse(line); } catch { return 'non-json'; }
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return 'non-object-json';
+      const keys = allowedKeys.filter(key => Object.prototype.hasOwnProperty.call(obj, key));
+      const nested = [obj.data, obj.payload, obj.result].find(x => x && typeof x === 'object' && !Array.isArray(x));
+      const nestedKeys = nested ? allowedKeys.filter(key => Object.prototype.hasOwnProperty.call(nested, key)) : [];
+      return 'object(keys=' + (keys.join('|') || 'none') + ',event=' + safeState(obj.event) + ',type=' + safeState(obj.type) + ',status=' + safeState(obj.status) + ',nestedKeys=' + (nestedKeys.join('|') || 'none') + ',nestedStatus=' + safeState(nested?.status) + ')';
+    });
+    let jsonStatus = 'none';
+    if (bodyShape === 'json-object') {
+      try {
+        const parsed = JSON.parse(trimmedBody);
+        if (typeof parsed?.status === 'string' && /^[A-Za-z][A-Za-z0-9._-]{0,39}$/.test(parsed.status)) jsonStatus = parsed.status;
+      } catch { jsonStatus = 'invalid-json'; }
+    }
+    let ready = false;
+    let failed = false;
+    const observations = [];
+    let invalidJsonFrames = 0;
+    let frameEvent = '';
+    for (const raw of processingBody.split(String.fromCharCode(10))) {
+      const line = raw.trim();
+      if (line.startsWith('event:')) frameEvent = line.slice(6).trim();
+      const sseData = line.startsWith('data:');
+      // The live processing endpoint emits bare newline-delimited JSON despite its SSE content type.
+      if (!sseData && !line.startsWith('{')) continue;
+      let event;
+      try { event = JSON.parse(sseData ? line.slice(5).trim() : line); } catch { invalidJsonFrames++; continue; }
+      const eventName = event?.event || (sseData ? frameEvent : '');
+      if (observations.length < 8) {
+        const safeName = typeof eventName === 'string' && /^[A-Za-z][A-Za-z0-9._-]{0,79}$/.test(eventName) ? eventName : 'unnamed';
+        const idState = value => value == null ? 'absent' : value === created.file_id ? 'match' : 'different';
+        const nested = event?.data && typeof event.data === 'object' ? event.data : null;
+        observations.push(safeName + '(topId=' + idState(event?.file_id) + ',dataId=' + idState(nested?.file_id) + ')');
+      }
+      if (event?.file_id !== created.file_id || typeof eventName !== 'string') continue;
+      if (eventName.endsWith('.error') || eventName.endsWith('.failed') ||
+          eventName.endsWith('.cancelled') || eventName.endsWith('.unknown')) failed = true;
+      if (eventName === 'file.processing.completed' ||
+          eventName === 'file.processing.file_ready') ready = true;
+    }
+    if (failed || !ready)
+      throw new Error('ChatGPT file processing did not confirm success (HTTP ' + processed.status + '; type=' + safeType + '; size=' + Buffer.byteLength(processingBody) + '; shape=' + bodyShape + '; jsonStatus=' + jsonStatus + '; lines=' + jsonLines.length + '; samples=' + (lineObservations.join(', ') || 'none') + '; events=' + (observations.join(', ') || 'none') + '; invalidJsonFrames=' + invalidJsonFrames + ').');
+    uploaded.push({ id: created.file_id, name: file.name, contentType, size: bytes.length,
+      ...(dimensions || {}) });
+  }
+  return uploaded;
 }
 
 async function waitForConversation(

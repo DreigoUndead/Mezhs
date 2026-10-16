@@ -188,3 +188,33 @@ When tools are unavailable locally, `.agents/README.md` documents the repository
 - Keep diagnostics private and redacted. The authenticated browser owns requirements processing; never fabricate credentials or challenge results, extract token values for logging or commit test-session data.
 
 **Core lesson:** Compare the working browser with the failing semantic request, isolate the first wrong state, identify the actual browser-owned interface, test both endpoint **and document lifetime**, and confirm success in a real multi-turn Agent execution. A compile or mock alone did not establish compatibility.
+
+## October 15, 2026: Account attachment transfer diagnosis
+
+Observed on the active authenticated ChatGPT Account browser (without submitting a chat message):
+
+- Native Windows file selection added temporary text attachments to the unsent composer. The browser made a successful POST to /backend-api/files/upload_reservations/{file_id}/claim_and_finish (HTTP 200), followed by file_upload_action_suggestions (HTTP 200). This establishes native completion of a reservation claim, not the full initial byte-transfer contract.
+- A fresh file with distinct bytes behaved the same way. The current networkTrace implementation observes the main renderer and deliberately filters out external storage requests, so it did not capture upload creation or the storage PUT. Do not infer that these omitted requests never occurred.
+- The MEZS API adapter instead reached POST /backend-api/files, then got HTTP 400 from its PUT to the returned upload_url, before process_upload_stream or semantic message submission. Both a text document and a PNG failed at that same stage. The specific cause remains unknown.
+- An isolated Electron session.fetch local HTTP test sent a Node Buffer with exact binary bytes, a correct content length and requested Azure headers, returning HTTP 201. Thus a general Electron/Buffer inability to transmit bytes is not the explanation; this does not verify a real Azure signed URL or the ChatGPT upload contract.
+- The native file chooser was initially positioned outside the visible desktop. Moving it onscreen and typing the full fixture path through keyboard events, then Enter, worked. Programmatic SetWindowText and direct Open-button messages did not complete the selection. This is a diagnostic UI detail, not an integration fix.
+- A safe diagnostic was added to chatgpt.ts: on a failed storage response it appends only a strictly validated x-ms-error-code header to the HTTP status, never a response body, signed URL, or header value not matching the allowlist. Account regression tests cover valid and unsafe codes. Full Node suite: 74 tests passed; integration .NET build: zero warnings/errors.
+
+Still needed before enabling capabilities:
+
+1. Run the updated adapter after an authorized natural browser reload/recycle; the currently running sidecar has the older module cached. Record only the HTTP status and validated storage error code. Do not restart the active agent or copy locked authentication stores merely to force this test.
+2. Compare a complete successful native upload (including possible worker and external storage traffic) with the failed adapter sequence. In particular, establish whether upload reservations, signed destination headers and completion/processing steps differ. Current page-only networkTrace cannot show that full lifecycle.
+3. Fix the evidenced first incorrect step; add regressions for new and existing conversations and documents/images. Perform a live successful transfer, processing and semantic response before changing FileInput/ImageInput from false. Never silently fall back to DOM send or retry a submitted turn.
+
+---
+
+
+## October 16, 2026: MissingRequiredHeader follow-up
+
+- A live newChat upload of a small test document against the authenticated chatgpt-sub sidecar reached storage and failed before semantic submission with HTTP 400 and validated x-ms-error-code MissingRequiredHeader. This narrows the server-reported class of failure, but the specific missing header was not exposed.
+- In the adapter, x-ms-blob-type: BlockBlob and x-ms-version: 2020-04-08 were supplied only when upload_url.hostname ended with .blob.core.windows.net. A signed Azure-compatible storage destination on another hostname could therefore omit the required blob-type header. This is a concrete adapter bug; whether it was the exact cause of the live error still requires verification.
+- Added a regression that uses a custom HTTPS storage hostname for one upload while retaining the canonical Azure hostname for another. Before the fix, the regression failed because x-ms-blob-type was undefined. After making the blob headers unconditional for this direct PUT path, all 29 ChatGPT Account tests passed.
+- The active sidecar loaded its browser module before the source change. The module is embedded into the .NET integration assembly, written to the connection modules folder on first use, and cached within the Electron process. Live retesting therefore needs a future controlled host/sidecar lifecycle after updating the embedded assembly; replacing the on-disk file alone does not reload it. The ongoing MEZS agent process was not interrupted.
+- Keep FileInput and ImageInput disabled until a real document and image upload each completes transfer, processing and exactly one semantic turn. No live success has yet been established.
+
+---
