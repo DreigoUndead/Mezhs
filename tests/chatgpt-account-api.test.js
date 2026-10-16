@@ -950,7 +950,8 @@ test('ChatGPT Account uploads images and documents before one semantic turn', as
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mezhs-upload-fixtures-'));
   const image = path.join(dir, 'sample.png');
   const document = path.join(dir, 'sample.txt');
-  fs.writeFileSync(image, Buffer.from([137, 80, 78, 71]));
+  const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGM4YS4CAALeART0GtlNAAAAAElFTkSuQmCC', 'base64');
+  fs.writeFileSync(image, imageBytes);
   fs.writeFileSync(document, 'hello file');
   let requestMessageId;
   const stages = [];
@@ -964,10 +965,12 @@ test('ChatGPT Account uploads images and documents before one semantic turn', as
       assert.deepEqual(message.content.parts, [{
         content_type: 'image_asset_pointer',
         asset_pointer: 'file-service://file-1',
-        size_bytes: 4
+        size_bytes: imageBytes.length,
+        width: 1,
+        height: 1
       }, 'describe these']);
       assert.deepEqual(message.metadata.attachments, [
-        { id: 'file-1', name: 'sample.png', mimeType: 'image/png', size: 4 },
+        { id: 'file-1', name: 'sample.png', mimeType: 'image/png', size: imageBytes.length, width: 1, height: 1 },
         { id: 'file-2', name: 'sample.txt', mimeType: 'text/plain', size: 10 }
       ]);
     },
@@ -977,6 +980,12 @@ test('ChatGPT Account uploads images and documents before one semantic turn', as
   let nextId = 0;
   session.fetch = async (url, options = {}) => {
     const target = new URL(String(url));
+    if (target.pathname === '/backend-api/f/conversation/prepare') {
+      const body = JSON.parse(options.body);
+      assert.equal(body.partial_query.content.content_type, 'text');
+      assert.deepEqual(body.partial_query.content.parts, ['describe these']);
+      stages.push('prepare');
+    }
     if (target.pathname === '/backend-api/files') {
       const body = JSON.parse(options.body);
       assert.equal(body.entry_surface, 'chat_composer');
@@ -1022,7 +1031,7 @@ test('ChatGPT Account uploads images and documents before one semantic turn', as
     assert.equal(result.text, 'processed');
     assert.deepEqual(stages, [
       'create-file-1', 'transfer-file-1', 'process-file-1',
-      'create-file-2', 'transfer-file-2', 'process-file-2', 'submit'
+      'create-file-2', 'transfer-file-2', 'process-file-2', 'prepare', 'submit'
     ]);
     assert.equal(session.__native.posts, 1);
   } finally {

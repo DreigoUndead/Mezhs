@@ -305,13 +305,16 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
     .map(file => ({
       content_type: "image_asset_pointer",
       asset_pointer: `file-service://${file.id}`,
-      size_bytes: file.size
+      size_bytes: file.size,
+      width: file.width,
+      height: file.height
     }));
   const attachments = uploaded.map(file => ({
     id: file.id,
     name: file.name,
     mimeType: file.contentType,
-    size: file.size
+    size: file.size,
+    ...(file.width ? { width: file.width, height: file.height } : {})
   }));
   const metadata = {
     selected_sources: [],
@@ -764,7 +767,9 @@ function conversationPreparePayload(payload) {
     partial_query: message ? {
       id: message.id,
       author: message.author,
-      content: message.content
+      content: message.content.content_type === "multimodal_text"
+        ? { content_type: "text", parts: message.content.parts.filter(part => typeof part === "string") }
+        : message.content
     } : undefined,
     supports_buffering: payload.supports_buffering,
     supported_encodings: payload.supported_encodings,
@@ -1062,11 +1067,27 @@ async function apiJson(session, token, endpoint, options = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+function imageDimensions(bytes, contentType) {
+  // PNG dimensions are stored in the fixed IHDR header.
+  if (contentType !== 'image/png' ||
+      bytes.length < 24 ||
+      !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
+      bytes.toString('ascii', 12, 16) !== 'IHDR')
+    throw new Error('Unsupported or invalid image format (PNG required).');
+
+  const width = bytes.readUInt32BE(16);
+  const height = bytes.readUInt32BE(20);
+  if (!width || !height)
+    throw new Error('Invalid PNG image dimensions.');
+  return { width, height };
+}
+
 async function uploadFiles(session, token, files) {
   const uploaded = [];
   for (const file of files) {
     const bytes = await fs.readFile(file.path);
     const contentType = String(file.contentType || 'application/octet-stream');
+    const dimensions = contentType.startsWith('image/') ? imageDimensions(bytes, contentType) : null;
     const useCase = contentType.startsWith('image/') ? 'multimodal' : 'my_files';
     const created = await apiJson(session, token, API.files, {
       method: 'POST',
@@ -1182,7 +1203,8 @@ async function uploadFiles(session, token, files) {
     }
     if (failed || !ready)
       throw new Error('ChatGPT file processing did not confirm success (HTTP ' + processed.status + '; type=' + safeType + '; size=' + Buffer.byteLength(processingBody) + '; shape=' + bodyShape + '; jsonStatus=' + jsonStatus + '; lines=' + jsonLines.length + '; samples=' + (lineObservations.join(', ') || 'none') + '; events=' + (observations.join(', ') || 'none') + '; invalidJsonFrames=' + invalidJsonFrames + ').');
-    uploaded.push({ id: created.file_id, name: file.name, contentType, size: bytes.length });
+    uploaded.push({ id: created.file_id, name: file.name, contentType, size: bytes.length,
+      ...(dimensions || {}) });
   }
   return uploaded;
 }
