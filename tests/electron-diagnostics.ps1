@@ -26,7 +26,9 @@ New-Item -ItemType Directory -Path $profile -Force | Out-Null
 module.exports = {
   name: "Diagnostics Smoke",
   homeUrl: "data:text/html,<html><body><button id='picker' aria-label='Model picker' onclick=\"this.textContent='Picker open';const x=document.createElement('button');x.setAttribute('role','option');x.textContent='High';document.body.appendChild(x);fetch('http://127.0.0.1:9/diagnostics-ping').catch(()=>{});\">Open picker</button><input id='editor' aria-label='Prompt' /></body></html>",
-  operations: {}
+  operations: {
+    snapshot: async () => ({ providerResult: "provider snapshot" })
+  }
 };
 '@ | Set-Content -LiteralPath $modulePath -Encoding UTF8
 
@@ -40,8 +42,8 @@ $previous = @{
 $process = $null
 $port = $null
 
-function Invoke-Diagnostic([string]$operation, $arguments = @{}) {
-    $body = @{ kind = 'diagnostic'; operation = $operation; arguments = $arguments } | ConvertTo-Json -Compress -Depth 8
+function Invoke-Diagnostic([string]$operation, $arguments = @{}, [string]$kind = 'diagnostic') {
+    $body = @{ kind = $kind; operation = $operation; arguments = $arguments } | ConvertTo-Json -Compress -Depth 8
     $start = Invoke-RestMethod `
         -Method Post `
         -Uri "http://127.0.0.1:$port/invoke" `
@@ -108,6 +110,19 @@ try {
     }
 
     $snapshot = Invoke-Diagnostic 'snapshot'
+    $provider = Invoke-Diagnostic 'snapshot' @{} 'provider'
+    if ($provider.providerResult -ne 'provider snapshot') {
+        throw 'Provider snapshot operation was incorrectly routed through diagnostics.'
+    }
+    $legacyRejected = $false
+    try { Invoke-Diagnostic '$diagnostics/snapshot' @{} 'provider' | Out-Null }
+    catch { $legacyRejected = $_.Exception.Message -like '*does not support provider operation*' }
+    if (-not $legacyRejected) { throw 'Legacy diagnostic prefix unexpectedly dispatched.' }
+    $unsupportedRejected = $false
+    try { Invoke-Diagnostic 'unsupportedDiagnostic' | Out-Null }
+    catch { $unsupportedRejected = $_.Exception.Message -like '*Unsupported browser diagnostic operation*' }
+    if (-not $unsupportedRejected) { throw 'Unknown diagnostic operation was not rejected.' }
+
     $picker = $snapshot.elements | Where-Object { $_.ariaLabel -eq 'Model picker' } | Select-Object -First 1
     if ($null -eq $picker) { throw 'Snapshot did not expose the model picker button.' }
 
@@ -138,6 +153,20 @@ try {
         throw "Typing did not affect the focused prompt input: $($typed.activeElement | ConvertTo-Json -Compress)"
     }
 
+    Invoke-Diagnostic 'key' @{ keyCode = 'Backspace' } | Out-Null
+    $afterKey = Invoke-Diagnostic 'snapshot'
+    $afterKeyText = (([string]$afterKey.activeElement.text -replace '\s+', ' ').Trim())
+    if ($afterKey.activeElement.ariaLabel -ne 'Prompt' -or $afterKeyText -ne 'diagnostics tex') {
+        throw "Key diagnostic did not delete the last character: $($afterKey.activeElement | ConvertTo-Json -Compress)"
+    }
+
+    # Only ChatGPT backend API requests are returned by standalone networkTrace.
+    # This isolated synthetic page must therefore produce no trace records.
+    $trace = Invoke-Diagnostic 'networkTrace' @{ waitMs = 1000 }
+    if ($null -ne $trace -and @($trace).Count -gt 0) {
+        throw "Network trace included non-ChatGPT requests: $($trace | ConvertTo-Json -Compress)"
+    }
+
     $image = Invoke-Diagnostic 'screenshot'
     if ($image.mimeType -ne 'image/png' -or
         [string]::IsNullOrWhiteSpace($image.base64) -or
@@ -146,7 +175,7 @@ try {
         throw 'Screenshot diagnostic did not return a valid PNG payload.'
     }
 
-    Write-Host 'PASS: Electron diagnostics snapshot, hit-test, real click, DOM delta, redacted network delta, typing, and screenshot work on a disposable profile.'
+    Write-Host 'PASS: disposable Electron diagnostics snapshot, inspectPoint, click, type, key, screenshot, networkTrace, explicit operation routing, and rejection paths.'
 }
 finally {
     if ($null -ne $port) {

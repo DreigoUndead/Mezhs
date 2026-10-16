@@ -129,9 +129,9 @@ async function captureDiagnosticNetwork({ window, sleep }, action, waitMs, { tra
 }
 
 function numericPoint(args) {
-  const x = Number(args?.x);
-  const y = Number(args?.y);
-  if (!Number.isFinite(x) || !Number.isFinite(y))
+  const { x, y } = args ?? {};
+  if (typeof x !== "number" || typeof y !== "number" ||
+      !Number.isFinite(x) || !Number.isFinite(y))
     throw new Error("Diagnostic operation requires finite x and y coordinates.");
   return { x, y };
 }

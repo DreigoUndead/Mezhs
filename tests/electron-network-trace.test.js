@@ -104,3 +104,21 @@ test("A failed trace always detaches the debugger it attached", async () => {
   assert.equal(debuggerClient.isAttached(), false);
   assert.equal(debuggerClient.listenerCount("message"), 0);
 });
+
+test("An externally attached debugger is preserved even when tracing fails", async () => {
+  const { capture, debuggerClient } = diagnosticHarness();
+  debuggerClient.attached = true;
+  await assert.rejects(capture(async () => {
+    throw new Error("action failed");
+  }, 0), /action failed/);
+  assert.equal(debuggerClient.isAttached(), true);
+  assert.equal(debuggerClient.listenerCount("message"), 0);
+});
+
+test("Network.enable failure releases the debugger and its listener", async () => {
+  const { capture, debuggerClient } = diagnosticHarness();
+  debuggerClient.sendCommand = async () => { throw new Error("Network.enable failed"); };
+  await assert.rejects(capture(async () => {}, 0), /Network.enable failed/);
+  assert.equal(debuggerClient.isAttached(), false);
+  assert.equal(debuggerClient.listenerCount("message"), 0);
+});
