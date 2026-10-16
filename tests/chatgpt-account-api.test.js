@@ -1193,3 +1193,135 @@ test('ChatGPT Account stops before semantic submission when attachment upload fa
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('ChatGPT Account chains document and PNG existing-conversation attachments without duplicate turns', async () => {
+  const chatgpt = loadChatGptModule();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mezhs-chained-followups-'));
+  const document = path.join(dir, 'follow-up.txt');
+  const image = path.join(dir, 'follow-up.png');
+  const posts = [];
+  const prepareContents = [];
+  const assistantIds = ['assistant-after-document', 'assistant-after-image'];
+  const conversationId = 'conv-chained-attachments';
+  fs.writeFileSync(document, 'unique document contents');
+  fs.writeFileSync(
+    image,
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGM4YS4CAALeART0GtlNAAAAAElFTkSuQmCC',
+      'base64',
+    ),
+  );
+  const session = protocolSession({
+    conversationId,
+    onConversationPost: (body) => {
+      assert.equal(body.conversation_id, conversationId);
+      assert.equal(
+        body.parent_message_id,
+        posts.length === 0 ? 'assistant-existing' : assistantIds[0],
+      );
+      assert.equal(body.messages.length, 1);
+      posts.push(body);
+    },
+    onConversationRead: () => {
+      const index = posts.length - 1;
+      const result = completedConversation(
+        conversationId,
+        posts[index].messages[0].id,
+        index === 0 ? 'document received' : 'image received',
+      );
+      const assistant = result.mapping['assistant-new'];
+      delete result.mapping['assistant-new'];
+      assistant.message.id = assistantIds[index];
+      result.mapping[assistantIds[index]] = assistant;
+      result.current_node = assistantIds[index];
+      return jsonResponse(result);
+    },
+  });
+  const originalFetch = session.fetch;
+  let created = 0;
+  session.fetch = async (url, options = {}) => {
+    const target = new URL(String(url));
+    if (target.pathname === '/backend-api/f/conversation/prepare') {
+      prepareContents.push(JSON.parse(options.body).partial_query.content);
+      return originalFetch(url, options);
+    }
+    if (target.pathname === '/backend-api/files') {
+      created++;
+      return jsonResponse({
+        status: 'success',
+        file_id: 'chained-file-' + created,
+        upload_url: 'https://uploads.blob.core.windows.net/test/chained-file-' + created,
+      });
+    }
+    if (target.hostname === 'uploads.blob.core.windows.net') return textResponse('', 201);
+    if (target.pathname === '/backend-api/files/process_upload_stream') {
+      const id = JSON.parse(options.body).file_id;
+      return textResponse(
+        'data: ' +
+          JSON.stringify({ event: 'file.processing.completed', file_id: id }) +
+          String.fromCharCode(10, 10),
+        200,
+        'text/event-stream',
+      );
+    }
+    return originalFetch(url, options);
+  };
+  try {
+    const first = await chatgpt.operations.send({
+      ...nativeBrowserSurface(session),
+      session,
+      args: {
+        prompt: 'read attached document',
+        conversationId,
+        parentMessageId: 'assistant-existing',
+        files: [{ path: document, name: 'follow-up.txt', contentType: 'text/plain' }],
+      },
+      sleep: async () => {},
+    });
+    assert.equal(first.text, 'document received');
+    assert.equal(first.conversationId, conversationId);
+    assert.equal(first.parentMessageId, assistantIds[0]);
+    const second = await chatgpt.operations.send({
+      ...nativeBrowserSurface(session),
+      session,
+      args: {
+        prompt: 'describe attached image',
+        conversationId: first.conversationId,
+        parentMessageId: first.parentMessageId,
+        files: [{ path: image, name: 'follow-up.png', contentType: 'image/png' }],
+      },
+      sleep: async () => {},
+    });
+    assert.equal(second.text, 'image received');
+    assert.equal(second.conversationId, conversationId);
+    assert.equal(second.parentMessageId, assistantIds[1]);
+    assert.notEqual(second.parentMessageId, first.parentMessageId);
+    assert.equal(session.__native.posts, 2);
+    assert.equal(posts.length, 2);
+    assert.equal(created, 2);
+    assert.deepEqual(
+      posts.map((b) => b.messages[0].metadata.attachments[0].mimeType),
+      ['text/plain', 'image/png'],
+    );
+    assert.deepEqual(
+      posts.map((b) => b.messages[0].metadata.attachments[0].id),
+      ['chained-file-1', 'chained-file-2'],
+    );
+    assert.equal(posts[0].messages[0].content.content_type, 'text');
+    assert.equal(posts[1].messages[0].content.content_type, 'multimodal_text');
+    assert.deepEqual(posts[1].messages[0].content.parts[0], {
+      content_type: 'image_asset_pointer',
+      asset_pointer: 'file-service://chained-file-2',
+      size_bytes: fs.statSync(image).size,
+      width: 1,
+      height: 1,
+    });
+    assert.deepEqual(
+      prepareContents.map((c) => c.content_type),
+      ['text', 'text'],
+    );
+    assert.deepEqual(prepareContents[1].parts, ['describe attached image']);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
