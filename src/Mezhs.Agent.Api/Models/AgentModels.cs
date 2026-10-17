@@ -124,6 +124,7 @@ public sealed class ExecutionRecord
     public string? SourceReference { get; init; }
     public required AgentExecutionStatus Status { get; set; }
     public required string Request { get; init; }
+    public IReadOnlyList<string> FileIds { get; init; } = [];
     [JsonIgnore]
     public IReadOnlyDictionary<string, string> Environment { get; init; } = new Dictionary<string, string>();
     public string? Result { get; set; }
@@ -141,7 +142,8 @@ public sealed record CreateExecutionRequest(
     string? ChatId = null,
     IReadOnlyDictionary<string, string>? Environment = null,
     string? ConnectionId = null,
-    string? Model = null);
+    string? Model = null,
+    IReadOnlyList<string>? FileIds = null);
 
 public sealed record UpdateAgentChatRequest(bool Paused);
 
@@ -178,7 +180,8 @@ public sealed record AgentExecutionView(
     DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt,
     string? RestartedFromId = null,
-    string? RestartedAsId = null);
+    string? RestartedAsId = null,
+    IReadOnlyList<string>? FileIds = null);
 
 public static class AgentIds
 {

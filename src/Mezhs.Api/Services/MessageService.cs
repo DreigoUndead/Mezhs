@@ -18,6 +18,19 @@ public sealed class MessageService(
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _chatGates =
         new(StringComparer.OrdinalIgnoreCase);
 
+    // Shared preflight: Agent admission must reject invalid attachments before creating an execution.
+    public IReadOnlyList<StoredFile> ValidateFileInput(IReadOnlyList<string>? fileIds, string connectionId)
+    {
+        var integration = integrations.Get(connectionId);
+        if (fileIds is { Count: > 0 } && !integration.Capabilities.FileInput)
+            throw new RequestValidationException($"Connection '{connectionId}' does not support file input.");
+        var attached = files.GetMany(fileIds, connectionId);
+        if (attached.Any(file => file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) &&
+            !integration.Capabilities.ImageInput)
+            throw new RequestValidationException($"Connection '{connectionId}' does not support image input.");
+        return attached;
+    }
+
     public ApiMessage Post(PostMessageRequest request) =>
         Post(request, CancellationToken.None);
 
@@ -56,12 +69,7 @@ public sealed class MessageService(
                 : NormalizeModel(integration.Connection.GetSetting("defaultModel"));
         if (model is not null && integration.Models is null)
             throw new ArgumentException($"Connection '{connectionId}' does not support model selection.");
-        if (requestedFileIds.Count > 0 && !integration.Capabilities.FileInput)
-            throw new RequestValidationException($"Connection '{connectionId}' does not support file input.");
-        var attachedFiles = files.GetMany(requestedFileIds, connectionId);
-        if (attachedFiles.Any(file => file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) &&
-            !integration.Capabilities.ImageInput)
-            throw new RequestValidationException($"Connection '{connectionId}' does not support image input.");
+        var attachedFiles = ValidateFileInput(requestedFileIds, connectionId);
 
         chat ??= store.CreateChat(request.CategoryId);
         return ToApi(CreateMessage(

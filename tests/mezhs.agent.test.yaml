@@ -26,6 +26,14 @@ connections:
     name: Deterministic login integration
     integration: mock-login
 
+  - id: test-no-files
+    name: No file input in agent tests
+    integration: mock-no-files
+
+  - id: test-text-only
+    name: Text-only input in agent tests
+    integration: mock-text-only
+
 agentStorage: data-agent-test/agent.sqlite
 workspace: ..
 

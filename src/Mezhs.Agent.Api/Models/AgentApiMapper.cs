@@ -30,7 +30,8 @@ public static class AgentApiMapper
         record.PolicySnapshot,
         record.CreatedAt,
         record.StartedAt,
-        record.CompletedAt);
+        record.CompletedAt,
+        FileIds: record.FileIds);
 
     public static AgentExecutionView ToView(ExecutorExecution execution) => new(
         execution.Id.ToString(CultureInfo.InvariantCulture),
