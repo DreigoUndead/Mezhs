@@ -24,14 +24,46 @@ This handoff is the only intended commit following the restored code
 baseline. It adds documentation, not application changes. Never push
 the stale local a1d978b history back over this branch.
 
-WHAT THE USER OBSERVED
-----------------------
-The user's actual installation displayed an empty Agent list, failure
-to load models, and unexpected UI elements. Those are OBSERVATIONS, not
-proven causes. Tests and CI on the experimental branch passed, but did
-not prove the user's Visual Studio/runtime environment still worked.
-The changes, Electron installation, config, cached frontend, active
-profiles and worktree differences must all be considered independently.
+RUNTIME RECOVERY CONFIRMED BY USER — 18 OCTOBER 2026
+---------------------------------------------------
+After rolling back the GitHub and local branches, the user's actual
+MEŽS instance still showed empty Agent history and no discovered models.
+The following evidence pinpointed two separate runtime-data issues:
+
+  Original data: D:\Projects\Mezhs\data\agent.sqlite
+    size 1,523,712 bytes, last modified 14 Oct 2026.
+  Task worktree: D:\Projects\Mezhs-attachment-task2\data\agent.sqlite
+    size 4,096 bytes, created/modified 18 Oct 2026.
+  GET http://127.0.0.1:5060/v1/agent-chats
+    returned zero chats.
+  GET http://127.0.0.1:5060/v1/connections/chatgpt-sub/models
+    returned HTTP 401: "ChatGPT authorization is required."
+
+Source-code inspection confirmed:
+  - agentStorage: data/agent.sqlite, resolved relative to agent.yaml
+  - storage.root: data, resolved relative to agent.yaml
+  - authenticated Electron profile:
+    <storage.root>\connections\chatgpt-sub\profile
+
+The user stopped MEŽS and restored a COPY of the original runtime data
+directory to the task worktree, preserving the task worktree data first.
+They subsequently confirmed: "yes, now it is back."
+
+CONCLUSION: The missing Agent history and unauthenticated model discovery
+were explained by the separate worktree's runtime database and browser
+profile. Copying the original data restored the expected behavior.
+This is evidence of runtime-state mismatch, NOT evidence that the
+experimental code caused these specific symptoms. Unexpected UI
+elements were reported earlier but were not independently diagnosed.
+
+IMPORTANT: The original source data and task-worktree copy must remain
+separate. Never point concurrent MEŽS instances at the same writable
+SQLite files or Chromium profile. Never delete or overwrite their data
+without backup and user approval. Do not repeat the restore or reset
+Git unless new evidence requires it.
+
+The application code remains intentionally rolled back to 22c5bc5.
+Do not automatically revive the 15 archived attachment commits.
 
 ARCHIVED CODE REFERENCES — FOR SELECTIVE REUSE ONLY
 ----------------------------------------------------
@@ -158,6 +190,9 @@ A task does not begin simply because the preceding task passed CI.
 Stop after each acceptance gate; the user chooses whether to continue.
 
 TASK 0: Reconcile the ACTUAL LOCAL worktree (NO FEATURE CODE).
+  STATUS: Git synchronization performed; user reports runtime restored
+  after copying runtime data. Recheck status briefly, do not repeat
+  destructive reset, data migration or branch history rewrites.
   - Identify Visual Studio source directory, active services, config,
     local HEAD, remote branch and stale local commits.
   - Preserve uncommitted work and ignored runtime files.
@@ -168,6 +203,10 @@ TASK 0: Reconcile the ACTUAL LOCAL worktree (NO FEATURE CODE).
         re-push of archived commits.
 
 TASK 1: BASELINE RUNTIME VERIFICATION (NO ATTACHMENT CODE).
+  STATUS: Agent history and model discovery were recovered according
+  to user confirmation. Complete only the remaining SHORT functional
+  smoke checks, especially model selection and text-only execution;
+  do not restart the previous root-cause investigation.
   - Confirm Agent list, policy list, existing Agent chat list,
     selected model list, model switching and persistence.
   - Confirm normal Chat send/receive, new and existing conversations.
@@ -261,37 +300,51 @@ framework cleanup. Those are separate concerns.
 
 PROMPT TO START A NEW CHAT — COPY BELOW
 ----------------------------------------
-Read the entire committed handoff first:
+Read the committed handoff first:
   .agents/MEZHS_RESTART_HANDOFF_2026-10-18.txt
   https://github.com/DreigoUndead/Mezhs/blob/agent-model-presets/.agents/MEZHS_RESTART_HANDOFF_2026-10-18.txt
-
-We are restarting MEŽS attachments after the experimental branch passed
-tests but the user's actual installation showed empty Agent/policy
-lists, models not loading and unexpected UI elements. Causes are unproven.
 
 Repository: DreigoUndead/Mezhs
 Branch: agent-model-presets
 Application-code baseline: 22c5bc57b04f5ca4fd06a82e878b75d2b28e5836
-Current branch HEAD: that baseline PLUS the handoff documentation commit.
-Archive branch: archive/attachment-experiment-a1d978b-20261017
-Archive SHA: a1d978b878057d7e09204a61bf6633e6074a4f1b
-PR #21 is open; PR #30 is independent and draft. DO NOT MERGE.
+Archive (REFERENCE ONLY, DO NOT MERGE):
+  archive/attachment-experiment-a1d978b-20261017
 
-Start with TASKS 0 AND 1 ONLY: verify actual Visual Studio worktree,
-protect local changes, synchronize safely without re-pushing archived
-15 commits, check electron/node_modules installation and config, and
-run the restored runtime. Verify Agent list, policies, models, model
-selection, normal Chat, text-only Agent executions and expected UI.
-Investigate any failures using actual logs and browser network evidence.
-Report OBSERVATIONS separately from HYPOTHESES.
+LATEST STATUS: THE USER RESTORED THE RUNTIME SUCCESSFULLY.
+The empty Agent history and missing model list persisted even after
+Git rollback because a separate task worktree used a nearly empty
+data/agent.sqlite and an unauthorized ChatGPT browser profile.
+API proof: /v1/agent-chats returned zero; /models returned HTTP 401.
+The original D:\Projects\Mezhs\data contained the populated Agent
+database and authenticated browser profile. After stopping MEŽS,
+backing up the task data, and copying the original data to
+D:\Projects\Mezhs-attachment-task2\data, the user confirmed
+"yes, now it is back."
 
-Do not write new attachment code until the user confirms baseline works.
-Then propose the smallest next change (single host-local path per
-upload call, selected integration uploads to provider and returns
-provider reference/error). Never batch paths, copy input bytes into
-MEŽS, create upload-type whitelists or guess provider limits.
-Only provider-required message metadata is justified.
+Do NOT repeat Git rollback, destructive reset, file copying, npm
+installation, or ChatGPT reauthentication without a NEW specific error.
+Do NOT assume the attachment commits caused these runtime symptoms.
+The GitHub review branch is restored, and the 15 experimental commits
+are already archived. Preserve both runtime data copies and existing
+auth profiles, and avoid concurrent access to shared writable profiles.
 
-Read repo instructions. Keep each task narrow and reversible, reports
-in plain Markdown, and never merge PRs without user approval.
-STOP AFTER BASELINE VERIFICATION AND ASK FOR APPROVAL.
+IMMEDIATE TASK: Finish only the minimal baseline smoke:
+- Check Agent history is visible and policy selection still works.
+- Verify model dropdown truly loads and model switching works.
+- Send one harmless text-only Chat turn and one harmless text-only
+  Agent task; confirm normal completion/history.
+- Check UI controls and current Git status; if anything fails, gather
+  concrete API/runtime evidence before changing code.
+
+Then REPORT and STOP for approval. After baseline confirmation the
+next separate task is TASK 2: implement ONE host-local file path per
+upload call, selected integration uploads directly to provider, and
+returns the provider reference or error. No batch endpoints, MEŽS
+file-byte storage or copies, extension/MIME whitelists, guessed file
+limits, generic image validators, speculative retries, or unrelated
+UI/model/Agent refactors. Provider-required metadata is permitted
+only where the real provider protocol demonstrates the need.
+
+Complete one small task at a time. Tests and REAL runtime smoke both
+matter. Plain Markdown reports only. Keep PR #30 separate; do not merge
+PRs without explicit user approval.
