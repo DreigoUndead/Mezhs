@@ -73,3 +73,23 @@ public sealed class MockLoginIntegration : MockIntegration
             Task.CompletedTask;
     }
 }
+
+[Integration("mock-text-only")]
+public sealed class MockTextOnlyIntegration : MockIntegration
+{
+    public MockTextOnlyIntegration(IntegrationConnection connection, IIntegrationHost host)
+        : base(connection, host) { }
+
+    public override IntegrationCapabilities Capabilities => new(
+        FileInput: true, ImageInput: false, FileOutput: true, ImageOutput: false);
+}
+
+[Integration("mock-no-files")]
+public sealed class MockNoFilesIntegration : MockIntegration
+{
+    public MockNoFilesIntegration(IntegrationConnection connection, IIntegrationHost host)
+        : base(connection, host) { }
+
+    public override IntegrationCapabilities Capabilities => new(
+        FileInput: false, ImageInput: false, FileOutput: false, ImageOutput: false);
+}

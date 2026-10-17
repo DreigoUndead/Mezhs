@@ -95,6 +95,9 @@ public static class MezhsApi
                 !integration.Capabilities.ImageInput)
                 return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support image input." });
 
+            if (upload.Length > FileStore.MaxUserUploadBytes)
+                return Results.BadRequest(new { error = "Upload exceeds the 20 MB file limit." });
+
             await using var content = upload.OpenReadStream();
             var file = await files.CreateAsync(
                 connectionId,
@@ -104,7 +107,7 @@ public static class MezhsApi
                 FileSource.User,
                 cancellationToken);
             return Results.Created($"/v1/files/{file.FileId}", FileStore.ToApi(file));
-        });
+        }).WithMetadata(new RequestSizeLimitAttribute(FileStore.MaxUserUploadBytes + 1024 * 1024));
 
         app.MapGet("/v1/files/{fileId}", (string fileId, FileStore files) =>
         {

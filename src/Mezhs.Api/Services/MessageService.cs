@@ -29,14 +29,14 @@ public sealed class MessageService(
         if (string.IsNullOrWhiteSpace(request.Content) && requestedFileIds.Count == 0)
             throw new RequestValidationException("content or at least one file is required.");
 
-        ChatRecord chat;
+        ChatRecord? chat;
         string connectionId;
         if (string.IsNullOrWhiteSpace(request.ChatId))
         {
             if (string.IsNullOrWhiteSpace(request.ConnectionId))
                 throw new RequestValidationException("connectionId is required when chatId is not provided.");
             connectionId = request.ConnectionId.Trim();
-            chat = store.CreateChat(request.CategoryId);
+            chat = null;
         }
         else
         {
@@ -51,18 +51,19 @@ public sealed class MessageService(
         var integration = integrations.Get(connectionId);
         var model = request.ModelSpecified
             ? NormalizeModel(request.Model)
-            : TryRestoreModel(chat.ChatId, connectionId, out var restoredModel)
+            : chat is not null && TryRestoreModel(chat.ChatId, connectionId, out var restoredModel)
                 ? restoredModel
                 : NormalizeModel(integration.Connection.GetSetting("defaultModel"));
         if (model is not null && integration.Models is null)
             throw new ArgumentException($"Connection '{connectionId}' does not support model selection.");
         if (requestedFileIds.Count > 0 && !integration.Capabilities.FileInput)
             throw new RequestValidationException($"Connection '{connectionId}' does not support file input.");
-        var attachedFiles = files.GetMany(requestedFileIds);
+        var attachedFiles = files.GetMany(requestedFileIds, connectionId);
         if (attachedFiles.Any(file => file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) &&
             !integration.Capabilities.ImageInput)
             throw new RequestValidationException($"Connection '{connectionId}' does not support image input.");
 
+        chat ??= store.CreateChat(request.CategoryId);
         return ToApi(CreateMessage(
             chat,
             connectionId,
@@ -219,7 +220,7 @@ public sealed class MessageService(
             var continueRemote = remoteState is not null &&
                 !string.IsNullOrWhiteSpace(remoteState.LastLocalMessageId) &&
                 string.Equals(remoteState.LastLocalMessageId, lastHistoryMessageId, StringComparison.OrdinalIgnoreCase);
-            var inputFiles = files.GetMany(message.FileIds)
+            var inputFiles = files.GetMany(message.FileIds, message.ConnectionId)
                 .Select(file => new IntegrationInputFile(
                     file.FileId,
                     files.GetContentPath(file),

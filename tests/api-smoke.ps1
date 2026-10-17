@@ -40,6 +40,27 @@ function Assert-ApiError {
     }
 }
 
+function Invoke-FileUpload {
+    param([string]$ConnectionId, [string]$Name, [string]$Mime, [byte[]]$Bytes)
+    $client = [Net.Http.HttpClient]::new()
+    $multipart = [Net.Http.MultipartFormDataContent]::new()
+    try {
+        $multipart.Add([Net.Http.StringContent]::new($ConnectionId), 'connectionId')
+        $content = [Net.Http.ByteArrayContent]::new($Bytes)
+        $content.Headers.ContentType = [Net.Http.Headers.MediaTypeHeaderValue]::Parse($Mime)
+        $multipart.Add($content, 'file', $Name)
+        $response = $client.PostAsync("$baseUrl/v1/files", $multipart).GetAwaiter().GetResult()
+        try {
+            return @{ Status = [int]$response.StatusCode; Body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult() }
+        }
+        finally { $response.Dispose() }
+    }
+    finally {
+        $multipart.Dispose()
+        $client.Dispose()
+    }
+}
+
 # Some launch environments expose both Path and PATH. Windows PowerShell's
 # Start-Process rejects that duplicate, so normalize it before spawning dotnet.
 $processPath = $env:Path
@@ -243,7 +264,97 @@ try {
     $echoedContent = (Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl$($echoedFile.contentUrl)").Content
     if ($echoedContent -notlike '*MEZHS-ATTACHMENT-SMOKE*') { throw 'Integration output file content did not match.' }
 
-    # Same local chat, different connection, reusing a file uploaded through the first connection.
+    # Attachment-only input must forward the stored file exactly once and remain visible locally.
+    $attachmentOnly = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/messages" -ContentType 'application/json' -Body (ConvertTo-Json @{
+        connectionId = 'test'; chatId = $attachmentMessage.chatId; content = ''; fileIds = @($uploaded.fileId)
+    })
+    if ($attachmentOnly.content -ne '' -or @($attachmentOnly.files).Count -ne 1 -or
+        $attachmentOnly.files[0].fileId -ne $uploaded.fileId) {
+        throw 'Attachment-only input was not preserved in the API response.'
+    }
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+    do {
+        $onlyCompleted = Invoke-RestMethod -Uri "$baseUrl/v1/messages/$($attachmentOnly.messageId)"
+        if ($onlyCompleted.status -eq 'Completed') { break }
+        if ($onlyCompleted.status -eq 'Failed') { throw $onlyCompleted.error }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Attachment-only message polling timed out.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+    $attachmentHistory = @(Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($attachmentMessage.chatId)/messages")
+    if (@($attachmentHistory | Where-Object { $_.messageId -eq $attachmentOnly.messageId }).Count -ne 1 -or
+        @($onlyCompleted.reply.files).Count -ne 1) {
+        throw 'Attachment-only message was duplicated or its file was not forwarded.'
+    }
+
+    # Exercise actual multipart API validation, not merely the provider upload helper.
+    $fixture = Join-Path $PSScriptRoot 'fixtures/chatgpt-images/sample.png'
+    $pngBytes = [IO.File]::ReadAllBytes($fixture)
+    $validPng = Invoke-FileUpload 'test' 'sample.png' 'image/png' $pngBytes
+    if ($validPng.Status -ne 201) { throw "Valid PNG upload failed: $($validPng.Body)" }
+    $pngFile = $validPng.Body | ConvertFrom-Json
+    $pngMessage = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/messages" -ContentType 'application/json' -Body (ConvertTo-Json @{
+        connectionId = 'test'; chatId = $attachmentMessage.chatId; content = 'What is attached?'; fileIds = @($pngFile.fileId)
+    })
+    if (@($pngMessage.files).Count -ne 1 -or $pngMessage.files[0].fileId -ne $pngFile.fileId) {
+        throw 'PNG was not visible on the local message.'
+    }
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+    do {
+        $pngCompleted = Invoke-RestMethod -Uri "$baseUrl/v1/messages/$($pngMessage.messageId)"
+        if ($pngCompleted.status -eq 'Completed') { break }
+        if ($pngCompleted.status -eq 'Failed') { throw $pngCompleted.error }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'PNG message polling timed out.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+    $attachmentHistory = @(Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($attachmentMessage.chatId)/messages")
+    if (@($attachmentHistory | Where-Object { $_.messageId -eq $pngMessage.messageId }).Count -ne 1) {
+        throw 'PNG local message was duplicated.'
+    }
+
+    $fileRoot = Join-Path $dataPath 'connections/test/files'
+    $filesBeforeInvalid = @(Get-ChildItem $fileRoot -Directory).Count
+    foreach ($rejected in @(
+        (Invoke-FileUpload 'test' 'bad.png' 'image/png' ([Text.Encoding]::UTF8.GetBytes('not a PNG'))),
+        (Invoke-FileUpload 'test' 'wrong.png' 'image/jpeg' $pngBytes),
+        (Invoke-FileUpload 'test' 'sample.jpg' 'image/jpeg' ([IO.File]::ReadAllBytes((Join-Path $PSScriptRoot 'fixtures/chatgpt-images/baseline.jpg')))),
+        (Invoke-FileUpload 'test' 'sample.webp' 'image/webp' ([IO.File]::ReadAllBytes((Join-Path $PSScriptRoot 'fixtures/chatgpt-images/vp8.webp')))),
+        (Invoke-FileUpload 'test' 'bad.gif' 'image/gif' $pngBytes),
+        (Invoke-FileUpload 'test-text-only' 'sample.png' 'image/png' $pngBytes),
+        (Invoke-FileUpload 'test-no-files' 'file.txt' 'text/plain' ([Text.Encoding]::UTF8.GetBytes('file')))
+    )) {
+        if ($rejected.Status -ne 400 -or -not ($rejected.Body | ConvertFrom-Json).error) {
+            throw "Invalid or unsupported file was not clearly rejected: $($rejected.Status) $($rejected.Body)"
+        }
+    }
+    if (@(Get-ChildItem $fileRoot -Directory).Count -ne $filesBeforeInvalid) {
+        throw 'Rejected upload left an orphaned stored file.'
+    }
+    $tooLarge = Invoke-FileUpload 'test' 'large.txt' 'text/plain' ([byte[]]::new(20 * 1024 * 1024 + 1))
+    if ($tooLarge.Status -notin @(400, 413)) {
+        throw "Oversized file was not rejected: $($tooLarge.Status)"
+    }
+    if (@(Get-ChildItem $fileRoot -Directory).Count -ne $filesBeforeInvalid) {
+        throw 'Oversized upload left an orphaned stored file.'
+    }
+    Assert-ApiError -Method 'POST' -Uri "$baseUrl/v1/messages" -ExpectedStatus 400 -ExpectedError 'does not support file input' -Body (ConvertTo-Json @{
+        connectionId = 'test-no-files'; content = 'must reject'; fileIds = @($uploaded.fileId)
+    })
+
+    # A file belongs to its upload connection even when the target chat is shared.
+    $beforeRejected = @(Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($created.chatId)/messages").Count
+    $beforeChats = @(Invoke-RestMethod -Uri "$baseUrl/v1/chats").Count
+    Assert-ApiError -Method 'POST' -Uri "$baseUrl/v1/messages" -ExpectedStatus 400 -ExpectedError 'does not belong' -Body (ConvertTo-Json @{
+        connectionId = 'test-login'; chatId = $created.chatId; content = 'must not queue'; fileIds = @($uploaded.fileId)
+    })
+    Assert-ApiError -Method 'POST' -Uri "$baseUrl/v1/messages" -ExpectedStatus 400 -ExpectedError 'does not belong' -Body (ConvertTo-Json @{
+        connectionId = 'test-login'; content = 'must not create a chat'; fileIds = @($uploaded.fileId)
+    })
+    if (@(Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($created.chatId)/messages").Count -ne $beforeRejected -or
+        @(Invoke-RestMethod -Uri "$baseUrl/v1/chats").Count -ne $beforeChats) {
+        throw 'Rejected foreign attachment created a chat or user message.'
+    }
+
+    # Switching connection without reusing the original connection's file is still supported.
     $second = Invoke-RestMethod `
         -Method Post `
         -Uri "$baseUrl/v1/messages" `
@@ -252,7 +363,6 @@ try {
             connectionId = 'test-login'
             chatId = $created.chatId
             content = 'again through the other connection'
-            fileIds = @($uploaded.fileId)
         })
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
@@ -265,9 +375,6 @@ try {
     } while ($true)
     if ($secondCompleted.connectionId -ne 'test-login' -or $secondCompleted.reply.connectionId -ne 'test-login') {
         throw 'Existing chat did not switch to the selected second connection.'
-    }
-    if (($secondCompleted.reply.files | Select-Object -First 1).name -ne 'echo-attachment-smoke.txt') {
-        throw 'A local upload could not be reused through another connection.'
     }
 
     # Switch the same local chat back to the original connection without a model.

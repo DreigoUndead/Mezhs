@@ -20,3 +20,10 @@ connections:
   - id: test-login
     name: Deterministic login integration
     integration: mock-login
+  - id: test-text-only
+    name: Deterministic text-only attachments
+    integration: mock-text-only
+
+  - id: test-no-files
+    name: Deterministic no attachments
+    integration: mock-no-files

@@ -10,6 +10,7 @@ namespace Mezhs.Services;
 
 public sealed class FileStore(MezhsOptions options)
 {
+    public const long MaxUserUploadBytes = 20L * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = false,
@@ -52,13 +53,15 @@ public sealed class FileStore(MezhsOptions options)
     public StoredFile? Get(string fileId) =>
         _files.TryGetValue(fileId, out var file) ? file : null;
 
-    public IReadOnlyList<StoredFile> GetMany(IEnumerable<string>? fileIds)
+    public IReadOnlyList<StoredFile> GetMany(IEnumerable<string>? fileIds, string? connectionId = null)
     {
         var result = new List<StoredFile>();
         foreach (var fileId in (fileIds ?? []).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var file = Get(fileId)
                 ?? throw new ResourceNotFoundException($"File '{fileId}' was not found.");
+            if (connectionId is not null && !string.Equals(file.ConnectionId, connectionId, StringComparison.OrdinalIgnoreCase))
+                throw new RequestValidationException($"File does not belong to connection '{connectionId}'.");
             result.Add(file);
         }
         return result;
@@ -81,17 +84,36 @@ public sealed class FileStore(MezhsOptions options)
         Directory.CreateDirectory(directory);
         var contentPath = Path.Combine(directory, "content");
         var temporaryContentPath = contentPath + ".tmp";
-        await using (var target = new FileStream(
-                         temporaryContentPath,
-                         FileMode.CreateNew,
-                         FileAccess.Write,
-                         FileShare.None,
-                         81920,
-                         FileOptions.Asynchronous | FileOptions.SequentialScan))
+        try
         {
-            await content.CopyToAsync(target, cancellationToken);
+            await using (var target = new FileStream(
+                             temporaryContentPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             81920,
+                             FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                var buffer = new byte[81920];
+                long total = 0;
+                int read;
+                while ((read = await content.ReadAsync(buffer, cancellationToken)) != 0)
+                {
+                    total += read;
+                    if (source == FileSource.User && total > MaxUserUploadBytes)
+                        throw new RequestValidationException("Upload exceeds the 20 MB file limit.");
+                    await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                }
+            }
+            if (source == FileSource.User)
+                UserFileValidation.Validate(name, contentType, temporaryContentPath);
+            File.Move(temporaryContentPath, contentPath);
         }
-        File.Move(temporaryContentPath, contentPath);
+        catch
+        {
+            Directory.Delete(directory, recursive: true);
+            throw;
+        }
 
         var file = new StoredFile
         {

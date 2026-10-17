@@ -73,6 +73,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showConversationManager, setShowConversationManager] = useState(false);
@@ -211,6 +212,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
   }
 
   function changeConnection(id: string) {
+    if (id !== connectionId) clearPendingFiles();
     setConnectionId(id);
   }
 
@@ -218,17 +220,24 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     event?.preventDefault();
     const content = draft.trim();
     const uploadedFiles = pendingFiles.flatMap((item) => item.uploaded ? [item.uploaded] : []);
-    if ((!content && uploadedFiles.length === 0) || !connectionId || sending || pendingFiles.some((item) => item.uploading)) return;
+    if ((!content && uploadedFiles.length === 0) || !connectionId || sendingRef.current || pendingFiles.some((item) => !item.uploaded)) return;
+    sendingRef.current = true;
 
     setDraft("");
     setSending(true);
     setNotice(null);
     try {
-      const request = await providerRegistry.current.get(connectionId).sendMessage(
-        chatId,
-        { content, files: uploadedFiles, model: modelId || undefined },
-        { categoryId: newChatCategoryId || null },
-      );
+      let request: Message;
+      try {
+        request = await providerRegistry.current.get(connectionId).sendMessage(
+          chatId,
+          { content, files: uploadedFiles, model: modelId || undefined },
+          { categoryId: newChatCategoryId || null },
+        );
+      } catch (error) {
+        setDraft((current) => current || content);
+        throw error;
+      }
       setChatId(request.chatId);
       setMessages((current) => [...current, request]);
       clearPendingFiles();
@@ -236,6 +245,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Message could not be sent.");
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
@@ -751,6 +761,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
               ref={fileInputRef}
               className="file-input"
               type="file"
+              accept=".txt,.md,.csv,.pdf,.docx,.png"
               multiple
               onChange={(event) => void selectFiles(event.target.files)}
             />
@@ -766,7 +777,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
               <button
                 className="send"
                 type="submit"
-                disabled={(!draft.trim() && !pendingFiles.some((item) => item.uploaded)) || pendingFiles.some((item) => item.uploading) || sending || !online}
+                disabled={(!draft.trim() && !pendingFiles.some((item) => item.uploaded)) || pendingFiles.some((item) => !item.uploaded) || sending || !online}
                 aria-label="Send message"
               >^</button>
             </div>
