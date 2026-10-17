@@ -168,6 +168,7 @@ export type ChatComposerProps = {
   placeholder: string;
   disabled?: boolean;
   busy?: boolean;
+  submitDisabled?: boolean;
   notice?: string | null;
   onDismissNotice?: () => void;
   hint?: string;
@@ -184,6 +185,7 @@ export function ChatComposer({
   placeholder,
   disabled = false,
   busy = false,
+  submitDisabled = false,
   notice,
   onDismissNotice,
   hint = "Enter to send / Shift + Enter for a new line",
@@ -197,7 +199,7 @@ export function ChatComposer({
 
   function submit(event?: FormEvent) {
     event?.preventDefault();
-    if (disabled || busy || !value.trim()) return;
+    if (disabled || busy || submitDisabled || !value.trim()) return;
     void onSubmit();
   }
 
@@ -235,7 +237,7 @@ export function ChatComposer({
           <button
             className="send"
             type="submit"
-            disabled={disabled || busy || !value.trim()}
+            disabled={disabled || busy || submitDisabled || !value.trim()}
             aria-label="Send message"
           >
             <svg viewBox="0 0 20 20" aria-hidden="true">

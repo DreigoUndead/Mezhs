@@ -8,9 +8,11 @@ import {
   modelActivityLabel,
   useApiAvailability,
   type ChatSurfaceMessage,
+  type ApiFile,
   type Connection,
   type ConnectionModel,
 } from "@mezhs/web-lib";
+import { AttachmentPicker, PendingAttachmentList, useAgentAttachments } from "./AgentAttachments";
 
 type AgentPolicy = {
   id: string;
@@ -76,6 +78,7 @@ type Execution = {
   status: string;
   isTerminal: boolean;
   request: string;
+  fileIds?: string[];
   result?: string;
   error?: string;
   exitCode?: number;
@@ -203,7 +206,7 @@ function executionFromEnvelope(content: string, executions: Execution[]) {
   return match ? executions.find((execution) => execution.executionId === match[1]) : undefined;
 }
 
-function toSharedMessage(message: AgentChatMessage, executions: Execution[]): ChatSurfaceMessage {
+function toSharedMessage(message: AgentChatMessage, executions: Execution[], fileMetadata: Map<string, ApiFile>): ChatSurfaceMessage {
   let content = message.content;
   if (message.role === "assistant") {
     content = message.displayContent;
@@ -226,6 +229,17 @@ function toSharedMessage(message: AgentChatMessage, executions: Execution[]): Ch
     activityDetail: message.activityDetail,
     analysis: message.analysis,
     activityAt: message.activityAt,
+    files: (message.fileIds ?? []).map((fileId) => fileMetadata.get(fileId) ?? {
+      fileId,
+      connectionId: message.connectionId,
+      name: fileId,
+      contentType: "application/octet-stream",
+      size: 0,
+      source: "User" as const,
+      createdAt: message.createdAt,
+      contentUrl: `/v1/files/${encodeURIComponent(fileId)}/content`,
+      downloadUrl: `/v1/files/${encodeURIComponent(fileId)}/content?download=true`,
+    }),
   };
 }
 
@@ -415,6 +429,9 @@ export default function App() {
   const [policyId, setPolicyId] = useState("");
   const [policyDetailsOpen, setPolicyDetailsOpen] = useState(true);
   const [draft, setDraft] = useState("");
+  const attachments = useAgentAttachments();
+  const sendingRef = useRef(false);
+  const [fileMetadata, setFileMetadata] = useState<Map<string, ApiFile>>(new Map());
   const [sending, setSending] = useState(false);
   const [togglingPause, setTogglingPause] = useState(false);
   const [stoppingExecutionId, setStoppingExecutionId] = useState<string | null>(null);
@@ -458,8 +475,12 @@ export default function App() {
             ? "Processing model response…"
             : undefined;
   const sharedMessages = useMemo(
-    () => messages.map((message) => toSharedMessage(message, executions)),
-    [messages, executions],
+    () => messages.map((message) => toSharedMessage(message, executions, fileMetadata)),
+    [messages, executions, fileMetadata],
+  );
+  const referencedFileIds = useMemo(
+    () => [...new Set(messages.flatMap((message) => message.fileIds ?? []))].sort().join("|"),
+    [messages],
   );
   const messageById = useMemo(
     () => new Map(messages.map((message) => [message.messageId, message])),
@@ -522,6 +543,31 @@ export default function App() {
   }, []);
 
   useEffect(() => () => providerRegistry.current.dispose(), []);
+
+  useEffect(() => {
+    attachments.clear();
+  }, [connectionId, selectedChatId]);
+
+  useEffect(() => {
+    const ids = referencedFileIds ? referencedFileIds.split("|").filter((id) => !fileMetadata.has(id)) : [];
+    if (!ids.length) return;
+    const controller = new AbortController();
+    void Promise.allSettled(ids.map((id) => apiJson<ApiFile>(
+      "", `/v1/files/${encodeURIComponent(id)}`, { signal: controller.signal },
+    ))).then((results) => {
+      if (controller.signal.aborted) return;
+      const resolved = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+      if (resolved.length) setFileMetadata((current) => {
+        const next = new Map(current);
+        resolved.forEach((file) => next.set(file.fileId, file));
+        return next;
+      });
+      const failure = results.find((result) => result.status === "rejected");
+      if (failure?.status === "rejected")
+        setNotice(failure.reason instanceof Error ? failure.reason.message : "Could not load attachment details.");
+    });
+    return () => controller.abort();
+  }, [referencedFileIds, fileMetadata]);
 
 useEffect(() => {
   if (!selectedChatId || creating) {
@@ -738,6 +784,7 @@ useEffect(() => {
   }
 
   function selectTargetConnection(targetConnectionId: string) {
+    if (targetConnectionId !== connectionId) attachments.clear();
     setConnectionId(targetConnectionId);
     if (selectedChat) {
       const previous = [...messages].reverse().find((message) =>
@@ -755,6 +802,7 @@ useEffect(() => {
   }
 
   function selectPolicy(nextPolicyId: string) {
+    attachments.clear();
     const policy = policies.find((candidate) => candidate.id === nextPolicyId);
     setPolicyId(nextPolicyId);
     if (policy) {
@@ -774,6 +822,7 @@ useEffect(() => {
   }
 
   function beginNewChat() {
+    attachments.clear();
     setCreating(true);
     setSelectedChatId(null);
     messagesRef.current = [];
@@ -792,9 +841,12 @@ useEffect(() => {
   async function submit() {
     const input = draft.trim();
     const effectivePolicyId = selectedChat?.policyId ?? policyId;
-    if (!input || !effectivePolicyId || !connectionId || sending || activeExecution || selectedChat?.paused)
+    const fileIds = attachments.submissionFiles(connectionId);
+    if (!input || !effectivePolicyId || !connectionId || sendingRef.current ||
+        activeExecution || selectedChat?.paused || fileIds === null)
       return;
 
+    sendingRef.current = true;
     setSending(true);
     setNotice(null);
     try {
@@ -805,11 +857,13 @@ useEffect(() => {
           policyId: effectivePolicyId,
           input,
           connectionId,
+          ...(fileIds.length ? { fileIds } : {}),
           ...(selectedChat ? { chatId: selectedChat.chatId } : {}),
           ...(modelSpecified ? { model: modelId } : {}),
         }),
       });
       setDraft("");
+      attachments.clear();
 
       if (selectedChat) {
         const next = [execution, ...executionsRef.current];
@@ -826,6 +880,7 @@ useEffect(() => {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Agent execution could not be started.");
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
@@ -902,12 +957,21 @@ useEffect(() => {
   }
 
   function selectChat(chatId: string) {
+    if (chatId !== selectedChatId || creating) attachments.clear();
     setCreating(false);
     setSelectedChatId(chatId);
     setNotice(null);
   }
 
   const composerDisabled = sending || !!activeExecution || !!selectedChat?.paused;
+  const attachmentSubmitDisabled = attachments.pending.some((item) =>
+    item.uploading || !!item.error || !item.uploaded || item.connectionId !== connectionId);
+  const attachmentAction = <AttachmentPicker inputRef={attachments.inputRef}
+    onSelect={(files) => void attachments.select(files, connectionId, selectedConnection?.capabilities)}
+    capabilities={selectedConnection?.capabilities}
+    disabled={!apiReady || !connectionId || composerDisabled} />;
+  const attachmentList = <PendingAttachmentList pending={attachments.pending}
+    onRemove={attachments.remove} disabled={sending} />;
   const composerPlaceholder = selectedChat?.paused
     ? "Resume this agent chat to continue"
     : activeExecution
@@ -925,7 +989,7 @@ useEffect(() => {
           <span className={`health-dot ${apiReady ? "online" : ""}`} title={apiReady ? "MEŽS Agent API online" : "MEŽS Agent API unavailable"} />
         </div>
 
-        <button className="new-chat" type="button" onClick={beginNewChat}><span>+</span> New agent chat</button>
+        <button className="new-chat" type="button" onClick={beginNewChat} disabled={sending}><span>+</span> New agent chat</button>
 
         <span className="section-label">Agent chats</span>
         <nav className="agent-chat-list" aria-label="Agent chats">
@@ -935,6 +999,7 @@ useEffect(() => {
               key={chat.chatId}
               className={`agent-chat-row ${selectedChatId === chat.chatId && !creating ? "selected" : ""}`}
               onClick={() => selectChat(chat.chatId)}
+              disabled={sending}
             >
               <span className="agent-chat-title">{displayTitle(chat)}</span>
               <small>{policyNames.get(chat.policyId) ?? chat.policyId} · {chat.originSource}</small>
@@ -968,9 +1033,11 @@ useEffect(() => {
               placeholder={composerPlaceholder}
               disabled={!policyId || !connectionId}
               busy={sending}
+              submitDisabled={attachmentSubmitDisabled}
+              leadingActions={attachmentAction}
               notice={notice}
               onDismissNotice={() => setNotice(null)}
-              topContent={selectedPolicy ? (
+              topContent={selectedPolicy ? (<>{attachmentList}
                 <details
                   className="agent-policy-overview"
                   open={policyDetailsOpen}
@@ -987,7 +1054,7 @@ useEffect(() => {
                   </summary>
                   {selectedPolicy.modelInstructions && <pre>{selectedPolicy.modelInstructions}</pre>}
                 </details>
-              ) : undefined}
+              </>) : attachmentList}
               sideControls={(
                 <div className="agent-composer-settings">
                   <label className="target-picker-field" htmlFor="agent-policy">
@@ -1075,6 +1142,7 @@ useEffect(() => {
 
             <ChatTranscript
               messages={sharedMessages}
+              apiBaseUrl=""
               busy={!!activeExecution}
               busyLabel={agentBusyLabel}
               autoScroll
@@ -1252,6 +1320,9 @@ useEffect(() => {
               placeholder={composerPlaceholder}
               disabled={composerDisabled}
               busy={sending}
+              submitDisabled={attachmentSubmitDisabled}
+              leadingActions={attachmentAction}
+              topContent={attachmentList}
               notice={notice}
               onDismissNotice={() => setNotice(null)}
               sideControls={(
