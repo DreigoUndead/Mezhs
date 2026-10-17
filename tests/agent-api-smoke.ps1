@@ -75,22 +75,11 @@ function Get-Status([string]$uri) {
     } finally { $client.Dispose() }
 }
 
-function Upload-AgentFile([string]$connectionId, [string]$path, [string]$fileName, [string]$mime) {
-    $client = [Net.Http.HttpClient]::new()
-    $form = [Net.Http.MultipartFormDataContent]::new()
-    $content = [Net.Http.ByteArrayContent]::new([IO.File]::ReadAllBytes($path))
-    $content.Headers.ContentType = [Net.Http.Headers.MediaTypeHeaderValue]::Parse($mime)
-    $form.Add($content, "file", $fileName)
-    $form.Add([Net.Http.StringContent]::new($connectionId), "connectionId")
-    try {
-        $response = $client.PostAsync("http://127.0.0.1:5199/v1/files", $form).GetAwaiter().GetResult()
-        try {
-            $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-            if ([int]$response.StatusCode -ne 201) { throw "Upload failed: $([int]$response.StatusCode) $body" }
-            return $body | ConvertFrom-Json
-        } finally { $response.Dispose() }
-    } finally { $form.Dispose(); $client.Dispose() }
+function Upload-AgentFile([string]$connectionId, [string]$path) {
+    return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/files" `
+        -ContentType "application/json" -Body (ConvertTo-Json @{ connectionId = $connectionId; path = $path })
 }
+
 
 function Assert-AgentStartRejected([hashtable]$body, [int]$status, [string]$fragment) {
     $client = [Net.Http.HttpClient]::new()
@@ -221,9 +210,9 @@ try {
     # Agent execution files are validated during admission and reach the provider exactly once.
     $attachmentTextPath = Join-Path $dataPath "agent-attachment-smoke.txt"
     Set-Content -LiteralPath $attachmentTextPath -Value "ATTACHMENT_SMOKE_PAYLOAD" -Encoding UTF8
-    $textFile = Upload-AgentFile "test" $attachmentTextPath "agent-attachment-smoke.txt" "text/plain"
-    $pngFile = Upload-AgentFile "test" (Join-Path $PSScriptRoot "fixtures/chatgpt-images/sample.png") "sample.png" "image/png"
-    $otherFile = Upload-AgentFile "test-alt" $attachmentTextPath "other.txt" "text/plain"
+    $textFile = Upload-AgentFile "test" $attachmentTextPath
+    $pngFile = Upload-AgentFile "test" (Join-Path $PSScriptRoot "fixtures/chatgpt-images/sample.png")
+    $otherFile = Upload-AgentFile "test-alt" $attachmentTextPath
 
     Assert-AgentStartRejected @{ policyId = "low"; input = "missing file"; fileIds = @("file_missing_agent_attachment") } 404 "not found"
     Assert-AgentStartRejected @{ policyId = "low"; input = "wrong owner"; fileIds = @($otherFile.fileId) } 400 "does not belong"

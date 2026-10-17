@@ -21,8 +21,7 @@ type Category = {
 
 type PendingFile = {
   key: string;
-  file: File;
-  previewUrl?: string;
+  path: string;
   uploading: boolean;
   uploaded?: ApiFile;
   error?: string;
@@ -82,7 +81,6 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [deletingChats, setDeletingChats] = useState(false);
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const providerRegistry = useRef(new ChatProviderRegistry());
 
@@ -419,45 +417,25 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     }
   }
 
-  function clearPendingFiles() {
-    setPendingFiles((current) => {
-      current.forEach((item) => item.previewUrl && URL.revokeObjectURL(item.previewUrl));
-      return [];
-    });
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }
+  function clearPendingFiles() { setPendingFiles([]); }
 
-  async function selectFiles(files: FileList | null) {
-    if (!files || !connectionId || !selectedConnection?.capabilities.fileInput) return;
-    for (const file of Array.from(files)) {
-      if (file.type.startsWith("image/") && !selectedConnection.capabilities.imageInput) {
-        setNotice(`${selectedConnection.name} does not support image input.`);
-        continue;
-      }
-      const key = `${Date.now()}-${Math.random()}`;
-      const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
-      setPendingFiles((current) => [...current, { key, file, previewUrl, uploading: true }]);
-      try {
-        const uploaded = await providerRegistry.current.get(connectionId).uploadFile(file);
-        setPendingFiles((current) => current.map((item) =>
-          item.key === key ? { ...item, uploading: false, uploaded } : item,
-        ));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Upload failed.";
-        setPendingFiles((current) => current.map((item) =>
-          item.key === key ? { ...item, uploading: false, error: message } : item,
-        ));
-      }
+  async function selectFile(path: string) {
+    if (!path.trim() || !connectionId || !selectedConnection?.capabilities.fileInput) return;
+    const key = `${Date.now()}-${Math.random()}`;
+    setPendingFiles((current) => [...current, { key, path, uploading: true }]);
+    try {
+      const uploaded = await providerRegistry.current.get(connectionId).uploadFile(path);
+      setPendingFiles((current) => current.map((item) =>
+        item.key === key ? { ...item, uploading: false, uploaded } : item));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Upload failed.";
+      setPendingFiles((current) => current.map((item) =>
+        item.key === key ? { ...item, uploading: false, error: message } : item));
     }
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function removePendingFile(key: string) {
-    setPendingFiles((current) => {
-      const removed = current.find((item) => item.key === key);
-      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
-      return current.filter((item) => item.key !== key);
-    });
+    setPendingFiles((current) => current.filter((item) => item.key !== key));
   }
 
   function connectionFor(id: string) {
@@ -703,7 +681,11 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                   {message.content && <div className="message-content">{message.content}</div>}
                   {message.files?.length > 0 && (
                     <div className="message-files">
-                      {message.files.map((file) => file.contentType.startsWith("image/") ? (
+                      {message.files.map((file) => file.source === "User" ? (
+                        <span className="message-file" key={file.fileId}>
+                          <b>FILE</b><span>{file.name}<small>{formatBytes(file.size)}</small></span>
+                        </span>
+                      ) : file.contentType.startsWith("image/") ? (
                         <a className="message-image" key={file.fileId} href={`${apiBase}${file.contentUrl}`} target="_blank" rel="noreferrer">
                           <img src={`${apiBase}${file.contentUrl}`} alt={file.name} />
                           <span>{file.name}<small>{formatBytes(file.size)}</small></span>
@@ -740,9 +722,9 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
               <div className="pending-files">
                 {pendingFiles.map((item) => (
                   <div className={`pending-file ${item.error ? "failed" : ""}`} key={item.key}>
-                    {item.previewUrl ? <img src={item.previewUrl} alt="" /> : <b>FILE</b>}
-                    <span>{item.file.name}<small>{item.error || (item.uploading ? "Uploading..." : formatBytes(item.uploaded?.size || item.file.size))}</small></span>
-                    <button type="button" onClick={() => removePendingFile(item.key)} aria-label={`Remove ${item.file.name}`}>x</button>
+                    <b>FILE</b>
+                    <span>{item.uploaded?.name || item.path}<small>{item.error || (item.uploading ? "Uploading..." : formatBytes(item.uploaded?.size || 0))}</small></span>
+                    <button type="button" onClick={() => removePendingFile(item.key)} aria-label={`Remove ${item.uploaded?.name || item.path}`}>x</button>
                   </div>
                 ))}
               </div>
@@ -757,21 +739,13 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
               disabled={!online || !connectionId}
               aria-label="Message"
             />
-            <input
-              ref={fileInputRef}
-              className="file-input"
-              type="file"
-              accept=".txt,.md,.csv,.pdf,.docx,.png"
-              multiple
-              onChange={(event) => void selectFiles(event.target.files)}
-            />
             <div className="composer-actions">
               <button
                 type="button"
                 className="attach"
                 disabled={!selectedConnection?.capabilities.fileInput || sending}
                 title={selectedConnection?.capabilities.fileInput ? "Attach files" : "This connection does not support files"}
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => { const path = window.prompt("File path on MEŽS machine:"); if (path) void selectFile(path.trim()); }}
               >+</button>
               <span>Enter to send / Shift + Enter for a new line</span>
               <button

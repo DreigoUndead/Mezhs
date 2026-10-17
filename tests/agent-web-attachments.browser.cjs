@@ -56,16 +56,17 @@ async function handler(req, res) {
     }
     if (pathname === "/v1/files" && req.method === "POST") {
       const chunks = []; for await (const chunk of req) chunks.push(chunk);
-      const multipart = Buffer.concat(chunks).toString("latin1");
-      const name = /filename="([^"]+)"/.exec(multipart)?.[1];
-      const connectionId = /name="connectionId"\r\n\r\n([^\r\n]+)/.exec(multipart)?.[1];
-      assert(name && connectionId, "Browser must post multipart file and connectionId");
-      uploads.push({ name, connectionId });
-      const send = (code = 201) => {
-        if (code !== 201) return respond(res, code, { error: "Rejected by attachment regression" });
-        const id = `file-upload-${uploads.length}-${name.replace(/\W/g, "-")}`;
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      assert.equal(typeof body.path, "string", "Upload must send only host path, not file bytes");
+      assert.equal(typeof body.connectionId, "string");
+      const name = path.win32.basename(body.path);
+      uploads.push({ name, connectionId: body.connectionId, path: body.path });
+      const uploadNumber = uploads.length;
+      const send = (code = 200) => {
+        if (code !== 200) return respond(res, code, { error: "Rejected by attachment regression" });
+        const id = `file-upload-${uploadNumber}-${name.replace(/\W/g, "-")}`;
         files.set(id, { name, contentType: name.endsWith(".png") ? "image/png" : "text/plain", size: 9 });
-        respond(res, code, metadata(id, connectionId));
+        respond(res, code, metadata(id, body.connectionId));
       };
       if (holdUploads) held.push({ name, send }); else send();
       return;
@@ -107,37 +108,43 @@ async function until(condition, label, timeout = 10000) {
     const page = await browser.newPage();
     const errors = []; page.on("pageerror", error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${port}/`);
+    // Only user attachment metadata is stored; there is no local content URL to preview.
     await page.locator(".message-files .message-file").getByText("prior-document.txt").waitFor();
-    await page.locator(".message-files .message-image img[alt='prior-image.png']").waitFor();
-    assert.equal(await page.locator(".message-files .message-file").count(), 1);
-    assert.equal(await page.locator(".message-files .message-image").count(), 1);
-    console.log("PASS: existing chat restores document and image metadata and renders links/previews");
+    await page.locator(".message-files .message-file").getByText("prior-image.png").waitFor();
+    assert.equal(await page.locator(".message-files .message-file").count(), 2);
+    assert.equal(await page.locator(".message-files .message-image").count(), 0);
+    console.log("PASS: previous attachment metadata remains visible without local file copies");
 
+    const pathInput = page.getByRole("textbox", { name: "Local file path" });
+    async function addLocalPath(filePath) {
+      await pathInput.fill(filePath);
+      await page.getByRole("button", { name: "Upload local file" }).click();
+    }
+    assert.equal(await page.locator('input[type="file"]').count(), 0, "Browser file upload must not be used");
     await page.locator("textarea").fill("Follow up with attachment");
-    await page.locator('input[aria-label="Select attachments"]').setInputFiles({ name: "existing-turn.txt", mimeType: "text/plain", buffer: Buffer.from("existing") });
+    await addLocalPath("C:\\uploads\\existing-turn.txt");
     await page.locator(".pending-file").getByText("Uploaded").waitFor();
     await page.getByRole("button", { name: "Send message" }).click();
     await until(() => executionRequests.length === 1, "existing-chat execution request");
     assert.equal(executionRequests[0].chatId, "chat-old");
     assert.deepEqual(executionRequests[0].fileIds, ["file-upload-1-existing-turn-txt"]);
-    assert.equal(await page.locator(".pending-file").count(), 0);
-    console.log("PASS: existing-chat follow-up forwards exactly its uploaded fileId and clears pending files");
+    assert.equal(uploads[0].path, "C:\\uploads\\existing-turn.txt");
+    await page.locator(".pending-file").first().waitFor({ state: "detached" });
+    console.log("PASS: existing-chat follow-up sends host path once and forwards provider file reference");
 
     await page.locator("button.new-chat").click();
     await page.locator("textarea").fill("Process both attachments");
     holdUploads = true;
-    await page.locator('input[aria-label="Select attachments"]').setInputFiles([
-      { name: "selected-photo.png", mimeType: "image/png", buffer: png },
-      { name: "selected-notes.txt", mimeType: "text/plain", buffer: Buffer.from("test") },
-    ]);
-    await page.waitForFunction(() => document.querySelectorAll(".pending-file").length === 2);
+    await addLocalPath("C:\\uploads\\selected-photo.png");
+    await addLocalPath("C:\\uploads\\selected-notes.txt");
+    await until(() => held.length === 2, "two independent uploads");
+    assert.equal(await page.locator(".pending-file").count(), 2);
     assert.equal(await page.getByRole("button", { name: "Send message" }).isDisabled(), true);
-    await until(() => held.length === 1, "first upload");
     held.shift().send();
-    await until(() => held.length === 1, "second upload");
-    assert.equal(await page.getByRole("button", { name: "Send message" }).isDisabled(), true, "Send remains blocked while second upload is pending");
+    await page.locator(".pending-file").getByText("Uploaded").waitFor();
+    assert.equal(await page.getByRole("button", { name: "Send message" }).isDisabled(), true,
+      "Second pending upload still blocks submission");
     held.shift().send();
-    await page.getByRole("button", { name: "Send message" }).waitFor({ state: "visible" });
     await page.waitForFunction(() => !document.querySelector('button[aria-label="Send message"]').disabled);
     await page.getByRole("button", { name: "Send message" }).click();
     await until(() => executionRequests.length === 2, "new-chat execution request");
@@ -146,36 +153,38 @@ async function until(condition, label, timeout = 10000) {
     assert.equal(executionRequests[1].chatId, undefined);
     assert.deepEqual(executionRequests[1].fileIds, ["file-upload-2-selected-photo-png", "file-upload-3-selected-notes-txt"]);
     assert.deepEqual(uploads.slice(1, 3).map(x => x.name), ["selected-photo.png", "selected-notes.txt"]);
-    assert.equal(await page.locator(".pending-file").count(), 0);
-    console.log("PASS: multi-file selection blocks submission until ALL uploads finish and sends both fileIds once");
+    await page.locator(".pending-file").first().waitFor({ state: "detached" });
+    console.log("PASS: one POST per host path; submission forwards both references exactly once");
 
     await page.locator("button.new-chat").click();
     await page.locator("textarea").fill("Failure handling");
-    await page.locator('input[aria-label="Select attachments"]').setInputFiles({ name: "bad.txt", mimeType: "text/plain", buffer: Buffer.from("bad") });
+    await addLocalPath("C:\\uploads\\bad.txt");
     await until(() => held.length === 1, "failed upload");
     held.shift().send(400);
     await page.getByText("Rejected by attachment regression").waitFor();
     assert.equal(await page.getByRole("button", { name: "Send message" }).isDisabled(), true);
-    await page.getByRole("button", { name: "Remove bad.txt" }).click();
+    await page.getByRole("button", { name: "Remove C:\\uploads\\bad.txt" }).click();
     assert.equal(await page.locator(".pending-file").count(), 0);
-    console.log("PASS: upload failures block submission and the user can remove a failed attachment");
+    console.log("PASS: provider error blocks send without any client-side validation rules");
 
-    await page.locator('input[aria-label="Select attachments"]').setInputFiles({ name: "clear-on-switch.txt", mimeType: "text/plain", buffer: Buffer.from("switch") });
-    await until(() => held.length === 1, "upload to abandon");
+    await addLocalPath("C:\\uploads\\clear-on-switch.txt");
+    await until(() => held.length === 1, "abandoned upload");
     await page.locator(".connection-model-picker select").first().selectOption("no-files");
     assert.equal(await page.locator(".pending-file").count(), 0);
-    assert.equal(await page.getByRole("button", { name: "Attach files" }).isDisabled(), true);
+    assert.equal(await page.getByRole("button", { name: "Upload local file" }).isDisabled(), true);
     held.shift().send();
     await page.waitForTimeout(200);
-    assert.equal(await page.locator(".pending-file").count(), 0, "Late response must not restore abandoned upload");
-    console.log("PASS: connection switch clears old uploads and file-incapable integrations disable the picker");
+    assert.equal(await page.locator(".pending-file").count(), 0);
+    console.log("PASS: connection switch clears pending upload including late response");
 
     await page.locator(".connection-model-picker select").first().selectOption("text-only");
-    await page.locator('input[aria-label="Select attachments"]').setInputFiles({ name: "not-allowed.png", mimeType: "image/png", buffer: png });
-    await page.getByText("This connection does not support image input.").waitFor();
-    assert.equal(await page.getByRole("button", { name: "Send message" }).isDisabled(), true);
-    console.log("PASS: image capability is enforced before upload");
-    assert.equal(executionRequests.length, 2, "No unexpected execution from failed/abandoned attachments");
+    holdUploads = false;
+    await addLocalPath("C:\\uploads\\any-image.png");
+    await page.locator(".pending-file").getByText("Uploaded").waitFor();
+    assert.equal(uploads.at(-1).connectionId, "text-only");
+    assert.equal(uploads.at(-1).name, "any-image.png");
+    assert.equal(executionRequests.length, 2);
+    console.log("PASS: file extension is passed through without browser-side image restrictions");
     assert.deepEqual(errors, [], `Browser page errors: ${errors.join("; ")}`);
     console.log("PASS: browser attachment regression completed without runtime errors");
   } finally {

@@ -4,13 +4,13 @@ using System.Text.Json.Serialization;
 using Mezhs;
 using Mezhs.Api.Contracts;
 using Mezhs.Configuration;
+using Mezhs.Integrations;
 using Mezhs.Models;
 
 namespace Mezhs.Services;
 
 public sealed class FileStore(MezhsOptions options)
 {
-    public const long MaxUserUploadBytes = 20L * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = false,
@@ -39,7 +39,7 @@ public sealed class FileStore(MezhsOptions options)
                     var file = JsonSerializer.Deserialize<StoredFile>(
                         File.ReadAllText(metadataPath),
                         JsonOptions);
-                    if (file is not null && File.Exists(GetContentPath(file)))
+                    if (file is not null && (file.Source == FileSource.User || File.Exists(GetContentPath(file))))
                         _files[file.FileId] = file;
                 }
                 catch (Exception ex)
@@ -67,67 +67,47 @@ public sealed class FileStore(MezhsOptions options)
         return result;
     }
 
-    public async Task<StoredFile> CreateAsync(
-        string connectionId,
-        string name,
-        string? contentType,
-        Stream content,
-        FileSource source,
-        CancellationToken cancellationToken = default)
+    public StoredFile Register(string connectionId, IntegrationUploadedFile uploaded)
     {
-        name = Path.GetFileName(name.Trim());
-        if (string.IsNullOrWhiteSpace(name))
-            name = "file";
+        var file = new StoredFile
+        {
+            FileId = ChatStore.NewId("file"),
+            ProviderFileId = uploaded.FileId,
+            ConnectionId = connectionId,
+            Name = uploaded.Name,
+            ContentType = uploaded.ContentType,
+            Size = uploaded.Size,
+            Source = FileSource.User,
+            Width = uploaded.Width,
+            Height = uploaded.Height
+        };
+        SaveMetadata(file);
+        _files[file.FileId] = file;
+        return file;
+    }
 
+    private async Task<StoredFile> CreateAsync(
+        string connectionId, string name, string? contentType,
+        Stream content, FileSource source, CancellationToken cancellationToken)
+    {
+        name = Path.GetFileName(name);
         var fileId = ChatStore.NewId("file");
         var directory = GetFileDirectory(connectionId, fileId);
         Directory.CreateDirectory(directory);
         var contentPath = Path.Combine(directory, "content");
-        var temporaryContentPath = contentPath + ".tmp";
-        try
-        {
-            await using (var target = new FileStream(
-                             temporaryContentPath,
-                             FileMode.CreateNew,
-                             FileAccess.Write,
-                             FileShare.None,
-                             81920,
-                             FileOptions.Asynchronous | FileOptions.SequentialScan))
-            {
-                var buffer = new byte[81920];
-                long total = 0;
-                int read;
-                while ((read = await content.ReadAsync(buffer, cancellationToken)) != 0)
-                {
-                    total += read;
-                    if (source == FileSource.User && total > MaxUserUploadBytes)
-                        throw new RequestValidationException("Upload exceeds the 20 MB file limit.");
-                    await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-                }
-            }
-            if (source == FileSource.User)
-                UserFileValidation.Validate(name, contentType, temporaryContentPath);
-            File.Move(temporaryContentPath, contentPath);
-        }
-        catch
-        {
-            Directory.Delete(directory, recursive: true);
-            throw;
-        }
-
+        await using (var target = File.Create(contentPath))
+            await content.CopyToAsync(target, cancellationToken);
         var file = new StoredFile
         {
             FileId = fileId,
             ConnectionId = connectionId,
             Name = name,
-            ContentType = string.IsNullOrWhiteSpace(contentType)
-                ? "application/octet-stream"
-                : contentType,
+            ContentType = contentType ?? "application/octet-stream",
             Size = new FileInfo(contentPath).Length,
             Source = source
         };
         SaveMetadata(file);
-        _files[file.FileId] = file;
+        _files[fileId] = file;
         return file;
     }
 
@@ -166,8 +146,8 @@ public sealed class FileStore(MezhsOptions options)
         file.Size,
         file.Source,
         file.CreatedAt,
-        $"/v1/files/{file.FileId}/content",
-        $"/v1/files/{file.FileId}/content?download=true");
+        file.Source == FileSource.User ? "" : $"/v1/files/{file.FileId}/content",
+        file.Source == FileSource.User ? "" : $"/v1/files/{file.FileId}/content?download=true");
 
     private string GetFileDirectory(string connectionId, string fileId) =>
         Path.Combine(_root, "connections", connectionId, "files", fileId);

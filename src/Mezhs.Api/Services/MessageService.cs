@@ -18,17 +18,12 @@ public sealed class MessageService(
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _chatGates =
         new(StringComparer.OrdinalIgnoreCase);
 
-    // Shared preflight: Agent admission must reject invalid attachments before creating an execution.
     public IReadOnlyList<StoredFile> ValidateFileInput(IReadOnlyList<string>? fileIds, string connectionId)
     {
         var integration = integrations.Get(connectionId);
         if (fileIds is { Count: > 0 } && !integration.Capabilities.FileInput)
             throw new RequestValidationException($"Connection '{connectionId}' does not support file input.");
-        var attached = files.GetMany(fileIds, connectionId);
-        if (attached.Any(file => file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) &&
-            !integration.Capabilities.ImageInput)
-            throw new RequestValidationException($"Connection '{connectionId}' does not support image input.");
-        return attached;
+        return files.GetMany(fileIds, connectionId);
     }
 
     public ApiMessage Post(PostMessageRequest request) =>
@@ -230,11 +225,12 @@ public sealed class MessageService(
                 string.Equals(remoteState.LastLocalMessageId, lastHistoryMessageId, StringComparison.OrdinalIgnoreCase);
             var inputFiles = files.GetMany(message.FileIds, message.ConnectionId)
                 .Select(file => new IntegrationInputFile(
-                    file.FileId,
-                    files.GetContentPath(file),
+                    file.ProviderFileId ?? file.FileId,
                     file.Name,
                     file.ContentType,
-                    file.Size))
+                    file.Size,
+                    file.Width,
+                    file.Height))
                 .ToArray();
             var result = await integrations.Get(message.ConnectionId).SendMessageAsync(
                 new IntegrationSendContext(

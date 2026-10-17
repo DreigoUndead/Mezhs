@@ -65,6 +65,7 @@ public interface IChatIntegration : IAsyncDisposable
     ILoginModule? Login { get; }
     IModelModule? Models { get; }
     IIntegrationDiagnosticsModule? Diagnostics { get; }
+    IFileUploadModule? Files { get; }
 
     Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
@@ -78,6 +79,7 @@ public abstract class ChatIntegrationBase(IntegrationConnection connection) : IC
     public virtual ILoginModule? Login => null;
     public virtual IModelModule? Models => null;
     public virtual IIntegrationDiagnosticsModule? Diagnostics => null;
+    public virtual IFileUploadModule? Files => null;
 
     public abstract Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
@@ -131,12 +133,22 @@ public sealed record IntegrationSendContext(
     }
 }
 
+public interface IFileUploadModule
+{
+    Task<IntegrationUploadedFile> UploadFileAsync(string path, CancellationToken cancellationToken = default);
+}
+
+public sealed record IntegrationUploadedFile(
+    string FileId, string Name, string ContentType, long Size,
+    int? Width = null, int? Height = null);
+
 public sealed record IntegrationInputFile(
     string FileId,
-    string Path,
     string Name,
     string ContentType,
-    long Size);
+    long Size,
+    int? Width = null,
+    int? Height = null);
 
 public sealed record IntegrationOutputFile(
     string Path,

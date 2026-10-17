@@ -966,8 +966,8 @@ useEffect(() => {
   const composerDisabled = sending || !!activeExecution || !!selectedChat?.paused;
   const attachmentSubmitDisabled = attachments.pending.some((item) =>
     item.uploading || !!item.error || !item.uploaded || item.connectionId !== connectionId);
-  const attachmentAction = <AttachmentPicker inputRef={attachments.inputRef}
-    onSelect={(files) => void attachments.select(files, connectionId, selectedConnection?.capabilities)}
+  const attachmentAction = <AttachmentPicker
+    onSelect={(path) => void attachments.select(path, connectionId)}
     capabilities={selectedConnection?.capabilities}
     disabled={!apiReady || !connectionId || composerDisabled} />;
   const attachmentList = <PendingAttachmentList pending={attachments.pending}

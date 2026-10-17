@@ -130,7 +130,11 @@ export function ChatTranscript({
             {message.content && <div className="message-content"><MarkdownContent content={message.content} /></div>}
             {(message.files?.length ?? 0) > 0 && (
               <div className="message-files">
-                {message.files!.map((file) => file.contentType.startsWith("image/") ? (
+                {message.files!.map((file) => file.source === "User" ? (
+                  <span className="message-file" key={file.fileId}>
+                    <b>FILE</b><span>{file.name}</span>
+                  </span>
+                ) : file.contentType.startsWith("image/") ? (
                   <a className="message-image" key={file.fileId} href={`${apiBase}${file.contentUrl}`} target="_blank" rel="noreferrer">
                     <img src={`${apiBase}${file.contentUrl}`} alt={file.name} />
                     <span>{file.name}<small>{formatBytes(file.size)}</small></span>
