@@ -9,7 +9,7 @@ transport:
   electronDirectory: ../electron
 
 storage:
-  root: data
+  root: data/api-smoke
 
 connections:
   - id: test

@@ -3,7 +3,7 @@ Add-Type -AssemblyName System.Net.Http
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $configPath = Join-Path $PSScriptRoot 'mezhs.test.yaml'
-$dataPath = Join-Path $PSScriptRoot 'data'
+$dataPath = Join-Path $PSScriptRoot 'data/api-smoke'
 $stdoutPath = Join-Path $PSScriptRoot 'api-smoke.out.log'
 $stderrPath = Join-Path $PSScriptRoot 'api-smoke.err.log'
 

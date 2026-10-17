@@ -2,7 +2,7 @@
 
 ## Scope
 
-Branch: `agent-model-presets`, PR #21. This task addresses the normal `/v1/files` -> `/v1/messages` -> worker -> provider flow and the shared MEZS Chat composer. The Agent Web/API and ChatGPT provider browser module were not modified. Do not merge or enable the ChatGPT Account input capability until the final real account test is completed.
+Branch: `agent-model-presets`, PR #21. This task addresses the normal `/v1/files` -> `/v1/messages` -> worker -> provider flow and the shared MEZS Chat composer. The Agent Web/API and ChatGPT provider browser module were not modified. The ChatGPT Account input capability was enabled only after authenticated real-account API and browser testing. No merge is part of this task.
 
 ## Implemented
 
@@ -15,14 +15,22 @@ Branch: `agent-model-presets`, PR #21. This task addresses the normal `/v1/files
 ## Checks completed
 
 - .NET 10 Release API build: PASS (0 warnings, 0 errors).
-- Normal Chat React/TypeScript bundle build: PASS (to be rerun for final changes).
+- Normal Chat React/TypeScript production bundle build: PASS.
 - Isolated `tests/api-smoke.ps1` (port 5198, test-owned storage): PASS, including text attachment-only message, PNG upload/message, rejection of malformed image, unsupported GIF/JPEG/WebP, connection ownership, capability denial, upload limit, and cleanup.
 - `node --test tests/chatgpt-account-api.test.js`: 75/75 PASS; earlier complete Node suite: 120/120 PASS.
 
-## Live verification blocker / release gate
+## Authenticated real-account verification
 
-**Not verified:** authenticated ChatGPT Account text and PNG via the normal MEZS Chat API/UI. Earlier direct authenticated sidecar tests proved TXT marker reading and actual PNG color reading, but they bypassed the normal UI/API. A separate API+Electron run requires an authorized profile. `D:/Projects/Mezhs/data/connections/chatgpt-sub/profile/Network/Cookies` was held with an exclusive lock by an active Electron process. A disposable profile clone in ignored `tests/data/account-e2e/` could not copy it, including a read-only attempt; the clone is unusable. No existing Electron process was stopped, no original profile was changed and no live test prompt was submitted. Ports 5060 and 5174 were occupied by active Agent services and were not touched.
+- An authorized login was completed using a separate disposable ChatGPT Account profile, with isolated MEZS API on port 5200 and normal MEZS Chat web app on port 5201. No original account browser profile, active Agent API (5060), or Agent Web (5174) was changed or stopped.
+- Normal Chat API: a fresh conversation accepted marker.txt through /v1/files and /v1/messages and returned the exact file-specific marker MEZHS-NORMAL-CHAT-TXT-VERIFY-6C21F90A.
+- Normal Chat API: existing-conversation follow-up accepted four-corners.png through the same file/message path. The authenticated provider answered Red, blue, yellow, green in the correct top-left, top-right, bottom-left, bottom-right order. The local history then contained exactly three user and three assistant messages, with no duplicate turns.
+- Actual React composer in headless Chrome: attachment picker uploaded marker.txt and four-corners.png consecutively in a new conversation. Exact TXT marker and ordered four-color image answer were rendered; both user attachments appeared in history, the PNG image loaded, and the UI contained exactly two user and two assistant messages. BROWSER_UI_E2E_PASS.
+- Capabilities.FileInput and Capabilities.ImageInput are now true for ChatGptAccountIntegration. This gate was opened only after the preceding content-based tests passed.
 
-**Gate remains closed:** `ChatGptAccountIntegration.Capabilities.FileInput` and `ImageInput` remain `false`. It would be misleading to present this as enabled. When an authorized isolated test profile can safely be made available, enable those values on a disposable test build; verify a file-specific marker and a distinct PNG color answer through `/v1/files` and `/v1/messages`, with one local user message and reply, complete remote conversation ID, no duplicate provider turn, and correct persisted attachment history. Verify a follow-up with an attachment as well. Enable and commit production capability values only after the test succeeds.
+## Regression verification and test isolation
 
-The attempted isolated profile copy is test-only, ignored by Git, and must never be added to a commit or diagnostic report. No secrets or browser profile contents belong in the branch.
+- Full Node suite: 120/120 PASS. API Release build and Web Release build: 0 errors, 0 warnings. React/TypeScript production build: PASS.
+- tests/api-smoke.ps1: PASS, including upload validation, input capability rejection, cross-connection ownership, attachment history, file download, oversized upload cleanup, and conversation deletion.
+- Smoke tests previously cleaned all of tests/data, which conflicted with the locked isolated account profile. The script and tests/mezhs.test.yaml now use tests/data/api-smoke exclusively. The previously blocked rerun then passed.
+- The authenticated Chrome test is an independently executed browser test, not a checked-in CI test requiring real account credentials. MD, CSV, PDF and DOCX are allowed and validated at the normal Chat upload boundary, but only TXT and PNG received authenticated provider content-based verification in this task.
+- All account profiles, browser automation dependencies, fixture PNG/TXT files, and logs remain in ignored tests/data. Do not add them to commits. No production merge was performed.
