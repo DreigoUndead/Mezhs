@@ -3,7 +3,7 @@ Add-Type -AssemblyName System.Net.Http
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $configPath = Join-Path $PSScriptRoot 'mezhs.test.yaml'
-$dataPath = Join-Path $PSScriptRoot 'data'
+$dataPath = Join-Path $PSScriptRoot 'data/api-smoke'
 $stdoutPath = Join-Path $PSScriptRoot 'api-smoke.out.log'
 $stderrPath = Join-Path $PSScriptRoot 'api-smoke.err.log'
 
@@ -39,6 +39,22 @@ function Assert-ApiError {
         $client.Dispose()
     }
 }
+
+function Invoke-FileUpload {
+    param([string]$ConnectionId, [string]$Path)
+    $client = [Net.Http.HttpClient]::new()
+    $body = @{ connectionId = $ConnectionId; path = $Path } | ConvertTo-Json
+    $content = [Net.Http.StringContent]::new($body, [Text.Encoding]::UTF8, 'application/json')
+    try {
+        $response = $client.PostAsync("$baseUrl/v1/files", $content).GetAwaiter().GetResult()
+        try {
+            return @{ Status = [int]$response.StatusCode; Body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult() }
+        }
+        finally { $response.Dispose() }
+    }
+    finally { $content.Dispose(); $client.Dispose() }
+}
+
 
 # Some launch environments expose both Path and PATH. Windows PowerShell's
 # Start-Process rejects that duplicate, so normalize it before spawning dotnet.
@@ -183,38 +199,16 @@ try {
 
     $uploadPath = Join-Path $PSScriptRoot 'attachment-smoke.txt'
     [IO.File]::WriteAllText($uploadPath, 'MEZHS-ATTACHMENT-SMOKE', [Text.Encoding]::UTF8)
-    $http = [Net.Http.HttpClient]::new()
-    try {
-        $multipart = [Net.Http.MultipartFormDataContent]::new()
-        $multipart.Add([Net.Http.StringContent]::new('test'), 'connectionId')
-        $fileStream = [IO.File]::OpenRead($uploadPath)
-        $fileContent = [Net.Http.StreamContent]::new($fileStream)
-        $fileContent.Headers.ContentType = [Net.Http.Headers.MediaTypeHeaderValue]::Parse('text/plain')
-        $multipart.Add($fileContent, 'file', 'attachment-smoke.txt')
-        $uploadResponse = $http.PostAsync("$baseUrl/v1/files", $multipart).GetAwaiter().GetResult()
-        $uploadBody = $uploadResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-        if (-not $uploadResponse.IsSuccessStatusCode) { throw "File upload failed: $uploadBody" }
-        $uploaded = $uploadBody | ConvertFrom-Json
+    $uploaded = Invoke-RestMethod -Uri "$baseUrl/v1/files" -Method Post -ContentType 'application/json' -Body (ConvertTo-Json @{
+        connectionId = 'test'; path = $uploadPath
+    })
+    if (-not $uploaded.fileId -or $uploaded.name -ne 'attachment-smoke.txt' -or $uploaded.contentUrl -ne '' -or $uploaded.downloadUrl -ne '') {
+        throw 'File upload did not register provider metadata only.'
     }
-    finally {
-        if ($null -ne $multipart) { $multipart.Dispose() }
-        if ($null -ne $fileStream) { $fileStream.Dispose() }
-        $http.Dispose()
-    }
-
-    if (-not $uploaded.fileId -or $uploaded.name -ne 'attachment-smoke.txt') {
-        throw 'File upload metadata was invalid.'
-    }
-    $downloaded = (Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl$($uploaded.contentUrl)").Content
-    if ($downloaded -notlike '*MEZHS-ATTACHMENT-SMOKE*') { throw 'Downloaded file content did not match.' }
-    $downloadResponse = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl$($uploaded.downloadUrl)"
-    if ($downloadResponse.Content -notlike '*MEZHS-ATTACHMENT-SMOKE*') {
-        throw 'Attachment download content did not match.'
-    }
-    $contentDisposition = [string]$downloadResponse.Headers['Content-Disposition']
-    if ($contentDisposition -notmatch 'attachment' -or $contentDisposition -notmatch 'attachment-smoke\.txt') {
-        throw "Attachment download filename was invalid: $contentDisposition"
-    }
+    $contentOnDisk = Join-Path $dataPath "connections/test/files/$($uploaded.fileId)/content"
+    if (Test-Path $contentOnDisk) { throw 'MEZHS copied input bytes instead of storing provider metadata only.' }
+    $storedMetadata = Invoke-RestMethod -Uri "$baseUrl/v1/files/$($uploaded.fileId)"
+    if ($storedMetadata.fileId -ne $uploaded.fileId) { throw 'File metadata lookup failed.' }
 
     $attachmentMessage = Invoke-RestMethod `
         -Method Post `
@@ -234,8 +228,8 @@ try {
         if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Attachment message polling timed out.' }
         Start-Sleep -Milliseconds 50
     } while ($true)
-    if ($null -ne $attachmentCompleted.model -or $attachmentCompleted.reply.model -ne 'mock-served') {
-        throw 'New chat with an omitted requested model did not use provider Default.'
+    if ($attachmentCompleted.model -ne 'mock-fast' -or $attachmentCompleted.reply.model -ne 'mock-served') {
+        throw 'New chat with an omitted requested model did not use the connection defaultModel.'
     }
 
     $echoedFile = $attachmentCompleted.reply.files | Select-Object -First 1
@@ -243,7 +237,89 @@ try {
     $echoedContent = (Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl$($echoedFile.contentUrl)").Content
     if ($echoedContent -notlike '*MEZHS-ATTACHMENT-SMOKE*') { throw 'Integration output file content did not match.' }
 
-    # Same local chat, different connection, reusing a file uploaded through the first connection.
+    # Attachment-only input must forward the stored file exactly once and remain visible locally.
+    $attachmentOnly = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/messages" -ContentType 'application/json' -Body (ConvertTo-Json @{
+        connectionId = 'test'; chatId = $attachmentMessage.chatId; content = ''; fileIds = @($uploaded.fileId)
+    })
+    if ($attachmentOnly.content -ne '' -or @($attachmentOnly.files).Count -ne 1 -or
+        $attachmentOnly.files[0].fileId -ne $uploaded.fileId) {
+        throw 'Attachment-only input was not preserved in the API response.'
+    }
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+    do {
+        $onlyCompleted = Invoke-RestMethod -Uri "$baseUrl/v1/messages/$($attachmentOnly.messageId)"
+        if ($onlyCompleted.status -eq 'Completed') { break }
+        if ($onlyCompleted.status -eq 'Failed') { throw $onlyCompleted.error }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Attachment-only message polling timed out.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+    $attachmentHistory = @(Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($attachmentMessage.chatId)/messages")
+    if (@($attachmentHistory | Where-Object { $_.messageId -eq $attachmentOnly.messageId }).Count -ne 1 -or
+        @($onlyCompleted.reply.files).Count -ne 1) {
+        throw 'Attachment-only message was duplicated or its file was not forwarded.'
+    }
+
+    # Every operation accepts one host path; MIME and dimensions are provider concerns.
+    $fixture = Join-Path $PSScriptRoot 'fixtures/chatgpt-images/sample.png'
+    $validPng = Invoke-FileUpload 'test' $fixture
+    if ($validPng.Status -ne 200) { throw "PNG path upload failed: $($validPng.Body)" }
+    $pngFile = $validPng.Body | ConvertFrom-Json
+    $pngMessage = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/messages" -ContentType 'application/json' -Body (ConvertTo-Json @{
+        connectionId = 'test'; chatId = $attachmentMessage.chatId; content = 'What is attached?'; fileIds = @($pngFile.fileId)
+    })
+    if (@($pngMessage.files).Count -ne 1 -or $pngMessage.files[0].fileId -ne $pngFile.fileId) {
+        throw 'PNG metadata was not visible on the local message.'
+    }
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+    do {
+        $pngCompleted = Invoke-RestMethod -Uri "$baseUrl/v1/messages/$($pngMessage.messageId)"
+        if ($pngCompleted.status -eq 'Completed') { break }
+        if ($pngCompleted.status -eq 'Failed') { throw $pngCompleted.error }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'PNG message polling timed out.' }
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+
+    $textOnly = Invoke-FileUpload 'test-text-only' $fixture
+    if ($textOnly.Status -ne 200) { throw 'Core rejected image by MIME despite provider upload being available.' }
+    $missing = Invoke-FileUpload 'test' (Join-Path $PSScriptRoot 'nonexistent-upload-input.xyz')
+    if ($missing.Status -ne 400 -or -not ($missing.Body | ConvertFrom-Json).error) {
+        throw 'Missing host path must return the integration error.'
+    }
+    $noFile = Invoke-FileUpload 'test-no-files' $uploadPath
+    if ($noFile.Status -ne 400) { throw 'Connection without file support accepted upload.' }
+
+    # The former 20 MB MEZHS limit is gone; there is no MEZHS-side file copy.
+    $largePath = Join-Path $dataPath 'large-upload.bin'
+    [IO.File]::WriteAllBytes($largePath, [byte[]]::new(20 * 1024 * 1024 + 1))
+    $large = Invoke-FileUpload 'test' $largePath
+    if ($large.Status -ne 200) { throw "Host file rejected by former MEZHS size limit: $($large.Body)" }
+    $largeFile = $large.Body | ConvertFrom-Json
+    if ($largeFile.size -ne 20 * 1024 * 1024 + 1 -or $largeFile.contentUrl -ne '') {
+        throw 'Large host file did not return metadata without a content copy.'
+    }
+    Remove-Item -LiteralPath $largePath -Force
+    if (Test-Path (Join-Path $dataPath "connections/test/files/$($largeFile.fileId)/content")) {
+        throw 'Large file bytes were copied to MEZHS storage.'
+    }
+    Assert-ApiError -Method 'POST' -Uri "$baseUrl/v1/messages" -ExpectedStatus 400 -ExpectedError 'does not support file input' -Body (ConvertTo-Json @{
+        connectionId = 'test-no-files'; content = 'must reject'; fileIds = @($uploaded.fileId)
+    })
+
+    # A file belongs to its upload connection even when the target chat is shared.
+    $beforeRejected = @(Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($created.chatId)/messages").Count
+    $beforeChats = @(Invoke-RestMethod -Uri "$baseUrl/v1/chats").Count
+    Assert-ApiError -Method 'POST' -Uri "$baseUrl/v1/messages" -ExpectedStatus 400 -ExpectedError 'does not belong' -Body (ConvertTo-Json @{
+        connectionId = 'test-login'; chatId = $created.chatId; content = 'must not queue'; fileIds = @($uploaded.fileId)
+    })
+    Assert-ApiError -Method 'POST' -Uri "$baseUrl/v1/messages" -ExpectedStatus 400 -ExpectedError 'does not belong' -Body (ConvertTo-Json @{
+        connectionId = 'test-login'; content = 'must not create a chat'; fileIds = @($uploaded.fileId)
+    })
+    if (@(Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($created.chatId)/messages").Count -ne $beforeRejected -or
+        @(Invoke-RestMethod -Uri "$baseUrl/v1/chats").Count -ne $beforeChats) {
+        throw 'Rejected foreign attachment created a chat or user message.'
+    }
+
+    # Switching connection without reusing the original connection's file is still supported.
     $second = Invoke-RestMethod `
         -Method Post `
         -Uri "$baseUrl/v1/messages" `
@@ -252,7 +328,6 @@ try {
             connectionId = 'test-login'
             chatId = $created.chatId
             content = 'again through the other connection'
-            fileIds = @($uploaded.fileId)
         })
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
@@ -265,9 +340,6 @@ try {
     } while ($true)
     if ($secondCompleted.connectionId -ne 'test-login' -or $secondCompleted.reply.connectionId -ne 'test-login') {
         throw 'Existing chat did not switch to the selected second connection.'
-    }
-    if (($secondCompleted.reply.files | Select-Object -First 1).name -ne 'echo-attachment-smoke.txt') {
-        throw 'A local upload could not be reused through another connection.'
     }
 
     # Switch the same local chat back to the original connection without a model.
@@ -425,9 +497,9 @@ try {
             throw "Deleted conversation data remained on disk: $deletedId"
         }
     }
-    $fileAfterChatDeletion = (Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl$($uploaded.contentUrl)").Content
-    if ($fileAfterChatDeletion -notlike '*MEZHS-ATTACHMENT-SMOKE*') {
-        throw 'Deleting a conversation also deleted reusable file storage.'
+    $fileAfterChatDeletion = Invoke-RestMethod -Uri "$baseUrl/v1/files/$($uploaded.fileId)"
+    if ($fileAfterChatDeletion.fileId -ne $uploaded.fileId) {
+        throw 'Deleting a conversation also deleted reusable provider file metadata.'
     }
 
     Write-Output "PASS message=$($created.messageId) chat=$($created.chatId) history=$($history.Count) implicit-follow-up=ok multi-connection=ok categories=ok files=ok downloads=ok deletion=ok api-errors=ok login=ok models=ok model-restore=ok default-reset=ok"

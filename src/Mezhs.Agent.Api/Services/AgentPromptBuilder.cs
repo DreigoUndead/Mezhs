@@ -6,7 +6,7 @@ using Mezhs.Agent.Policy;
 
 namespace Mezhs.Agent.Services;
 
-public sealed record AgentPrompt(string Content, string Origin);
+public sealed record AgentPrompt(string Content, string Origin, IReadOnlyList<string>? FileIds = null);
 
 public sealed class AgentPromptBuilder(AgentOptions options)
 {
@@ -25,7 +25,8 @@ public sealed class AgentPromptBuilder(AgentOptions options)
             {bootstrap}Task:
             {execution.Request}
             """,
-            OriginForExecution(execution));
+            OriginForExecution(execution),
+            execution.FileIds);
     }
 
     public AgentPrompt BuildContinue(PolicyContext policy) =>

@@ -63,10 +63,12 @@ app.MapGet("/", () => Results.Ok(new
         "/v1/files",
         "/v1/policies",
         "/v1/agent-chats",
-        "/v1/executions"
+        "/v1/executions",
+        "/v1/diagnostics/connections/{connectionId}/browser/{operation}"
     }
 }));
 app.MapMezhsApi();
+app.MapAgentDiagnostics();
 
 app.MapGet("/v1/policies", (PolicyRegistry policies) =>
     Results.Ok(policies.GetViews()));

@@ -39,9 +39,20 @@ function Wait-Health([string]$uri) {
     } while ($true)
 }
 
-function Start-AgentExecution([string]$policyId, [string]$taskInput, [hashtable]$environment = $null) {
+function Start-AgentExecution(
+    [string]$policyId,
+    [string]$taskInput,
+    [hashtable]$environment = $null,
+    [string]$chatId = $null,
+    [string]$connectionId = $null,
+    $model = $null,
+    $fileIds = $null) {
     $body = @{ policyId = $policyId; input = $taskInput }
+    if ($null -ne $fileIds) { $body.fileIds = $fileIds }
     if ($null -ne $environment) { $body.environment = $environment }
+    if (-not [string]::IsNullOrWhiteSpace($chatId)) { $body.chatId = $chatId }
+    if (-not [string]::IsNullOrWhiteSpace($connectionId)) { $body.connectionId = $connectionId }
+    if ($null -ne $model) { $body.model = $model }
     return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/executions" `
         -ContentType "application/json" -Body (ConvertTo-Json $body -Depth 5)
 }
@@ -64,6 +75,26 @@ function Get-Status([string]$uri) {
     } finally { $client.Dispose() }
 }
 
+function Upload-AgentFile([string]$connectionId, [string]$path) {
+    return Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/files" `
+        -ContentType "application/json" -Body (ConvertTo-Json @{ connectionId = $connectionId; path = $path })
+}
+
+
+function Assert-AgentStartRejected([hashtable]$body, [int]$status, [string]$fragment) {
+    $client = [Net.Http.HttpClient]::new()
+    $content = [Net.Http.StringContent]::new((ConvertTo-Json $body -Depth 6), [Text.Encoding]::UTF8, "application/json")
+    try {
+        $response = $client.PostAsync("http://127.0.0.1:5199/v1/executions", $content).GetAwaiter().GetResult()
+        try {
+            $result = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            if ([int]$response.StatusCode -ne $status -or $result -notmatch $fragment) {
+                throw "Expected start rejection $status / $fragment; got $([int]$response.StatusCode) / $result"
+            }
+        } finally { $response.Dispose() }
+    } finally { $content.Dispose(); $client.Dispose() }
+}
+
 # Host-shell Agent API must fail closed if configured for direct network exposure.
 (Get-Content -LiteralPath $agentConfig -Raw).Replace(
     "listen: http://127.0.0.1:5199",
@@ -74,9 +105,15 @@ $badAgent = Start-Process -FilePath "dotnet" `
     -WorkingDirectory $root -RedirectStandardOutput $badOut -RedirectStandardError $badErr -WindowStyle Hidden -PassThru
 try {
     if (-not $badAgent.WaitForExit(8000)) {
+        # Windows crash reporting can keep an already-failed dotnet process alive.
+        # Require the specific fail-closed startup error before terminating it.
+        $earlyError = (Get-Content -LiteralPath $badErr -Raw -ErrorAction SilentlyContinue) +
+            (Get-Content -LiteralPath $badOut -Raw -ErrorAction SilentlyContinue)
+        if ($earlyError -notmatch "server.listen must use a loopback address") {
+            throw "Agent API did not reject a non-loopback listener. Output: $earlyError"
+        }
         Stop-Process -Id $badAgent.Id -Force
         $badAgent.WaitForExit()
-        throw "Agent API accepted a non-loopback listener for host-shell execution."
     }
     $badText = (Get-Content -LiteralPath $badErr -Raw) + (Get-Content -LiteralPath $badOut -Raw)
     if ($badAgent.ExitCode -eq 0 -or $badText -notmatch "loopback") {
@@ -114,6 +151,23 @@ try {
         throw "Agent API does not expose the shared MEŽS API surface."
     }
 
+    if ((Get-Status "http://127.0.0.1:5199/v1/manual-chat-configs") -ne 404) {
+        throw "Obsolete manual Agent chat config endpoint still exists."
+    }
+
+    $agentPolicies = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies"
+    if ($null -eq $agentPolicies) {
+        throw "Agent policy list endpoint returned no policies."
+    }
+    $lowPolicy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/low"
+    $midPolicy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/mid"
+    $highPolicy = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/policies/high"
+    if ($null -eq $lowPolicy -or $lowPolicy.name -ne 'Test Instant' -or $lowPolicy.connectionId -ne 'test' -or $lowPolicy.defaultModel -ne 'mock-fast' -or
+        $null -eq $midPolicy -or $midPolicy.name -ne 'Test Mid' -or $midPolicy.connectionId -ne 'test' -or $midPolicy.defaultModel -ne 'mock-deep' -or
+        $null -eq $highPolicy -or $highPolicy.name -ne 'Test High' -or $highPolicy.connectionId -ne 'test-alt' -or $highPolicy.defaultModel -ne 'mock-deep') {
+        throw "Low/mid/high Agent policy names/defaults were not exposed correctly."
+    }
+
     $originClient = [Net.Http.HttpClient]::new()
     try {
         $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:5199/v1/connections")
@@ -135,13 +189,129 @@ try {
         } finally { $loopbackResponse.Dispose(); $loopbackRequest.Dispose() }
     } finally { $originClient.Dispose() }
 
-    $created = Start-AgentExecution "test" "hello agent"
+    $created = Start-AgentExecution "low" "hello agent"
     $completed = Wait-AgentExecution $created.executionId
     if ($completed.status -ne "Completed" -or -not $completed.chatId) {
         throw "Execution did not preserve chat/completion state."
     }
     if ($completed.PSObject.Properties.Name -contains "requester") {
         throw "Execution API still exposes unauthenticated requester provenance."
+    }
+
+    $initialMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
+    $initialUserMessage = @($initialMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($completed.connectionId -ne "test" -or
+        $completed.model -ne "mock-fast" -or
+        $initialUserMessage.connectionId -ne "test" -or
+        $initialUserMessage.model -ne "mock-fast") {
+        throw "Fresh Agent chat did not materialize the low policy default connection/model."
+    }
+
+    # Agent execution files are validated during admission and reach the provider exactly once.
+    $attachmentTextPath = Join-Path $dataPath "agent-attachment-smoke.txt"
+    Set-Content -LiteralPath $attachmentTextPath -Value "ATTACHMENT_SMOKE_PAYLOAD" -Encoding UTF8
+    $textFile = Upload-AgentFile "test" $attachmentTextPath
+    $pngFile = Upload-AgentFile "test" (Join-Path $PSScriptRoot "fixtures/chatgpt-images/sample.png")
+    $otherFile = Upload-AgentFile "test-alt" $attachmentTextPath
+
+    Assert-AgentStartRejected @{ policyId = "low"; input = "missing file"; fileIds = @("file_missing_agent_attachment") } 404 "not found"
+    Assert-AgentStartRejected @{ policyId = "low"; input = "wrong owner"; fileIds = @($otherFile.fileId) } 400 "does not belong"
+    Assert-AgentStartRejected @{ policyId = "low"; input = "unsupported input"; connectionId = "test-no-files"; fileIds = @($textFile.fileId) } 400 "does not support file input"
+
+    $fileTask = Start-AgentExecution "low" "attachment provider roundtrip" $null $null $null $null @($textFile.fileId, $pngFile.fileId)
+    $fileCompleted = Wait-AgentExecution $fileTask.executionId
+    if ($fileCompleted.status -ne "Completed" -or @($fileCompleted.fileIds).Count -ne 2 -or
+        $fileCompleted.fileIds[0] -ne $textFile.fileId -or $fileCompleted.fileIds[1] -ne $pngFile.fileId) {
+        throw "Agent execution did not persist normalized attachment IDs."
+    }
+    $fileGet = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/executions/$($fileTask.executionId)"
+    if (@($fileGet.fileIds).Count -ne 2 -or $fileGet.fileIds[0] -ne $textFile.fileId) {
+        throw "GET execution did not expose durable file IDs."
+    }
+    $fileMessages = (Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($fileCompleted.chatId)/messages")
+    $fileUser = @($fileMessages | Where-Object { $_.role -eq "user" })[0]
+    $fileAssistant = @($fileMessages | Where-Object { $_.role -eq "assistant" })[0]
+    if (@($fileUser.fileIds).Count -ne 2 -or $fileUser.fileIds[0] -ne $textFile.fileId -or
+        $fileUser.fileIds[1] -ne $pngFile.fileId -or @($fileAssistant.fileIds).Count -ne 2) {
+        throw "Attached TXT/PNG did not reach the initial provider turn and mock response."
+    }
+    $echoNames = @($fileAssistant.fileIds | ForEach-Object {
+        (Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/files/$_").name
+    })
+    if ($echoNames -notcontains "echo-agent-attachment-smoke.txt" -or $echoNames -notcontains "echo-sample.png") {
+        throw "Mock integration did not receive both initial task attachments."
+    }
+
+    $midDefault = Start-AgentExecution "mid" "mid policy default"
+    $midDefaultCompleted = Wait-AgentExecution $midDefault.executionId
+    if ($midDefaultCompleted.status -ne "Completed" -or
+        $midDefaultCompleted.connectionId -ne "test" -or
+        $midDefaultCompleted.model -ne "mock-deep") {
+        throw "Mid policy did not materialize its configured model default."
+    }
+
+    $highDefault = Start-AgentExecution "high" "high policy default"
+    $highDefaultCompleted = Wait-AgentExecution $highDefault.executionId
+    if ($highDefaultCompleted.status -ne "Completed" -or
+        $highDefaultCompleted.connectionId -ne "test-alt" -or
+        $highDefaultCompleted.model -ne "mock-deep") {
+        throw "High policy did not materialize its configured integration/model default."
+    }
+
+    $changedModel = Start-AgentExecution "low" "switch model" $null $completed.chatId "test" "mock-deep"
+    $changedModelCompleted = Wait-AgentExecution $changedModel.executionId
+    if ($changedModelCompleted.status -ne "Completed" -or
+        $changedModelCompleted.connectionId -ne "test" -or
+        $changedModelCompleted.model -ne "mock-deep") {
+        throw "Agent execution did not persist an explicit model change on the selected connection."
+    }
+    $changedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
+    $changedUserMessage = @($changedMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($changedUserMessage.connectionId -ne "test" -or $changedUserMessage.model -ne "mock-deep") {
+        throw "Agent model change did not reach the shared message/integration path."
+    }
+
+    $switchedConnection = Start-AgentExecution "low" "switch connection" $null $completed.chatId "test-alt"
+    $switchedConnectionCompleted = Wait-AgentExecution $switchedConnection.executionId
+    $switchedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
+    $switchedUserMessage = @($switchedMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($switchedConnectionCompleted.status -ne "Completed" -or
+        $switchedConnectionCompleted.connectionId -ne "test-alt" -or
+        $null -ne $switchedConnectionCompleted.model -or
+        $switchedUserMessage.connectionId -ne "test-alt" -or
+        $switchedUserMessage.model -ne "mock-deep") {
+        throw "Agent chat did not switch integration and inherit that connection's default model."
+    }
+
+    $changedAlternateModel = Start-AgentExecution "low" "change alternate model" $null $completed.chatId "test-alt" "mock-fast"
+    $changedAlternateCompleted = Wait-AgentExecution $changedAlternateModel.executionId
+    if ($changedAlternateCompleted.status -ne "Completed" -or
+        $changedAlternateCompleted.connectionId -ne "test-alt" -or
+        $changedAlternateCompleted.model -ne "mock-fast") {
+        throw "Agent model change on the alternate integration was not persisted."
+    }
+
+    $inheritedTarget = Start-AgentExecution "low" "inherit connection and model" $null $completed.chatId
+    $inheritedTargetCompleted = Wait-AgentExecution $inheritedTarget.executionId
+    $inheritedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
+    $inheritedUserMessage = @($inheritedMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($inheritedTargetCompleted.status -ne "Completed" -or
+        $inheritedTargetCompleted.connectionId -ne "test-alt" -or
+        $null -ne $inheritedTargetCompleted.model -or
+        $inheritedUserMessage.connectionId -ne "test-alt" -or
+        $inheritedUserMessage.model -ne "mock-fast") {
+        throw "Agent chat did not carry the selected integration/model forward when the next execution omitted both."
+    }
+
+    $returnedConnection = Start-AgentExecution "low" "return connection" $null $completed.chatId "test"
+    $returnedCompleted = Wait-AgentExecution $returnedConnection.executionId
+    $returnedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
+    $returnedUserMessage = @($returnedMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($returnedCompleted.status -ne "Completed" -or
+        $returnedCompleted.connectionId -ne "test" -or
+        $returnedUserMessage.connectionId -ne "test" -or
+        $returnedUserMessage.model -ne "mock-deep") {
+        throw "Returning to a prior integration did not restore that connection's last selected model."
     }
 
     $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/runtime"
@@ -163,13 +333,21 @@ try {
 echo %TEST_AGENT_VALUE%
 </SH>
 "@
-    $environmentExecution = Start-AgentExecution "test" $environmentTask @{ TEST_AGENT_VALUE = "ENVIRONMENT_OK" }
+    $environmentExecution = Start-AgentExecution "test" $environmentTask @{ TEST_AGENT_VALUE = "ENVIRONMENT_OK" } $null $null $null @($textFile.fileId)
     $environmentRoot = Wait-AgentExecution $environmentExecution.executionId
     $environmentExecutions = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($environmentRoot.chatId)/executions")
     $environmentShell = @($environmentExecutions | Where-Object { $_.kind -eq "Shell" })[0]
     if ($environmentShell.result -notmatch "ENVIRONMENT_OK") { throw "Policy-approved environment variable did not reach the child shell." }
 
     $environmentMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($environmentRoot.chatId)/messages"
+    $environmentUserMessages = @($environmentMessages | Where-Object { $_.role -eq "user" })
+    if ($environmentUserMessages.Count -lt 2 -or
+        @($environmentUserMessages[0].fileIds).Count -ne 1 -or
+        $environmentUserMessages[0].fileIds[0] -ne $textFile.fileId -or
+        @($environmentUserMessages[1].fileIds).Count -ne 0) {
+        throw "Command-result followup must not inherit Agent task fileIds."
+    }
+
     $protocolMessage = $null
     foreach ($candidate in $environmentMessages) {
         if ($candidate.role -eq "assistant" -and $null -ne $candidate.commands -and $candidate.commands.Count -gt 0 -and $candidate.commands[0].name -eq "SH") {
@@ -211,9 +389,14 @@ echo %TEST_AGENT_VALUE%
         -WorkingDirectory $root -RedirectStandardOutput $badWebOut -RedirectStandardError $badWebErr -WindowStyle Hidden -PassThru
     try {
         if (-not $badWeb.WaitForExit(8000)) {
+            # Windows crash reporting may hold a process alive after the security check rejects startup.
+            $earlyError = (Get-Content -LiteralPath $badWebErr -Raw -ErrorAction SilentlyContinue) +
+                (Get-Content -LiteralPath $badWebOut -Raw -ErrorAction SilentlyContinue)
+            if ($earlyError -notmatch "loopback") {
+                throw "Agent Web did not reject a non-loopback listener. Output: $earlyError"
+            }
             Stop-Process -Id $badWeb.Id -Force
             $badWeb.WaitForExit()
-            throw "Agent Web accepted a non-loopback listener."
         }
         $badWebText = (Get-Content -LiteralPath $badWebErr -Raw) + (Get-Content -LiteralPath $badWebOut -Raw)
         if ($badWeb.ExitCode -eq 0 -or $badWebText -notmatch "loopback") {

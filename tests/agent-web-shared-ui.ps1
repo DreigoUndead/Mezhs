@@ -4,6 +4,8 @@ $root = Split-Path -Parent $PSScriptRoot
 $shared = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/ChatSurface.tsx") -Raw
 $markdown = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/MarkdownContent.tsx") -Raw
 $resize = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/useAutoResizeTextArea.ts") -Raw
+$targetPicker = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/ConnectionModelPicker.tsx") -Raw
+$sharedApp = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/MezhsChatApp.tsx") -Raw
 $exports = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/index.ts") -Raw
 $agentApp = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/App.tsx") -Raw
 $agentProgram = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Program.cs") -Raw
@@ -11,17 +13,61 @@ $agentMapper = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Models/AgentApi
 $agentMain = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/main.tsx") -Raw
 $agentCss = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/agent.css") -Raw
 
-foreach ($component in @("ChatTranscript", "ChatComposer", "MarkdownContent")) {
+foreach ($component in @("ChatTranscript", "ChatComposer", "MarkdownContent", "ConnectionModelPicker")) {
     if ($exports -notmatch $component) { throw "Shared MEZS web library does not export $component." }
 }
 if ($agentApp -notmatch 'ChatTranscript' -or $agentApp -notmatch 'ChatComposer') {
     throw "Agent Web does not consume the shared chat surface."
 }
+if ($shared -notmatch 'sideControls\?: ReactNode' -or
+    $shared -notmatch 'topContent\?: ReactNode' -or
+    $shared -notmatch 'composer-top-content' -or
+    $shared -notmatch 'composer-side-controls' -or
+    $agentApp -notmatch 'sideControls=\{\(' -or
+    $agentApp -match 'agent-target-picker-header|agent-target-picker-new') {
+    throw "Agent target controls are not consistently owned by the prompt composer."
+}
+if ($agentApp -match 'className="agent-new-chat"|agent-new-chat-controls|agent-policy-row' -or
+    $agentApp -notmatch 'topContent=\{selectedPolicy' -or
+    $agentApp -notmatch 'className="agent-policy-overview"' -or
+    $agentApp -notmatch 'className="agent-composer-settings"' -or
+    $agentApp -notmatch 'className="agent-policy-readonly"' -or
+    $agentApp -notmatch 'policy\.name') {
+    throw "Agent policy UI is not integrated into the composer with new-chat details and existing-chat read-only state."
+}
 if ($agentMain -notmatch '@mezhs/web-lib/styles\.css') {
     throw "Agent Web is not consuming common MEZS web styling."
 }
+if ($targetPicker -notmatch 'target-picker-field' -or
+    $targetPicker -match 'className="connection-picker"|className="model-picker"|connection-avatar' -or
+    $sharedApp -notmatch '<ConnectionModelPicker' -or $agentApp -notmatch '<ConnectionModelPicker') {
+    throw "Normal chat and Agent Web do not reuse one symmetric integration/model picker."
+}
+if ($agentApp -notmatch 'ChatProviderRegistry' -or
+    $agentApp -match '/v1/connections/\$\{encodeURIComponent\([^)]*\)\}/models') {
+    throw "Agent Web bypasses the generic chat-provider model discovery abstraction."
+}
+if ($agentApp -notmatch 'connectionId,' -or
+    $agentApp -notmatch 'onConnectionChange=\{selectTargetConnection\}') {
+    throw "Agent Web does not expose per-turn generic connection selection."
+}
+if ($agentApp -match 'manual-chat-configs|ManualChatConfig|manualConfig' -or
+    $agentApp -notmatch 'defaultModel') {
+    throw "Agent Web still has a manual preset layer instead of using policy-owned defaults."
+}
 if ($agentApp -match '<textarea' -or $agentApp -match '<form[^>]+className="composer"') {
     throw "Agent Web reimplemented the shared composer."
+}
+if ($shared -match '>\^</button>' -or
+    $shared -notmatch '<svg viewBox="0 0 20 20"' -or
+    $shared -notmatch 'aria-label="Send message"') {
+    throw "Shared composer still uses a text glyph instead of the send icon."
+}
+if ($agentCss -match 'min-height:\s*108px' -or
+    $agentCss -notmatch 'color-scheme:\s*light' -or
+    $agentCss -notmatch 'option:checked' -or
+    $agentCss -notmatch 'background:\s*#fffefa') {
+    throw "Agent composer is not compact or its native target dropdown options can fall back to the dark shared theme."
 }
 if ($shared -notmatch '<MarkdownContent content=\{message\.content\}' -or
     $markdown -notmatch '```' -or $markdown -notmatch 'safeLink') {
@@ -56,9 +102,9 @@ if ($agentApp -notmatch 'Download log' -or $agentApp -notmatch '/debug-log') {
     throw "Agent Web no longer exposes authenticated debug-log download through its proxy."
 }
 if ($agentApp -notmatch 'Promise\.allSettled' -or
-    $agentApp -notmatch '\.then\(setMessages\)' -or
-    $agentApp -notmatch '\.then\(setExecutions\)') {
+    $agentApp -notmatch 'loadMessages\(chatId, syncModel, signal\)' -or
+    $agentApp -notmatch 'loadExecutions\(chatId, signal\)') {
     throw "Agent Web couples durable execution refresh to the remote chat-message request."
 }
 
-Write-Host "PASS: shared Markdown/composer behavior, independent Agent execution refresh, and canonical Agent API protocol/evidence rendering are wired through their owning components."
+Write-Host "PASS: shared chat/target controls, generic provider model discovery, independent Agent execution refresh, and canonical Agent protocol/evidence rendering are wired through their owning components."

@@ -1,6 +1,7 @@
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
 import { modelActivityLabel } from "./ChatSurface";
+import { ConnectionModelPicker } from "./ConnectionModelPicker";
 import { ChatProviderRegistry } from "./providers/registry";
 import { useAutoResizeTextArea } from "./useAutoResizeTextArea";
 import type {
@@ -20,8 +21,7 @@ type Category = {
 
 type PendingFile = {
   key: string;
-  file: File;
-  previewUrl?: string;
+  path: string;
   uploading: boolean;
   uploaded?: ApiFile;
   error?: string;
@@ -72,6 +72,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showConversationManager, setShowConversationManager] = useState(false);
@@ -80,17 +81,12 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [deletingChats, setDeletingChats] = useState(false);
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const providerRegistry = useRef(new ChatProviderRegistry());
 
   const selectedConnection = useMemo(
     () => connections.find((connection) => connection.id === connectionId),
     [connections, connectionId],
-  );
-  const selectedModel = useMemo(
-    () => models.find((model) => (model.id || "") === modelId),
-    [models, modelId],
   );
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
@@ -214,6 +210,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
   }
 
   function changeConnection(id: string) {
+    if (id !== connectionId) clearPendingFiles();
     setConnectionId(id);
   }
 
@@ -221,17 +218,24 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     event?.preventDefault();
     const content = draft.trim();
     const uploadedFiles = pendingFiles.flatMap((item) => item.uploaded ? [item.uploaded] : []);
-    if ((!content && uploadedFiles.length === 0) || !connectionId || sending || pendingFiles.some((item) => item.uploading)) return;
+    if ((!content && uploadedFiles.length === 0) || !connectionId || sendingRef.current || pendingFiles.some((item) => !item.uploaded)) return;
+    sendingRef.current = true;
 
     setDraft("");
     setSending(true);
     setNotice(null);
     try {
-      const request = await providerRegistry.current.get(connectionId).sendMessage(
-        chatId,
-        { content, files: uploadedFiles, model: modelId || undefined },
-        { categoryId: newChatCategoryId || null },
-      );
+      let request: Message;
+      try {
+        request = await providerRegistry.current.get(connectionId).sendMessage(
+          chatId,
+          { content, files: uploadedFiles, model: modelId || undefined },
+          { categoryId: newChatCategoryId || null },
+        );
+      } catch (error) {
+        setDraft((current) => current || content);
+        throw error;
+      }
       setChatId(request.chatId);
       setMessages((current) => [...current, request]);
       clearPendingFiles();
@@ -239,6 +243,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Message could not be sent.");
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
@@ -412,45 +417,25 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     }
   }
 
-  function clearPendingFiles() {
-    setPendingFiles((current) => {
-      current.forEach((item) => item.previewUrl && URL.revokeObjectURL(item.previewUrl));
-      return [];
-    });
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }
+  function clearPendingFiles() { setPendingFiles([]); }
 
-  async function selectFiles(files: FileList | null) {
-    if (!files || !connectionId || !selectedConnection?.capabilities.fileInput) return;
-    for (const file of Array.from(files)) {
-      if (file.type.startsWith("image/") && !selectedConnection.capabilities.imageInput) {
-        setNotice(`${selectedConnection.name} does not support image input.`);
-        continue;
-      }
-      const key = `${Date.now()}-${Math.random()}`;
-      const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
-      setPendingFiles((current) => [...current, { key, file, previewUrl, uploading: true }]);
-      try {
-        const uploaded = await providerRegistry.current.get(connectionId).uploadFile(file);
-        setPendingFiles((current) => current.map((item) =>
-          item.key === key ? { ...item, uploading: false, uploaded } : item,
-        ));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Upload failed.";
-        setPendingFiles((current) => current.map((item) =>
-          item.key === key ? { ...item, uploading: false, error: message } : item,
-        ));
-      }
+  async function selectFile(path: string) {
+    if (!path.trim() || !connectionId || !selectedConnection?.capabilities.fileInput) return;
+    const key = `${Date.now()}-${Math.random()}`;
+    setPendingFiles((current) => [...current, { key, path, uploading: true }]);
+    try {
+      const uploaded = await providerRegistry.current.get(connectionId).uploadFile(path);
+      setPendingFiles((current) => current.map((item) =>
+        item.key === key ? { ...item, uploading: false, uploaded } : item));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Upload failed.";
+      setPendingFiles((current) => current.map((item) =>
+        item.key === key ? { ...item, uploading: false, error: message } : item));
     }
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function removePendingFile(key: string) {
-    setPendingFiles((current) => {
-      const removed = current.find((item) => item.key === key);
-      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
-      return current.filter((item) => item.key !== key);
-    });
+    setPendingFiles((current) => current.filter((item) => item.key !== key));
   }
 
   function connectionFor(id: string) {
@@ -471,24 +456,17 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
 
         <button className="new-chat" onClick={() => newChat()}><span>+</span> New conversation</button>
 
-        <label className="section-label" htmlFor="connection">New messages use</label>
-        <div className="connection-picker">
-          <div className="connection-avatar">{selectedConnection ? makeInitials(selectedConnection.name) : "AI"}</div>
-          <select id="connection" value={connectionId} onChange={(event) => changeConnection(event.target.value)} disabled={loading}>
-            {connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
-          </select>
-        </div>
-
-        {selectedConnection?.supportsModels && (
-          <label className="model-picker">
-            <span>Model</span>
-            <select value={modelId} onChange={(event) => setModelId(event.target.value)} disabled={modelsLoading || sending}>
-              {models.length > 0
-                ? models.map((model, index) => <option key={model.id || `default-${index}`} value={model.id || ""}>{model.name}</option>)
-                : <option value="">{modelsLoading ? "Loading models..." : "Default"}</option>}
-            </select>
-          </label>
-        )}
+        <ConnectionModelPicker
+          connections={connections}
+          connectionId={connectionId}
+          models={models}
+          modelId={modelId}
+          onConnectionChange={changeConnection}
+          onModelChange={setModelId}
+          connectionDisabled={loading || sending}
+          modelDisabled={sending}
+          modelsLoading={modelsLoading}
+        />
 
 
         <div className="groups-heading">
@@ -703,7 +681,11 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                   {message.content && <div className="message-content">{message.content}</div>}
                   {message.files?.length > 0 && (
                     <div className="message-files">
-                      {message.files.map((file) => file.contentType.startsWith("image/") ? (
+                      {message.files.map((file) => file.source === "User" ? (
+                        <span className="message-file" key={file.fileId}>
+                          <b>FILE</b><span>{file.name}<small>{formatBytes(file.size)}</small></span>
+                        </span>
+                      ) : file.contentType.startsWith("image/") ? (
                         <a className="message-image" key={file.fileId} href={`${apiBase}${file.contentUrl}`} target="_blank" rel="noreferrer">
                           <img src={`${apiBase}${file.contentUrl}`} alt={file.name} />
                           <span>{file.name}<small>{formatBytes(file.size)}</small></span>
@@ -740,9 +722,9 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
               <div className="pending-files">
                 {pendingFiles.map((item) => (
                   <div className={`pending-file ${item.error ? "failed" : ""}`} key={item.key}>
-                    {item.previewUrl ? <img src={item.previewUrl} alt="" /> : <b>FILE</b>}
-                    <span>{item.file.name}<small>{item.error || (item.uploading ? "Uploading..." : formatBytes(item.uploaded?.size || item.file.size))}</small></span>
-                    <button type="button" onClick={() => removePendingFile(item.key)} aria-label={`Remove ${item.file.name}`}>x</button>
+                    <b>FILE</b>
+                    <span>{item.uploaded?.name || item.path}<small>{item.error || (item.uploading ? "Uploading..." : formatBytes(item.uploaded?.size || 0))}</small></span>
+                    <button type="button" onClick={() => removePendingFile(item.key)} aria-label={`Remove ${item.uploaded?.name || item.path}`}>x</button>
                   </div>
                 ))}
               </div>
@@ -757,26 +739,19 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
               disabled={!online || !connectionId}
               aria-label="Message"
             />
-            <input
-              ref={fileInputRef}
-              className="file-input"
-              type="file"
-              multiple
-              onChange={(event) => void selectFiles(event.target.files)}
-            />
             <div className="composer-actions">
               <button
                 type="button"
                 className="attach"
                 disabled={!selectedConnection?.capabilities.fileInput || sending}
                 title={selectedConnection?.capabilities.fileInput ? "Attach files" : "This connection does not support files"}
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => { const path = window.prompt("File path on MEŽS machine:"); if (path) void selectFile(path.trim()); }}
               >+</button>
               <span>Enter to send / Shift + Enter for a new line</span>
               <button
                 className="send"
                 type="submit"
-                disabled={(!draft.trim() && !pendingFiles.some((item) => item.uploaded)) || pendingFiles.some((item) => item.uploading) || sending || !online}
+                disabled={(!draft.trim() && !pendingFiles.some((item) => item.uploaded)) || pendingFiles.some((item) => !item.uploaded) || sending || !online}
                 aria-label="Send message"
               >^</button>
             </div>

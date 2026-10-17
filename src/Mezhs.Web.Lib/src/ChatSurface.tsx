@@ -130,7 +130,11 @@ export function ChatTranscript({
             {message.content && <div className="message-content"><MarkdownContent content={message.content} /></div>}
             {(message.files?.length ?? 0) > 0 && (
               <div className="message-files">
-                {message.files!.map((file) => file.contentType.startsWith("image/") ? (
+                {message.files!.map((file) => file.source === "User" ? (
+                  <span className="message-file" key={file.fileId}>
+                    <b>FILE</b><span>{file.name}</span>
+                  </span>
+                ) : file.contentType.startsWith("image/") ? (
                   <a className="message-image" key={file.fileId} href={`${apiBase}${file.contentUrl}`} target="_blank" rel="noreferrer">
                     <img src={`${apiBase}${file.contentUrl}`} alt={file.name} />
                     <span>{file.name}<small>{formatBytes(file.size)}</small></span>
@@ -168,11 +172,14 @@ export type ChatComposerProps = {
   placeholder: string;
   disabled?: boolean;
   busy?: boolean;
+  submitDisabled?: boolean;
   notice?: string | null;
   onDismissNotice?: () => void;
   hint?: string;
   disclaimer?: string;
   leadingActions?: ReactNode;
+  topContent?: ReactNode;
+  sideControls?: ReactNode;
 };
 
 export function ChatComposer({
@@ -182,18 +189,21 @@ export function ChatComposer({
   placeholder,
   disabled = false,
   busy = false,
+  submitDisabled = false,
   notice,
   onDismissNotice,
   hint = "Enter to send / Shift + Enter for a new line",
   disclaimer,
   leadingActions,
+  topContent,
+  sideControls,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useAutoResizeTextArea(textareaRef, value);
 
   function submit(event?: FormEvent) {
     event?.preventDefault();
-    if (disabled || busy || !value.trim()) return;
+    if (disabled || busy || submitDisabled || !value.trim()) return;
     void onSubmit();
   }
 
@@ -212,7 +222,8 @@ export function ChatComposer({
           {onDismissNotice && <button type="button" onClick={onDismissNotice} aria-label="Dismiss">x</button>}
         </div>
       )}
-      <form className="composer" onSubmit={submit}>
+      {topContent && <div className="composer-top-content">{topContent}</div>}
+      <form className={sideControls ? "composer composer-with-side-controls" : "composer"} onSubmit={submit}>
         <textarea
           ref={textareaRef}
           value={value}
@@ -223,15 +234,20 @@ export function ChatComposer({
           disabled={disabled || busy}
           aria-label="Message"
         />
+        {sideControls && <div className="composer-side-controls">{sideControls}</div>}
         <div className="composer-actions">
           {leadingActions}
           <span>{hint}</span>
           <button
             className="send"
             type="submit"
-            disabled={disabled || busy || !value.trim()}
+            disabled={disabled || busy || submitDisabled || !value.trim()}
             aria-label="Send message"
-          >^</button>
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M10 16V4m0 0L5.5 8.5M10 4l4.5 4.5" />
+            </svg>
+          </button>
         </div>
       </form>
       {disclaimer && <small className="disclaimer">{disclaimer}</small>}

@@ -66,9 +66,29 @@ function sessionForConversationError(code) {
   };
 }
 
+function noBrowserUi() {
+  return {
+    webContents: {
+      executeJavaScript: async source => {
+        assert.match(source, /lXE/);
+        assert.doesNotThrow(() => new Function(`return ${source};`));
+        assert.doesNotMatch(source, /document\.querySelector|querySelectorAll|sendInputEvent/);
+        return {
+          headers: {
+            "OpenAI-Sentinel-Chat-Requirements-Token": "native-requirements",
+            "OpenAI-Sentinel-Proof-Token": "native-proof",
+            "OpenAI-Sentinel-Turnstile-Token": "native-turnstile"
+          },
+          forceLogin: false
+        };
+      }
+    }
+  };
+}
+
 function send(chatgpt, session) {
   return chatgpt.operations.send({
-    window: { webContents: { getUserAgent: () => "TestBrowser/1.0" } },
+    window: noBrowserUi(),
     session,
     args: {
       prompt: "continue",

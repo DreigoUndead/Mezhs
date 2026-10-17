@@ -92,12 +92,10 @@ export class ApiChatProvider implements ChatProvider {
   }
 
   async uploadFile(file: FileInput, _options?: UploadOptions): Promise<UploadedFile> {
-    const form = new FormData();
-    form.append("connectionId", this.connection.id);
-    form.append("file", file, file.name);
     return apiJson<UploadedFile>(this.apiBase, "/v1/files", {
       method: "POST",
-      body: form,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ connectionId: this.connection.id, path: file }),
     });
   }
 

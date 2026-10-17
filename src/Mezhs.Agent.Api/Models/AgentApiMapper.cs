@@ -18,6 +18,7 @@ public static class AgentApiMapper
         record.ChatId,
         record.PolicyId,
         record.ConnectionId,
+        record.Model,
         record.Source,
         record.SourceReference,
         record.Status.ToString(),
@@ -29,7 +30,8 @@ public static class AgentApiMapper
         record.PolicySnapshot,
         record.CreatedAt,
         record.StartedAt,
-        record.CompletedAt);
+        record.CompletedAt,
+        FileIds: record.FileIds);
 
     public static AgentExecutionView ToView(ExecutorExecution execution) => new(
         execution.Id.ToString(CultureInfo.InvariantCulture),
@@ -42,6 +44,7 @@ public static class AgentApiMapper
         execution.ChatId,
         string.Empty,
         string.Empty,
+        null,
         execution.Source ?? "executor",
         null,
         execution.Status.ToString(),
@@ -100,6 +103,7 @@ public static class AgentApiMapper
             message.MessageId,
             message.ChatId,
             message.ConnectionId,
+            message.Model,
             message.Role,
             message.Origin,
             message.Content,

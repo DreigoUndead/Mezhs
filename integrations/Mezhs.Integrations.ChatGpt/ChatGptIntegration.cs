@@ -37,6 +37,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
     private readonly BrowserAccountSession _session;
     private readonly ILoginModule _login;
     private readonly IModelModule _models;
+    private readonly IIntegrationDiagnosticsModule _diagnostics;
 
     public ChatGptAccountIntegration(
         IntegrationConnection connection,
@@ -45,6 +46,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         _session = CreateAccountSession();
         _login = new LoginModule(_session);
         _models = new ModelModule(_session);
+        _diagnostics = new BrowserDiagnosticsModule(_session);
     }
 
     public override IntegrationCapabilities Capabilities => new(
@@ -54,6 +56,16 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         ImageOutput: true);
     public override ILoginModule Login => _login;
     public override IModelModule Models => _models;
+    public override IIntegrationDiagnosticsModule Diagnostics => _diagnostics;
+    public override IFileUploadModule Files => new FileUploadModule(_session);
+
+    private sealed class FileUploadModule(BrowserAccountSession session) : IFileUploadModule
+    {
+        public Task<IntegrationUploadedFile> UploadFileAsync(string path, CancellationToken cancellationToken = default) =>
+            session.UseAsync((transport, token) =>
+                transport.InvokeAsync<IntegrationUploadedFile>("uploadFile", new { Path = path }, token),
+                cancellationToken);
+    }
 
     public override Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
@@ -65,9 +77,12 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 !string.IsNullOrWhiteSpace(context.Chat.RemoteParentMessageId);
             var workspace = Connection.GetSetting("workspace");
             var files = context.Files.Select(file => new ChatGptInputFile(
-                file.Path,
+                file.FileId,
                 file.Name,
-                file.ContentType)).ToArray();
+                file.ContentType,
+                file.Size,
+                file.Width,
+                file.Height)).ToArray();
 
             async Task<(ChatGptSendResponse Response, string? ProjectId)> SendAsync(bool newChat)
             {
@@ -168,9 +183,12 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
     private sealed record ChatGptProject(string Id, string Name);
 
     private sealed record ChatGptInputFile(
-        string Path,
+        string Id,
         string Name,
-        string ContentType);
+        string ContentType,
+        long Size,
+        int? Width,
+        int? Height);
 
     private sealed record ChatGptSendRequest(
         string Prompt,

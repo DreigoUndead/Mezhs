@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace Mezhs.Integrations.Mock;
 
 [Integration("mock")]
@@ -17,17 +19,38 @@ public class MockIntegration : ChatIntegrationBase
         FileOutput: true,
         ImageOutput: true);
     public override IModelModule Models => ModelModule;
+    private readonly ConcurrentDictionary<string, string> _uploadPaths = new();
+    public override IFileUploadModule Files => new MockUpload(_uploadPaths);
+
+    private sealed class MockUpload(ConcurrentDictionary<string, string> paths) : IFileUploadModule
+    {
+        public Task<IntegrationUploadedFile> UploadFileAsync(string path, CancellationToken cancellationToken = default)
+        {
+            var file = new FileInfo(path);
+            if (!file.Exists) throw new FileNotFoundException("File not found.", path);
+            var id = "mock-" + Guid.NewGuid().ToString("N");
+            paths[id] = path;
+            var contentType = Path.GetExtension(path).ToLowerInvariant() switch
+            {
+                ".txt" => "text/plain",
+                ".png" => "image/png",
+                ".pdf" => "application/pdf",
+                _ => "application/octet-stream"
+            };
+            return Task.FromResult(new IntegrationUploadedFile(id, file.Name, contentType, file.Length));
+        }
+    }
 
     public override async Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
         CancellationToken cancellationToken = default)
     {
         await Task.Delay(25, cancellationToken);
-        var outputFiles = context.Files.Select(file => new IntegrationOutputFile(
-            file.Path,
-            $"echo-{file.Name}",
-            file.ContentType,
-            DeleteAfterImport: false)).ToArray();
+        var outputFiles = context.Files
+            .Where(file => _uploadPaths.TryGetValue(file.FileId, out var path) && File.Exists(path))
+            .Select(file => new IntegrationOutputFile(
+                _uploadPaths[file.FileId], $"echo-{file.Name}", file.ContentType, DeleteAfterImport: false))
+            .ToArray();
         return new IntegrationSendResult(
             $"Echo: {context.Message.Content}",
             Files: outputFiles,
@@ -72,4 +95,24 @@ public sealed class MockLoginIntegration : MockIntegration
         public Task LoginAsync(CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
     }
+}
+
+[Integration("mock-text-only")]
+public sealed class MockTextOnlyIntegration : MockIntegration
+{
+    public MockTextOnlyIntegration(IntegrationConnection connection, IIntegrationHost host)
+        : base(connection, host) { }
+
+    public override IntegrationCapabilities Capabilities => new(
+        FileInput: true, ImageInput: false, FileOutput: true, ImageOutput: false);
+}
+
+[Integration("mock-no-files")]
+public sealed class MockNoFilesIntegration : MockIntegration
+{
+    public MockNoFilesIntegration(IntegrationConnection connection, IIntegrationHost host)
+        : base(connection, host) { }
+
+    public override IntegrationCapabilities Capabilities => new(
+        FileInput: false, ImageInput: false, FileOutput: false, ImageOutput: false);
 }

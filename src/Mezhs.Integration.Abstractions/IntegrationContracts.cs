@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Mezhs.Integrations;
 
 public sealed record IntegrationConnection(
@@ -42,6 +44,14 @@ public interface IModelModule
         CancellationToken cancellationToken = default);
 }
 
+public interface IIntegrationDiagnosticsModule
+{
+    Task<JsonElement> InvokeAsync(
+        string operation,
+        JsonElement arguments,
+        CancellationToken cancellationToken = default);
+}
+
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
 public sealed class IntegrationAttribute(string type) : Attribute
 {
@@ -54,6 +64,8 @@ public interface IChatIntegration : IAsyncDisposable
     IntegrationCapabilities Capabilities { get; }
     ILoginModule? Login { get; }
     IModelModule? Models { get; }
+    IIntegrationDiagnosticsModule? Diagnostics { get; }
+    IFileUploadModule? Files { get; }
 
     Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
@@ -66,6 +78,8 @@ public abstract class ChatIntegrationBase(IntegrationConnection connection) : IC
     public virtual IntegrationCapabilities Capabilities => new();
     public virtual ILoginModule? Login => null;
     public virtual IModelModule? Models => null;
+    public virtual IIntegrationDiagnosticsModule? Diagnostics => null;
+    public virtual IFileUploadModule? Files => null;
 
     public abstract Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
@@ -119,12 +133,22 @@ public sealed record IntegrationSendContext(
     }
 }
 
+public interface IFileUploadModule
+{
+    Task<IntegrationUploadedFile> UploadFileAsync(string path, CancellationToken cancellationToken = default);
+}
+
+public sealed record IntegrationUploadedFile(
+    string FileId, string Name, string ContentType, long Size,
+    int? Width = null, int? Height = null);
+
 public sealed record IntegrationInputFile(
     string FileId,
-    string Path,
     string Name,
     string ContentType,
-    long Size);
+    long Size,
+    int? Width = null,
+    int? Height = null);
 
 public sealed record IntegrationOutputFile(
     string Path,

@@ -73,11 +73,14 @@ public sealed record ChatListState(
 public sealed class StoredFile
 {
     public required string FileId { get; init; }
+    public string? ProviderFileId { get; init; }
     public required string ConnectionId { get; init; }
     public required string Name { get; init; }
     public required string ContentType { get; init; }
     public required long Size { get; init; }
     public required FileSource Source { get; init; }
+    public int? Width { get; init; }
+    public int? Height { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 

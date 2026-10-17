@@ -18,6 +18,7 @@ builder.WebHost.UseUrls(listenUrls);
 builder.Services.AddHttpClient("agent-api", client =>
 {
     client.BaseAddress = agentApiBaseUrl;
+    client.Timeout = Timeout.InfiniteTimeSpan;
 });
 
 var app = builder.Build();
@@ -50,33 +51,55 @@ static void MapApiProxy(WebApplication app, string pattern)
         if (context.Request.Headers.TryGetValue("Accept", out var accept))
             request.Headers.TryAddWithoutValidation("Accept", accept.ToArray());
 
-        HttpResponseMessage response;
         try
         {
-            response = await client.SendAsync(
+            using var response = await client.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
                 context.RequestAborted);
-        }
-        catch (HttpRequestException) when (!context.RequestAborted.IsCancellationRequested)
-        {
-            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            await context.Response.WriteAsJsonAsync(
-                new { error = "MEŽS Agent API is unavailable." },
-                context.RequestAborted);
-            return;
-        }
 
-        using (response)
-        {
             context.Response.StatusCode = (int)response.StatusCode;
             if (response.Content.Headers.ContentType is not null)
                 context.Response.ContentType = response.Content.Headers.ContentType.ToString();
             if (response.Content.Headers.ContentDisposition is not null)
                 context.Response.Headers.ContentDisposition = response.Content.Headers.ContentDisposition.ToString();
+
             await response.Content.CopyToAsync(context.Response.Body, context.RequestAborted);
         }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            // The browser closed or replaced the request. This is not an Agent API failure.
+        }
+        catch (IOException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            // Some server implementations surface a disconnected downstream client as IO.
+        }
+        catch (HttpRequestException)
+        {
+            await HandleProxyTransportFailure(context);
+        }
+        catch (IOException)
+        {
+            await HandleProxyTransportFailure(context);
+        }
     });
+}
+
+static async Task HandleProxyTransportFailure(HttpContext context)
+{
+    if (context.RequestAborted.IsCancellationRequested)
+        return;
+
+    if (context.Response.HasStarted)
+    {
+        context.Abort();
+        return;
+    }
+
+    context.Response.Clear();
+    context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+    await context.Response.WriteAsJsonAsync(
+        new { error = "MEŽS Agent API response was interrupted." });
 }
 
 static string[] RequireLoopbackUrls(string value, string setting)

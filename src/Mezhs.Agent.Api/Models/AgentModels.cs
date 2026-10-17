@@ -86,6 +86,7 @@ public sealed record AgentChatMessageView(
     string MessageId,
     string ChatId,
     string ConnectionId,
+    string? Model,
     string Role,
     string Origin,
     string Content,
@@ -118,10 +119,12 @@ public sealed class ExecutionRecord
     public string? ChatId { get; set; }
     public required string PolicyId { get; init; }
     public required string ConnectionId { get; init; }
+    public string? Model { get; init; }
     public required string Source { get; init; }
     public string? SourceReference { get; init; }
     public required AgentExecutionStatus Status { get; set; }
     public required string Request { get; init; }
+    public IReadOnlyList<string> FileIds { get; init; } = [];
     [JsonIgnore]
     public IReadOnlyDictionary<string, string> Environment { get; init; } = new Dictionary<string, string>();
     public string? Result { get; set; }
@@ -137,13 +140,18 @@ public sealed record CreateExecutionRequest(
     string PolicyId,
     string Input,
     string? ChatId = null,
-    IReadOnlyDictionary<string, string>? Environment = null);
+    IReadOnlyDictionary<string, string>? Environment = null,
+    string? ConnectionId = null,
+    string? Model = null,
+    IReadOnlyList<string>? FileIds = null);
 
 public sealed record UpdateAgentChatRequest(bool Paused);
 
 public sealed record AgentPolicyView(
     string Id,
+    string Name,
     string ConnectionId,
+    string? DefaultModel,
     string ModelInstructions,
     string Snapshot);
 
@@ -158,6 +166,7 @@ public sealed record AgentExecutionView(
     string? ChatId,
     string PolicyId,
     string ConnectionId,
+    string? Model,
     string Source,
     string? SourceReference,
     string Status,
@@ -171,7 +180,8 @@ public sealed record AgentExecutionView(
     DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt,
     string? RestartedFromId = null,
-    string? RestartedAsId = null);
+    string? RestartedAsId = null,
+    IReadOnlyList<string>? FileIds = null);
 
 public static class AgentIds
 {

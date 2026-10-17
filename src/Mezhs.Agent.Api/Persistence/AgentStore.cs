@@ -37,10 +37,12 @@ public sealed class AgentStore(AgentOptions options)
                 ChatId TEXT NULL,
                 PolicyId TEXT NOT NULL,
                 ConnectionId TEXT NOT NULL,
+                Model TEXT NULL,
                 Source TEXT NOT NULL,
                 SourceReference TEXT NULL,
                 Status TEXT NOT NULL,
                 Request TEXT NOT NULL,
+                FileIdsJson TEXT NOT NULL DEFAULT '[]',
                 EnvironmentJson TEXT NOT NULL DEFAULT '{}',
                 Result TEXT NULL,
                 Error TEXT NULL,
@@ -62,10 +64,12 @@ public sealed class AgentStore(AgentOptions options)
         using var connection = _database.Open();
         SqliteDatabase.EnsureColumn(connection, "AgentChats", "Paused", "INTEGER NOT NULL DEFAULT 0");
         SqliteDatabase.EnsureColumn(connection, "AgentChats", "EnvironmentJson", "TEXT NOT NULL DEFAULT '{}'");
+        SqliteDatabase.EnsureColumn(connection, "Executions", "FileIdsJson", "TEXT NOT NULL DEFAULT '[]'");
         SqliteDatabase.EnsureColumn(connection, "Executions", "EnvironmentJson", "TEXT NOT NULL DEFAULT '{}'");
         SqliteDatabase.EnsureColumn(connection, "Executions", "CommandName", "TEXT NULL");
         SqliteDatabase.EnsureColumn(connection, "Executions", "TriggerMessageId", "TEXT NULL");
         SqliteDatabase.EnsureColumn(connection, "Executions", "CommandIndex", "INTEGER NULL");
+        SqliteDatabase.EnsureColumn(connection, "Executions", "Model", "TEXT NULL");
         SqliteDatabase.DropColumnIfExists(connection, "Executions", "Requester");
 
         // Interrupted was a terminal Agent status before restart recovery became resumable.
@@ -90,7 +94,9 @@ public sealed class AgentStore(AgentOptions options)
         string request,
         IReadOnlyDictionary<string, string> environment,
         string policySnapshot,
-        long maxOutstandingExecutions)
+        long maxOutstandingExecutions,
+        string? model = null,
+        IReadOnlyList<string>? fileIds = null)
     {
         if (maxOutstandingExecutions <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxOutstandingExecutions));
@@ -104,10 +110,12 @@ public sealed class AgentStore(AgentOptions options)
             ChatId = chatId,
             PolicyId = policyId,
             ConnectionId = connectionId,
+            Model = model,
             Source = source,
             SourceReference = sourceReference,
             Status = AgentExecutionStatus.Queued,
             Request = request,
+            FileIds = fileIds?.ToArray() ?? [],
             Environment = environment,
             PolicySnapshot = policySnapshot
         };
@@ -523,13 +531,13 @@ public sealed class AgentStore(AgentOptions options)
         command.CommandText = """
             INSERT INTO Executions (
                 ExecutionId, ParentExecutionId, CorrelationId, Kind, ChatId,
-                PolicyId, ConnectionId, Source, SourceReference, Status,
-                Request, EnvironmentJson, Result, Error, ExitCode, PolicySnapshot,
+                PolicyId, ConnectionId, Model, Source, SourceReference, Status,
+                Request, FileIdsJson, EnvironmentJson, Result, Error, ExitCode, PolicySnapshot,
                 CreatedAt, StartedAt, CompletedAt)
             SELECT
                 $executionId, $parentExecutionId, $correlationId, $kind, $chatId,
-                $policyId, $connectionId, $source, $sourceReference, $status,
-                $request, $environmentJson, NULL, NULL, NULL, $policySnapshot,
+                $policyId, $connectionId, $model, $source, $sourceReference, $status,
+                $request, $fileIdsJson, $environmentJson, NULL, NULL, NULL, $policySnapshot,
                 $createdAt, NULL, NULL
             WHERE (
                 SELECT COUNT(*)
@@ -595,10 +603,12 @@ public sealed class AgentStore(AgentOptions options)
         command.Parameters.AddWithValue("$chatId", Db(record.ChatId));
         command.Parameters.AddWithValue("$policyId", record.PolicyId);
         command.Parameters.AddWithValue("$connectionId", record.ConnectionId);
+        command.Parameters.AddWithValue("$model", Db(record.Model));
         command.Parameters.AddWithValue("$source", record.Source);
         command.Parameters.AddWithValue("$sourceReference", Db(record.SourceReference));
         command.Parameters.AddWithValue("$status", record.Status.ToString());
         command.Parameters.AddWithValue("$request", record.Request);
+        command.Parameters.AddWithValue("$fileIdsJson", JsonSerializer.Serialize(record.FileIds, Json));
         command.Parameters.AddWithValue("$environmentJson", SerializeEnvironment(record.Environment));
         command.Parameters.AddWithValue("$policySnapshot", record.PolicySnapshot);
         command.Parameters.AddWithValue("$createdAt", Format(record.CreatedAt));
@@ -616,10 +626,12 @@ public sealed class AgentStore(AgentOptions options)
         ChatId = GetNullableString(reader, "ChatId"),
         PolicyId = reader.GetString(reader.GetOrdinal("PolicyId")),
         ConnectionId = reader.GetString(reader.GetOrdinal("ConnectionId")),
+        Model = GetNullableString(reader, "Model"),
         Source = reader.GetString(reader.GetOrdinal("Source")),
         SourceReference = GetNullableString(reader, "SourceReference"),
         Status = Enum.Parse<AgentExecutionStatus>(reader.GetString(reader.GetOrdinal("Status"))),
         Request = reader.GetString(reader.GetOrdinal("Request")),
+        FileIds = JsonSerializer.Deserialize<string[]>(reader.GetString(reader.GetOrdinal("FileIdsJson")), Json) ?? [],
         Environment = DeserializeEnvironment(reader.GetString(reader.GetOrdinal("EnvironmentJson"))),
         Result = GetNullableString(reader, "Result"),
         Error = GetNullableString(reader, "Error"),

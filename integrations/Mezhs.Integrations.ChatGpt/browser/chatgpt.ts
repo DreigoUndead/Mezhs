@@ -1,7 +1,6 @@
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { Buffer } = require("node:buffer");
 const { randomUUID } = require("node:crypto");
 
 const ORIGIN = "https://chatgpt.com";
@@ -11,18 +10,19 @@ const API = Object.freeze({
   projects: "/backend-api/gizmos/snorlax/sidebar",
   models: "/backend-api/models?history_and_training_disabled=false",
   modelPreference: "/backend-api/settings/user_last_used_model_config",
-  conversationPrepare: "/backend-api/f/conversation/prepare",
-  requirementsPrepare: "/backend-api/sentinel/chat-requirements/prepare",
-  requirementsFinalize: "/backend-api/sentinel/chat-requirements/finalize",
   conversation: "/backend-api/f/conversation",
+  conversationPrepare: "/backend-api/f/conversation/prepare",
+  conversationInit: "/backend-api/conversation/init",
   conversationById: id => `/backend-api/conversation/${encodeURIComponent(id)}`,
-  files: "/backend-api/files",
-  fileUploaded: id => `/backend-api/files/${encodeURIComponent(id)}/uploaded`,
+  files: '/backend-api/files',
+  processFileUpload: '/backend-api/files/process_upload_stream',
   fileDownload: id => `/backend-api/files/${encodeURIComponent(id)}/download`
 });
 
 const PROMPT_EDITOR_SELECTOR = [
   '#prompt-textarea',
+  '#mobile-composer-prompt',
+  '[data-mobile-composer-prompt]',
   'textarea[name="prompt-textarea"]',
   '[data-testid="prompt-textarea"]',
   '.ProseMirror[contenteditable="true"]',
@@ -33,7 +33,6 @@ const PROMPT_EDITOR_SELECTOR = [
 const CONVERSATION_POLL_INTERVAL_MS = 2000;
 const CONVERSATION_RATE_LIMIT_MAX_FALLBACK_MS = 30000;
 const TURN_INACTIVITY_WATCHDOG_MS = 20000;
-const TURN_RECOVERY_RETRY_LIMIT = 1;
 
 module.exports = {
   name: "ChatGPT",
@@ -70,6 +69,22 @@ module.exports = {
       return nativePickerModels(response);
     },
 
+    async uploadFile({ session, args }) {
+      const token = await requireToken(session);
+      const extension = path.extname(args.path).toLowerCase();
+      const contentType = ({
+        '.txt': 'text/plain', '.md': 'text/markdown', '.csv': 'text/csv',
+        '.pdf': 'application/pdf', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+        '.gif': 'image/gif'
+      })[extension] || 'application/octet-stream';
+      const file = await uploadFile(session, token, {
+        path: args.path, name: path.basename(args.path), contentType
+      });
+      return { fileId: file.id, name: file.name, contentType: file.contentType,
+        size: file.size, width: file.width ?? null, height: file.height ?? null };
+    },
+
     newChat(context) {
       return sendAccountMessage(context, true);
     },
@@ -80,77 +95,138 @@ module.exports = {
 
     // Anonymous ChatGPT remains on its old browser path.
     async sendPrompt({ window, args }) {
-      if (args.newChat) await window.loadURL(module.exports.homeUrl);
-      const prompt = JSON.stringify(String(args.prompt || ""));
-      const promptEditorSelector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
-      return window.webContents.executeJavaScript(`
-        (async () => {
-          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-          const selector = '[data-message-author-role="assistant"]';
-          const before = document.querySelectorAll(selector).length;
-          let editor = null;
-          for (let i = 0; i < 120 && !editor; i++) {
-            editor = document.querySelector(${promptEditorSelector});
-            if (!editor) await sleep(250);
-          }
-          if (!editor) return { ok: false, error: 'ChatGPT prompt editor was not found.' };
-          editor.focus();
-          if (editor.tagName === 'TEXTAREA' || editor.tagName === 'INPUT') {
-            const prototype = editor.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-            const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-            if (setter) setter.call(editor, ${prompt});
-            else editor.value = ${prompt};
-            editor.dispatchEvent(new Event('input', { bubbles: true }));
-          } else {
-            document.execCommand('selectAll', false, null);
-            document.execCommand('insertText', false, ${prompt});
-            editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
-          }
-          let send = null;
-          for (let i = 0; i < 360 && (!send || send.disabled); i++) {
-            send = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
-            if (!send || send.disabled) await sleep(250);
-          }
-          if (!send || send.disabled) return { ok: false, error: 'ChatGPT send button did not become available.' };
-          send.click();
-          let last = '';
-          let stable = 0;
-          while (true) {
-            const messages = document.querySelectorAll(selector);
-            const text = messages[messages.length - 1]?.innerText?.trim() || '';
-            const stop = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"]');
-            stable = text && text === last ? stable + 1 : 0;
-            last = text;
-            if (messages.length > before && text && !stop && stable >= 6)
-              return { ok: true, text };
-            await sleep(500);
-          }
-        })()
-      `, true);
+      const submitOnce = async () => {
+        if (args.newChat) await window.loadURL(module.exports.homeUrl);
+        const prompt = JSON.stringify(String(args.prompt || ""));
+        const promptEditorSelector = JSON.stringify(PROMPT_EDITOR_SELECTOR);
+        return window.webContents.executeJavaScript(`
+          (async () => {
+            // Observe the guest frontend's existing authorization response without creating challenges ourselves.
+            // force_login explicitly ends this attempt; a missing field is not permission or a diagnosis.
+            const originalFetch = globalThis.fetch;
+            let guestLoginRequired = false;
+            const observedFetch = function(...fetchArgs) {
+              const pending = originalFetch.apply(this, fetchArgs);
+              const url = String(fetchArgs[0]?.url || fetchArgs[0] || '');
+              if (url.includes('/unauth-mweb/sentinel/chat-requirements/finalize')) {
+                pending.then(response => response.clone().json()).then(result => {
+                  if (result?.force_login === true) guestLoginRequired = true;
+                }).catch(() => {});
+              }
+              return pending;
+            };
+            if (typeof originalFetch === 'function') globalThis.fetch = observedFetch;
+            try {
+              const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+              const legacySelector = '[data-message-author-role="assistant"]';
+              const octaneSelector = '[data-conversation-transcript] [data-message-role="assistant"]';
+              const legacyBefore = document.querySelectorAll(legacySelector).length;
+              const octaneBefore = document.querySelectorAll(octaneSelector).length;
+              const userSelector = '[data-conversation-transcript] [data-message-role=user], [data-message-author-role=user]';
+              const usersBefore = document.querySelectorAll(userSelector).length;
+              let editor = null;
+              for (let i = 0; i < 120 && !editor; i++) {
+                editor = document.querySelector(${promptEditorSelector});
+                if (!editor) await sleep(250);
+              }
+              if (!editor) return { ok: false, error: 'ChatGPT prompt editor was not found.' };
+              editor.focus();
+              if (editor.tagName === 'TEXTAREA' || editor.tagName === 'INPUT') {
+                const prototype = editor.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+                const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+                if (setter) setter.call(editor, ${prompt});
+                else editor.value = ${prompt};
+                editor.dispatchEvent(new Event('input', { bubbles: true }));
+              } else {
+                document.execCommand('selectAll', false, null);
+                document.execCommand('insertText', false, ${prompt});
+                editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${prompt} }));
+              }
+              let send = null;
+              for (let i = 0; i < 360; i++) {
+                if (guestLoginRequired)
+                  return { ok: false, errorCode: 'guest_login_required', error: 'ChatGPT requires login before continuing as a guest.' };
+                send = editor.closest('form')?.querySelector('button[aria-label="Send message"]')
+                  || document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"]');
+                if (send && !send.disabled && send.getAttribute('aria-disabled') !== 'true') break;
+                await sleep(250);
+              }
+              if (guestLoginRequired)
+                return { ok: false, errorCode: 'guest_login_required', error: 'ChatGPT requires login before continuing as a guest.' };
+              if (!send || send.disabled || send.getAttribute('aria-disabled') === 'true')
+                return { ok: false, error: 'ChatGPT send button did not become available.' };
+              send.click();
+              let last = '';
+              let stable = 0;
+              let emptyCompletedPolls = 0;
+              let unsubmittedPolls = 0;
+              while (true) {
+                if (guestLoginRequired)
+                  return { ok: false, errorCode: 'guest_login_required', error: 'ChatGPT requires login before continuing as a guest.' };
+                const octaneMessages = document.querySelectorAll(octaneSelector);
+                const octane = octaneMessages[octaneMessages.length - 1];
+                if (octaneMessages.length > octaneBefore && octane?.hasAttribute('data-message-complete')) {
+                  // Octane can set the completion marker before its reply content is rendered.
+                  const content = octane.children[1]?.innerText?.trim() || '';
+                  if (content) return { ok: true, text: content };
+                  // Completion can precede rendering, but a permanently blank reply must not block the agent.
+                  if (++emptyCompletedPolls >= 10)
+                    return { ok: false, errorCode: 'empty_guest_reply', error: 'ChatGPT completed the guest reply without readable text.' };
+                }
+                const messages = document.querySelectorAll(legacySelector);
+                const text = messages[messages.length - 1]?.innerText?.trim() || '';
+                const stop = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"]');
+                stable = text && text === last ? stable + 1 : 0;
+                last = text;
+                if (messages.length > legacyBefore && text && !stop && stable >= 6)
+                  return { ok: true, text };
+                // A clickable send button does not guarantee a guest turn was accepted.
+                if (unsubmittedPolls >= 0) {
+                  if (octaneMessages.length > octaneBefore || messages.length > legacyBefore
+                      || document.querySelectorAll(userSelector).length > usersBefore)
+                    unsubmittedPolls = -1;
+                  else if (++unsubmittedPolls >= 60)
+                    return { ok: false, errorCode: 'guest_submission_timeout', error: 'ChatGPT did not start a guest conversation after submission.' };
+                }
+                await sleep(500);
+              }
+            } finally {
+              if (globalThis.fetch === observedFetch) globalThis.fetch = originalFetch;
+            }
+          })()
+        `, true);
+      };
+      const first = await submitOnce();
+      if (first.ok || first.errorCode !== 'empty_guest_reply' || !args.newChat)
+        return first;
+      // Only retry a new chat; replaying an existing conversation can duplicate actions.
+      const second = await submitOnce();
+      if (!second.ok && second.errorCode === 'empty_guest_reply')
+        return { ...second, error: second.error + ' Fresh-conversation retry also returned an empty reply.' };
+      return second;
     }
   }
 };
 
 function nativePickerModels(catalog) {
-  const models = new Map(
-    (catalog?.models || []).map(model => [
-      String(model?.slug || model?.id || "").trim().toLowerCase(),
-      model
-    ])
-  );
   const result = [];
   const seen = new Set();
-  for (const version of catalog?.versions || []) {
+  const versions = Array.isArray(catalog?.versions) ? catalog.versions : [];
+
+  for (const version of versions) {
     if (version?.enabled === false) continue;
-    const versionId = String(version?.id || "").trim();
     const versionName = String(
       version?.display_text_for_intelligence ||
       version?.display_text ||
-      versionId
+      ""
     ).trim();
-    const nativePresets = version?.intelligence_presets || [];
-    const presets = nativePresets
-      .filter(preset => preset?.preset_type === "available" && preset?.enabled !== false);
+    const nativePresets = Array.isArray(version?.intelligence_presets)
+      ? version.intelligence_presets
+      : [];
+    const presets = nativePresets.filter(preset =>
+      preset?.preset_type === "available" &&
+      preset?.enabled !== false
+    );
 
     if (nativePresets.length) {
       for (const preset of presets) {
@@ -161,48 +237,48 @@ function nativePickerModels(catalog) {
           preset?.title ||
           ""
         ).trim();
-        const id = modelSelectionId(model, effort);
-        const name = [versionName, presetName].filter(Boolean).join(" · ");
-        const key = id.toLowerCase();
-        if (!model || !name || seen.has(key)) continue;
-        seen.add(key);
-        result.push({ id, name });
+        addModelOption(
+          result,
+          seen,
+          modelSelectionId(model, effort),
+          [versionName, presetName].filter(Boolean).join(" · ")
+        );
       }
       continue;
     }
 
-    const canonicalId = versionId.toLowerCase() === "o3"
-      ? "o3"
-      : `gpt-${versionId.replace(/\./g, "-")}`;
-    const candidates = (version?.slugs || [])
+    const model = (Array.isArray(version?.slugs) ? version.slugs : [])
       .map(value => String(value || "").trim())
-      .filter(Boolean);
-    const id = candidates.find(candidate => candidate.toLowerCase() === canonicalId.toLowerCase()) ||
-      (models.has(canonicalId.toLowerCase()) ? canonicalId : null) ||
-      candidates.find(candidate => models.has(candidate.toLowerCase())) ||
-      candidates[0];
-    const model = id ? models.get(id.toLowerCase()) : null;
+      .find(Boolean);
+    addModelOption(result, seen, model, versionName || model);
+  }
+
+  if (result.length)
+    return result;
+
+  for (const model of catalog?.models || []) {
+    const id = String(model?.slug || model?.id || "").trim();
     const name = String(
-      versionName ||
       model?.title ||
       model?.display_name ||
       model?.name ||
-      id ||
-      ""
+      id
     ).trim();
-    const key = String(id || "").toLowerCase();
-    if (!id || !name || seen.has(key)) continue;
-    seen.add(key);
-    result.push({ id, name });
+    addModelOption(result, seen, id, name);
   }
   return result;
 }
 
+function addModelOption(result, seen, id, name) {
+  const normalizedId = String(id || "").trim();
+  const normalizedName = String(name || "").trim();
+  const key = normalizedId.toLowerCase();
+  if (!normalizedId || !normalizedName || seen.has(key)) return;
+  seen.add(key);
+  result.push({ id: normalizedId, name: normalizedName });
+}
+
 const MODEL_SELECTION_SEPARATOR = "::thinking-effort=";
-const CHATGPT_WIRE_MODEL = Object.freeze({
-  "gpt-5-6-instant": "gpt-5-5",
-  "gpt-5-5-instant": "gpt-5-5"
-});
 
 function modelSelectionId(model, thinkingEffort) {
   return thinkingEffort
@@ -213,26 +289,24 @@ function modelSelectionId(model, thinkingEffort) {
 function parseModelSelection(value) {
   const selected = String(value || "auto").trim() || "auto";
   const separator = selected.lastIndexOf(MODEL_SELECTION_SEPARATOR);
-  const model = separator > 0 ? selected.slice(0, separator) : selected;
-  const thinkingEffort = separator > 0
-    ? selected.slice(separator + MODEL_SELECTION_SEPARATOR.length).trim() || null
-    : null;
   return {
-    model: CHATGPT_WIRE_MODEL[model.toLowerCase()] || model,
-    thinkingEffort
+    model: separator > 0 ? selected.slice(0, separator) : selected,
+    thinkingEffort: separator > 0
+      ? selected.slice(separator + MODEL_SELECTION_SEPARATOR.length).trim() || null
+      : null
   };
 }
 
 async function sendAccountMessage(context, isNew) {
   const token = await requireToken(context.session);
   const selection = parseModelSelection(context.args.model);
-
   await setModelPreference(context.session, token, selection);
   return sendApiAccountMessage(context, isNew, token, selection);
 }
 
 async function setModelPreference(session, token, selection) {
   if (!selection.model || selection.model === "auto") return;
+
   const url = new URL(API.modelPreference, ORIGIN);
   url.searchParams.set("model_slug", selection.model);
   if (selection.thinkingEffort)
@@ -241,23 +315,27 @@ async function setModelPreference(session, token, selection) {
 }
 
 async function sendApiAccountMessage({ window, session, args, sleep, reportProgress }, isNew, token, selection) {
-  const uploaded = await uploadFiles(session, token, args.files || []);
+  const uploaded = args.files || [];
   const imageParts = uploaded
     .filter(file => file.contentType.startsWith("image/"))
     .map(file => ({
       content_type: "image_asset_pointer",
       asset_pointer: `file-service://${file.id}`,
-      size_bytes: file.size
+      size_bytes: file.size,
+      width: file.width,
+      height: file.height
     }));
   const attachments = uploaded.map(file => ({
     id: file.id,
     name: file.name,
     mimeType: file.contentType,
-    size: file.size
+    size: file.size,
+    ...(file.width ? { width: file.width, height: file.height } : {})
   }));
   const metadata = {
     selected_sources: [],
     serialization_metadata: { custom_symbol_offsets: [] },
+    submission_mode: "manual_send",
     ...(attachments.length ? { attachments } : {})
   };
   const projectMode = isNew && args.projectId
@@ -287,10 +365,11 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
       timezone_offset_min: new Date().getTimezoneOffset(),
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
       conversation_mode: projectMode,
+      enable_message_followups: true,
       system_hints: [],
       supports_buffering: true,
       supported_encodings: ["v1"],
-      client_contextual_info: clientContext(window),
+      client_contextual_info: clientContext(),
       paragen_cot_summary_display_override: "allow",
       force_parallel_switch: "auto",
       local_function_names: ["local.continue_in_work"]
@@ -305,85 +384,348 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
     detail: "Submitting prompt to ChatGPT."
   });
 
-  let requestMessageId = randomUUID();
-  let conversationId = await postConversationTurn(
+  const clientSessionId = randomUUID();
+  const execution = {
+    requestedModel: selection.model === "auto" ? null : selection.model,
+    requestedThinkingEffort: selection.thinkingEffort
+  };
+  if (isNew && args.projectId) {
+    const initialized = await initializeConversation(
+      session,
+      token,
+      args.projectId,
+      clientSessionId
+    );
+    const initializedModel = String(
+      initialized?.intended_default_model_slug ||
+      initialized?.default_model_slug ||
+      ""
+    ).trim();
+    if (initializedModel)
+      execution.initializedDefaultModel = initializedModel;
+  }
+
+  const requestMessageId = randomUUID();
+  const posted = await postConversationTurn(
     window,
     session,
     token,
     buildPayload(requestMessageId, isNew ? undefined : args.conversationId),
-    args.conversationId
+    args.conversationId,
+    reportProgress,
+    clientSessionId
   );
+  let conversationId = posted.conversationId;
+  mergeExecutionMetadata(execution, posted.execution);
   if (!conversationId)
     throw new Error("ChatGPT did not return a conversation id.");
 
-  reportProgress?.({
-    state: "waiting",
-    detail: "Prompt accepted; waiting for model activity."
-  });
-
   return completeAccountMessage(
-    session,
-    token,
-    conversationId,
-    requestMessageId,
-    sleep,
-    isNew,
-    reportProgress,
-    async () => {
-      const retryMessageId = randomUUID();
-      reportProgress?.({
-        state: "retrying",
-        detail: `No active model generation was detected for ${TURN_INACTIVITY_WATCHDOG_MS / 1000}s; reposting the prompt once.`
-      });
-      const retryConversationId = await postConversationTurn(
-        window,
-        session,
-        token,
-        buildPayload(retryMessageId, conversationId),
-        conversationId
-      );
-      if (retryConversationId !== conversationId)
-        throw new Error(
-          `ChatGPT retry switched conversation from '${conversationId}' to '${retryConversationId}'.`
-        );
-      return retryMessageId;
-    }
+    session, token, conversationId, requestMessageId, sleep, isNew,
+    reportProgress, execution
   );
 }
 
-async function postConversationTurn(window, session, token, payload, fallbackConversationId = null) {
-  const config = sentinelConfig(window);
+async function postConversationTurn(
+  window,
+  session,
+  token,
+  payload,
+  fallbackConversationId = null,
+  reportProgress,
+  clientSessionId
+) {
   const turnTraceId = randomUUID();
   const conduitToken = await getConduitToken(
     session,
     token,
     turnTraceId,
-    conversationPreparePayload(payload)
+    conversationPreparePayload(payload),
+    clientSessionId
   );
-  const requirements = await getSentinelToken(session, token, config);
+  // The authenticated frontend owns Sentinel requirements and enforcement tokens.
+  // Never invent or reuse tokens from a different turn/session.
+  const sentinelHeaders = await nativeChatRequirementsHeaders(window, session, token);
 
-  const headers = {
-    "Content-Type": "application/json",
-    "Accept": "text/event-stream",
-    "Oai-Language": "en-US",
-    "Oai-Session-Id": randomUUID(),
-    "openai-sentinel-chat-requirements-token": requirements.token,
-    "x-conduit-token": conduitToken,
-    "x-oai-turn-trace-id": turnTraceId,
-    "x-openai-target-path": API.conversation,
-    "x-openai-target-route": API.conversation
-  };
-  const deviceId = (await session.cookies.get({ url: ORIGIN, name: "oai-did" }))[0]?.value;
-  if (deviceId) headers["Oai-Device-Id"] = deviceId;
-  if (requirements.proofToken)
-    headers["openai-sentinel-proof-token"] = requirements.proofToken;
+  const headers = await webApiHeaders(
+    session,
+    API.conversation,
+    clientSessionId,
+    {
+      "Content-Type": "application/json",
+      "Accept": "text/event-stream",
+      ...sentinelHeaders,
+      "x-conduit-token": conduitToken,
+      "x-oai-turn-trace-id": turnTraceId
+    }
+  );
 
   const response = await apiFetch(session, token, API.conversation, {
     method: "POST",
     headers,
     body: JSON.stringify(payload)
   });
-  return findConversationId(await response.text()) || fallbackConversationId;
+  reportProgress?.({
+    state: "waiting",
+    detail: "Prompt accepted; waiting for model activity."
+  });
+  let stream;
+  try {
+    stream = await readConversationStream(response, reportProgress);
+  } catch (error) {
+    if (!fallbackConversationId)
+      throw new Error(`ChatGPT stream failed after submission; delivery may have succeeded, so the turn must not be resent: ${error.message}`);
+    reportProgress?.({ state: "waiting", detail: "Stream interrupted; reconciling the existing conversation." });
+    stream = { conversationId: fallbackConversationId, execution: {} };
+  }
+  return {
+    conversationId: stream.conversationId || fallbackConversationId,
+    execution: stream.execution
+  };
+}
+
+async function readConversationStream(response, reportProgress) {
+  const state = {
+    conversationId: null,
+    execution: {},
+    pending: "",
+    thinkingReported: false,
+    respondingReported: false
+  };
+
+  const consume = text => {
+    state.pending += text;
+    while (true) {
+      const newline = state.pending.indexOf("\n");
+      if (newline < 0) break;
+      const line = state.pending.slice(0, newline).replace(/\r$/, "");
+      state.pending = state.pending.slice(newline + 1);
+      inspectConversationStreamLine(line, state, reportProgress);
+    }
+  };
+
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        consume(decoder.decode(value, { stream: true }));
+      }
+    } catch (error) {
+      if (!state.conversationId)
+        throw error;
+      reportProgress?.({
+        state: "waiting",
+        detail: "Stream interrupted after conversation identification; recovering response from conversation state."
+      });
+    }
+    consume(decoder.decode());
+  } else {
+    consume(await response.text());
+  }
+
+  if (state.pending)
+    inspectConversationStreamLine(state.pending.replace(/\r$/, ""), state, reportProgress);
+
+  return {
+    conversationId: state.conversationId,
+    execution: state.execution
+  };
+}
+
+function inspectConversationStreamLine(line, state, reportProgress) {
+  if (!line.startsWith("data:")) return;
+  const data = line.slice(5).trim();
+  if (!data || data === "[DONE]") return;
+
+  let value;
+  try {
+    value = JSON.parse(data);
+  } catch {
+    return;
+  }
+
+  if (!state.conversationId)
+    state.conversationId = findConversationIdInValue(value);
+
+  collectStreamExecutionMetadata(value, state.execution);
+
+  if (value?.type === "message_marker" && value.marker === "cot_token") {
+    state.execution.reasoningObserved = true;
+    if (!state.thinkingReported) {
+      state.thinkingReported = true;
+      reportProgress?.({
+        state: "thinking",
+        detail: "ChatGPT reported reasoning activity."
+      });
+    }
+  }
+
+  if (value?.type === "message_marker" && value.marker === "final_channel_token") {
+    if (!state.respondingReported) {
+      state.respondingReported = true;
+      reportProgress?.({
+        state: "responding",
+        detail: "ChatGPT is generating the visible response."
+      });
+    }
+  }
+}
+
+function findConversationIdInValue(value) {
+  if (!value || typeof value !== "object") return null;
+  if (typeof value.conversation_id === "string" && value.conversation_id)
+    return value.conversation_id;
+  for (const nested of Object.values(value)) {
+    const found = findConversationIdInValue(nested);
+    if (found) return found;
+  }
+  return null;
+}
+
+function collectStreamExecutionMetadata(value, execution) {
+  if (!value || typeof value !== "object") return;
+
+  if (value?.content?.content_type === "reasoning_recap")
+    execution.reasoningObserved = true;
+
+  collectToolMetadata(value, execution);
+
+  const metadata = value.metadata;
+  if (metadata && typeof metadata === "object")
+    collectMetadataFields(metadata, execution);
+
+  if (value.type === "server_ste_metadata" && metadata) {
+    const experience = String(metadata.requested_model_experience || "").trim();
+    if (experience) execution.requestedModelExperience ??= experience;
+    const ttfvt = finiteNumber(metadata.server_ttfvt_ms);
+    if (ttfvt !== null) execution.serverTtfvtMs ??= ttfvt;
+  }
+
+  for (const nested of Object.values(value))
+    if (nested && typeof nested === "object")
+      collectStreamExecutionMetadata(nested, execution);
+}
+
+function collectToolMetadata(value, execution) {
+  const role = String(value?.author?.role || "").trim().toLowerCase();
+  const recipient = String(value?.recipient || "").trim();
+  const authorName = String(value?.author?.name || "").trim();
+  const metadata = value?.metadata || {};
+
+  if (role === "assistant" && recipient && recipient.toLowerCase() !== "all")
+    addExecutionTool(execution, recipient);
+  if (role === "tool" && authorName)
+    addExecutionTool(execution, authorName);
+
+  const metadataTool = String(metadata.tool_name || "").trim();
+  if (metadataTool && metadata.tool_invoked !== false)
+    addExecutionTool(execution, metadataTool);
+}
+
+function addExecutionTool(execution, tool) {
+  const value = String(tool || "").trim();
+  if (!value) return;
+  execution.tools ??= [];
+  if (!execution.tools.includes(value))
+    execution.tools.push(value);
+}
+
+function collectMetadataFields(metadata, execution) {
+  const model = String(
+    metadata.resolved_model_slug ||
+    metadata.model_slug ||
+    ""
+  ).trim();
+  const thinkingEffort = String(metadata.thinking_effort || "").trim();
+  const reasoningStatus = String(metadata.reasoning_status || "").trim();
+  const reasoningStart = finiteNumber(metadata.reasoning_start_time);
+  const reasoningEnd = finiteNumber(metadata.reasoning_end_time);
+
+  if (model) execution.model ??= model;
+  if (thinkingEffort) execution.thinkingEffort ??= thinkingEffort;
+  if (reasoningStatus) execution.reasoningStatus ??= reasoningStatus;
+  if (reasoningStatus || reasoningStart !== null || reasoningEnd !== null)
+    execution.reasoningObserved = true;
+  if (reasoningStart !== null)
+    execution.reasoningStart = execution.reasoningStart === undefined
+      ? reasoningStart
+      : Math.min(execution.reasoningStart, reasoningStart);
+  if (reasoningEnd !== null)
+    execution.reasoningEnd = execution.reasoningEnd === undefined
+      ? reasoningEnd
+      : Math.max(execution.reasoningEnd, reasoningEnd);
+}
+
+function mergeExecutionMetadata(target, source, authoritative = false) {
+  if (!source) return target;
+  if (source.model) {
+    if (authoritative) {
+      target.model = source.model;
+      target.thinkingEffort = source.thinkingEffort || null;
+    } else {
+      target.model ??= source.model;
+    }
+  }
+  if (!authoritative && source.thinkingEffort)
+    target.thinkingEffort ??= source.thinkingEffort;
+  if (source.reasoningStatus) target.reasoningStatus ??= source.reasoningStatus;
+  if (source.requestedModelExperience)
+    target.requestedModelExperience ??= source.requestedModelExperience;
+  if (source.serverTtfvtMs !== undefined)
+    target.serverTtfvtMs ??= source.serverTtfvtMs;
+  if (source.reasoningObserved)
+    target.reasoningObserved = true;
+  for (const tool of source.tools || [])
+    addExecutionTool(target, tool);
+
+  const start = finiteNumber(source.reasoningStart);
+  const end = finiteNumber(source.reasoningEnd);
+  if (start !== null)
+    target.reasoningStart = target.reasoningStart === undefined
+      ? start
+      : Math.min(target.reasoningStart, start);
+  if (end !== null)
+    target.reasoningEnd = target.reasoningEnd === undefined
+      ? end
+      : Math.max(target.reasoningEnd, end);
+  return target;
+}
+
+function finiteNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function completionDetail(execution) {
+  const facts = [];
+  if (execution?.model) facts.push(`served model ${execution.model}`);
+  if (execution?.requestedModel &&
+      execution?.model &&
+      execution.requestedModel !== execution.model)
+    facts.push(`requested model ${execution.requestedModel}`);
+  if (execution?.thinkingEffort) {
+    facts.push(`effort ${execution.thinkingEffort}`);
+  } else if (execution?.requestedThinkingEffort) {
+    facts.push(`requested effort ${execution.requestedThinkingEffort}, not confirmed by provider`);
+  }
+
+  const start = finiteNumber(execution?.reasoningStart);
+  const end = finiteNumber(execution?.reasoningEnd);
+  if (start !== null && end !== null && end >= start) {
+    facts.push(`reasoning ${(end - start).toFixed(1)}s`);
+  } else if (execution?.reasoningObserved) {
+    facts.push("reasoning observed");
+  }
+  if (execution?.tools?.length)
+    facts.push(`tools ${execution.tools.join(", ")}`);
+
+  return facts.length
+    ? `Model response received (${facts.join(", ")}).`
+    : "Model response received.";
 }
 
 async function completeAccountMessage(
@@ -394,7 +736,7 @@ async function completeAccountMessage(
   sleep,
   isNew,
   reportProgress,
-  retryTurn
+  execution
 ) {
   let result;
   try {
@@ -405,7 +747,7 @@ async function completeAccountMessage(
       requestMessageId,
       sleep,
       reportProgress,
-      retryTurn
+      execution
     );
   } catch (error) {
     if (!isNew && isConversationUnavailable(error, conversationId))
@@ -431,9 +773,9 @@ function conversationPreparePayload(payload) {
     conversation_id: payload.conversation_id,
     parent_message_id: payload.parent_message_id || "client-created-root",
     model: payload.model,
-    client_prepare_state: "success",
-    client_prepare_dispatch: "immediate",
-    client_prepare_source: "context_change",
+    client_prepare_state: "none",
+    client_prepare_dispatch: "debounced",
+    client_prepare_source: "composer_editor_state",
     timezone_offset_min: payload.timezone_offset_min,
     timezone: payload.timezone,
     conversation_mode: payload.conversation_mode || { kind: "primary_assistant" },
@@ -441,7 +783,9 @@ function conversationPreparePayload(payload) {
     partial_query: message ? {
       id: message.id,
       author: message.author,
-      content: message.content
+      content: message.content.content_type === "multimodal_text"
+        ? { content_type: "text", parts: message.content.parts.filter(part => typeof part === "string") }
+        : message.content
     } : undefined,
     supports_buffering: payload.supports_buffering,
     supported_encodings: payload.supported_encodings,
@@ -460,16 +804,56 @@ function conversationPreparePayload(payload) {
   return prepared;
 }
 
-async function getConduitToken(session, token, turnTraceId, body) {
-  const response = await apiJson(session, token, API.conversationPrepare, {
+async function initializeConversation(
+  session,
+  token,
+  projectId,
+  clientSessionId
+) {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const headers = await webApiHeaders(
+    session,
+    API.conversationInit,
+    clientSessionId,
+    {
+      "Accept": "*/*",
+      "Content-Type": "application/json"
+    }
+  );
+  return apiJson(session, token, API.conversationInit, {
     method: "POST",
-    headers: {
+    headers,
+    body: JSON.stringify({
+      gizmo_id: projectId,
+      requested_default_model: null,
+      conversation_id: null,
+      timezone,
+      timezone_offset_min: new Date().getTimezoneOffset(),
+      conversation_origin: null
+    })
+  });
+}
+
+async function getConduitToken(
+  session,
+  token,
+  turnTraceId,
+  body,
+  clientSessionId
+) {
+  const headers = await webApiHeaders(
+    session,
+    API.conversationPrepare,
+    clientSessionId,
+    {
       "Accept": "*/*",
       "Content-Type": "application/json",
-      "x-oai-turn-trace-id": turnTraceId,
-      "x-openai-target-path": API.conversationPrepare,
-      "x-openai-target-route": API.conversationPrepare
-    },
+      "x-oai-turn-trace-id": turnTraceId
+    }
+  );
+  const response = await apiJson(session, token, API.conversationPrepare, {
+    method: "POST",
+    headers,
     body: JSON.stringify(body)
   });
   const conduitToken = String(response?.conduit_token || "").trim();
@@ -478,191 +862,104 @@ async function getConduitToken(session, token, turnTraceId, body) {
   return conduitToken;
 }
 
-async function getSentinelToken(session, token, config) {
-  const prepared = await apiJson(session, token, API.requirementsPrepare, {
-    method: "POST",
-    headers: targetHeaders(API.requirementsPrepare),
-    body: JSON.stringify({ p: sentinelRequirementsToken(config) })
-  });
-  const prepareToken = String(prepared?.prepare_token || "").trim();
-  if (!prepareToken)
-    throw new Error("ChatGPT Sentinel prepare did not return a prepare token.");
-
-  const proofToken = prepared?.proofofwork?.required
-    ? sentinelProofToken(prepared.proofofwork, config)
-    : null;
-  const body = { prepare_token: prepareToken };
-  if (proofToken) body.proofofwork = proofToken;
-
-  const finalized = await apiJson(session, token, API.requirementsFinalize, {
-    method: "POST",
-    headers: targetHeaders(API.requirementsFinalize),
-    body: JSON.stringify(body)
-  });
-  const sentinelToken = String(finalized?.token || "").trim();
-  if (!sentinelToken)
-    throw new Error("ChatGPT Sentinel finalize did not return a token.");
-  return { token: sentinelToken, proofToken };
-}
-
-function targetHeaders(endpoint) {
-  return {
-    "Accept": "*/*",
-    "Content-Type": "application/json",
+async function webApiHeaders(session, endpoint, clientSessionId, extra = {}) {
+  const headers = {
+    "Oai-Language": "en-US",
+    "Oai-Session-Id": clientSessionId,
+    "x-openai-web-frontend": "core_web",
     "x-openai-target-path": endpoint,
-    "x-openai-target-route": endpoint
+    "x-openai-target-route": endpoint,
+    ...extra
   };
+  const deviceId = (
+    await session.cookies.get({ url: ORIGIN, name: "oai-did" })
+  )[0]?.value;
+  if (deviceId) headers["Oai-Device-Id"] = deviceId;
+  return headers;
 }
 
-function clientContext(window) {
-  const bounds = window?.getBounds?.() || {};
-  const width = Number(bounds.width) || 1200;
-  const height = Number(bounds.height) || 850;
+function clientContext() {
   return {
-    is_dark_mode: false,
-    time_since_loaded: 0,
-    page_height: height,
-    page_width: width,
-    pixel_ratio: 1,
-    screen_height: height,
-    screen_width: width,
     app_name: "chatgpt.com",
-    has_web_push_capabilities: true,
+    has_web_push_capabilities: false,
     web_push_notification_permission: "default"
   };
 }
 
-function sentinelConfig(window) {
-  const userAgent = window?.webContents?.getUserAgent?.() || "Mozilla/5.0";
-  return [
-    3000,
-    new Date().toString(),
-    4294705152,
-    0,
-    userAgent,
-    "",
-    "",
-    "en-US",
-    "en-US,en",
-    0,
-    "vendor−Google Inc.",
-    "location",
-    "navigator",
-    0,
-    randomUUID(),
-    "",
-    8,
-    Date.now()
-  ];
-}
+async function nativeChatRequirementsHeaders(window, session, token) {
+  const accountId = accountIds.get(session) || null;
+  const script = `
+    (async () => {
+      const providerCacheKey = Symbol.for("mezhs.chatgpt.nativeRequirementsProvider");
+      const resources = performance.getEntriesByType("resource");
+      const runtimeUrl = resources
+        .map(entry => String(entry.name || ""))
+        .find(url => /^https:\\/\\/chatgpt\\.com\\/cdn\\/assets\\/633146\\.[a-f0-9]+\\.js(?:[?#].*)?$/i.test(url));
 
-function sentinelRequirementsToken(config) {
-  return solveSentinelProof(String(Math.random()), "0fffff", config, "gAAAAAC");
-}
+      // Resource Timing can be cleared or truncated without unloading the page.
+      // Keep only the verified function for this renderer document, not credentials
+      // or challenge results. A real page navigation resets globalThis.
+      let provider = globalThis[providerCacheKey];
+      if (runtimeUrl) {
+        const runtime = await import(runtimeUrl);
+        provider = runtime?.__webpack_require__?.c?.lXE?.exports?.f;
+        if (typeof provider === "function" && provider.length === 1)
+          globalThis[providerCacheKey] = provider;
+      }
+      if (typeof provider !== "function" || provider.length !== 1) {
+        throw new Error(runtimeUrl
+          ? "ChatGPT native requirements provider lXE.f is unavailable."
+          : "ChatGPT native requirements provider was not observed in this document " +
+            "(resourceEntries=" + resources.length + ", cachedProvider=false).");
+      }
 
-function sentinelProofToken(challenge, config) {
-  const seed = String(challenge?.seed || "");
-  const difficulty = String(challenge?.difficulty || "");
-  if (!seed || !/^[0-9a-f]+$/i.test(difficulty) || difficulty.length % 2)
-    throw new Error("ChatGPT returned an invalid Sentinel proof-of-work challenge.");
-  return solveSentinelProof(seed, difficulty, config, "gAAAAAB");
-}
+      const prepared = await provider(async requirementsKey => {
+        const response = await fetch("/backend-api/sentinel/chat-requirements/prepare", {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Authorization": "Bearer " + ${JSON.stringify(token)},
+            ...(${JSON.stringify(accountId)} ? {
+              "ChatGPT-Account-Id": ${JSON.stringify(accountId)}
+            } : {}),
+            "Content-Type": "application/json",
+            "OAI-Language": "en-US"
+          },
+          body: JSON.stringify({ p: requirementsKey })
+        });
+        if (!response.ok)
+          throw new Error("ChatGPT requirements prepare failed with HTTP " + response.status);
+        return response.json();
+      });
+      return {
+        forceLogin: prepared?.chatRequirements?.force_login === true,
+        headers: prepared?.headers || null
+      };
+    })()
+  `;
+  const result = await window.webContents.executeJavaScript(script, true);
+  if (result?.forceLogin)
+    throw new Error("ChatGPT native chat requirements require login.");
 
-function solveSentinelProof(seed, difficulty, config, prefix) {
-  const target = Buffer.from(difficulty, "hex");
-  for (let counter = 0; counter < 500000; counter++) {
-    const candidate = [...config];
-    candidate[3] = counter;
-    candidate[9] = counter >> 1;
-    const encoded = Buffer.from(JSON.stringify(candidate)).toString("base64");
-    const digest = sha3_512(Buffer.from(seed + encoded));
-    if (digest.subarray(0, target.length).compare(target) < 0)
-      return prefix + encoded;
+  const allowed = new Set([
+    "openai-sentinel-chat-requirements-token",
+    "openai-sentinel-chat-requirements-prepare-token",
+    "openai-sentinel-proof-token",
+    "openai-sentinel-turnstile-token"
+  ]);
+  const headers = {};
+  for (const [name, value] of Object.entries(result?.headers || {})) {
+    if (!allowed.has(name.toLowerCase())) continue;
+    if (typeof value !== "string" || /[\r\n]/.test(value))
+      throw new Error("ChatGPT native requirements returned an invalid header.");
+    if (value) headers[name] = value;
   }
-  throw new Error("ChatGPT Sentinel proof-of-work could not be solved.");
-}
-
-const KECCAK_MASK = (1n << 64n) - 1n;
-const KECCAK_ROTATION = [
-  0, 1, 62, 28, 27,
-  36, 44, 6, 55, 20,
-  3, 10, 43, 25, 39,
-  41, 45, 15, 21, 8,
-  18, 2, 61, 56, 14
-];
-const KECCAK_ROUND_CONSTANTS = [
-  0x0000000000000001n, 0x0000000000008082n, 0x800000000000808an,
-  0x8000000080008000n, 0x000000000000808bn, 0x0000000080000001n,
-  0x8000000080008081n, 0x8000000000008009n, 0x000000000000008an,
-  0x0000000000000088n, 0x0000000080008009n, 0x000000008000000an,
-  0x000000008000808bn, 0x800000000000008bn, 0x8000000000008089n,
-  0x8000000000008003n, 0x8000000000008002n, 0x8000000000000080n,
-  0x000000000000800an, 0x800000008000000an, 0x8000000080008081n,
-  0x8000000000008080n, 0x0000000080000001n, 0x8000000080008008n
-];
-
-function sha3_512(input) {
-  const rate = 72;
-  const state = new Array(25).fill(0n);
-  let offset = 0;
-
-  while (offset + rate <= input.length) {
-    absorbKeccakBlock(state, input.subarray(offset, offset + rate));
-    offset += rate;
+  if (!Object.keys(headers).some(name =>
+    name.toLowerCase() === "openai-sentinel-chat-requirements-token" ||
+    name.toLowerCase() === "openai-sentinel-chat-requirements-prepare-token")) {
+    throw new Error("ChatGPT native chat requirements did not produce a requirements token.");
   }
-
-  const block = Buffer.alloc(rate);
-  input.copy(block, 0, offset);
-  block[input.length - offset] = 0x06;
-  block[rate - 1] |= 0x80;
-  absorbKeccakBlock(state, block);
-
-  const output = Buffer.alloc(64);
-  for (let index = 0; index < output.length; index++)
-    output[index] = Number((state[Math.floor(index / 8)] >> BigInt(8 * (index % 8))) & 0xffn);
-  return output;
-}
-
-function absorbKeccakBlock(state, block) {
-  for (let lane = 0; lane < 9; lane++) {
-    let value = 0n;
-    for (let byte = 0; byte < 8; byte++)
-      value |= BigInt(block[lane * 8 + byte]) << BigInt(byte * 8);
-    state[lane] ^= value;
-  }
-  keccakF1600(state);
-}
-
-function keccakF1600(state) {
-  for (const roundConstant of KECCAK_ROUND_CONSTANTS) {
-    const column = new Array(5);
-    const delta = new Array(5);
-    for (let x = 0; x < 5; x++)
-      column[x] = state[x] ^ state[x + 5] ^ state[x + 10] ^ state[x + 15] ^ state[x + 20];
-    for (let x = 0; x < 5; x++)
-      delta[x] = column[(x + 4) % 5] ^ rotateKeccak(column[(x + 1) % 5], 1);
-    for (let y = 0; y < 5; y++)
-      for (let x = 0; x < 5; x++)
-        state[x + 5 * y] ^= delta[x];
-
-    const rotated = new Array(25).fill(0n);
-    for (let y = 0; y < 5; y++)
-      for (let x = 0; x < 5; x++)
-        rotated[y + 5 * ((2 * x + 3 * y) % 5)] =
-          rotateKeccak(state[x + 5 * y], KECCAK_ROTATION[x + 5 * y]);
-
-    for (let y = 0; y < 5; y++)
-      for (let x = 0; x < 5; x++)
-        state[x + 5 * y] = rotated[x + 5 * y] ^
-          ((~rotated[(x + 1) % 5 + 5 * y]) & rotated[(x + 2) % 5 + 5 * y]);
-    state[0] ^= roundConstant;
-  }
-}
-
-function rotateKeccak(value, bits) {
-  if (!bits) return value;
-  const shift = BigInt(bits);
-  return ((value << shift) | (value >> (64n - shift))) & KECCAK_MASK;
+  return headers;
 }
 
 async function accessToken(session) {
@@ -694,18 +991,29 @@ async function requireToken(session) {
   return token;
 }
 
+const INTEGRITY_STATE_COOKIE = "__Secure-oai-is";
+const INTEGRITY_STATE_PATTERN =
+  /^ois1\.[A-Za-z0-9_-]+\.([A-Za-z0-9_-]{16})\.[A-Za-z0-9_-]+$/;
+const INTEGRITY_STATE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+
 async function apiFetch(session, token, endpoint, options = {}) {
   const accountId = accountIds.get(session);
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
+    ...(options["headers"] || {})
+  };
+  headers["X-OAI-IS-Client-Observation"] =
+    await integrityStateObservation(session);
+
   const response = await session.fetch(ORIGIN + endpoint, {
     ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
-      ...(options["headers"] || {})
-    },
+    headers,
     credentials: "include",
     cache: "no-store"
   });
+  await applyIntegrityStateUpdate(session, response.headers);
+
   if (response.ok) return response;
 
   const detail = (await response.text()).slice(0, 1000);
@@ -719,6 +1027,39 @@ async function apiFetch(session, token, endpoint, options = {}) {
     }
   );
   throw error;
+}
+
+async function integrityStateObservation(session) {
+  try {
+    const cookies = await session.cookies.get({
+      url: ORIGIN,
+      name: INTEGRITY_STATE_COOKIE
+    });
+    const value = String(cookies?.[0]?.value || "").trim();
+    if (!value) return "v1.r.m";
+    const match = INTEGRITY_STATE_PATTERN.exec(value);
+    return match
+      ? `v1.r.p.${match[1]}`
+      : "v1.r.i";
+  } catch {
+    return "v1.r.r";
+  }
+}
+
+async function applyIntegrityStateUpdate(session, headers) {
+  const update = String(headers?.get?.("x-oai-is-update") || "").trim();
+  if (!INTEGRITY_STATE_PATTERN.test(update) || !session.cookies?.set)
+    return;
+
+  await session.cookies.set({
+    url: ORIGIN,
+    name: INTEGRITY_STATE_COOKIE,
+    value: update,
+    path: "/",
+    secure: true,
+    sameSite: "lax",
+    expirationDate: Date.now() / 1000 + INTEGRITY_STATE_MAX_AGE_SECONDS
+  });
 }
 
 function parseRetryAfterMs(value) {
@@ -742,46 +1083,160 @@ async function apiJson(session, token, endpoint, options = {}) {
   return text ? JSON.parse(text) : null;
 }
 
-async function uploadFiles(session, token, files) {
-  const result = [];
-  for (const file of files) {
+function imageDimensions(bytes, contentType) {
+  if (contentType === 'image/png' && bytes.length >= 24 &&
+      bytes.toString('ascii', 1, 4) === 'PNG')
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  if (contentType === 'image/gif' && bytes.length >= 10 &&
+      bytes.toString('ascii', 0, 3) === 'GIF')
+    return { width: bytes.readUInt16LE(6), height: bytes.readUInt16LE(8) };
+  if (contentType === 'image/jpeg' && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    for (let i = 2; i + 9 < bytes.length;) {
+      if (bytes[i] !== 0xff) break;
+      const marker = bytes[i + 1];
+      if (marker === 0xda || marker === 0xd9) break;
+      const length = bytes.readUInt16BE(i + 2);
+      if (length < 2) break;
+      if ([0xc0, 0xc1, 0xc2, 0xc3].includes(marker) && i + 9 < bytes.length)
+        return { width: bytes.readUInt16BE(i + 7), height: bytes.readUInt16BE(i + 5) };
+      i += 2 + length;
+    }
+  }
+  if (contentType === 'image/webp' && bytes.length >= 30 &&
+      bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') {
+    const kind = bytes.toString('ascii', 12, 16);
+    if (kind === 'VP8X')
+      return { width: 1 + bytes.readUIntLE(24, 3), height: 1 + bytes.readUIntLE(27, 3) };
+    if (kind === 'VP8 ')
+      return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff };
+    if (kind === 'VP8L' && bytes[20] === 0x2f)
+      return { width: 1 + (((bytes[22] & 0x3f) << 8) | bytes[21]),
+        height: 1 + (((bytes[24] & 0x0f) << 10) | (bytes[23] << 2) | (bytes[22] >> 6)) };
+  }
+  return null;
+}
+
+async function uploadFile(session, token, file) {
     const bytes = await fs.readFile(file.path);
-    const contentType = String(file.contentType || "application/octet-stream");
-    const upload = await apiJson(session, token, API.files, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    const contentType = String(file.contentType || 'application/octet-stream');
+    const dimensions = imageDimensions(bytes, contentType);
+    const useCase = contentType.startsWith('image/') ? 'multimodal' : 'my_files';
+    const created = await apiJson(session, token, API.files, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         file_name: file.name,
         file_size: bytes.length,
-        use_case: contentType.startsWith("image/") ? "multimodal" : "my_files"
+        use_case: useCase,
+        mime_type: contentType,
+        entry_surface: 'chat_composer',
+        timezone_offset_min: new Date().getTimezoneOffset()
       })
     });
-    const put = await session.fetch(upload.upload_url, {
-      method: "PUT",
-      headers: { "Content-Type": contentType, "x-ms-blob-type": "BlockBlob" },
+    if (created?.status === 'error' || !created?.file_id || !created?.upload_url)
+      throw new Error('ChatGPT did not provide a usable file upload destination.');
+
+    const strategy = created.direct_library_upload_strategy;
+    if (strategy?.kind === 'direct_azure_multipart' && strategy.part_count >= 2)
+      throw new Error('ChatGPT multipart file uploads are not supported by this integration.');
+    const destination = new URL(created.upload_url);
+    if (/^\/(?:backend-)?api\/estuary\//i.test(destination.pathname))
+      throw new Error('ChatGPT estuary file uploads are not supported by this integration.');
+    if (destination.protocol !== 'https:')
+      throw new Error('ChatGPT file upload destination must use HTTPS.');
+    const transferred = await session.fetch(destination.href, {
+      method: 'PUT',
+      credentials: 'omit',
+      headers: {
+        'Content-Type': contentType,
+        // Azure-backed signed destinations can have custom hostnames.
+        'x-ms-blob-type': 'BlockBlob',
+        'x-ms-version': '2020-04-08',
+        ...(created.upload_headers || {})
+      },
       body: bytes
     });
-    if (!put.ok) throw new Error(`ChatGPT file upload failed with HTTP ${put.status}.`);
-    await apiJson(session, token, API.fileUploaded(upload.file_id), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}"
-    });
-    result.push({ id: upload.file_id, name: file.name, contentType, size: bytes.length });
-  }
-  return result;
-}
+    if (!transferred.ok) {
+      // Log only validated storage error codes; signed upload URLs and response bodies are private.
+      const code = transferred.headers?.get('x-ms-error-code');
+      const safeCode = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(code || '') ? ' (' + code + ')' : '';
+      throw new Error('ChatGPT file transfer failed with HTTP ' + transferred.status + safeCode + '.');
+    }
 
-function findConversationId(text) {
-  for (const value of text.split(/\r?\n/)) {
-    const json = value.startsWith("data:") ? value.slice(5).trim() : value.trim();
-    if (!json || json === "[DONE]") continue;
-    try {
-      const id = JSON.parse(json)?.conversation_id;
-      if (id) return id;
-    } catch { }
-  }
-  return null;
+    // Match the current frontend: processing stream, not /files/{id}/uploaded.
+    const processed = await apiFetch(session, token, API.processFileUpload, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_id: created.file_id,
+        use_case: useCase,
+        index_for_retrieval: useCase === 'my_files',
+        file_name: file.name,
+        entry_surface: 'chat_composer',
+        mime_type: contentType
+      })
+    });
+    const processingBody = await processed.text();
+    const rawType = String(processed.headers?.get?.('content-type') || '').split(';')[0].trim().toLowerCase();
+    const safeType = ['text/event-stream', 'application/json', 'application/x-ndjson', 'text/plain'].includes(rawType) ? rawType : 'other';
+    const trimmedBody = processingBody.trim();
+    const bodyShape = !trimmedBody ? 'empty' : /^(data:|event:)/.test(trimmedBody) ? 'sse' : trimmedBody.startsWith('{') ? 'json-object' : trimmedBody.startsWith('[') ? 'json-array' : 'other';
+    const safeState = value => {
+      if (typeof value !== 'string') return 'absent';
+      if (/^(?:pending|processing|started|in_progress|uploaded|ready|completed|complete|done|success|failed|error|cancelled|file_ready)$/.test(value)) return value;
+      if (/^file[._-](?:processing|upload)[._-][a-z0-9_.-]{1,60}$/i.test(value)) return value;
+      return 'other';
+    };
+    const jsonLines = processingBody.split(String.fromCharCode(10)).filter(line => line.trim());
+    const allowedKeys = ['event', 'type', 'status', 'file_id', 'id', 'data', 'payload', 'result', 'error', 'message', 'progress', 'files'];
+    const lineObservations = jsonLines.slice(0, 8).map(raw => {
+      const line = raw.trim();
+      if (line.startsWith('data:') || line.startsWith('event:')) return 'sse';
+      let obj;
+      try { obj = JSON.parse(line); } catch { return 'non-json'; }
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return 'non-object-json';
+      const keys = allowedKeys.filter(key => Object.prototype.hasOwnProperty.call(obj, key));
+      const nested = [obj.data, obj.payload, obj.result].find(x => x && typeof x === 'object' && !Array.isArray(x));
+      const nestedKeys = nested ? allowedKeys.filter(key => Object.prototype.hasOwnProperty.call(nested, key)) : [];
+      return 'object(keys=' + (keys.join('|') || 'none') + ',event=' + safeState(obj.event) + ',type=' + safeState(obj.type) + ',status=' + safeState(obj.status) + ',nestedKeys=' + (nestedKeys.join('|') || 'none') + ',nestedStatus=' + safeState(nested?.status) + ')';
+    });
+    let jsonStatus = 'none';
+    if (bodyShape === 'json-object') {
+      try {
+        const parsed = JSON.parse(trimmedBody);
+        if (typeof parsed?.status === 'string' && /^[A-Za-z][A-Za-z0-9._-]{0,39}$/.test(parsed.status)) jsonStatus = parsed.status;
+      } catch { jsonStatus = 'invalid-json'; }
+    }
+    let ready = false;
+    let failed = false;
+    const observations = [];
+    let invalidJsonFrames = 0;
+    let frameEvent = '';
+    for (const raw of processingBody.split(String.fromCharCode(10))) {
+      const line = raw.trim();
+      if (line.startsWith('event:')) frameEvent = line.slice(6).trim();
+      const sseData = line.startsWith('data:');
+      // The live processing endpoint emits bare newline-delimited JSON despite its SSE content type.
+      if (!sseData && !line.startsWith('{')) continue;
+      let event;
+      try { event = JSON.parse(sseData ? line.slice(5).trim() : line); } catch { invalidJsonFrames++; continue; }
+      const eventName = event?.event || (sseData ? frameEvent : '');
+      if (observations.length < 8) {
+        const safeName = typeof eventName === 'string' && /^[A-Za-z][A-Za-z0-9._-]{0,79}$/.test(eventName) ? eventName : 'unnamed';
+        const idState = value => value == null ? 'absent' : value === created.file_id ? 'match' : 'different';
+        const nested = event?.data && typeof event.data === 'object' ? event.data : null;
+        observations.push(safeName + '(topId=' + idState(event?.file_id) + ',dataId=' + idState(nested?.file_id) + ')');
+      }
+      if (event?.file_id !== created.file_id || typeof eventName !== 'string') continue;
+      if (eventName.endsWith('.error') || eventName.endsWith('.failed') ||
+          eventName.endsWith('.cancelled') || eventName.endsWith('.unknown')) failed = true;
+      if (eventName === 'file.processing.completed' ||
+          eventName === 'file.processing.file_ready') ready = true;
+    }
+    if (failed || !ready)
+      throw new Error('ChatGPT file processing did not confirm success (HTTP ' + processed.status + '; type=' + safeType + '; size=' + Buffer.byteLength(processingBody) + '; shape=' + bodyShape + '; jsonStatus=' + jsonStatus + '; lines=' + jsonLines.length + '; samples=' + (lineObservations.join(', ') || 'none') + '; events=' + (observations.join(', ') || 'none') + '; invalidJsonFrames=' + invalidJsonFrames + ').');
+    return { id: created.file_id, name: file.name, contentType, size: bytes.length,
+      ...(dimensions || {}) };
 }
 
 async function waitForConversation(
@@ -791,13 +1246,12 @@ async function waitForConversation(
   requestMessageId,
   sleep,
   reportProgress,
-  retryTurn
+  execution
 ) {
   const endpoint = API.conversationById(conversationId);
   let consecutiveRateLimits = 0;
   let inactiveWaitMs = 0;
   let lastProgressKey = null;
-  let retries = 0;
 
   while (true) {
     let conversation;
@@ -828,9 +1282,13 @@ async function waitForConversation(
 
     const turn = inspectConversationTurn(conversation, requestMessageId);
     if (turn.reply) {
+      mergeExecutionMetadata(execution, turn.reply.execution, true);
+      if (execution.model)
+        turn.reply.model = modelSelectionId(execution.model, execution.thinkingEffort);
+      turn.reply.execution = execution;
       reportProgress?.({
         state: "completed",
-        detail: "Model response received.",
+        detail: completionDetail(execution),
         analysis: turn.analysis
       });
       return turn.reply;
@@ -851,20 +1309,9 @@ async function waitForConversation(
     if (turn.active || progressObserved) {
       inactiveWaitMs = 0;
     } else if (inactiveWaitMs >= TURN_INACTIVITY_WATCHDOG_MS) {
-      if (retries >= TURN_RECOVERY_RETRY_LIMIT)
-        throw new Error(
-          `ChatGPT showed no active generation for ${TURN_INACTIVITY_WATCHDOG_MS / 1000}s after the automatic retry.`
-        );
-
-      requestMessageId = await retryTurn();
-      retries++;
-      inactiveWaitMs = 0;
-      lastProgressKey = null;
-      reportProgress?.({
-        state: "waiting",
-        detail: "Prompt reposted; waiting for model activity."
-      });
-      continue;
+      throw new Error(
+        `ChatGPT showed no active generation for ${TURN_INACTIVITY_WATCHDOG_MS / 1000}s after the native request completed.`
+      );
     }
 
     await sleep(CONVERSATION_POLL_INTERVAL_MS);
@@ -908,7 +1355,7 @@ function inspectConversationTurn(conversation, requestMessageId) {
         if (text) analysis.push(text);
       }
       if (!inProgress && message.status === "in_progress")
-        inProgress = { channel };
+        inProgress = { channel, reasoning: hasReasoningMetadata(message) };
     }
 
     node = mapping[node.parent];
@@ -927,7 +1374,7 @@ function inspectConversationTurn(conversation, requestMessageId) {
   }
 
   if (inProgress) {
-    const thinking = inProgress.channel === "analysis";
+    const thinking = inProgress.channel === "analysis" || inProgress.reasoning;
     return {
       reply: null,
       active: true,
@@ -982,24 +1429,26 @@ function findVisibleAssistantReply(conversation, requestMessageId) {
   let node = mapping[conversation?.current_node];
   let assistant = null;
   const files = new Map();
+  const execution = {};
 
   while (node) {
     const message = node.message;
+    collectConversationExecutionMetadata(message, execution);
+
     if (message?.id === requestMessageId) {
       if (!assistant) return null;
-      const assistantModel = String(
-        assistant.metadata?.resolved_model_slug ||
-        assistant.metadata?.model_slug ||
-        ""
-      ).trim() || null;
       const requestResolvedModel = String(
         message.metadata?.resolved_model_slug || ""
       ).trim() || null;
+      const resolvedModel = execution.model || requestResolvedModel;
       return {
-        text: visibleAssistantText(assistant),
+        text: citedAssistantText(assistant),
         parentMessageId: assistant.id,
         projectId: conversation.gizmo_id || null,
-        model: assistantModel || requestResolvedModel,
+        model: resolvedModel
+          ? modelSelectionId(resolvedModel, execution.thinkingEffort)
+          : null,
+        execution,
         files
       };
     }
@@ -1011,6 +1460,25 @@ function findVisibleAssistantReply(conversation, requestMessageId) {
   }
 
   return null;
+}
+
+function collectConversationExecutionMetadata(message, execution) {
+  if (!message) return;
+  collectToolMetadata(message, execution);
+  if (message?.author?.role !== "assistant") return;
+  collectMetadataFields(message.metadata || {}, execution);
+  if (message?.content?.content_type === "reasoning_recap")
+    execution.reasoningObserved = true;
+}
+
+function hasReasoningMetadata(message) {
+  const metadata = message?.metadata || {};
+  return Boolean(
+    message?.content?.content_type === "reasoning_recap" ||
+    String(metadata.reasoning_status || "").trim() ||
+    finiteNumber(metadata.reasoning_start_time) !== null ||
+    finiteNumber(metadata.reasoning_end_time) !== null
+  );
 }
 
 function isVisibleAssistantMessage(message) {
@@ -1038,6 +1506,27 @@ function visibleAssistantText(message) {
   return (message?.content?.parts || [])
     .filter(part => typeof part === "string")
     .join("\n")
+    .trim();
+}
+
+function citedAssistantText(message) {
+  let text = visibleAssistantText(message);
+  // ChatGPT embeds citation glyphs in text and provides their rendered
+  // Markdown equivalents in metadata.content_references.
+  const references = message?.metadata?.content_references;
+  for (const reference of Array.isArray(references) ? references : []) {
+    const marker = reference?.matched_text;
+    const replacement = reference?.alt;
+    if (typeof marker !== "string" || !/[\uE200-\uE203]/.test(marker) ||
+        typeof replacement !== "string" || !marker)
+      continue;
+    text = text.split(marker).join(replacement);
+  }
+
+  // Keep missing citations visible as unresolved, never invent a source URL.
+  return text
+    .replace(/\uE200cite\uE202[^\uE201]*\uE201/g, "[citation unavailable]")
+    .replace(/\uE200memcite\uE201/g, "")
     .trim();
 }
 

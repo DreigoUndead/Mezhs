@@ -171,8 +171,17 @@ public sealed class AgentWorker : BackgroundService
             var includePolicyInstructions = previouslyOwnedAgentChat is null || !hasCompletedAgentHistory;
             AgentPrompt nextPrompt;
 
-            if (recovering && await RecoverReplyAsync(existingMessages, cancellation.Token) is { } recoveredReply)
+            // Scope recovery to this execution's first turn. Earlier chat history is unrelated.
+            var executionMessages = existingMessages
+                .OrderBy(message => message.CreatedAt)
+                .ThenBy(message => message.MessageId, StringComparer.Ordinal)
+                .SkipWhile(message => message.Role != "user" || !message.Content.StartsWith(
+                    $"[MEŽS AGENT EXECUTION {executionId}]", StringComparison.Ordinal))
+                .ToArray();
+            if (recovering && executionMessages.Length > 0)
             {
+                var recoveredReply = RecoverReply(executionMessages)
+                    ?? throw new InvalidOperationException("Existing execution has no recoverable reply; refusing duplicate submission.");
                 var recovered = await ProcessReplyAsync(
                     execution,
                     policy,
@@ -198,7 +207,9 @@ public sealed class AgentWorker : BackgroundService
                         Content: nextPrompt.Content,
                         ConnectionId: execution.ConnectionId,
                         ChatId: chatId,
-                        Origin: nextPrompt.Origin),
+                        Origin: nextPrompt.Origin,
+                        Model: execution.Model,
+                        FileIds: nextPrompt.FileIds),
                     cancellation.Token);
 
                 var processed = await ProcessReplyAsync(
@@ -233,9 +244,8 @@ public sealed class AgentWorker : BackgroundService
         }
     }
 
-    private async Task<RecoveredReply?> RecoverReplyAsync(
-        IReadOnlyList<ApiChatHistoryMessage> messages,
-        CancellationToken cancellationToken)
+    private static RecoveredReply? RecoverReply(
+        IReadOnlyList<ApiChatHistoryMessage> messages)
     {
         var latest = messages
             .OrderBy(message => message.CreatedAt)
@@ -246,7 +256,7 @@ public sealed class AgentWorker : BackgroundService
 
         if (string.Equals(latest.Role, "assistant", StringComparison.OrdinalIgnoreCase))
         {
-            if (latest.Status is MessageStatus.Failed or MessageStatus.Cancelled)
+            if (latest.Status != MessageStatus.Completed)
                 throw new InvalidOperationException(latest.Error ?? $"Latest assistant message ended as {latest.Status}.");
             return new RecoveredReply(latest.MessageId, latest.Content);
         }
@@ -254,8 +264,9 @@ public sealed class AgentWorker : BackgroundService
         if (!string.Equals(latest.Role, "user", StringComparison.OrdinalIgnoreCase))
             return null;
 
-        var reply = await _messages.WaitForReplyAsync(latest.MessageId, cancellationToken);
-        return new RecoveredReply(reply.MessageId, reply.Content);
+        // The sender queue is not durable. An outstanding message may have reached the provider.
+        throw new InvalidOperationException(
+            $"Agent message '{latest.MessageId}' has no recovered assistant reply; provider acceptance is uncertain. Not resubmitting.");
     }
 
     private async Task<ReplyProcessing> ProcessReplyAsync(

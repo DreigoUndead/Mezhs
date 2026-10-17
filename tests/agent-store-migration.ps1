@@ -61,6 +61,9 @@ using (var connection = new SqliteConnection($"Data Source={databasePath}"))
     command.Parameters.AddWithValue("$executionId", execution.ExecutionId);
     if (command.ExecuteNonQuery() != 1)
         throw new InvalidOperationException("Could not seed Interrupted legacy status.");
+    command.Parameters.Clear();
+    command.CommandText = "ALTER TABLE Executions DROP COLUMN FileIdsJson;";
+    command.ExecuteNonQuery();
 }
 
 // Opening an old database with the current store must migrate persisted enum values
@@ -77,6 +80,31 @@ if (migrated.Error != "legacy restart interruption")
 if (migrated.CompletedAt is null)
     throw new InvalidOperationException("Legacy completion timestamp was not preserved.");
 
+if (migrated.FileIds.Count != 0)
+    throw new InvalidOperationException("Migrated legacy execution unexpectedly had attachment IDs.");
+
+var expectedFileIds = new[] { "file_first", "file_second" };
+var withFiles = store.TryCreateRootExecution(
+    "test-policy",
+    "test-connection",
+    chatId: null,
+    source: "manual",
+    sourceReference: null,
+    request: "execution with attachments",
+    environment: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+    policySnapshot: "snapshot",
+    maxOutstandingExecutions: 2,
+    fileIds: expectedFileIds)
+    ?? throw new InvalidOperationException("Could not create execution with attachments.");
+
+store = new AgentStore(options);
+store.Initialize();
+var restored = store.GetExecution(withFiles.ExecutionId)
+    ?? throw new InvalidOperationException("Execution with attachments was not restored.");
+if (!restored.FileIds.SequenceEqual(expectedFileIds))
+    throw new InvalidOperationException("Attachment IDs were not durable across database reopening.");
+
+Console.WriteLine("PASS: FileIdsJson upgrades old execution rows and persists new attachment IDs.");
 Console.WriteLine("PASS: legacy Agent Interrupted status migrates to Failed without losing terminal evidence.");
 '@ | Set-Content -LiteralPath $programPath -Encoding UTF8
 

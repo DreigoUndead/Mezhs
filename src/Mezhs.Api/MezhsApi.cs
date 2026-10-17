@@ -5,6 +5,7 @@ using Mezhs.Integrations;
 using Mezhs.Models;
 using Mezhs.Services;
 using Microsoft.AspNetCore.Mvc;
+using System.Net;
 
 namespace Mezhs;
 
@@ -73,37 +74,33 @@ public static class MezhsApi
         });
 
         app.MapPost("/v1/files", async (
-            HttpRequest request,
+            HttpContext context,
+            LocalFileUploadRequest request,
             IntegrationRegistry integrations,
             FileStore files,
             CancellationToken cancellationToken) =>
         {
-            if (!request.HasFormContentType)
-                return Results.BadRequest(new { error = "multipart/form-data is required." });
-
-            var form = await request.ReadFormAsync(cancellationToken);
-            var connectionId = form["connectionId"].ToString();
-            if (string.IsNullOrWhiteSpace(connectionId))
-                return Results.BadRequest(new { error = "connectionId is required." });
-            var integration = integrations.Get(connectionId);
-            if (!integration.Capabilities.FileInput)
-                return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support file input." });
-            var upload = form.Files.GetFile("file");
-            if (upload is null)
-                return Results.BadRequest(new { error = "file is required." });
-            if (upload.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) &&
-                !integration.Capabilities.ImageInput)
-                return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support image input." });
-
-            await using var content = upload.OpenReadStream();
-            var file = await files.CreateAsync(
-                connectionId,
-                upload.FileName,
-                upload.ContentType,
-                content,
-                FileSource.User,
-                cancellationToken);
-            return Results.Created($"/v1/files/{file.FileId}", FileStore.ToApi(file));
+            // A host path must never be exposed to remote callers or web origins.
+            if (context.Connection.RemoteIpAddress is not { } address ||
+                !IPAddress.IsLoopback(address) ||
+                (context.Request.Headers.Origin is { Count: > 0 } origins &&
+                 (!Uri.TryCreate(origins.ToString(), UriKind.Absolute, out var origin) || !origin.IsLoopback)))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            if (string.IsNullOrWhiteSpace(request.Path))
+                return Results.BadRequest(new { error = "path is required." });
+            var integration = integrations.Get(request.ConnectionId);
+            if (!integration.Capabilities.FileInput || integration.Files is null)
+                return Results.BadRequest(new { error = "This integration does not support uploads." });
+            try
+            {
+                var uploaded = await integration.Files.UploadFileAsync(request.Path, cancellationToken);
+                var file = files.Register(request.ConnectionId, uploaded);
+                return Results.Ok(FileStore.ToApi(file));
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                return Results.BadRequest(new { error = exception.Message });
+            }
         });
 
         app.MapGet("/v1/files/{fileId}", (string fileId, FileStore files) =>
@@ -122,6 +119,7 @@ public static class MezhsApi
             var file = files.Get(fileId);
             if (file is null)
                 return Results.NotFound(new { error = $"File '{fileId}' was not found." });
+            if (file.Source == FileSource.User) return Results.NotFound();
             return Results.File(
                 files.GetContentPath(file),
                 file.ContentType,
@@ -229,3 +227,5 @@ public static class MezhsApi
         return app;
     }
 }
+
+public sealed record LocalFileUploadRequest(string ConnectionId, string Path);
