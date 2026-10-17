@@ -56,7 +56,9 @@ A 200 from preparation/finalization means the request completed, **not** that gu
 | --- | --- | --- |
 | ChatGPT account JS adapter | `integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts` | Auth, model/preset, conduit and native requirements, semantic submission, conversation polling, citations |
 | Account .NET wrapper | `integrations/Mezhs.Integrations.ChatGpt/ChatGptIntegration.cs` | Connection/session, transport requests and results |
-| Electron window and CDP | `electron/main.js` | Logged-in renderer, browser session, passive request trace, diagnostic inspection |
+| Electron window and transport | `electron/main.js` | Logged-in renderer, browser session and explicit provider/diagnostic dispatch |
+| Electron browser diagnostics | `electron/diagnostics.js` | Generic CDP observation, snapshots, input and screenshots |
+| ChatGPT-only Rspack diagnostics | `electron/chatgpt-rspack-diagnostics.js` | Historical frontend export inspection (diagnostic only) |
 | Diagnostics allowlist | `src/Mezhs.Integration.Browser/BrowserDiagnosticsModule.cs` | Exposes bounded browser diagnostic operations |
 | Agent command grammar | `src/Mezhs.Agent.Api/Commands/Parser.cs` | `SH` and `DONE`, including exact escaped DONE |
 | Agent/Executor | `src/Mezhs.Agent.Api`, `src/Mezhs.Executor` | Policy, durable command execution, command-result turns |
@@ -125,7 +127,7 @@ This example uses **historical** module identities. The inspection diagnostic it
 
 **Trust boundary:** The Agent API is configured to reject non-loopback listeners; diagnostics share that localhost endpoint and authenticated browser session but do **not** have independent per-user authorization. Treat the local Agent HTTP listener as a privileged interface. Do not publish it via port forwarding, LAN binding, shared proxy, or external ingress. Loopback reachability is not a substitute for authentication against untrusted local processes.
 
-`BrowserDiagnosticsModule.cs` allowlists: `snapshot`, `inspectPoint`, `click`, `type`, `key`, `screenshot`, `networkTrace`, `inspectRspackExports` and `show`. UI interaction methods are **for diagnostics only**, not ChatGPT production sending. Screenshot and page snapshots can contain personal data. General CDP mechanics are reusable for other browser integrations; ChatGPT Sentinel and Rspack implementation details are not.
+`BrowserDiagnosticsModule.cs` allowlists operations and routes them as explicit diagnostic requests rather than `$diagnostics/`-prefixed provider names: `snapshot`, `inspectPoint`, `click`, `type`, `key`, `screenshot`, `networkTrace`, `inspectRspackExports` and `show`. UI interaction methods are **for diagnostics only**, not ChatGPT production sending. Screenshot and page snapshots can contain personal data. General CDP mechanics are reusable for other browser integrations; ChatGPT Sentinel and Rspack implementation details are not.
 
 ## Tests and reproducibility
 
