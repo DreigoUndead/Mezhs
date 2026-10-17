@@ -113,6 +113,10 @@ test("browser transport polls long provider operations through short HTTP reques
   assert.doesNotMatch(transport, /FromMinutes\(6\)/);
 
   assert.match(contract, /InvokeAsync<TResult>/);
+  assert.match(contract, /InvokeDiagnosticAsync<TResult>/);
+  assert.match(transport, /new \{ kind, operation, arguments \}/);
+  assert.match(electron, /kind === "diagnostic"/);
+  assert.doesNotMatch(electron, /\$diagnostics\//);
   assert.match(contract, /InvokeWithProgressAsync<TResult>/);
   assert.match(contract, /BrowserOperationProgress/);
   assert.match(electron, /reportProgress/);

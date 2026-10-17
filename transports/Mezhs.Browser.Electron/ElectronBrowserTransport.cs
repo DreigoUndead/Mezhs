@@ -73,16 +73,23 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         string operation,
         object? arguments = null,
         CancellationToken cancellationToken = default) =>
-        InvokeCoreAsync<TResult>(operation, arguments, reportProgress: null, cancellationToken);
+        InvokeCoreAsync<TResult>("provider", operation, arguments, reportProgress: null, cancellationToken);
 
     public Task<TResult> InvokeWithProgressAsync<TResult>(
         string operation,
         object? arguments,
         Action<BrowserOperationProgress>? reportProgress,
         CancellationToken cancellationToken = default) =>
-        InvokeCoreAsync<TResult>(operation, arguments, reportProgress, cancellationToken);
+        InvokeCoreAsync<TResult>("provider", operation, arguments, reportProgress, cancellationToken);
+
+    public Task<TResult> InvokeDiagnosticAsync<TResult>(
+        string operation,
+        object? arguments = null,
+        CancellationToken cancellationToken = default) =>
+        InvokeCoreAsync<TResult>("diagnostic", operation, arguments, reportProgress: null, cancellationToken);
 
     private async Task<TResult> InvokeCoreAsync<TResult>(
+        string kind,
         string operation,
         object? arguments,
         Action<BrowserOperationProgress>? reportProgress,
@@ -91,7 +98,7 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         EnsureRunning();
         using var startResponse = await _http.PostAsJsonAsync(
             "invoke",
-            new { operation, arguments },
+            new { kind, operation, arguments },
             JsonOptions,
             cancellationToken);
         if (!startResponse.IsSuccessStatusCode)
