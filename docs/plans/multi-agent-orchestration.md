@@ -7,11 +7,11 @@
 
 ## 0. Start here in the next chat
 
-Implement this plan on **this existing branch** in reviewable increments. Inspect the actual current repository before coding; this is a desired behavior contract, not a claim that the named endpoints/classes already exist. Read `.agents/skills/repository-change-workflow/SKILL.md` and `.agents/skills/software-change/SKILL.md`, follow their review/test/merge rules, and do not merge without explicit review approval. Preserve the MEŽS local-machine policy/trust boundary.
+Implement on **this existing branch** in reviewable increments. The plan is a behavior contract, not an implementation. Inspect actual code and read .agents/skills/repository-change-workflow/SKILL.md and .agents/skills/software-change/SKILL.md. Do not merge without explicit approval.
 
-**Important dependency:** At planning time, per-execution integration/model selection and thinking-effort presets were being developed on `agent-model-presets` (PR #21), not necessarily merged into `main`. Verify its status and reconcile the necessary changes before depending on those features. Do not silently assume the plan branch already contains them.
+**Dependency:** PR #21 (agent-model-presets) was still open/unmerged on 2026-10-17. Reconcile its approved model/connection/effort work before relying on it.
 
-The chief design preference is **one simple, shared mechanism per responsibility**: UI and CLI call the same Agent API, no duplicate lifecycle implementation, no auto-injected child notifications, no command-level checkpoints, no speculative concurrency limits.
+**Design rule:** UI and CLI use one Agent API and lifecycle. Agents are trusted cooperative local-machine tools, not security sandboxes. Do not add global agent-count/worker-slot/queue limits; only integrations can throttle provider submissions. No auto-injected child notifications, command-position restoration, duplicate lifecycle engine, or invented orchestration infrastructure.
 
 ## 1. Existing integration points to inspect
 
@@ -27,259 +27,181 @@ The current root Agent runtime is queue-/SQLite-backed; detached shell work has 
 
 ## 2. Core objects and invariants
 
-- A top-level agent is a chat/execution created by a human or an external entry point (e.g. a future WhatsApp listener).
-- An agent chat may own named **direct child agent chats**, forming a persistent tree. Children can own children up to the effective depth limit.
-- Each chat selects exactly one immutable **policy** on creation. A parent may select any configured policy for a child, subject to depth, permission, and policy capability checks.
-- A parent agent may manage **any of its descendants**, direct or nested. It may not manage siblings, ancestors, unrelated agents, or other trees through the agent-management interface. Human UI authorization is separate.
-- API authorization must derive the calling agent identity from a trusted server-side execution context. Never trust a supplied `parentId` or `callerChatId` as proof of authority.
-- Only parent/descendant management communication: no direct sibling-to-sibling agent-management messaging.
-- No automatic message/result delivery from completed children to a parent. The parent asks using Inspect/Wait.
-- Child chat IDs identify agents. Executions represent individual requests/tasks for those agents.
-- Child failures and stops must be inspectable; keep a persistent tree, not ephemeral child processes only.
+- Root agents originate from UI/external entry points. Agent **chats** form persistent named parent/child trees; **executions** represent individual requests/tasks in a chat.
+- Each chat has a fixed policy ID. **Current agent.yaml is the only source of policy values**, including depth/capability rules; remove cached authoritative policy objects/snapshots.
+- Parent tools operate on descendants, not unrelated agents. This is a cooperative tooling rule, **not a security guarantee**: unrestricted SH can call APIs or change/redeploy the host.
+- Children never automatically send messages or activate their parent; parents inspect or wait explicitly.
+- No global or per-policy count, active-agent, queue or concurrent-Agent-execution slot limit. Per-chat ordering and provider-account throttling remain valid.
+- Persist chat/parent/name/execution state independently of OS process presence. A stopped/failed child remains visible.
 
-## 3. Naming and idempotent Create
+## 3. Named Create: duplicate is always an error
 
-CLI conceptual signature:
+Conceptual CLI: `Create(name: "worker-x", policy: "developer", task: "Implement X", connection: null, model: null)`.
 
-```csharp
-Create(
-    name: "developer-feature-x",
-    policy: "developer",
-    task: "Implement feature X",
-    connection: "chatgpt-account",
-    model: "gpt-6-high"); // optional defaults may be resolved
-```
+- A parent name is unique among its **direct children**. Same name under a different parent is fine.
+- A second Create with an existing name **always fails**, even if every parameter matches. Do not implement idempotent reuse, canonical creation-spec fingerprints or silent restart.
+- The conflict error includes the existing child's chat ID, allowing a resumed parent to inspect the earlier child.
+- Atomically reserve (ParentChatId, Name) with a SQLite uniqueness constraint. Current ChatStore files and AgentStore SQLite are separate: reserve a predetermined chat ID and make subsequent chat materialization/initial execution startup recoverable after a crash. No phantom children after rejected validation.
+- Successful CLI Create prints **only** the new child chat ID; errors go to stderr with nonzero exit.
 
-- Command name is **`Create`**, not `TryCreate`.
-- Name is unique among **one parent's direct children**. The same name under another parent is allowed.
-- If no child with that name exists: atomically create/start it and return its chat ID.
-- If a child with that name exists and **every creation parameter is identical**: return the existing chat ID, with **no side effect**. Do not prompt, resume, restart, retry, or modify the existing child, regardless of its state.
-- If the name exists but **any creation parameter differs**: a clear conflict error, not reuse or replacement.
-- Compare a canonical stored creation specification (including policy, initial task, connection, model, effort, and all other accepted creation parameters). Capture resolved defaults at creation so later default configuration changes cannot quietly redefine the existing child.
-- Ensure unique `(ParentChatId, Name)` in persistent storage, and atomic compare-or-create under races/crashes.
-- On success CLI stdout is the chat ID, even on idempotent reuse. Failure is an actionable error and nonzero exit.
+## 4. Live YAML policy
 
-This intentionally solves duplicate child spawning when a parent's latest response is executed again after Stop/Resume. It does **not** make shell commands idempotent.
+Illustrative values: `manual.subAgents.maxDepth: 2` / `onDone: RejectIfActive`; `delegator: 1 / Accept`; `developer: 0 / StopAll`.
 
-## 4. Policy
+- The **policy ID** assigned to a chat is immutable, but settings are read from the current **agent.yaml** whenever used. No stored policy snapshots. YAML changes affect existing agents. Read/update the file atomically; reject invalid configuration instead of silently using stale policy values.
+- Depth: 0 forbids children, 1 allows direct children, 2 allows grandchildren. A child policy cannot increase a current ancestor's remaining depth. Check all ancestors against the current YAML.
+- The current policy controls allowed commands/environment and allowed connections/models/effort; selected integration must not bypass those cooperative rules.
+- `RejectIfActive`: reject DONE if any descendant is Queued, Running, or Waiting; correction includes active descendant IDs. Stopped, Failed, Cancelled and Completed do not block.
+- `StopAll`: recursively request Stop of active descendants and their shell process trees, then accept DONE. Do not wait indefinitely for OS process termination.
+- `Accept`: DONE is accepted and children continue; no automatic parent wake.
+- Synchronize descendant admission with a parent's terminal DONE transition so a child cannot be created between an active-descendant check and completion. A short SQLite transaction/state check is enough.
+- No policy or Agent runtime `maxParallel`, global agent-count or queue-capacity limit.
 
-Proposed shape:
+## 5. Stop, Resume and Prompt — same API for UI and agents
 
-```yaml
-policies:
-  manual:
-    subAgents:
-      maxDepth: 2
-      onDone: RejectIfActive
+Conceptual methods: `Stop(chatId, tree:false)`, `Resume(chatId, tree:false)` and `Prompt(chatId, text, connection?, model?)`.
 
-  delegator:
-    subAgents:
-      maxDepth: 1
-      onDone: Accept
+**Stop:** Mark the chat stopped; forbid further automatic model continuations, shell launches and agent-management command launches. Request kill of the running shell execution and **all processes associated with its execution ID** (OS process-tree/group ownership where possible). Kill is a request, **not** a wait for every process to disappear. `tree:true` also stops descendant *agents*; do not confuse that with killing one shell execution's process tree. Let an already-submitted provider request finish and persist its reply; do not execute reply commands while stopped or blindly resend an uncertain provider request.
 
-  developer:
-    subAgents:
-      maxDepth: 0
-      onDone: StopAll
-```
+**Prompt at any time:** UI and parent agent use the identical Prompt API. Keep a persistent, ordered queue of incoming prompts. **Prompt never interrupts a running SH or in-flight model request, and never implicitly Stop/Resume.**
+- **Running:** Before each new assistant command (including DONE), atomically check queued prompts. If any exist, submit them to the model *before* that command, alongside results of already completed commands; discard all remaining unexecuted commands from the superseded assistant response. The new assistant response becomes the current one. If a prompt arrives during SH, SH finishes and its result is retained first. If a prompt arrives during a provider request, apply it **after** that response arrives and **before** its commands.
+- **Stopped:** explicit prompts are submitted serially to the model and their responses saved; **none** of their commands run. Multiple prompts yield multiple replies, but only the **latest assistant response** is eligible for Resume.
+- **Completed/Failed:** Prompt is still allowed; start a new conversation execution in the same chat and same current policy, not an implicit Retry.
+- Preserve per-chat ordering, queue/consumption state across restart, and ensure an old in-flight model reply cannot replace newer explicitly requested work. Record replies but never launch superseded commands.
 
-- `maxDepth: 0`: no child creation. `1`: direct children only. `2`: grandchildren allowed, and so on.
-- Depth budget must **never increase** by choosing a child policy with a higher limit. Enforce both ancestor remaining depth and child's own policy constraints.
-- No `maxParallel` and no conceptual global count limit for simultaneously active child agents. Do not use a transient 'active' count for spawn admission. Runtime/executor/provider capacity protection remains an internal reliability matter, not an arbitrary policy quota.
-- `onDone: RejectIfActive`: if any descendant is still queued, running, or waiting, reject `<DONE>` and send an actionable correction with the active descendant IDs to the agent. Do not terminally fail the parent for this policy correction.
-- `onDone: StopAll`: recursively stop active descendants, then accept the parent's `<DONE>`.
-- `onDone: Accept`: accept `<DONE>` and let descendants continue; parent remains completed and does not wake automatically on their eventual completion.
-- **Stopped, failed, and completed** descendants do not block `RejectIfActive`. Stopping an unrecoverable child explicitly allows the parent to take over and finish.
+**Resume:** Clear Stopped and run executable commands **from the very latest assistant response from the beginning, in all cases, regardless of previously successful command attempts**. Never replay any older assistant response and never continue a killed shell process from its previous command position. If no assistant response exists yet, continue to the required model turn; handle a reply with no commands via normal DONE/continuation logic. Repeating ordinary shell side effects is accepted. A stopped Wait loses elapsed time; Resume executes it anew with the full timeout. `tree:true` resumes descendants, even those separately stopped. No stop-reason layers, command checkpoints, or special Inject command.
 
-Policies continue to own capability restrictions, e.g. allowed commands, shell access, and external-input trust boundaries; child policy assignment must not bypass server authorization.
+**Atomic boundary:** the pre-command prompt check and launching the next command must share a serialization boundary. If command launch wins, a newly arriving prompt applies *after* that command. If prompt enqueue wins, the prompt is processed *before* that command.
 
-## 5. Stop, Resume, and Prompt (shared UI/CLI semantics)
+## 6. Wait semantics: first agent to stop working
 
-Use a single Agent API implementation for UI and CLI:
+Conceptual commands: `Wait(timeoutSeconds)`, `WaitFor(chatId, timeoutSeconds)`, `WaitAny(chatIds[], timeoutSeconds)`, `WaitAll(chatIds[], timeoutSeconds)`.
 
-```csharp
-Stop(chatId, tree: false);
-Resume(chatId, tree: false);
-Prompt(chatId, "Explain progress", connection: null, model: null);
-```
+- Every wait has a finite required timeout. `Wait` is a pure timer.
+- “Stopped working” means **Stopped, Completed/DONE, Failed or Cancelled**. Queued, Running or Waiting are still working.
+- `WaitFor` returns when the selected child first reaches any stopped-working state. `WaitAny` returns on the **first** stopped-working child, for *any* reason, not just DONE. `WaitAll` returns when all selected children have stopped working, even with mixed terminal outcomes.
+- If an observed child is already terminal, return immediately. Validate IDs, existing execution and descendant relationship. Use a coherent current execution/status view, never stale DONE from an earlier task. Deterministic tie-breaking for simultaneous events.
+- Return chat ID, execution ID, **actual status**, latest assistant response (when present), and error details. For WaitAny include the triggering child; for WaitAll include each child's state. Failed/Stopped/Cancelled are **normal observed results**, not command errors.
+- A timeout returns `TimedOut` and IDs still working, without terminating the parent. Only validation/transport errors get a nonzero CLI exit.
+- No automatic notification or activation of a parent that is not waiting.
+- **Do not build a persistent wait-job table or special suspension scheduler in V1.** Bounded CLI/API polling or waiting on persisted current state is sufficient without a fixed agent-worker slot pool. Stop kills the waiting shell command; Resume restarts the latest-response wait with a fresh timeout.
+- Every agent command can override its default command timeout. A `WaitFor(...,600)` invoked via SH must set a suitable outer command/Executor timeout greater than its wait duration; the default 120 seconds must not cut it short.
 
-- `tree:false` operates on one chat; `tree:true` recursively operates on **all** descendants too.
-- Stop prevents further **automatic** model submissions, shell launches and agent-management calls for that chat.
-- If a model submission is already in flight, let it finish and **store its response**; do not launch its commands. Respect the no-blind-replay rule for an ambiguous provider submission.
-- If a shell command is currently running, **kill it** via the Executor's existing process ownership. Forget in-progress command position; do not checkpoint and continue the same process.
-- The UI and parent agent can send an **explicit** prompt to a stopped chat. Its model response is recorded, but its commands do not run until Resume.
-- Ensure Stop/Prompt ordering: a late old model response must not overwrite an explicitly requested newer response. Serialize at the correct per-chat boundary.
-- Resume re-executes **commands in the latest assistant response from the beginning**, even commands that previously succeeded; do not replay commands from older assistant responses or restart a killed shell process from its previous position. Repeated side effects of ordinary commands are accepted. A successful `Create` is safe to repeat because of its unique-name contract.
-- If Stop interrupts a pending wait, forget its elapsed-time state. On Resume, the latest response's wait is executed afresh with a full timeout.
-- Human Stop All / Resume All acts on all selected descendants, including ones previously stopped individually. Do not introduce stop-reason tracking or ownership layers.
-- `Prompt` must **not** automatically Stop or Resume. To intervene in a working child, the master explicitly does Stop → Prompt → Resume. This is deliberately interruptive, simpler than injecting text into the next model request.
-- No Inject command in V1.
-- The UI exposes Stop and Stop All, and Resume and Resume All, through matching controls (e.g. split action/dropdown), backed by these same endpoints.
+## 7. Retry and integration/model selection
 
-Illustrative parent recovery flow:
+- Automatic recovery, UI Retry button and CLI `Retry(chatId)` call one **virtual integration-base HandleError** path, overridable by provider. It receives error/request/attempt context and can decline recovery. No separate CLI retry implementation.
+- Retry applies to the identified failed provider/model request; it is not generic replay of shell commands or the entire agent execution. Prompt and Resume are different actions.
+- **Never automatically resubmit an uncertain provider request.** Provider-specific optional backoff/Retry-After behavior belongs to the integration, not Agent retry-number/delay YAML.
+- Use existing shared connection/model/thinking-effort selection and execution-start plumbing (reconcile PR #21), subject to the live policy. A model/integration switch never changes chat policy ID. Root UI may show Retry for provider errors; parents can use CLI for descendants.
 
-```text
-Create("developer", ...task X...) -> childId
-WaitFor(childId, 600)             -> timeout
-Inspect(childId)                  -> see latest progress/error
-Stop(childId)                     -> kill unfinished work
-Prompt(childId, "Explain status")  -> explicit response, commands suspended
-# optional Resume(childId), or parent completes task itself
-<DONE>                            -> allowed; stopped child does not block
-```
+## 8. Integration/account pacing is the sole throttle
 
-## 6. Wait semantics: only explicit retrieval, no auto notifications
+- Remove fixed Agent worker slots, global queue-capacity/admission restrictions and maxParallel policy. Agent count is not artificially limited.
+- Each integration may independently configure/request pacing, e.g. `minIntervalMs` and `maxConcurrentSends`, grouped by authenticated provider account where applicable. **No mandatory global three-second delay or serialized-send limit.**
+- Requests from human UI, master, child and Retry sharing an authenticated account obey that integration/account's configured rules, including across differently named connections. Different accounts need not share limits.
+- Separate minimum interval between submission starts from maximum simultaneous provider requests. A provider chooses whether an in-flight limit spans whole streaming responses or only the submit phase.
+- Per-chat model turn ordering remains serialized; account pacing should not block incoming prompt registration/status inspection.
 
-Conceptual commands:
+## 9. Agent Web UI: actual statuses, prompt always available
 
-```text
-Wait(timeoutSeconds)
-WaitFor(childChatId, timeoutSeconds)
-WaitAny([childChatIds], timeoutSeconds)
-WaitAll([childChatIds], timeoutSeconds)
-```
+- Persistent collapsible parent/descendant tree with human-readable child names and IDs.
+- Indicators show **actual state**, with no separate human unread/read-completion flags: Completed green; Failed red; Waiting orange; Running animated/active; Stopped gray; Queued neutral. Define projection precedence consistently.
+- **The selected-chat input/composer must remain enabled when Running, Waiting, Stopped, Completed or Failed.** Specifically remove current `activeExecution` and `selectedChat.paused` guards on send/composer in `src/Mezhs.Agent.Web/src/App.tsx`. Existing-chat Send calls the same `Prompt` API used by agents, not a UI-only path.
+- Show queued vs submitted prompts honestly; entering a prompt does not imply current SH interruption.
+- UI Stop/Stop All and Resume/Resume All use the same API operations as CLI. Preserve shell log and execution diagnostics; Root UI may show provider Retry. Opening a chat must not change its status.
 
-- **Every wait has a required finite timeout.** No unbounded/infinite wait.
-- `Wait` is a pure timer; no child requirement.
-- `WaitFor` waits for the specified child's **latest execution** to reach `<DONE>`.
-- `WaitAny` waits for the first successful `<DONE>` among a selected set, with failure/stop behavior below.
-- `WaitAll` waits for all selected children's latest executions to reach `<DONE>`.
-- Capture selected chat IDs and their **current latest execution IDs atomically** when registering a wait. Never treat `<DONE>` from an older execution as completion of a newer task.
-- If the latest execution **already** returned `<DONE>`, return that result immediately for that child. If a new task has subsequently been submitted, the older DONE is irrelevant.
-- At registration, any selected child that is **Stopped** or **Failed** (or has no execution) yields an actionable validation error instead of silently waiting. An already-completed latest execution is allowed as above.
-- A newly stopped selected child interrupts a registered `WaitFor`, `WaitAny`, or `WaitAll` immediately with an error; don't burn the rest of the timeout.
-- A child execution failing during a wait returns its error/status to the caller instead of pretending it completed successfully.
-- A wait timeout reports which chat/execution(s) remained unfinished. Timeout is a result the master can handle, **not a terminal failure of the master**.
-- Return the child chat ID, execution ID, status, and (for DONE) the **last assistant response**; include clear errors when failed/stopped. No need to copy every intermediate message into the parent.
-- If a parent is not waiting, child DONE produces **no automatic parent activation or injected message**. `Inspect` or later wait can retrieve the result.
-- In a simultaneous completion/stop/failure race, make result selection deterministic and covered by tests.
-- The Agent worker must not hold a scarce model worker slot or block the whole runtime while a parent waits; integrate waits into durable runtime scheduling. Keep Console command execution and API wait lifecycle consistent with the current synchronous command framework.
+## 10. CLI command inventory
 
-## 7. Retry and model/integration selection
-
-- Use **the same handler and path** for automatic error handling, UI Retry, and CLI `Retry(chatId)`. Never implement a separate 'CLI retry' algorithm.
-- Error recovery belongs in a **virtual method on the integration base class**, overridable by providers for error-specific handling. The method receives the error/attempt/request context and returns a recovery decision; it may decline recovery.
-- No YAML retry count/delay policy. A small safe default (previously discussed: at most one retry after approximately five seconds) may be selected by the base handler, overridden per error/provider, honoring Retry-After where present. Treat this as a proposed default to verify against the provider contract, not authorization to blindly replay ambiguous submissions.
-- **Never automatically re-send a request whose acceptance is uncertain**. A timeout/disconnect does not prove the provider did not accept it.
-- Root agent UI may expose Retry after unrecovered errors. No separate child Retry button; a parent can recover/retry a descendant through its allowed API/CLI actions.
-- Model, connection/integration, and thinking effort can be selected at agent creation or prompt/execution as supported by existing runtime. Switching model/integration uses the **same execution-start/model-picker plumbing as the UI**, and never changes the chat's immutable policy.
-- Verify the pending `agent-model-presets` work rather than cloning its selection behavior.
-
-## 8. Provider pacing / account safety
-
-- All requests using the **same authenticated provider account**, whether manual, master, child, automatic retry, or explicit Retry, must use shared account-level submission pacing and serialization.
-- Proposed integration configuration: account grouping plus `pacing.minIntervalMs` (initial experimental value 3000) and `maxConcurrentSends: 1`.
-- Account group, not chat ID or agent ID, determines the shared throttle. Distinct configured connections using the same account must not bypass it.
-- Avoid holds on chat/worker locks while waiting for an account-wide send slot where possible. Confirm behavior with tests; 3 seconds is a starting point, not a guaranteed provider limit.
-
-## 9. UI tree and status
-
-- Replace/augment the flat Agent chat listing with a **collapsible persistent parent → descendant tree**, showing human-readable child names.
-- Persist the read/unread state separately from the execution state. A child DONE message seen by its parent does **not** clear the human unread marker.
-- Indicators:
-  - **Green**: successful DONE, not yet opened by a human since completion.
-  - **Red**: failed/error; remains visible until human inspection.
-  - **Orange**: waiting for sub-agents, not ordinary provider/queue waiting.
-  - **Alternating/animated green–orange**: actively processing.
-  - **Gray**: stopped.
-  - Completed and viewed: neutral.
-- Opening a chat clears its human unread-completion notification.
-- UI Stop/Stop All and Resume/Resume All call the same API operations used by CLI. Preserve the existing execution log/shell diagnostic display.
-- Do not infer completion solely from process absence; persisted Agent execution state is authoritative.
-
-## 10. Complete proposed CLI command inventory
-
-Build a new `Mezhs.Agent.Cli` using `Mezhs.Console` and the typed `Mezhs.Agent.Api.Client`:
+Implement `Mezhs.Agent.Cli` using `Mezhs.Console` [Command] discovery/binding and the typed `Mezhs.Agent.Api.Client`; no parallel parser. Bounded synchronous CLI waits are permissible without global agent-worker slot limits.
 
 | Command | Signature (conceptual) | Behavior |
 | --- | --- | --- |
-| `Create` | `Create(name, policy, task, connection?, model?)` | Idempotent named direct child; print chat ID |
-| `List` | `List()` | List accessible descendants with names, IDs and states |
-| `Get` | `Get(chatId)` | Agent metadata, policy, parent and status |
-| `Inspect` | `Inspect(chatId)` | Current execution, latest assistant response, command outcomes, errors |
-| `Messages` | `Messages(chatId)` | Chat conversation history |
+| `Create` | `Create(name, policy, task, connection?, model?)` | New named child; any duplicate => conflict including existing ID |
+| `List` | `List()` | Accessible descendants, names, IDs, states |
+| `Get` | `Get(chatId)` | Chat metadata, live policy ID, tree |
+| `Inspect` | `Inspect(chatId)` | Latest execution, assistant response, outcomes/errors |
+| `Messages` | `Messages(chatId)` | Chat history |
 | `Log` | `Log(chatId)` | Execution/debug log |
-| `Prompt` | `Prompt(chatId, text, connection?, model?)` | Explicit next task/instruction; no implicit resume |
-| `Retry` | `Retry(chatId)` | Shared integration error handler |
-| `Stop` | `Stop(chatId, tree=false)` | Stop one or whole subtree |
-| `Resume` | `Resume(chatId, tree=false)` | Resume one or whole subtree |
-| `Wait` | `Wait(timeoutSeconds)` | Timer only |
-| `WaitFor` | `WaitFor(chatId, timeoutSeconds)` | DONE of one selected current execution |
-| `WaitAny` | `WaitAny(chatIds[], timeoutSeconds)` | First DONE / actionable error |
-| `WaitAll` | `WaitAll(chatIds[], timeoutSeconds)` | All selected DONE / actionable error |
-| `Policies` | `Policies()` | Available policies |
-| `Connections` | `Connections()` | Available integration connections |
-| `Models` | `Models(connectionId)` | Available models/effort presets |
+| `Prompt` | `Prompt(chatId, text, connection?, model?)` | Inject at next pre-command boundary; works while stopped |
+| `Retry` | `Retry(chatId)` | Integration HandleError |
+| `Stop` | `Stop(chatId, tree=false)` | Stop chat/subtree; kill associated shell process trees |
+| `Resume` | `Resume(chatId, tree=false)` | Replay latest response's commands from start |
+| `Wait` | `Wait(timeoutSeconds)` | Bounded timer |
+| `WaitFor` | `WaitFor(chatId, timeoutSeconds)` | Any terminal/stopped-working state |
+| `WaitAny` | `WaitAny(chatIds[], timeoutSeconds)` | First selected child that stops working |
+| `WaitAll` | `WaitAll(chatIds[], timeoutSeconds)` | All selected children stop working |
+| `Policies` | `Policies()` | Live YAML policy discovery |
+| `Connections` | `Connections()` | Available integrations |
+| `Models` | `Models(connectionId)` | Available models/effort |
 
-Add/help reuse `Help` and any existing framework validation/test commands as actually supported.
+Retain Help/Validate. Parent/descendant checks are cooperative tool guidance, not a security boundary. Stable machine-readable records; errors stderr/nonzero; Create stdout just new ID.
 
-- Commands are agent-execution-scoped when invoked by an agent; apply trusted caller/descendant authorization.
-- Favor structured machine-readable stdout for details/errors, stable names/IDs and nonzero exit on command errors. `Create` prints only the child chat ID on successful create/reuse.
-- Use the existing ConsoleApplication parsing/attribute conventions; don't invent a second CLI parser.
+**Per-command timeout override:** extend agent command protocol/parser/Interpreter/Executor so each command can specify its own finite timeout (default from current policy). An SH wrapping a long Wait must carry an outer timeout sufficient for wait + overhead; tests must cover this. Determine exact optional syntax compatible with current parser during implementation.
 
-## 11. Complete proposed Agent API endpoint inventory
-
-Routes below are **proposed contracts**, not all verified pre-existing endpoints. Check current Agent API routing and reuse/extend existing endpoints instead of duplicating them.
+## 11. Agent API endpoint inventory (proposed, reuse existing routes)
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| POST | `/v1/agent-chats/{parentId}/sub-agents` | Atomic named Create / identical reuse / mismatched conflict |
-| GET | `/v1/agent-chats/{parentId}/sub-agents` | List children/descendants; optionally recursive |
-| GET | `/v1/agent-chats/{chatId}` | Metadata, policy and persistent status |
-| GET | `/v1/agent-chats/{chatId}/runtime` | Current execution/runtime projection |
+| POST | `/v1/agent-chats/{parentId}/sub-agents` | Atomic named Create; duplicate conflict |
+| GET | `/v1/agent-chats/{parentId}/sub-agents` | Children/descendants |
+| GET | `/v1/agent-chats/{chatId}` | Metadata, policy, persisted status |
+| GET | `/v1/agent-chats/{chatId}/runtime` | Execution/runtime state |
 | GET | `/v1/agent-chats/{chatId}/messages` | Conversation history |
 | GET | `/v1/agent-chats/{chatId}/executions` | Execution history |
 | GET | `/v1/agent-chats/{chatId}/debug-log` | Debug/command log |
-| POST | `/v1/agent-chats/{chatId}/prompt` | Explicit prompt using selected connection/model |
-| POST | `/v1/agent-chats/{chatId}/retry` | Shared integration error-recovery handler |
+| POST | `/v1/agent-chats/{chatId}/prompt` | Always allow enqueue/submit prompt |
+| POST | `/v1/agent-chats/{chatId}/retry` | Shared integration HandleError |
 | POST | `/v1/agent-chats/{chatId}/stop` | Stop with body `{ "tree": false }` |
 | POST | `/v1/agent-chats/{chatId}/resume` | Resume with body `{ "tree": false }` |
-| POST | `/v1/agent-chats/{chatId}/waits` | Register Wait/WaitFor/WaitAny/WaitAll using chat IDs + timeout |
-| GET | `/v1/waits/{waitId}` | Wait state and terminal result |
-| GET | `/v1/policies` | Reuse policy discovery endpoint |
-| GET | `/v1/connections` | Reuse connection discovery endpoint |
-| GET | `/v1/connections/{id}/models` | Reuse model/effort discovery endpoint |
-| POST | `/v1/executions` | Reuse/extend existing execution-start behavior |
-| GET | `/v1/executions/{id}` | Reuse existing execution/status retrieval |
+| GET | `/v1/policies` | Live policy discovery |
+| GET | `/v1/connections` | Connection discovery |
+| GET | `/v1/connections/{id}/models` | Model/effort discovery |
+| POST | `/v1/executions` | Reuse/extend execution start |
+| GET | `/v1/executions/{id}` | Execution/status |
 
-Internal responsibilities: persisted hierarchy and create-parameter comparison, inherited depth enforcement, caller/descendant authorization, shared Stop/Resume/Prompt/Retry state transitions, durable wait registration + wake-ups, latest-execution/result projection, per-account send pacing, and unread UI state.
+No separate persistent wait registration/endpoints (`/v1/waits/...`) are required: typed client bounded waits can observe persisted runtime/execution status. Add efficient batch status lookup only if demonstrated necessary. Keep authoritative chat lifecycle and prompt queue state server-side, separate from Executor OS-process ownership.
 
 ## 12. Critical scenarios / verification checklist
 
-1. **Atomic Create**: first create succeeds; same name+all same params returns same ID without any new work; same name+different task/model/policy/effort fails clearly; same name different parent succeeds; concurrent duplicate create makes one child only.
-2. **Depth & permissions**: maxDepth 0/1/2, ancestry budget cannot be escalated by permissive child policy; parent can access nested descendants but not sibling/unrelated trees.
-3. **Stop/Resume**: active shell is killed, in-flight provider response is stored, no further auto work runs; latest response commands re-execute from start on Resume; older responses do not replay. Check late provider replies vs a new explicit Prompt.
-4. **Tree control**: Stop/Resume single vs recursive; Resume All includes previously stopped children; no stop-reason bookkeeping.
-5. **DONE policy**: RejectIfActive blocks queued/running/waiting descendants and returns actionable IDs; stopped/failed/completed do not block; StopAll recursively stops; Accept does not wake parent on later child completion.
-6. **Wait**: mandatory finite timeout; Wait timer only; child DONE before registration returns immediately for latest execution; stale DONE after a newer Prompt does not count; no execution/stopped/failed at registration errors; stopped/failed mid-wait wake with error; timeout is handled by parent; WaitAny/WaitAll behavior and simultaneous races are deterministic.
-7. **Intervention**: master can Stop → Prompt → Resume, or Stop then take over and reach DONE; Prompt alone does not secretly kill/resume; no Inject behavior.
-8. **Recovery**: UI and CLI Retry invoke the same integration virtual error handler; model/connection changes use existing execution machinery; ambiguous provider sends are never blindly duplicated.
-9. **Pacing**: manual/master/child/retry traffic for same account group is serialized/throttled across connections; no chat-level bypass.
-10. **UI**: persistent tree, names, exact indicator meanings, unread DONE persists across restart, opening chat clears it, Stop All/Resume All share API semantics.
-11. **Restart**: queued agents/child relationship and waits survive correctly or fail explicitly according to a documented recovery rule; never silently repeat an uncertain provider send or unknowingly duplicate shell work. Inspect current durable Executor reconciliation first.
-12. **Repository**: build/tests and reviewable diff; no unrelated changes, no merge until explicitly approved.
+1. **Create:** duplicate name always conflict (even same specs) with existing ID; same name under different parent succeeds; concurrent Create reserves only one child; interrupted SQLite/chat-file materialization recovers.
+2. **No slots:** many parents/children waiting and running; no global agent-count/worker/queue admission cap. Integration-specific pacing still works.
+3. **Live policy:** editing valid agent.yaml changes existing agents' next policy check; no snapshots; enforce current depth, command, connection/model constraints.
+4. **Stop/Resume:** Stop kills active shell execution process tree without indefinite wait; in-flight provider response saved, not blindly replayed; Resume executes commands from **latest assistant response only**, from start, regardless of earlier success.
+5. **Prompt:** during SH, prompt waits until SH completes, retains result, supersedes unexecuted commands; while provider request in flight, applies after response and before commands; before DONE is handled; multiple simultaneous prompts ordered/durable.
+6. **Stopped prompting:** prompts still submit model turns and save responses without executing commands. Multiple responses: Resume runs only latest. Late old replies never execute superseded commands.
+7. **Tree:** Stop/Resume single vs recursive; Resume All includes individually stopped children; shell process-tree kill is distinct from child-agent tree stop.
+8. **DONE policy:** RejectIfActive corrects with descendant IDs; StopAll requests recursive Stop; Accept leaves descendants active; create-vs-DONE race cannot admit late active child into a terminal subtree.
+9. **Wait:** timer; For/Any/All observe **Stopped, DONE, Failed, Cancelled**, including initially terminal, mid-wait stop/error, mixed WaitAll; timeout normal result, not parent failure; latest-execution stale DONE ignored; deterministic races; no unsolicited parent messages.
+10. **Timeout:** per-command overrides propagate through SH and Executor; e.g. WaitFor 600s is not killed at default 120s.
+11. **Recovery:** UI/CLI Retry use one virtual HandleError; no blind uncertain-send replay; model/connection/effort selection shared with UI/PR #21.
+12. **Provider pacing:** only configured integration/account settings throttle submissions, across manual/master/child/retry; no global fixed three seconds or max-one default.
+13. **UI:** persistent collapsible tree; actual state only; composer usable while busy/stopped/done/failed; prompt pending state truthful; controls share API.
+14. **Restart:** pending prompts and children survive; no duplicate uncertain provider request; test Stop/Prompt/Resume and reply-order races.
+15. **Repository:** build, smoke tests, diff review and an unmerged PR against main; no unrelated changes.
 
 ## 13. Suggested implementation sequence
 
-1. Persist parent/name/creation spec, hierarchical authorization and depth policy; atomic Create.
-2. Add typed Agent API client methods and new Console-based CLI (including inspect/history/discovery).
-3. Unify Stop/Resume/Prompt and settle scheduling/lifecycle semantics with tests.
-4. Implement explicit durable Wait/WaitFor/WaitAny/WaitAll and recovery/wake-up mechanics.
-5. Add shared integration virtual error handling and account-group pacing, reusing model/integration selection.
-6. Build collapsible Agent tree, indicators, persistent unread flags, controls and root Retry.
-7. End-to-end and restart/race tests, diff review, one unmerged PR against main.
+1. Reconcile approved model-presets dependency, then redesign Stop/Resume/Prompt and the pre-command injection boundary as one lifecycle mechanism, with tests.
+2. Remove global agent worker-slot and queue-admission limits; preserve per-chat ordering and optional integration-account pacing.
+3. Persist parent/name, live policy checks, non-idempotent atomic Create and restart materialization.
+4. Extend typed API client and Console CLI; support per-command timeout override.
+5. Implement bounded waits over persisted state without a durable wait-job subsystem.
+6. Integrate shared virtual integration HandleError and model/connection selection.
+7. Update UI tree, real statuses, and **always-enabled existing-chat prompt composer**; wire all controls to shared API.
+8. Verify restart/race/e2e tests, review diff, and keep PR unmerged until explicitly approved.
 
-### Explicit non-goals for V1
+### Explicit V1 non-goals
 
-- No Git branch/worktree management or workspace locks in orchestration; agents/policies own their workflows.
-- No `maxParallel` policy quota, global agent count quota or queued overflow behavior for a quota.
-- No injected parent messages in child results or automatic parent wake on child DONE.
-- No cross-sibling agent-management API.
-- No automatic Stop/Resume side effects hidden inside Prompt.
-- No preserved shell command progress/checkpoint replay.
-- No long-running shell-process resume.
-- No automatic replay of uncertain model submissions.
-- No configurable retry-number/delay YAML.
-- No agent awareness that a Resume occurred, beyond ordinary re-execution of its latest response.
+- No workspace/worktree manager or workspace locks in orchestration.
+- No global Agent count, worker-slot, queue-capacity or policy maxParallel limit.
+- No automatically injected child messages or unsolicited parent wake.
+- No sibling-to-sibling management tool, and no artificial shell sandbox security.
+- No duplicate Create idempotent reuse or stored creation fingerprint.
+- No Prompt-triggered implicit Stop/Resume; no Inject command.
+- No command-position checkpoints or killed-shell process resume.
+- No uncertain provider submission replay.
+- No persisted policy snapshots, unread tracking, or persistent wait-job scheduler.
+- No orchestration-level retry count/delay policy.
 
-**Definition of done:** The feature can be driven through both Agent Web UI and the new CLI using one Agent API implementation, obeys the above lifecycle/wait/policy contracts, is tested, and is presented as an unmerged reviewable branch/PR.
+**Definition of done:** same Agent API powers UI and CLI; unlimited-agent concurrency, live YAML policies, named children, anytime prompt injection, latest-response Stop/Resume and bounded terminal-state waits are implemented/tested in one reviewable **unmerged** PR.
+
