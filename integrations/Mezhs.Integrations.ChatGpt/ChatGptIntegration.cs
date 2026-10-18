@@ -50,8 +50,8 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
     }
 
     public override IntegrationCapabilities Capabilities => new(
-        FileInput: false,
-        ImageInput: false,
+        FileInput: true,
+        ImageInput: true,
         FileOutput: true,
         ImageOutput: true);
     public override ILoginModule Login => _login;
