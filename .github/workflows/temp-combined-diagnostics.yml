@@ -1,0 +1,62 @@
+name: Temporary Combined Integration Verification
+on:
+  push:
+    branches:
+      - review/electron-diagnostics-isolation
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify merged branch and report outcomes
+        shell: bash
+        run: |
+          set +e
+          node --check electron/main.js > node-syntax.log 2>&1
+          syntaxMain=$?
+          node --check electron/diagnostics.js >> node-syntax.log 2>&1
+          syntaxDiag=$?
+          node --test tests/*.test.js > node-tests.log 2>&1
+          nodeStatus=$?
+          dotnet build Mezhs.sln --configuration Release --nologo > dotnet-build.log 2>&1
+          dotnetStatus=$?
+          if [[ "$syntaxMain" -eq 0 && "$syntaxDiag" -eq 0 && "$nodeStatus" -eq 0 && "$dotnetStatus" -eq 0 ]]; then
+            overall=PASS
+          else
+            overall=FAIL
+          fi
+          {
+            echo "OVERALL: $overall"
+            echo "Node syntax main: $syntaxMain"
+            echo "Node syntax diagnostics: $syntaxDiag"
+            echo "Node test suite: $nodeStatus"
+            echo ".NET Release build: $dotnetStatus"
+            echo "===== Node syntax ====="
+            cat node-syntax.log
+            echo "===== Node test output (last 220 lines) ====="
+            tail -n 220 node-tests.log
+            echo "===== .NET output (last 100 lines) ====="
+            tail -n 100 dotnet-build.log
+          } > .combined-ci-result.txt
+          cat .combined-ci-result.txt
+      - name: Record validation result for review
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .combined-ci-result.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "Record combined validation [skip ci]"
+            git push
+          fi
