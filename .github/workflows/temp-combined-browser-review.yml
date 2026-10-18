@@ -24,6 +24,8 @@ jobs:
         shell: bash
         run: |
           set +e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin review/electron-diagnostics-isolation:refs/remotes/origin/review/electron-diagnostics-isolation > integration.log 2>&1
           fetchStatus=$?
           if [[ "$fetchStatus" -eq 0 ]]; then
