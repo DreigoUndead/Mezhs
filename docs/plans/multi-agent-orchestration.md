@@ -7,11 +7,11 @@
 
 ## 0. Start here in the next chat
 
-Implement on **this existing branch** in reviewable increments. The plan is a behavior contract, not an implementation. Inspect actual code and read .agents/skills/repository-change-workflow/SKILL.md and .agents/skills/software-change/SKILL.md. Do not merge without explicit approval.
+Implement on **this existing branch** in reviewable increments. The plan is a behavior contract, not an implementation. Inspect actual code and read `.agents/skills/repository-change-workflow/SKILL.md` and `.agents/skills/software-change/SKILL.md`. Do not merge without explicit approval.
 
-**Dependency:** PR #21 (agent-model-presets) was still open/unmerged on 2026-10-17. Reconcile its approved model/connection/effort work before relying on it.
+**Dependency:** PR #21 (`agent-model-presets`) was still open/unmerged when this API contract was reviewed. Reconcile its approved model/connection/effort work before relying on it.
 
-**Design rule:** UI and CLI use one Agent API and lifecycle. Agents are trusted cooperative local-machine tools, not security sandboxes. Do not add global agent-count/worker-slot/queue limits; only integrations can throttle provider submissions. No auto-injected child notifications, command-position restoration, duplicate lifecycle engine, or invented orchestration infrastructure.
+**Design rule:** One `/v1/agents` API powers **both root and child creation**, subsequent prompting, Stop/Resume, and inspection for **both Web UI and CLI**. No separate root-agent endpoint, child-agent implementation, or UI-only lifecycle path. Generic `/v1/chats` and `/v1/messages` remain the underlying conversation/transport API, not public Agent orchestration entry points. No global agent-count/worker-slot/queue limits; only integrations throttle provider requests. Agents are cooperative local-machine tools, not security sandboxes.
 
 ## 1. Existing integration points to inspect
 
@@ -27,22 +27,32 @@ The current root Agent runtime is queue-/SQLite-backed; detached shell work has 
 
 ## 2. Core objects and invariants
 
-- Root agents originate from UI/external entry points. Agent **chats** form persistent named parent/child trees; **executions** represent individual requests/tasks in a chat.
-- Each chat has a fixed policy ID. **Current agent.yaml is the only source of policy values**, including depth/capability rules; remove cached authoritative policy objects/snapshots.
-- Parent tools operate on descendants, not unrelated agents. This is a cooperative tooling rule, **not a security guarantee**: unrestricted SH can call APIs or change/redeploy the host.
-- Children never automatically send messages or activate their parent; parents inspect or wait explicitly.
-- No global or per-policy count, active-agent, queue or concurrent-Agent-execution slot limit. Per-chat ordering and provider-account throttling remain valid.
-- Persist chat/parent/name/execution state independently of OS process presence. A stopped/failed child remains visible.
+- **Agent** is the public resource name, represented by an existing underlying Agent chat ID. `agentId` in the API is that same chat ID (no second identity). An **execution** is an individual task/request. Parent-child trees are persistent.
+- Root agents have `parentId: null`; children reference a parent agent ID and have a unique direct-child name. UI and CLI use **the same Create operation**; differences are only request values, not alternate server logic.
+- Each agent has a fixed policy ID. **Current `agent.yaml` is the only source of policy values**, including depth/capability rules; remove cached authoritative policy objects/snapshots.
+- Parent tools operate on descendants, not unrelated agents. This is cooperative tool behavior, **not a security guarantee**: unrestricted SH can call APIs or change/redeploy the host.
+- Children never automatically message or activate parents; parents inspect or wait explicitly.
+- No global or per-policy count, active-agent, queue, or Agent execution-slot limit. Per-agent ordering and integration-account throttling still apply.
+- Persist agent/parent/name/execution state independently of OS process presence. A stopped/failed child remains visible.
 
-## 3. Named Create: duplicate is always an error
+## 3. Unified Create for root and child agents; duplicate is always an error
 
-Conceptual CLI: `Create(name: "worker-x", policy: "developer", task: "Implement X", connection: null, model: null)`.
+**One public endpoint:** `POST /v1/agents` creates an agent and starts its initial task **atomically from the caller's perspective**. It returns the assigned agent ID **and** initial execution ID immediately. The UI's "New Agent → enter first prompt → Send" and CLI's `Create` invoke this **same API operation**; UI does not have to poll an execution until the new chat ID is assigned. Merely opening the UI's new-agent composer remains a local, unsaved draft.
 
-- A parent name is unique among its **direct children**. Same name under a different parent is fine.
-- A second Create with an existing name **always fails**, even if every parameter matches. Do not implement idempotent reuse, canonical creation-spec fingerprints or silent restart.
-- The conflict error includes the existing child's chat ID, allowing a resumed parent to inspect the earlier child.
-- Atomically reserve (ParentChatId, Name) with a SQLite uniqueness constraint. Current ChatStore files and AgentStore SQLite are separate: reserve a predetermined chat ID and make subsequent chat materialization/initial execution startup recoverable after a crash. No phantom children after rejected validation.
-- Successful CLI Create prints **only** the new child chat ID; errors go to stderr with nonzero exit.
+Conceptual request (root):
+
+```json
+{ "parentId": null, "name": "My agent", "policyId": "manual", "task": "Investigate X", "connectionId": "chatgpt-sub", "model": null }
+```
+
+Child creation differs only in parameters: `{ "parentId": "chat_parent", "name": "worker-x", "policyId": "developer", "task": "Implement X" }`.
+
+- `parentId` is **optional in the request body**; missing or null means root. A child must supply a nonempty `name`; a root may omit it, letting the UI/backend derive a display title from the task. Name uniqueness applies only to one parent's **direct** children, not root-agent titles.
+- A second Create with an existing direct-child name **always fails** (`409 Conflict`), even if every parameter matches. Include `existingAgentId` in the error; do not implement idempotent reuse, fingerprints or silent restart.
+- Atomically reserve `(ParentId, Name)` with a SQLite uniqueness constraint; allocate the agent chat ID before returning. Since AgentStore SQLite and the underlying ChatStore files are separate, make chat materialization and initial execution startup recoverable/reconcilable after crashes. An accepted Create may be queued but must not be silently lost.
+- The API returns `201 Created`, `Location: /v1/agents/{agentId}`, and at minimum `{ agentId, executionId, status }`; do not report execution completion on creation. Child-name conflicts return `409` without new work. Other invalid fields/policy/depth return actionable errors without phantom child records.
+- CLI inside an agent defaults omitted `parentId` to the current agent's ID (a child). Standalone CLI with omitted `parentId` creates a root, identical to UI. Explicit `parentId` selects a parent in the same API; cooperative ancestry/policy checks apply. **The API itself never assumes that every Create is a child**.
+- Successful CLI Create prints **only** the new `agentId`; errors go to stderr with nonzero exit.
 
 ## 4. Live YAML policy
 
@@ -102,106 +112,190 @@ Conceptual commands: `Wait(timeoutSeconds)`, `WaitFor(chatId, timeoutSeconds)`, 
 - Separate minimum interval between submission starts from maximum simultaneous provider requests. A provider chooses whether an in-flight limit spans whole streaming responses or only the submit phase.
 - Per-chat model turn ordering remains serialized; account pacing should not block incoming prompt registration/status inspection.
 
-## 9. Agent Web UI: actual statuses, prompt always available
+## 9. Agent Web UI: API parity, actual statuses, prompt always available
 
-- Persistent collapsible parent/descendant tree with human-readable child names and IDs.
-- Indicators show **actual state**, with no separate human unread/read-completion flags: Completed green; Failed red; Waiting orange; Running animated/active; Stopped gray; Queued neutral. Define projection precedence consistently.
-- **The selected-chat input/composer must remain enabled when Running, Waiting, Stopped, Completed or Failed.** Specifically remove current `activeExecution` and `selectedChat.paused` guards on send/composer in `src/Mezhs.Agent.Web/src/App.tsx`. Existing-chat Send calls the same `Prompt` API used by agents, not a UI-only path.
-- Show queued vs submitted prompts honestly; entering a prompt does not imply current SH interruption.
-- UI Stop/Stop All and Resume/Resume All use the same API operations as CLI. Preserve shell log and execution diagnostics; Root UI may show provider Retry. Opening a chat must not change its status.
+- Persistent collapsible parent/descendant tree with human-readable names and IDs, sourced from `GET /v1/agents` using `parentId` and `recursive` when helpful. No separate `/sub-agents` endpoint.
+- Indicators show **actual state**, without separate human unread/read-completion flags: Completed green; Failed red; Waiting orange; Running animated/active; Stopped gray; Queued neutral. Define precedence consistently.
+- Clicking New Agent opens a **local draft only**; sending its first task uses `POST /v1/agents` (the same API as CLI Create). The response already includes `agentId`/`executionId`; delete the old `waitForAttachedChat` UI polling logic.
+- **Keep the existing-agent input enabled when Running, Waiting, Stopped, Completed or Failed.** Existing-chat Send uses `POST /v1/agents/{agentId}/prompt`, same as CLI Prompt. Remove the current `activeExecution` and `paused` input/send guards in `App.tsx`.
+- Show queued versus submitted prompts honestly; input never silently stops a running command.
+- Stop, Stop All, Resume and Resume All use the **same Agent API** as the CLI. UI execution-level shell Kill/Restart buttons use the existing `/v1/executions/{id}/kill` and `/restart` endpoints, also exposed by CLI commands; these are *not* alternate Agent Stop/Resume implementations.
+- UI policy/connection/model choice, runtime, messages, execution history and debug log use the same Agent API reads as CLI. Underlying transport-only `/v1/chats` and `/v1/messages` remain available to the runtime but are not used to bypass Agent lifecycle in either frontend.
 
-## 10. CLI command inventory
+## 10. CLI command inventory — added, updated, removed
 
-Implement `Mezhs.Agent.Cli` using `Mezhs.Console` [Command] discovery/binding and the typed `Mezhs.Agent.Api.Client`; no parallel parser. Bounded synchronous CLI waits are permissible without global agent-worker slot limits.
+`Mezhs.Agent.Cli` is a **new executable** using existing `Mezhs.Console` `[Command]` discovery/binding and the **same typed `Mezhs.Agent.Api.Client`** used by Agent Web (through its HTTP endpoints). Do not invent a separate command parser or alternate business logic.
 
-| Command | Signature (conceptual) | Behavior |
+There is **no existing `Mezhs.Agent.Cli`**, so every CLI function below is **ADDED** in the new CLI; the "API backing" column makes clear whether its underlying server operation is new, updated or existing.
+
+| CLI method (conceptual) | API backing | Behavior |
 | --- | --- | --- |
-| `Create` | `Create(name, policy, task, connection?, model?)` | New named child; any duplicate => conflict including existing ID |
-| `List` | `List()` | Accessible descendants, names, IDs, states |
-| `Get` | `Get(chatId)` | Chat metadata, live policy ID, tree |
-| `Inspect` | `Inspect(chatId)` | Latest execution, assistant response, outcomes/errors |
-| `Messages` | `Messages(chatId)` | Chat history |
-| `Log` | `Log(chatId)` | Execution/debug log |
-| `Prompt` | `Prompt(chatId, text, connection?, model?)` | Inject at next pre-command boundary; works while stopped |
-| `Retry` | `Retry(chatId)` | Integration HandleError |
-| `Stop` | `Stop(chatId, tree=false)` | Stop chat/subtree; kill associated shell process trees |
-| `Resume` | `Resume(chatId, tree=false)` | Replay latest response's commands from start |
-| `Wait` | `Wait(timeoutSeconds)` | Bounded timer |
-| `WaitFor` | `WaitFor(chatId, timeoutSeconds)` | Any terminal/stopped-working state |
-| `WaitAny` | `WaitAny(chatIds[], timeoutSeconds)` | First selected child that stops working |
-| `WaitAll` | `WaitAll(chatIds[], timeoutSeconds)` | All selected children stop working |
-| `Policies` | `Policies()` | Live YAML policy discovery |
-| `Connections` | `Connections()` | Available integrations |
-| `Models` | `Models(connectionId)` | Available models/effort |
+| `Create(policy, task, name?, parentId?, connection?, model?, effort?)` | **Added** `POST /v1/agents` | From UI/standalone: root if no parent; from agent: default parent is current agent; child name required |
+| `List(parentId?, recursive=false)` | **Renamed/updated** `GET /v1/agents` | No filter lists all visible agents; with parentId lists children; recursive traverses descendants. CLI may default parent to current execution context |
+| `Get(agentId)` | **Renamed/updated** `GET /v1/agents/{id}` | Metadata, policy ID, actual state and parent/name |
+| `Inspect(agentId)` | **Reused reads** | Aggregate Get, runtime, executions and latest reply locally; no special Inspect endpoint |
+| `Messages(agentId)` | **Renamed** `GET /v1/agents/{id}/messages` | Agent protocol-aware history |
+| `Log(agentId)` | **Renamed** `GET /v1/agents/{id}/debug-log` | Existing debug log |
+| `Prompt(agentId, text, connection?, model?, effort?)` | **Added** `POST /v1/agents/{id}/prompt` | Anytime prompt injection; accepted/queued response |
+| `Retry(agentId)` | **Added** `POST /v1/agents/{id}/retry` | Shared integration HandleError |
+| `Stop(agentId, tree=false)` | **Added** `POST /v1/agents/{id}/stop` | Same as UI Stop; optionally subtree |
+| `Resume(agentId, tree=false)` | **Added** `POST /v1/agents/{id}/resume` | Same as UI Resume; latest reply only |
+| `Wait(timeoutSeconds)` | **CLI-only** | Bounded timer; no server wait entity |
+| `WaitFor(agentId, timeoutSeconds)` | **Reuse** agent status reads | First stopped-working condition for one child |
+| `WaitAny(agentIds[], timeoutSeconds)` | **Reuse** agent status reads | First selected child to stop working |
+| `WaitAll(agentIds[], timeoutSeconds)` | **Reuse** agent status reads | All selected children stop working |
+| `Policies()` | **Existing** `GET /v1/policies` | Live policy discovery |
+| `Connections()` | **Existing** `GET /v1/connections` | Connection discovery |
+| `Models(connectionId)` | **Existing** `GET /v1/connections/{id}/models` | Model/effort discovery |
+| `KillExecution(executionId)` | **Existing** `POST /v1/executions/{id}/kill` | Same low-level shell Kill action exposed by UI |
+| `RestartExecution(executionId)` | **Existing** `POST /v1/executions/{id}/restart` | Same low-level shell Restart action exposed by UI |
 
-Retain Help/Validate. Parent/descendant checks are cooperative tool guidance, not a security boundary. Stable machine-readable records; errors stderr/nonzero; Create stdout just new ID.
+**Removed/obsolete command concepts:** no `CreateChild`, `CreateRoot`, `TryCreate`, `Pause`, `Inject`, independent `CancelAgentExecution`, or separate `StartAgentExecution`. Root and child use one `Create`; follow-ups use `Prompt`; interrupt/replay use `Stop`/`Resume`. `Help`, `Validate`, and `Test` are inherited from `Mezhs.Console` rather than added anew.
 
-**Per-command timeout override:** extend agent command protocol/parser/Interpreter/Executor so each command can specify its own finite timeout (default from current policy). An SH wrapping a long Wait must carry an outer timeout sufficient for wait + overhead; tests must cover this. Determine exact optional syntax compatible with current parser during implementation.
+**CLI argument behavior:** A manual standalone `Create` with no parent creates a root; if invoked within a MEŽS Agent execution, an omitted parent defaults to the current agent. Explicit parent IDs are accepted subject to normal policy/cooperative hierarchy checks. The CLI constructs a request and calls the same server API; it **does not** implement creation locally.
 
-## 11. Agent API endpoint inventory (proposed, reuse existing routes)
+**Per-command timeout:** Agent protocol/parser/Interpreter/Executor must support a finite per-command timeout override, including SH running long Wait CLI commands. Keep the default in current YAML policy; avoid outer 120-second timeout truncating a longer explicitly requested wait. Exact optional parser syntax is an implementation decision to validate against current command parsing.
 
-| Method | Route | Purpose |
+## 11. Agent API and typed client — explicit change ledger
+
+**Scope of renaming:** `/v1/agents` names the **Agent orchestration resource**. It replaces Agent API's `/v1/agent-chats` routes. It does **not** rename generic underlying conversation endpoints `/v1/chats`, `/v1/messages`, files, or integration endpoints. In routes, `agentId` is the same value previously called `chatId`, not a new GUID or foreign-key layer.
+
+### 11.1 Added endpoints
+
+| Method | Route | Purpose and caller contract |
 | --- | --- | --- |
-| POST | `/v1/agent-chats/{parentId}/sub-agents` | Atomic named Create; duplicate conflict |
-| GET | `/v1/agent-chats/{parentId}/sub-agents` | Children/descendants |
-| GET | `/v1/agent-chats/{chatId}` | Metadata, policy, persisted status |
-| GET | `/v1/agent-chats/{chatId}/runtime` | Execution/runtime state |
-| GET | `/v1/agent-chats/{chatId}/messages` | Conversation history |
-| GET | `/v1/agent-chats/{chatId}/executions` | Execution history |
-| GET | `/v1/agent-chats/{chatId}/debug-log` | Debug/command log |
-| POST | `/v1/agent-chats/{chatId}/prompt` | Always allow enqueue/submit prompt |
-| POST | `/v1/agent-chats/{chatId}/retry` | Shared integration HandleError |
-| POST | `/v1/agent-chats/{chatId}/stop` | Stop with body `{ "tree": false }` |
-| POST | `/v1/agent-chats/{chatId}/resume` | Resume with body `{ "tree": false }` |
-| GET | `/v1/policies` | Live policy discovery |
-| GET | `/v1/connections` | Connection discovery |
-| GET | `/v1/connections/{id}/models` | Model/effort discovery |
-| POST | `/v1/executions` | Reuse/extend execution start |
-| GET | `/v1/executions/{id}` | Execution/status |
+| POST | `/v1/agents` | **Unified root/child creation plus initial task**, optional body `parentId`, returns `201 {agentId, executionId, status}`. Both UI New Agent and CLI Create |
+| POST | `/v1/agents/{agentId}/prompt` | Anytime follow-up/injected prompt; immediately accept and persist in arrival order, return `202 {promptId, status}`. Both UI Send and CLI Prompt |
+| POST | `/v1/agents/{agentId}/retry` | Same integration `HandleError` used by automatic recovery and UI/CLI Retry |
+| POST | `/v1/agents/{agentId}/stop` | Request Stop with optional body `{ "tree": false }`; stop active shell execution/process tree; UI/CLI identical |
+| POST | `/v1/agents/{agentId}/resume` | Resume with optional `{ "tree": false }`; latest assistant reply only; UI/CLI identical |
 
-No separate persistent wait registration/endpoints (`/v1/waits/...`) are required: typed client bounded waits can observe persisted runtime/execution status. Add efficient batch status lookup only if demonstrated necessary. Keep authoritative chat lifecycle and prompt queue state server-side, separate from Executor OS-process ownership.
+**Creation is one operation, not two:** do not add `POST /v1/agents/{parentId}/sub-agents`, a separate root-create route, or a second `POST /v1/executions` path for UI new-agent submission. The backend owns transactional registration and crash reconciliation; no UI/CLI multi-call create workflow.
+
+### 11.2 Renamed / updated endpoints
+
+| Existing route | Replacement / action | Change |
+| --- | --- | --- |
+| GET `/v1/agent-chats` | GET `/v1/agents?parentId={id}&recursive={bool}` | **Rename + extend.** No `parentId` means all agents (UI can render tree); supplied parentId selects direct children, `recursive=true` includes descendants. No separate `/sub-agents` GET |
+| GET `/v1/agent-chats/{chatId}` | GET `/v1/agents/{agentId}` | **Rename + extend.** Include `agentId`, `parentId`, `name`, immutable policy ID, actual state and current runtime summary |
+| GET `/v1/agent-chats/{chatId}/runtime` | GET `/v1/agents/{agentId}/runtime` | **Rename + extend.** Include stopped/waiting/running, active shell, model, pending prompt state as needed |
+| GET `/v1/agent-chats/{chatId}/messages` | GET `/v1/agents/{agentId}/messages` | **Rename** parsed Agent history with protocol information |
+| GET `/v1/agent-chats/{chatId}/debug-log` | GET `/v1/agents/{agentId}/debug-log` | **Rename** existing Agent-specific downloadable debug log |
+| GET `/v1/executions?chatId={id}` | GET `/v1/executions?agentId={id}` | **Change query parameter name** for filtering Agent + Shell execution history; omitted ID still lists executions |
+| GET `/v1/executions/{executionId}` | Same path, **updated** state/result | Preserve single execution inspection; expose accurate new Agent states |
+| GET `/v1/policies`, GET `/v1/policies/{policyId}` | Same paths, **updated behavior** | Resolve current YAML (no policy snapshots); policy ID remains fixed per agent |
+
+### 11.3 Removed / replaced endpoints
+
+| Existing endpoint | Replacement / reason |
+| --- | --- |
+| GET `/v1/agent-chats/{chatId}/executions` | Use **existing** `GET /v1/executions?agentId={id}`; one owner for execution listing |
+| PATCH `/v1/agent-chats/{chatId}` (body `paused`) | Remove old pause toggle; **Stop**/`Resume` actions have real lifecycle semantics |
+| POST `/v1/executions` (Agent start; first/follow-up task) | Replace public Agent submission: **Create** root/child via `POST /v1/agents`, **Prompt** existing via `POST /v1/agents/{id}/prompt`. No second Agent entry path |
+| POST `/v1/executions/{executionId}/cancel` (root Agent cancellation) | Agent chat stop now uses `POST /v1/agents/{id}/stop`; preserve separately named low-level Executor Kill below |
+| All old `/v1/agent-chats/*` routes | Remove once UI, client and tests migrate to `/v1/agents/*`; do not leave independent old handlers |
+
+**Compatibility:** These are intended **V1 breaking changes** to the Agent-facing API. Search/update all repository and test callers before removing old routes. If temporary compatibility is necessary for an external consumer, its alias must delegate to the **same** canonical Agent service, never run a parallel state machine; remove when migrated.
+
+### 11.4 Existing endpoints explicitly retained
+
+| Method | Route | Use |
+| --- | --- | --- |
+| GET | `/v1/executions`, `/v1/executions/{id}` | Agent/Shell execution list and detail (list filter renamed above) |
+| POST | `/v1/executions/{id}/kill`, `/v1/executions/{id}/restart` | **Shell Executor only**; UI and CLI both expose KillExecution/RestartExecution; **not Agent Stop/Resume** |
+| GET | `/v1/connections`, `/v1/connections/{id}/models` | Integration/model/effort discovery (reconcile PR #21) |
+| GET | `/v1/policies`, `/v1/policies/{id}` | Live policy discovery |
+| All | `/v1/chats/*`, `/v1/messages/*`, `/v1/files/*` | Existing generic transport/conversation/file API for runtime and other consumers; no rename or second Agent orchestration path |
+
+No separate API `/v1/waits`, `/v1/agents/{id}/waits`, `/v1/agents/{id}/sub-agents`, or `/v1/agents/{id}/inspect` is introduced. CLI Wait observes existing Agent status; Inspect composes existing read endpoints.
+
+### 11.5 `AgentApiClient` method ledger (C#)
+
+The **typed** `src/Mezhs.Agent.Api.Client/AgentApiClient.cs` owns HTTP calls; UI sends the same HTTP contracts. Do not implement policy/Stop/Resume/Prompt logic in clients.
+
+| Method | Change | Maps to |
+| --- | --- | --- |
+| `CreateAgentAsync(request)` | **Add** | POST `/v1/agents` |
+| `GetAgentsAsync(parentId?, recursive?)` | **Rename/extend** old `GetAgentChatsAsync` | GET `/v1/agents` |
+| `GetAgentAsync(agentId)` | **Rename** old `GetAgentChatAsync` | GET `/v1/agents/{id}` |
+| `GetAgentRuntimeAsync(agentId)` | **Add** | GET `/v1/agents/{id}/runtime` |
+| `GetAgentMessagesAsync(agentId)` | **Add** | GET `/v1/agents/{id}/messages` |
+| `GetAgentDebugLogAsync(agentId)` | **Add** | GET `/v1/agents/{id}/debug-log` |
+| `PromptAgentAsync(agentId, request)` | **Add** | POST `/v1/agents/{id}/prompt` |
+| `RetryAgentAsync(agentId)` | **Add** | POST `/v1/agents/{id}/retry` |
+| `StopAgentAsync(agentId, tree=false)` | **Add** | POST `/v1/agents/{id}/stop` |
+| `ResumeAgentAsync(agentId, tree=false)` | **Add** | POST `/v1/agents/{id}/resume` |
+| `GetExecutionsAsync(agentId?)` | **Update** | GET `/v1/executions?agentId` |
+| `GetExecutionAsync`, `KillExecutionAsync`, `RestartExecutionAsync` | **Keep**, adapt DTO as needed | Existing execution detail/shell actions |
+| `GetPoliciesAsync` | **Keep**, live YAML value handling | GET `/v1/policies` |
+| `GetConnectionsAsync`, `GetModelsAsync` | **Add/reuse existing if available after PR #21** | Existing discovery endpoints |
+| `SetAgentPausedAsync`, `CancelExecutionAsync`, public Agent `StartExecutionAsync` | **Remove/retire** | Replaced by Stop/Resume, Create and Prompt |
+
+Keep the separate general `MezhsApiClient` chat/message transport methods for their existing consumers. They **must not** become an alternate Agent Prompt or Create implementation.
+
+### 11.6 UI ↔ CLI action-parity rule
+
+| User action in Agent Web | CLI command | Exact canonical API |
+| --- | --- | --- |
+| New Agent + first task | Create (no parent) | POST `/v1/agents` |
+| Create child (tree/action, if exposed) | Create (with parent) | POST `/v1/agents` |
+| List/open agent | List/Get | GET `/v1/agents`, GET `/v1/agents/{id}` |
+| Send prompt while any state | Prompt | POST `/v1/agents/{id}/prompt` |
+| Stop / Stop All | Stop | POST `/v1/agents/{id}/stop` |
+| Resume / Resume All | Resume | POST `/v1/agents/{id}/resume` |
+| Retry failed provider send | Retry | POST `/v1/agents/{id}/retry` |
+| Read messages/runtime/log/history | Messages/Inspect/Log/Get | GET Agent endpoints and `/v1/executions?agentId` |
+| Kill/Restart selected shell execution | KillExecution/RestartExecution | POST `/v1/executions/{id}/kill` or `/restart` |
+| Choose policy/connection/model/effort | Policies/Connections/Models + Create/Prompt | Existing discovery endpoints; selections in same Create/Prompt bodies |
+
+**Response/ordering requirements:** Create returns `agentId` + first execution ID without UI polling; Prompt returns an accepted prompt ID/status quickly (may be queued behind SH/provider, or allow model reply while stopped). The Agent service persists/serializes all state changes. Stop/Resume responses report the transition/request, not false claims that every OS process is already gone. Existing per-agent messages/execution reads give the UI/CLI the actual outcome.
 
 ## 12. Critical scenarios / verification checklist
 
-1. **Create:** duplicate name always conflict (even same specs) with existing ID; same name under different parent succeeds; concurrent Create reserves only one child; interrupted SQLite/chat-file materialization recovers.
-2. **No slots:** many parents/children waiting and running; no global agent-count/worker/queue admission cap. Integration-specific pacing still works.
-3. **Live policy:** editing valid agent.yaml changes existing agents' next policy check; no snapshots; enforce current depth, command, connection/model constraints.
-4. **Stop/Resume:** Stop kills active shell execution process tree without indefinite wait; in-flight provider response saved, not blindly replayed; Resume executes commands from **latest assistant response only**, from start, regardless of earlier success.
-5. **Prompt:** during SH, prompt waits until SH completes, retains result, supersedes unexecuted commands; while provider request in flight, applies after response and before commands; before DONE is handled; multiple simultaneous prompts ordered/durable.
-6. **Stopped prompting:** prompts still submit model turns and save responses without executing commands. Multiple responses: Resume runs only latest. Late old replies never execute superseded commands.
-7. **Tree:** Stop/Resume single vs recursive; Resume All includes individually stopped children; shell process-tree kill is distinct from child-agent tree stop.
-8. **DONE policy:** RejectIfActive corrects with descendant IDs; StopAll requests recursive Stop; Accept leaves descendants active; create-vs-DONE race cannot admit late active child into a terminal subtree.
-9. **Wait:** timer; For/Any/All observe **Stopped, DONE, Failed, Cancelled**, including initially terminal, mid-wait stop/error, mixed WaitAll; timeout normal result, not parent failure; latest-execution stale DONE ignored; deterministic races; no unsolicited parent messages.
-10. **Timeout:** per-command overrides propagate through SH and Executor; e.g. WaitFor 600s is not killed at default 120s.
-11. **Recovery:** UI/CLI Retry use one virtual HandleError; no blind uncertain-send replay; model/connection/effort selection shared with UI/PR #21.
-12. **Provider pacing:** only configured integration/account settings throttle submissions, across manual/master/child/retry; no global fixed three seconds or max-one default.
-13. **UI:** persistent collapsible tree; actual state only; composer usable while busy/stopped/done/failed; prompt pending state truthful; controls share API.
-14. **Restart:** pending prompts and children survive; no duplicate uncertain provider request; test Stop/Prompt/Resume and reply-order races.
-15. **Repository:** build, smoke tests, diff review and an unmerged PR against main; no unrelated changes.
+1. **One Create:** UI New Agent Send and standalone CLI Create send identical `POST /v1/agents` shape; root `parentId=null`; agent-invoked child `parentId=current agent`; both receive `agentId` and `executionId` immediately. No duplicate implementation and no `waitForAttachedChat`.
+2. **Child collision:** same direct-child name always returns `409` with existing agent ID (including same parameters); same name under another parent succeeds; races admit only one; crash between SQLite reservation/chat materialization is recoverable.
+3. **Agent list:** `GET /v1/agents` all agents for tree; `?parentId=X` only direct children; `recursive=true` descendants; same method supports CLI List and UI tree.
+4. **UI/CLI parity:** every Agent Web action has a CLI command using the **same endpoint**, including selected shell execution Kill/Restart. No direct UI-only route or second creation/submission path.
+5. **Migration:** no surviving independent `/v1/agent-chats/*`, `POST /v1/executions` Agent submission, legacy `paused` PATCH or root Agent `/cancel` path after client/test migration. Generic `/v1/chats`/`/v1/messages` remain intact.
+6. **No slots:** many parents/children waiting and running; no global agent-count/worker/queue admission cap; integration pacing still works.
+7. **Live policy:** valid YAML change affects existing agent's next policy check; no policy snapshots; current depth/command/connection/model/effort constraints.
+8. **Stop/Resume:** Stop kills active shell execution process tree without indefinite wait; in-flight provider response saved; Resume executes latest assistant response's commands only, from start, regardless of earlier successes.
+9. **Prompt:** UI and CLI send anytime; prompt during SH waits for command completion and retains its result; prompt during model request applies after response/before commands; queued prompt outranks resumed older response; prompts before DONE and prompt/command-launch races tested.
+10. **Stopped prompting:** explicit prompts still submit model turns and save responses without executing commands. Multiple responses: Resume runs only latest. Late old replies never run superseded commands.
+11. **Tree:** Stop/Resume single vs recursive; Resume All includes individually stopped children; shell process-tree kill differs from child-agent subtree Stop.
+12. **DONE policy:** RejectIfActive with IDs; StopAll recursive; Accept descendants continue; create-vs-DONE race doesn't admit a late child.
+13. **Wait:** CLI timer; For/Any/All observe Stopped/DONE/Failed/Cancelled (including initially terminal and mixed WaitAll), finite timeout normal result; no separate wait endpoints/parent notifications; prevent stale DONE.
+14. **Timeout:** per-command override survives SH and Executor, e.g. 600-second Wait not killed by default 120 seconds.
+15. **Retry/model:** UI/CLI Retry same virtual HandleError; no blind resend on uncertain acceptance; selection uses shared Create/Prompt API and approved PR #21 model picker work.
+16. **Status/UI:** actual state only; input enabled while busy/stopped; queued prompt receipt accurate; tree persists across restart.
+17. **Restart:** pending prompts/children survive; no duplicate uncertain provider submissions; model-reply and prompt-order races covered.
+18. **Repository:** build/test/migration search/review and one unmerged PR; no unrelated changes.
 
 ## 13. Suggested implementation sequence
 
-1. Reconcile approved model-presets dependency, then redesign Stop/Resume/Prompt and the pre-command injection boundary as one lifecycle mechanism, with tests.
-2. Remove global agent worker-slot and queue-admission limits; preserve per-chat ordering and optional integration-account pacing.
-3. Persist parent/name, live policy checks, non-idempotent atomic Create and restart materialization.
-4. Extend typed API client and Console CLI; support per-command timeout override.
-5. Implement bounded waits over persisted state without a durable wait-job subsystem.
-6. Integrate shared virtual integration HandleError and model/connection selection.
-7. Update UI tree, real statuses, and **always-enabled existing-chat prompt composer**; wire all controls to shared API.
-8. Verify restart/race/e2e tests, review diff, and keep PR unmerged until explicitly approved.
+1. Reconcile approved PR #21 dependency; refactor lifecycle around **one Agent API**, Stop/Resume and a pre-command prompt-injection boundary.
+2. Establish `/v1/agents` as the public Agent resource, allocate stable agent/chat ID before initial execution, and add **one Create** for root or child; migrate UI New Agent and CLI Create together.
+3. Remove global Agent worker/queue admission limits; preserve per-agent ordering and integration/account pacing only.
+4. Persist parent/name and live YAML policy resolution; implement atomic named-child conflicts and restart reconciliation.
+5. Implement `Prompt` during all states, shared Stop/Resume/Retry, and appropriate Shell Executor process-tree kill; update UI composer and remove legacy Pause/Cancel route behaviors.
+6. Migrate renamed Agent read endpoints and GET `/v1/executions?agentId`; remove obsolete `/v1/agent-chats`, public `POST /v1/executions` Agent submission, and redundant per-Agent execution-list route. Verify **all** repository/test call sites before deletion.
+7. Extend typed `AgentApiClient` and build the Console CLI inventory, including shell Kill/Restart parity and per-command timeout overrides.
+8. Implement bounded Wait/WaitFor/WaitAny/WaitAll over persisted Agent state, without a durable wait-job subsystem.
+9. Integrate virtual provider HandleError, model/connection/effort selection and integration-only account pacing.
+10. Build persistent UI tree/real status indicators; run full migration, restart, race and E2E tests; review a single PR and **leave unmerged**.
 
 ### Explicit V1 non-goals
 
 - No workspace/worktree manager or workspace locks in orchestration.
-- No global Agent count, worker-slot, queue-capacity or policy maxParallel limit.
-- No automatically injected child messages or unsolicited parent wake.
-- No sibling-to-sibling management tool, and no artificial shell sandbox security.
-- No duplicate Create idempotent reuse or stored creation fingerprint.
-- No Prompt-triggered implicit Stop/Resume; no Inject command.
-- No command-position checkpoints or killed-shell process resume.
-- No uncertain provider submission replay.
-- No persisted policy snapshots, unread tracking, or persistent wait-job scheduler.
-- No orchestration-level retry count/delay policy.
+- No global Agent count/worker-slot/queue-capacity or policy maxParallel limits.
+- No separate root-Agent or child-Agent API/CLI implementation; no `/sub-agents` endpoint.
+- No automatically injected child messages or parent wake.
+- No sibling-to-sibling management tool, no artificial shell sandbox security.
+- No duplicate Create idempotent reuse/fingerprint.
+- No Prompt-triggered implicit Stop/Resume, separate Inject command, or command-position checkpoint.
+- No killed-shell process resume or blind replay of uncertain provider submissions.
+- No policy snapshots, unread tracking, persistent wait-job scheduler, or Agent retry-count/delay YAML.
+- No duplicate transport-level `/v1/chats`/`/v1/messages` implementation in Agent API.
 
-**Definition of done:** same Agent API powers UI and CLI; unlimited-agent concurrency, live YAML policies, named children, anytime prompt injection, latest-response Stop/Resume and bounded terminal-state waits are implemented/tested in one reviewable **unmerged** PR.
+**Definition of done:** Agent Web UI and CLI use **the exact same Agent API routes** for all equivalent actions, including one root-or-child Create, anytime Prompt and shared lifecycle. Added/renamed/removed endpoints and typed client methods match the explicit ledgers above; tests pass; present one reviewable **unmerged** PR.
 
