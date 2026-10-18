@@ -51,7 +51,7 @@ Child creation differs only in parameters: `{ "parentId": "chat_parent", "name":
 - A second Create with an existing direct-child name **always fails** (`409 Conflict`), even if every parameter matches. Include `existingAgentId` in the error; do not implement idempotent reuse, fingerprints or silent restart.
 - Atomically reserve `(ParentId, Name)` with a SQLite uniqueness constraint; allocate the agent chat ID before returning. Since AgentStore SQLite and the underlying ChatStore files are separate, make chat materialization and initial execution startup recoverable/reconcilable after crashes. An accepted Create may be queued but must not be silently lost.
 - The API returns `201 Created`, `Location: /v1/agents/{agentId}`, and at minimum `{ agentId, executionId, status }`; do not report execution completion on creation. Child-name conflicts return `409` without new work. Other invalid fields/policy/depth return actionable errors without phantom child records.
-- CLI inside an agent defaults omitted `parentId` to the current agent's ID (a child). Standalone CLI with omitted `parentId` creates a root, identical to UI. Explicit `parentId` selects a parent in the same API; cooperative ancestry/policy checks apply. **The API itself never assumes that every Create is a child**.
+- **CLI requires agent context.** The Executor already supplies `MEZHS_CHAT_ID` and `MEZHS_EXECUTION_ID` to shell processes. CLI Create uses the current `MEZHS_CHAT_ID` as the API `parentId`; no parentId CLI argument or standalone/root mode. Outside a valid Agent execution it fails clearly. **The same POST /v1/agents API also creates roots** when UI passes null parentId.
 - Successful CLI Create prints **only** the new `agentId`; errors go to stderr with nonzero exit.
 
 ## 4. Live YAML policy
@@ -119,7 +119,7 @@ Conceptual commands: `Wait(timeoutSeconds)`, `WaitFor(chatId, timeoutSeconds)`, 
 - Clicking New Agent opens a **local draft only**; sending its first task uses `POST /v1/agents` (the same API as CLI Create). The response already includes `agentId`/`executionId`; delete the old `waitForAttachedChat` UI polling logic.
 - **Keep the existing-agent input enabled when Running, Waiting, Stopped, Completed or Failed.** Existing-chat Send uses `POST /v1/agents/{agentId}/prompt`, same as CLI Prompt. Remove the current `activeExecution` and `paused` input/send guards in `App.tsx`.
 - Show queued versus submitted prompts honestly; input never silently stops a running command.
-- Stop, Stop All, Resume and Resume All use the **same Agent API** as the CLI. UI execution-level shell Kill/Restart buttons use the existing `/v1/executions/{id}/kill` and `/restart` endpoints, also exposed by CLI commands; these are *not* alternate Agent Stop/Resume implementations.
+- UI Stop/Stop All and Resume/Resume All use exactly the same Agent API as CLI. Remove existing **Agent UI shell Kill/Restart action buttons** because they control a single shell execution outside the Agent lifecycle; Stop owns interruption of the active shell process tree. Keep execution histories and shell outputs for diagnostics.
 - UI policy/connection/model choice, runtime, messages, execution history and debug log use the same Agent API reads as CLI. Underlying transport-only `/v1/chats` and `/v1/messages` remain available to the runtime but are not used to bypass Agent lifecycle in either frontend.
 
 ## 10. CLI command inventory — added, updated, removed
@@ -130,8 +130,8 @@ There is **no existing `Mezhs.Agent.Cli`**, so every CLI function below is **ADD
 
 | CLI method (conceptual) | API backing | Behavior |
 | --- | --- | --- |
-| `Create(policy, task, name?, parentId?, connection?, model?, effort?)` | **Added** `POST /v1/agents` | From UI/standalone: root if no parent; from agent: default parent is current agent; child name required |
-| `List(parentId?, recursive=false)` | **Renamed/updated** `GET /v1/agents` | No filter lists all visible agents; with parentId lists children; recursive traverses descendants. CLI may default parent to current execution context |
+| `Create(name, policy, task, connection?, model?, effort?)` | **Added** `POST /v1/agents` | Create direct child of current Agent; CLI derives parent from `MEZHS_CHAT_ID`, not an argument |
+| `List(recursive=false)` | **Renamed/updated** `GET /v1/agents?parentId=...` | List direct children or descendants of current Agent, using Executor context; UI can list all agents using same endpoint |
 | `Get(agentId)` | **Renamed/updated** `GET /v1/agents/{id}` | Metadata, policy ID, actual state and parent/name |
 | `Inspect(agentId)` | **Reused reads** | Aggregate Get, runtime, executions and latest reply locally; no special Inspect endpoint |
 | `Messages(agentId)` | **Renamed** `GET /v1/agents/{id}/messages` | Agent protocol-aware history |
@@ -147,12 +147,11 @@ There is **no existing `Mezhs.Agent.Cli`**, so every CLI function below is **ADD
 | `Policies()` | **Existing** `GET /v1/policies` | Live policy discovery |
 | `Connections()` | **Existing** `GET /v1/connections` | Connection discovery |
 | `Models(connectionId)` | **Existing** `GET /v1/connections/{id}/models` | Model/effort discovery |
-| `KillExecution(executionId)` | **Existing** `POST /v1/executions/{id}/kill` | Same low-level shell Kill action exposed by UI |
-| `RestartExecution(executionId)` | **Existing** `POST /v1/executions/{id}/restart` | Same low-level shell Restart action exposed by UI |
 
-**Removed/obsolete command concepts:** no `CreateChild`, `CreateRoot`, `TryCreate`, `Pause`, `Inject`, independent `CancelAgentExecution`, or separate `StartAgentExecution`. Root and child use one `Create`; follow-ups use `Prompt`; interrupt/replay use `Stop`/`Resume`. `Help`, `Validate`, and `Test` are inherited from `Mezhs.Console` rather than added anew.
 
-**CLI argument behavior:** A manual standalone `Create` with no parent creates a root; if invoked within a MEŽS Agent execution, an omitted parent defaults to the current agent. Explicit parent IDs are accepted subject to normal policy/cooperative hierarchy checks. The CLI constructs a request and calls the same server API; it **does not** implement creation locally.
+**Removed/obsolete command concepts:** no `CreateChild`, `CreateRoot`, `TryCreate`, `Pause`, `Inject`, `CancelAgentExecution`, `StartAgentExecution`, `KillExecution`, or `RestartExecution`. CLI Create only creates a child of its executing Agent; UI uses the same backend Create API for roots. Prompt/Stop/Resume are the canonical Agent actions. `Help`, `Validate` and `Test` are inherited from `Mezhs.Console`.
+
+**CLI execution context:** every command requires Executor-supplied Agent context (`MEZHS_CHAT_ID`, `MEZHS_EXECUTION_ID`), validates that context and fails without it. CLI has **no parentId parameter** and **no manual standalone mode**. Create sends the current Agent ID as API `parentId`; only UI sends null for root creation. CLI never implements Agent creation, model submission or state changes locally.
 
 **Per-command timeout:** Agent protocol/parser/Interpreter/Executor must support a finite per-command timeout override, including SH running long Wait CLI commands. Keep the default in current YAML policy; avoid outer 120-second timeout truncating a longer explicitly requested wait. Exact optional parser syntax is an implementation decision to validate against current command parsing.
 
@@ -192,7 +191,9 @@ There is **no existing `Mezhs.Agent.Cli`**, so every CLI function below is **ADD
 | GET `/v1/agent-chats/{chatId}/executions` | Use **existing** `GET /v1/executions?agentId={id}`; one owner for execution listing |
 | PATCH `/v1/agent-chats/{chatId}` (body `paused`) | Remove old pause toggle; **Stop**/`Resume` actions have real lifecycle semantics |
 | POST `/v1/executions` (Agent start; first/follow-up task) | Replace public Agent submission: **Create** root/child via `POST /v1/agents`, **Prompt** existing via `POST /v1/agents/{id}/prompt`. No second Agent entry path |
-| POST `/v1/executions/{executionId}/cancel` (root Agent cancellation) | Agent chat stop now uses `POST /v1/agents/{id}/stop`; preserve separately named low-level Executor Kill below |
+| POST `/v1/executions/{executionId}/cancel` (root Agent cancellation) | Agent chat Stop uses `POST /v1/agents/{id}/stop`; no alternate Agent cancel path |
+| POST `/v1/executions/{id}/kill` (shell-only) | Retire public Agent route after UI migration; `ExecutorService.Kill` stays an internal capability used by Agent Stop |
+| POST `/v1/executions/{id}/restart` (shell-only) | Retire public Agent route after UI migration; rerunning one shell command is not Agent Resume |
 | All old `/v1/agent-chats/*` routes | Remove once UI, client and tests migrate to `/v1/agents/*`; do not leave independent old handlers |
 
 **Compatibility:** These are intended **V1 breaking changes** to the Agent-facing API. Search/update all repository and test callers before removing old routes. If temporary compatibility is necessary for an external consumer, its alias must delegate to the **same** canonical Agent service, never run a parallel state machine; remove when migrated.
@@ -202,7 +203,6 @@ There is **no existing `Mezhs.Agent.Cli`**, so every CLI function below is **ADD
 | Method | Route | Use |
 | --- | --- | --- |
 | GET | `/v1/executions`, `/v1/executions/{id}` | Agent/Shell execution list and detail (list filter renamed above) |
-| POST | `/v1/executions/{id}/kill`, `/v1/executions/{id}/restart` | **Shell Executor only**; UI and CLI both expose KillExecution/RestartExecution; **not Agent Stop/Resume** |
 | GET | `/v1/connections`, `/v1/connections/{id}/models` | Integration/model/effort discovery (reconcile PR #21) |
 | GET | `/v1/policies`, `/v1/policies/{id}` | Live policy discovery |
 | All | `/v1/chats/*`, `/v1/messages/*`, `/v1/files/*` | Existing generic transport/conversation/file API for runtime and other consumers; no rename or second Agent orchestration path |
@@ -226,10 +226,10 @@ The **typed** `src/Mezhs.Agent.Api.Client/AgentApiClient.cs` owns HTTP calls; UI
 | `StopAgentAsync(agentId, tree=false)` | **Add** | POST `/v1/agents/{id}/stop` |
 | `ResumeAgentAsync(agentId, tree=false)` | **Add** | POST `/v1/agents/{id}/resume` |
 | `GetExecutionsAsync(agentId?)` | **Update** | GET `/v1/executions?agentId` |
-| `GetExecutionAsync`, `KillExecutionAsync`, `RestartExecutionAsync` | **Keep**, adapt DTO as needed | Existing execution detail/shell actions |
+| `GetExecutionAsync` | **Keep**, adapt DTO as needed | Execution details for Agent/CLI Inspect and UI diagnostics |
 | `GetPoliciesAsync` | **Keep**, live YAML value handling | GET `/v1/policies` |
 | `GetConnectionsAsync`, `GetModelsAsync` | **Add/reuse existing if available after PR #21** | Existing discovery endpoints |
-| `SetAgentPausedAsync`, `CancelExecutionAsync`, public Agent `StartExecutionAsync` | **Remove/retire** | Replaced by Stop/Resume, Create and Prompt |
+| `SetAgentPausedAsync`, `CancelExecutionAsync`, public Agent `StartExecutionAsync`, `KillExecutionAsync`, `RestartExecutionAsync` | **Remove/retire** | Agent controls use Stop/Resume and Create/Prompt; shell kill remains internal to Executor |
 
 Keep the separate general `MezhsApiClient` chat/message transport methods for their existing consumers. They **must not** become an alternate Agent Prompt or Create implementation.
 
@@ -237,26 +237,25 @@ Keep the separate general `MezhsApiClient` chat/message transport methods for th
 
 | User action in Agent Web | CLI command | Exact canonical API |
 | --- | --- | --- |
-| New Agent + first task | Create (no parent) | POST `/v1/agents` |
-| Create child (tree/action, if exposed) | Create (with parent) | POST `/v1/agents` |
+| New Agent + first task | CLI has no root mode; **same Create API handler** is used for its child creation | POST `/v1/agents` (`parentId: null`) |
+| Create child (tree/action, if exposed) | Create (parent from `MEZHS_CHAT_ID`) | POST `/v1/agents` (`parentId: currentAgentId`) |
 | List/open agent | List/Get | GET `/v1/agents`, GET `/v1/agents/{id}` |
 | Send prompt while any state | Prompt | POST `/v1/agents/{id}/prompt` |
 | Stop / Stop All | Stop | POST `/v1/agents/{id}/stop` |
 | Resume / Resume All | Resume | POST `/v1/agents/{id}/resume` |
 | Retry failed provider send | Retry | POST `/v1/agents/{id}/retry` |
 | Read messages/runtime/log/history | Messages/Inspect/Log/Get | GET Agent endpoints and `/v1/executions?agentId` |
-| Kill/Restart selected shell execution | KillExecution/RestartExecution | POST `/v1/executions/{id}/kill` or `/restart` |
 | Choose policy/connection/model/effort | Policies/Connections/Models + Create/Prompt | Existing discovery endpoints; selections in same Create/Prompt bodies |
 
-**Response/ordering requirements:** Create returns `agentId` + first execution ID without UI polling; Prompt returns an accepted prompt ID/status quickly (may be queued behind SH/provider, or allow model reply while stopped). The Agent service persists/serializes all state changes. Stop/Resume responses report the transition/request, not false claims that every OS process is already gone. Existing per-agent messages/execution reads give the UI/CLI the actual outcome.
+**Response/ordering requirements:** Create returns `agentId` + first execution ID without UI polling; Prompt returns an accepted prompt ID/status quickly (may be queued behind SH/provider, or allow model reply while stopped). The Agent service persists/serializes all state changes. Stop/Resume responses report the transition/request, not false claims that every OS process is already gone. Execution **read** endpoints provide status/history/command diagnostics; shell-process control remains an internal Executor implementation detail, not an extra Agent CLI action.
 
 ## 12. Critical scenarios / verification checklist
 
-1. **One Create:** UI New Agent Send and standalone CLI Create send identical `POST /v1/agents` shape; root `parentId=null`; agent-invoked child `parentId=current agent`; both receive `agentId` and `executionId` immediately. No duplicate implementation and no `waitForAttachedChat`.
+1. **One Create:** UI New Agent Send and in-agent CLI Create use identical `POST /v1/agents` shape; UI root `parentId=null`, CLI child `parentId` derives from `MEZHS_CHAT_ID`; CLI cannot accept parentId or run without context. Both receive IDs immediately; no duplicate implementation or `waitForAttachedChat`.
 2. **Child collision:** same direct-child name always returns `409` with existing agent ID (including same parameters); same name under another parent succeeds; races admit only one; crash between SQLite reservation/chat materialization is recoverable.
 3. **Agent list:** `GET /v1/agents` all agents for tree; `?parentId=X` only direct children; `recursive=true` descendants; same method supports CLI List and UI tree.
-4. **UI/CLI parity:** every Agent Web action has a CLI command using the **same endpoint**, including selected shell execution Kill/Restart. No direct UI-only route or second creation/submission path.
-5. **Migration:** no surviving independent `/v1/agent-chats/*`, `POST /v1/executions` Agent submission, legacy `paused` PATCH or root Agent `/cancel` path after client/test migration. Generic `/v1/chats`/`/v1/messages` remain intact.
+4. **UI/CLI parity:** equivalent Agent-management actions use the **same endpoint**. UI root and CLI child creation differ by `parentId` value, not server code; remove redundant shell Kill/Restart actions from Agent UI instead of mirroring them in CLI.
+5. **Migration:** no independent `/v1/agent-chats/*`, public `POST /v1/executions` Agent submission, old paused PATCH, root Agent `/cancel`, or shell execution `/kill`/`/restart` action routes after UI/client/test migration. Generic `/v1/chats`/`/v1/messages` and Executor internals remain.
 6. **No slots:** many parents/children waiting and running; no global agent-count/worker/queue admission cap; integration pacing still works.
 7. **Live policy:** valid YAML change affects existing agent's next policy check; no policy snapshots; current depth/command/connection/model/effort constraints.
 8. **Stop/Resume:** Stop kills active shell execution process tree without indefinite wait; in-flight provider response saved; Resume executes latest assistant response's commands only, from start, regardless of earlier successes.
@@ -279,7 +278,7 @@ Keep the separate general `MezhsApiClient` chat/message transport methods for th
 4. Persist parent/name and live YAML policy resolution; implement atomic named-child conflicts and restart reconciliation.
 5. Implement `Prompt` during all states, shared Stop/Resume/Retry, and appropriate Shell Executor process-tree kill; update UI composer and remove legacy Pause/Cancel route behaviors.
 6. Migrate renamed Agent read endpoints and GET `/v1/executions?agentId`; remove obsolete `/v1/agent-chats`, public `POST /v1/executions` Agent submission, and redundant per-Agent execution-list route. Verify **all** repository/test call sites before deletion.
-7. Extend typed `AgentApiClient` and build the Console CLI inventory, including shell Kill/Restart parity and per-command timeout overrides.
+7. Extend typed `AgentApiClient` and build the **agent-context-only** Console CLI, including per-command timeout overrides. Do not expose shell Kill/Restart as agent CLI methods.
 8. Implement bounded Wait/WaitFor/WaitAny/WaitAll over persisted Agent state, without a durable wait-job subsystem.
 9. Integrate virtual provider HandleError, model/connection/effort selection and integration-only account pacing.
 10. Build persistent UI tree/real status indicators; run full migration, restart, race and E2E tests; review a single PR and **leave unmerged**.
@@ -288,7 +287,7 @@ Keep the separate general `MezhsApiClient` chat/message transport methods for th
 
 - No workspace/worktree manager or workspace locks in orchestration.
 - No global Agent count/worker-slot/queue-capacity or policy maxParallel limits.
-- No separate root-Agent or child-Agent API/CLI implementation; no `/sub-agents` endpoint.
+- No separate root/child Agent API implementation: same `POST /v1/agents` creates UI roots or CLI children. CLI accepts **no parentId** and cannot run outside an Agent execution. No `/sub-agents` endpoint.
 - No automatically injected child messages or parent wake.
 - No sibling-to-sibling management tool, no artificial shell sandbox security.
 - No duplicate Create idempotent reuse/fingerprint.
@@ -296,6 +295,7 @@ Keep the separate general `MezhsApiClient` chat/message transport methods for th
 - No killed-shell process resume or blind replay of uncertain provider submissions.
 - No policy snapshots, unread tracking, persistent wait-job scheduler, or Agent retry-count/delay YAML.
 - No duplicate transport-level `/v1/chats`/`/v1/messages` implementation in Agent API.
+- No separate Agent UI/CLI shell Kill/Restart controls; retain internal Executor process control for Stop and recovery.
 
-**Definition of done:** Agent Web UI and CLI use **the exact same Agent API routes** for all equivalent actions, including one root-or-child Create, anytime Prompt and shared lifecycle. Added/renamed/removed endpoints and typed client methods match the explicit ledgers above; tests pass; present one reviewable **unmerged** PR.
+**Definition of done:** Agent UI and agent-context-only CLI use **the exact same Agent API routes** for equivalent actions, including one root-or-child Create, anytime Prompt and shared Stop/Resume. CLI never accepts parentId or runs standalone; raw execution action endpoints are retired after migration. Added/renamed/removed endpoint/client ledgers stay accurate; tests pass; present one reviewable **unmerged** PR.
 
