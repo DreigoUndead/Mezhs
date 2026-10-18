@@ -133,6 +133,10 @@ public sealed class PolicyDecoder
                 "The text between those tags is passed to the host shell unchanged. Multiple command blocks run in order.");
         }
 
+        if (settings.Commands.Allow.Contains("ATTACH", StringComparer.OrdinalIgnoreCase) &&
+            !settings.Commands.Deny.Contains("ATTACH", StringComparer.OrdinalIgnoreCase))
+            rules.Add("To stage locally generated attachments for your own next agent message, use <ATTACH> on its own line, list one file path per line, then </ATTACH>. Uploading does not send a message; the agent runtime includes the files in the next ordinary turn. Do not use /v1/messages from shell.");
+
         if (settings.Completion.RequireDone)
         {
             var done = Registry.Get(CommandBehavior.Complete);

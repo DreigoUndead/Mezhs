@@ -58,6 +58,15 @@ public sealed class AgentStore(AgentOptions options)
                 ON Executions(CorrelationId, CreatedAt);
             CREATE INDEX IF NOT EXISTS IX_Executions_Status
                 ON Executions(Status);
+
+            CREATE TABLE IF NOT EXISTS StagedAttachments (
+                ExecutionId TEXT NOT NULL,
+                TriggerMessageId TEXT NOT NULL,
+                CommandIndex INTEGER NOT NULL,
+                FileIdsJson TEXT NOT NULL,
+                ConsumedByMessageId TEXT NULL,
+                PRIMARY KEY (ExecutionId, TriggerMessageId, CommandIndex)
+            );
             """);
 
         using var connection = _database.Open();
@@ -520,6 +529,95 @@ public sealed class AgentStore(AgentOptions options)
         return new AgentRecoveryPlan(recovered, pendingCancellations);
     }
 
+    public IReadOnlyList<StagedAttachmentRecord> GetStagedAttachments(string executionId)
+    {
+        using var connection = _database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT TriggerMessageId, CommandIndex, FileIdsJson, ConsumedByMessageId
+            FROM StagedAttachments
+            WHERE ExecutionId = $executionId
+            ORDER BY rowid;
+            """;
+        command.Parameters.AddWithValue("$executionId", executionId);
+        using var reader = command.ExecuteReader();
+        var items = new List<StagedAttachmentRecord>();
+        while (reader.Read())
+            items.Add(new StagedAttachmentRecord(
+                reader.GetString(0),
+                reader.GetInt32(1),
+                JsonSerializer.Deserialize<string[]>(reader.GetString(2), Json) ?? [],
+                reader.IsDBNull(3) ? null : reader.GetString(3)));
+        return items;
+    }
+
+    public void StageAttachments(
+        string executionId,
+        string triggerMessageId,
+        int commandIndex,
+        IReadOnlyList<string> fileIds)
+    {
+        if (fileIds.Count == 0)
+            throw new ArgumentException("At least one file is required.", nameof(fileIds));
+        using var connection = _database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO StagedAttachments (ExecutionId, TriggerMessageId, CommandIndex, FileIdsJson)
+            SELECT ExecutionId, $trigger, $index, $fileIds
+            FROM Executions
+            WHERE ExecutionId = $executionId
+              AND Kind = $kind
+              AND Status = $running
+            ON CONFLICT(ExecutionId, TriggerMessageId, CommandIndex) DO NOTHING;
+            """;
+        command.Parameters.AddWithValue("$executionId", executionId);
+        command.Parameters.AddWithValue("$trigger", triggerMessageId);
+        command.Parameters.AddWithValue("$index", commandIndex);
+        command.Parameters.AddWithValue("$fileIds", JsonSerializer.Serialize(fileIds, Json));
+        command.Parameters.AddWithValue("$kind", AgentExecutionKind.Agent.ToString());
+        command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
+        if (command.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException("ATTACH was already staged or its execution is no longer running.");
+    }
+
+    public void ConsumeStagedAttachments(
+        string executionId,
+        string messageId,
+        IEnumerable<string> fileIds)
+    {
+        using var connection = _database.Open();
+        using var transaction = connection.BeginTransaction();
+        var pending = new List<string>();
+        using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = """
+                SELECT FileIdsJson FROM StagedAttachments
+                WHERE ExecutionId = $executionId AND ConsumedByMessageId IS NULL
+                ORDER BY rowid;
+                """;
+            select.Parameters.AddWithValue("$executionId", executionId);
+            using var reader = select.ExecuteReader();
+            while (reader.Read())
+                pending.AddRange(JsonSerializer.Deserialize<string[]>(reader.GetString(0), Json) ?? []);
+        }
+        if (pending.Count == 0)
+            return;
+        if (!pending.SequenceEqual(fileIds, StringComparer.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Staged attachments differ from the submitted message.");
+        using var update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = """
+            UPDATE StagedAttachments
+            SET ConsumedByMessageId = $messageId
+            WHERE ExecutionId = $executionId AND ConsumedByMessageId IS NULL;
+            """;
+        update.Parameters.AddWithValue("$executionId", executionId);
+        update.Parameters.AddWithValue("$messageId", messageId);
+        update.ExecuteNonQuery();
+        transaction.Commit();
+    }
+
     private bool InsertExecution(ExecutionRecord record, long maxOutstandingAgentExecutions)
     {
         using var connection = _database.Open();
@@ -694,3 +792,8 @@ public sealed record AgentRecoveryPlan(
 
 public sealed record AgentPendingCancellation(string ExecutionId, string? ChatId);
 
+public sealed record StagedAttachmentRecord(
+    string TriggerMessageId,
+    int CommandIndex,
+    IReadOnlyList<string> FileIds,
+    string? ConsumedByMessageId);

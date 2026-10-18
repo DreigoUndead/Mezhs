@@ -23,6 +23,7 @@ public sealed class AgentWorker : BackgroundService
     private readonly Interpreter _commands;
     private readonly ExecutorService _executor;
     private readonly AgentRecoveryState _recovery;
+    private readonly AgentAttachmentStaging _attachments;
     private readonly Channel<bool> _wake;
     private readonly int _maxConcurrentExecutions;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _cancellations =
@@ -39,6 +40,7 @@ public sealed class AgentWorker : BackgroundService
         Interpreter commands,
         ExecutorService executor,
         AgentRecoveryState recovery,
+        AgentAttachmentStaging attachments,
         AgentOptions options)
     {
         _store = store;
@@ -51,6 +53,7 @@ public sealed class AgentWorker : BackgroundService
         _commands = commands;
         _executor = executor;
         _recovery = recovery;
+        _attachments = attachments;
         _maxConcurrentExecutions = options.Runtime.MaxConcurrentExecutions;
         _wake = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
         {
@@ -166,6 +169,7 @@ public sealed class AgentWorker : BackgroundService
             _store.ValidateAgentChatRunnable(chatId);
 
             var existingMessages = _chats.GetMessages(chatId);
+            _attachments.Reconcile(executionId, existingMessages);
             var hasCompletedAgentHistory = existingMessages.Any(message =>
                 message.Role == "user" && message.Status == MessageStatus.Completed);
             var includePolicyInstructions = previouslyOwnedAgentChat is null || !hasCompletedAgentHistory;
@@ -199,8 +203,10 @@ public sealed class AgentWorker : BackgroundService
                         ConnectionId: execution.ConnectionId,
                         ChatId: chatId,
                         Origin: nextPrompt.Origin,
-                        Model: execution.Model),
-                    cancellation.Token);
+                        Model: execution.Model,
+                        FileIds: _attachments.Pending(executionId)),
+                    cancellation.Token,
+                    posted => _attachments.MarkSubmitted(executionId, posted));
 
                 var processed = await ProcessReplyAsync(
                     execution,
@@ -277,7 +283,9 @@ public sealed class AgentWorker : BackgroundService
 
         if (interpretation.Results.Count > 0)
         {
-            if (interpretation.CompletionClaimed && interpretation.Results.All(result => result.Succeeded))
+            if (interpretation.CompletionClaimed &&
+                _attachments.Pending(execution.ExecutionId).Count == 0 &&
+                interpretation.Results.All(result => result.Succeeded))
             {
                 var sameTurnCompletion = _evaluations.EvaluateCompletion(policy, execution, completionClaimed: true);
                 if (sameTurnCompletion.State == PolicyCompletionState.Accepted)
@@ -291,7 +299,8 @@ public sealed class AgentWorker : BackgroundService
             policy,
             execution,
             interpretation.CompletionClaimed);
-        if (completion.State == PolicyCompletionState.Accepted)
+        if (completion.State == PolicyCompletionState.Accepted &&
+            _attachments.Pending(execution.ExecutionId).Count == 0)
             return CompleteExecution(execution);
 
         return new ReplyProcessing(
