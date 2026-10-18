@@ -1,0 +1,27 @@
+OVERALL: FAIL
+Merge status: 128
+Bundle freshness: 99
+Electron main syntax: 99
+Electron diagnostics syntax: 99
+Node test suite: 99
+.NET Release build: 99
+Embedded resource check: 99
+===== Git merge =====
+Committer identity unknown
+
+*** Please tell me who you are.
+
+Run
+
+  git config --global user.email "you@example.com"
+  git config --global user.name "Your Name"
+
+to set your account's default identity.
+Omit --global to set the identity only in this repository.
+
+fatal: empty ident name (for <runner@runnervm8k3b6.32dtbjfywqqevk5bxk3ll2a4se.phxx.internal.cloudapp.net>) not allowed
+===== Bundle freshness =====
+===== Node test summary =====
+===== Last 40 lines of Node tests =====
+===== .NET last 35 lines =====
+===== Resources =====
