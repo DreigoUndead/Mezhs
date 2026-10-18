@@ -1,0 +1,95 @@
+name: Temporary Combined Browser Refactor Validation
+on:
+  push:
+    branches:
+      - review/modular-chatgpt-browser
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify isolated combined PR integration
+        shell: bash
+        run: |
+          set +e
+          git fetch origin review/electron-diagnostics-isolation:refs/remotes/origin/review/electron-diagnostics-isolation > integration.log 2>&1
+          fetchStatus=$?
+          if [[ "$fetchStatus" -eq 0 ]]; then
+            git merge --no-commit --no-ff origin/review/electron-diagnostics-isolation >> integration.log 2>&1
+            mergeStatus=$?
+          else
+            mergeStatus=1
+          fi
+          if [[ "$mergeStatus" -eq 0 ]]; then
+            node integrations/Mezhs.Integrations.ChatGpt/browser/build.js --check > freshness.log 2>&1
+            freshStatus=$?
+            node --check electron/main.js > syntax.log 2>&1
+            syntaxMain=$?
+            node --check electron/diagnostics.js >> syntax.log 2>&1
+            syntaxDiag=$?
+            node --test tests/*.test.js > node-tests.log 2>&1
+            nodeStatus=$?
+            dotnet build Mezhs.sln --configuration Release --nologo > dotnet-build.log 2>&1
+            dotnetStatus=$?
+            pwsh -NoProfile -File tests/integration-resources.ps1 > resources.log 2>&1
+            resourcesStatus=$?
+          else
+            freshStatus=99
+            syntaxMain=99
+            syntaxDiag=99
+            nodeStatus=99
+            dotnetStatus=99
+            resourcesStatus=99
+          fi
+          if [[ "$mergeStatus" -eq 0 && "$freshStatus" -eq 0 && "$syntaxMain" -eq 0 && "$syntaxDiag" -eq 0 && "$nodeStatus" -eq 0 && "$dotnetStatus" -eq 0 && "$resourcesStatus" -eq 0 ]]; then
+            overall=PASS
+          else
+            overall=FAIL
+          fi
+          {
+            echo "OVERALL: $overall"
+            echo "Merge status: $mergeStatus"
+            echo "Bundle freshness: $freshStatus"
+            echo "Electron main syntax: $syntaxMain"
+            echo "Electron diagnostics syntax: $syntaxDiag"
+            echo "Node test suite: $nodeStatus"
+            echo ".NET Release build: $dotnetStatus"
+            echo "Embedded resource check: $resourcesStatus"
+            echo "===== Git merge ====="
+            cat integration.log
+            echo "===== Bundle freshness ====="
+            cat freshness.log 2>/dev/null
+            echo "===== Node test summary ====="
+            grep '^#' node-tests.log 2>/dev/null | tail -n 25
+            echo "===== Last 40 lines of Node tests ====="
+            tail -n 40 node-tests.log 2>/dev/null
+            echo "===== .NET last 35 lines ====="
+            tail -n 35 dotnet-build.log 2>/dev/null
+            echo "===== Resources ====="
+            cat resources.log 2>/dev/null
+          } > .combined-browser-review-result.txt
+          cat .combined-browser-review-result.txt
+          git reset --hard HEAD
+      - name: Commit validation report only
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .combined-browser-review-result.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "Record combined browser refactor review [skip ci]"
+            git push origin HEAD:review/modular-chatgpt-browser
+          fi
