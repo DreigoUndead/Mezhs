@@ -3,12 +3,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-
-const source = fs.readFileSync(path.join(__dirname, "../electron/main.js"), "utf8");
-const start = source.indexOf("function inspectRspackExportsScript(");
-const end = source.indexOf("async function invokeDiagnostic(", start);
-assert.ok(start >= 0 && end > start);
-const makeScript = vm.runInNewContext(source.slice(start, end) + "\ninspectRspackExportsScript");
+const { inspectRspackExportsScript: makeScript } = require("../electron/diagnostics");
+const source = fs.readFileSync(path.join(__dirname, "../electron/diagnostics.js"), "utf8");
 
 test("Rspack export inspection reads only requested function source and never invokes it", async () => {
   let invoked = 0;
