@@ -411,14 +411,16 @@ test("ChatGPT does not replay a turn when the backend rejects direct submission"
   assert.equal(state.requests.filter(x => x.path === "/backend-api/conversation/conv-test").length, 0);
 });
 
-test("ChatGPT account production code has no DOM or native input submission", () => {
-  const source = fs.readFileSync(
-    path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "chatgpt.ts"),
-    "utf8"
-  );
-  const accountSource = source.slice(source.indexOf("async function sendAccountMessage("));
-  assert.doesNotMatch(accountSource, /querySelector|document\.|contenteditable|focusNativeComposer|insertText\(|sendInputEvent\(/);
-  assert.doesNotMatch(source, /Network\.requestWillBeSent|Network\.streamResourceContent/);
-  assert.match(source, /postConversationTurn/);
-  assert.match(source, /requestMessageId = randomUUID\(\)/);
+test("ChatGPT authenticated modules avoid DOM and native input submission", () => {
+  const directory = path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "modules");
+  for (const name of ["account-messages.js", "account-files.js", "account-models.js", "account-results.js", "account-stream.js", "account-transport.js"]) {
+    const source = fs.readFileSync(path.join(directory, name), "utf8");
+    assert.doesNotMatch(source, /querySelector|document[.]|contenteditable|focusNativeComposer|insertText[(]|sendInputEvent[(]/);
+    assert.doesNotMatch(source, /Network[.]requestWillBeSent|Network[.]streamResourceContent/);
+  }
+  const messages = require(path.join(directory, "account-messages.js"));
+  assert.equal(typeof messages.sendAccountMessage, "function");
+  assert.equal(typeof messages.postConversationTurn, "function");
+  assert.match(messages.postConversationTurn.toString(), /nativeChatRequirementsHeaders/);
+  assert.match(messages.sendAccountMessage.toString(), /sendApiAccountMessage/);
 });
