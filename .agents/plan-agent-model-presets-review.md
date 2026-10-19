@@ -1,7 +1,7 @@
 # Plan: agent-model-presets architecture review cleanup
 
 **Date:** 2026-10-19
-**Status:** Implementation in progress; T1 (#7) verified and coordinator-reviewed 2026-10-19, T2 next; remaining tasks pending.
+**Status:** Implementation in progress; T1 (#7) and T2 (#2) committed, verified, coordinator-reviewed 2026-10-19. T3 next; remaining tasks pending.
 **Target:** Existing agent-model-presets review branch; do not merge until the user reviews the completed diff and explicitly approves.
 **Scope:** All eight findings from the 2026-10-19 code review, plus the follow-up on global workers/concurrency. This is not the separate orchestration proposal or the general execution-UX backlog.
 **Guidance:** Read .agents/README.md and the repository-change-workflow and software-change skills before modifying code. For observed defects follow systematic-debugging. Reuse the existing review branch rather than splitting this review into speculative branches.
@@ -18,8 +18,10 @@
 **Run one MEŽS agent task at a time.** Each agent run must read the repository skills, inspect the local tree, synchronize without destroying local work, implement *only* its assigned scope, run targeted tests, commit/push to `agent-model-presets`, report file/test/commit evidence, and stop. The coordinator reviews each report before the next task. Never merge.
 
 1. **T1 — Shared diagnostics verification (#7): COMPLETE, reviewed.** Agent commit `42ae609`; targeted builds/publish, HTTP 22/22, diagnostics tests and relevant architecture checks reported PASS. Non-loopback-IP check used a synthetic peer address; full architecture JS-packaging failure deferred to T3.
-2. **T2 — Browser diagnostics/session ownership (#2).** Reuse one account browser session in `BrowserIntegrationBase`, preserve provider inheritance and anonymous behavior. No new base type.
+2. **T2 — Browser diagnostics/session ownership (#2): COMPLETE, reviewed.** Agent commit `c985bba`; centralized base-owned account session/diagnostics/disposal, preserved hierarchy and guest separation. Targeted account/Grok ownership tests, diagnostics and provider checks reported PASS. Live Grok snapshot and browser opening worked; Grok message encountered provider ToS gate and ChatGPT Account lacked login. Two historical full-flow tests reportedly also fail on baseline; validate integrated provider flows in T7.
 3. **T3 — Source JS module packaging (#3/#4).** Remove generated `chatgpt.ts`/build.js, package normal CommonJS files; update build and architecture tests. Preserve other providers.
+**T3 preparation:** Electron `main.js` and `browser-preload.js` already use Node `require(absoluteModulePath)` and should not need a replacement loader. Update references in `tests/browser-provider-operations.test.js`, `tests/chatgpt-account-api.test.js`, `tests/chatgpt-conversation-unavailable.test.js`, `tests/chatgpt-guest-composer.test.js`, `tests/agent-provider-lifetime.ps1`, `tests/architecture.ps1`, and `browser/tsconfig.json`. Preserve the T4 guest behavioral test coverage while changing only how it loads the entry module. Avoid a generated duplicate source; use ordinary CommonJS sibling paths. Verify resource extraction is safe on repeated initializations and actually works when launched from published artifacts.**
+
 4. **T4 — Guest send simplification (#5).** Reuse preload `pageOperations`; eliminate guest `executeJavaScript`, bounded observation, no blind replay. Characterize live guest access without inventing success.
 5. **T5 — Parser presentation/protocol boundary (#6).** Investigate actual escaped-command samples first, remove DONE-only workaround safely, keep literal examples inert and block bodies opaque.
 6. **T6 — Agent dispatcher and global-limit removal (#8).** Remove global queue/worker limits as one atomic change while preserving durable claim, lifecycle, same-chat serialization, cancellation and recovery. If scope proves too large, stop after a concrete design/testing report rather than leaving a broken intermediate state.
