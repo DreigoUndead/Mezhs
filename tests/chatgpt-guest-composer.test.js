@@ -87,9 +87,10 @@ function mockPage(mode, options = {}) {
     loadURL: async () => { navigations++; submitted = false; ticks = 0; }
   };
   const page = {
-    invoke: async (operation, args) => {
+    invoke: async (operation, args, timeoutMs) => {
       invokes++;
       assert.equal(operation, 'sendPrompt');
+      assert.equal(timeoutMs, 190000);
       return pageOperation({ args, sleep: async () => { ticks++; } });
     }
   };
