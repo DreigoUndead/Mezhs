@@ -1,7 +1,7 @@
 # Plan: agent-model-presets architecture review cleanup
 
 **Date:** 2026-10-19
-**Status:** Implementation in progress; shared diagnostics API move (#7) committed, build/live verification pending; remaining changes delegated for live MEŽS testing.
+**Status:** Implementation in progress; T1 (#7) verified and coordinator-reviewed 2026-10-19, T2 next; remaining tasks pending.
 **Target:** Existing agent-model-presets review branch; do not merge until the user reviews the completed diff and explicitly approves.
 **Scope:** All eight findings from the 2026-10-19 code review, plus the follow-up on global workers/concurrency. This is not the separate orchestration proposal or the general execution-UX backlog.
 **Guidance:** Read .agents/README.md and the repository-change-workflow and software-change skills before modifying code. For observed defects follow systematic-debugging. Reuse the existing review branch rather than splitting this review into speculative branches.
@@ -11,13 +11,13 @@
 - **ChatGPT coordinator (this review):** #1 (keep existing relative Electron diagnostic import), #3 (preserve meaningful JS source boundaries), #7 (move diagnostics endpoint to shared MEŽS API with loopback remote and browser-origin restrictions, remove Agent-only mapper, add structural test). #7 code is committed but not yet compiled or exercised live; the MEŽS agent must run the verification gates below.
 - **MEŽS local implementation agent:** #2 (base-class account session/diagnostics ownership, preserving inheritance), #4 (deploy source JS files directly without a bundler), #5 (guest pageOperations rewrite and live guest characterization), #6 (safe, general escaped-tag/parser correction based on actual raw replies), #8 (remove global limits and fixed worker pool while preserving durable dispatcher and recovery).
 - **Ownership rule:** Execute the MEŽS handoff after pulling the already-pushed coordinator changes. Work on the same agent-model-presets review branch; do not overwrite, revert, or parallel-edit the coordinator's files without reviewing them. Existing untracked/local user files are not cleanup targets.
-- **Verification:** Run the architecture test including shared diagnostics ownership, run a full .NET build and the runtime/ChatGPT/guest tests as applicable, and perform representative live checks. The coordinator will review logs, diff, and reported causal evidence before any merge. No merge authorization is implied.
+- **Verification:** T1 shared diagnostics validation completed and reviewed (commit `42ae609`): reported HTTP 22/22, targeted builds/publish and diagnostics/Agent/Electron tests passed; remote-IP denial exercised via synthetic remote address; pre-existing full architecture failure on generated JS remains assigned to T3. Remaining tasks require their own checks. No merge authorization is implied.
 
 ## Small-task handoff sequence
 
 **Run one MEŽS agent task at a time.** Each agent run must read the repository skills, inspect the local tree, synchronize without destroying local work, implement *only* its assigned scope, run targeted tests, commit/push to `agent-model-presets`, report file/test/commit evidence, and stop. The coordinator reviews each report before the next task. Never merge.
 
-1. **T1 — Shared diagnostics verification (#7).** Build and exercise the already committed shared endpoint in standalone and Agent API; test the trusted-local boundary. Repair only verified regressions.
+1. **T1 — Shared diagnostics verification (#7): COMPLETE, reviewed.** Agent commit `42ae609`; targeted builds/publish, HTTP 22/22, diagnostics tests and relevant architecture checks reported PASS. Non-loopback-IP check used a synthetic peer address; full architecture JS-packaging failure deferred to T3.
 2. **T2 — Browser diagnostics/session ownership (#2).** Reuse one account browser session in `BrowserIntegrationBase`, preserve provider inheritance and anonymous behavior. No new base type.
 3. **T3 — Source JS module packaging (#3/#4).** Remove generated `chatgpt.ts`/build.js, package normal CommonJS files; update build and architecture tests. Preserve other providers.
 4. **T4 — Guest send simplification (#5).** Reuse preload `pageOperations`; eliminate guest `executeJavaScript`, bounded observation, no blind replay. Characterize live guest access without inventing success.
