@@ -35,8 +35,9 @@ $grok = Get-Content $grokIntegration -Raw
 if ($grok -notmatch '\[Integration\("grok-web-account"\)\]') {
     throw 'Grok account integration is not registered directly.'
 }
-if ($grok -notmatch 'BrowserAccountSession' -or $grok -notmatch 'ILoginModule') {
-    throw 'Grok account integration is not using the shared account lifecycle and login contract.'
+if ($grok -notmatch 'CreateAccountSession\(' -or $grok -notmatch 'ILoginModule' -or
+    $grok -match 'private readonly BrowserAccountSession _session') {
+    throw 'Grok account integration must reuse the base-owned session and login contract.'
 }
 if ($grok -match 'RemoteChatUrl.*\?\s*"newChat"\s*:\s*"send"' -or $grok -match 'new GrokSendRequest\([^\)]*ChatUrl') {
     throw 'Grok account sending incorrectly depends on remote-browser continuation state.'
@@ -65,8 +66,9 @@ if ($browserContractSource -notmatch 'interface BrowserPage' -or
 }
 
 $chatGpt = Get-Content (Join-Path $root 'integrations\Mezhs.Integrations.ChatGpt\ChatGptIntegration.cs') -Raw
-if ($chatGpt -notmatch 'BrowserAccountSession') {
-    throw 'ChatGPT account still owns a duplicate browser account lifecycle.'
+if ($chatGpt -notmatch 'CreateAccountSession\(' -or
+    $chatGpt -match 'private readonly BrowserAccountSession _session') {
+    throw 'ChatGPT account must reuse the base-owned browser session.'
 }
 
 $apiProject = Get-Content (Join-Path $root 'src\Mezhs.Api\Mezhs.Api.csproj') -Raw

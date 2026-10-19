@@ -8,6 +8,8 @@ public abstract class BrowserIntegrationBase(
     IIntegrationHost host) : ChatIntegrationBase(connection)
 {
     private string? _browserModulePath;
+    private BrowserAccountSession? _accountSession;
+    private BrowserDiagnosticsModule? _diagnostics;
 
     protected IBrowserIntegrationHost Host { get; } = BrowserIntegrationHost.Require(host);
     protected abstract Assembly BrowserModuleAssembly { get; }
@@ -25,12 +27,18 @@ public abstract class BrowserIntegrationBase(
             showBrowser,
             requireAuthorization);
 
-    protected BrowserAccountSession CreateAccountSession() => new(
+    protected BrowserAccountSession CreateAccountSession() => _accountSession ??= new(
         Host,
         (showBrowser, requireAuthorization) => TransportOptions(
             PersistentProfilePath,
             showBrowser,
             requireAuthorization));
+
+    public override IIntegrationDiagnosticsModule? Diagnostics =>
+        _accountSession is null ? null : _diagnostics ??= new BrowserDiagnosticsModule(_accountSession);
+
+    public override ValueTask DisposeAsync() =>
+        _accountSession?.DisposeAsync() ?? ValueTask.CompletedTask;
 
     protected async Task<IntegrationSendResult> SendAnonymousAsync(
         IntegrationSendContext context,

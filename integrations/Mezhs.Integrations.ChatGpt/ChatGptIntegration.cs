@@ -34,19 +34,16 @@ public class ChatGptWebIntegration : BrowserIntegrationBase
 [Integration("chatgpt-web-account")]
 public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
 {
-    private readonly BrowserAccountSession _session;
     private readonly ILoginModule _login;
     private readonly IModelModule _models;
-    private readonly IIntegrationDiagnosticsModule _diagnostics;
 
     public ChatGptAccountIntegration(
         IntegrationConnection connection,
         IIntegrationHost host) : base(connection, host)
     {
-        _session = CreateAccountSession();
-        _login = new LoginModule(_session);
-        _models = new ModelModule(_session);
-        _diagnostics = new BrowserDiagnosticsModule(_session);
+        var session = CreateAccountSession();
+        _login = new LoginModule(session);
+        _models = new ModelModule(session);
     }
 
     public override IntegrationCapabilities Capabilities => new(
@@ -56,12 +53,11 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         ImageOutput: true);
     public override ILoginModule Login => _login;
     public override IModelModule Models => _models;
-    public override IIntegrationDiagnosticsModule Diagnostics => _diagnostics;
 
     public override Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
         CancellationToken cancellationToken = default) =>
-        _session.UseAsync(async (transport, token) =>
+        CreateAccountSession().UseAsync(async (transport, token) =>
         {
             var hasRemoteConversation =
                 !string.IsNullOrWhiteSpace(context.Chat.RemoteConversationId) &&
@@ -116,8 +112,6 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 OutputFiles(sent.Response.Artifacts),
                 sent.Response.Model);
         }, cancellationToken);
-
-    public override ValueTask DisposeAsync() => _session.DisposeAsync();
 
     private static async Task<string?> ResolveProjectIdAsync(
         IChatBrowserTransport transport,

@@ -10,9 +10,11 @@ function Assert([bool]$condition, [string]$message) {
 }
 
 $contracts = Read-Source 'src\Mezhs.Integration.Abstractions\IntegrationContracts.cs'
+$browserBase = Read-Source 'src\Mezhs.Integration.Browser\BrowserIntegrationBase.cs'
 $browserDiagnostics = Read-Source 'src\Mezhs.Integration.Browser\BrowserDiagnosticsModule.cs'
 $chatGpt = Read-Source 'integrations\Mezhs.Integrations.ChatGpt\ChatGptIntegration.cs'
 $grok = Read-Source 'integrations\Mezhs.Integrations.Grok\GrokIntegration.cs'
+$gemini = Read-Source 'integrations\Mezhs.Integrations.Gemini\GeminiIntegration.cs'
 $agentProgram = Read-Source 'src\Mezhs.Agent.Api\Program.cs'
 $diagnosticsApi = Read-Source 'src\Mezhs.Api\MezhsApi.cs'
 $electron = Read-Source 'electron\main.js'
@@ -28,12 +30,27 @@ Assert ($browserDiagnostics.Contains('BrowserDiagnosticsModule(BrowserAccountSes
         $browserDiagnostics.Contains('$diagnostics/{normalized}')) `
     'Browser diagnostics do not execute through the owning authenticated BrowserAccountSession.'
 
+Assert ($browserBase.Contains('private BrowserAccountSession? _accountSession;') -and
+        $browserBase.Contains('CreateAccountSession() => _accountSession ??= new(') -and
+        $browserBase.Contains('public override IIntegrationDiagnosticsModule? Diagnostics') -and
+        $browserBase.Contains('_accountSession is null ? null : _diagnostics ??=') -and
+        $browserBase.Contains('new BrowserDiagnosticsModule(_accountSession)') -and
+        $browserBase.Contains('public override ValueTask DisposeAsync()')) `
+    'BrowserIntegrationBase must cache and dispose one account session, exposing diagnostics only for accounts.'
+
 foreach ($source in @($chatGpt, $grok)) {
-    Assert ($source.Contains('_session = CreateAccountSession();') -and
-            $source.Contains('_diagnostics = new BrowserDiagnosticsModule(_session);') -and
-            $source.Contains('Diagnostics => _diagnostics')) `
-        'An account integration does not share its exact BrowserAccountSession with diagnostics.'
+    Assert ($source.Contains('var session = CreateAccountSession();') -and
+            $source.Contains('CreateAccountSession().UseAsync(') -and
+            -not $source.Contains('private readonly BrowserAccountSession _session;') -and
+            -not $source.Contains('private readonly IIntegrationDiagnosticsModule _diagnostics;') -and
+            -not $source.Contains('override IIntegrationDiagnosticsModule Diagnostics') -and
+            -not $source.Contains('override ValueTask DisposeAsync()')) `
+        'An account integration still duplicates base session/diagnostics ownership.'
 }
+
+Assert ($chatGpt.Contains('SendAnonymousAsync(context, cancellationToken)') -and
+        $gemini.Contains('SendAnonymousAsync(context, cancellationToken)')) `
+    'Anonymous providers no longer use temporary anonymous transports.'
 
 Assert (-not $agentProgram.Contains('--diagnostics') -and
         $agentProgram.Contains('app.MapMezhsApi();')) `
@@ -70,4 +87,4 @@ Assert ($electronDiagnostics.Contains('url: parsed.origin + parsed.pathname') -a
 Assert ($electronDiagnostics.Contains("element.type === 'password' ? ''")) `
     'Diagnostic snapshots can expose password field values.'
 
-Write-Host 'PASS: diagnostics reuse the integration-owned authenticated BrowserAccountSession, are shared API endpoints, and keep generic browser probes in Electron.'
+Write-Host 'PASS: diagnostics reuse the base-owned authenticated BrowserAccountSession, are shared API endpoints, and keep generic browser probes in Electron.'
