@@ -39,6 +39,14 @@ foreach ($check in $checks) {
         $stream.Dispose()
     }
 
+    if ($check.Assembly -eq 'Mezhs.Integrations.ChatGpt.dll') {
+        $browserSourcePath = Join-Path $root 'integrations\Mezhs.Integrations.ChatGpt\browser\chatgpt.ts'
+        $expectedSource = [IO.File]::ReadAllText($browserSourcePath)
+        if ($source -cne $expectedSource) {
+            throw 'ChatGPT embedded browser resource differs from its generated standalone source.'
+        }
+    }
+
     if ($source -notmatch 'module\.exports' -or $source -notmatch 'operations' -or $source -notlike "*$($check.Marker)*") {
         throw "Browser resource '$($check.Resource)' does not contain the expected runtime module."
     }

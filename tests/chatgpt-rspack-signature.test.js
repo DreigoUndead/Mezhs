@@ -4,16 +4,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const source = fs.readFileSync(
-  path.resolve(__dirname, "../integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts"),
-  "utf8"
-);
-const start = source.indexOf("async function nativeChatRequirementsHeaders(");
-const end = source.indexOf("async function accessToken(", start);
-assert.ok(start >= 0 && end > start);
-const getNativeHeaders = vm.runInNewContext(
-  "const accountIds = new WeakMap();\n" +
-  source.slice(start, end) + "\nnativeChatRequirementsHeaders"
+const { nativeChatRequirementsHeaders: getNativeHeaders } = require(
+  path.resolve(__dirname, "../integrations/Mezhs.Integrations.ChatGpt/browser/modules/account-transport.js")
 );
 
 function testBrowser({ requirements, returnedHeaders, status = 200, providerAvailable = true }) {

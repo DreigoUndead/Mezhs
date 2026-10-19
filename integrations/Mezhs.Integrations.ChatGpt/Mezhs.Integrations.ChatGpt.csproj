@@ -7,6 +7,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj" />
   </ItemGroup>
+  <!-- Package all browser source modules before embedding the single deployed JavaScript resource. -->
+  <Target Name='BundleChatGptBrowser' BeforeTargets='PrepareResourceNames'>
+    <Exec Command='node &quot;$(MSBuildProjectDirectory)/browser/build.js&quot;' />
+  </Target>
   <ItemGroup>
     <EmbeddedResource Include="browser\chatgpt.ts" LogicalName="Mezhs.Integrations.ChatGpt.BrowserModule" />
   </ItemGroup>
