@@ -15,6 +15,7 @@ There is deliberately no eFlex-specific skill in this repository. eFlex was used
 ## Agent improvement backlog
 
 - [Execution UX and efficiency TODO](todo-execution-ux-and-efficiency.md) - long-session review, prioritized issues, supporting evidence and next-chat acceptance criteria.
+- [agent-model-presets architecture cleanup plan](plan-agent-model-presets-review.md) — review issues #1–#8, chosen design, non-goals, implementation sequence, and acceptance tests.
 
 ## Shared foundation
 
