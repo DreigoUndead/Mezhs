@@ -1,17 +1,17 @@
 # Plan: agent-model-presets architecture review cleanup
 
 **Date:** 2026-10-19
-**Status:** Implementation in progress; T1 (#7), T2 (#2), and T3 (#3/#4) committed, verified, and coordinator-reviewed on 2026-10-19. T4 next; remaining tasks pending.
+**Status:** Implementation in progress; T1–T4 (#7, #2, #3/#4, #5) committed and coordinator-reviewed on 2026-10-19. T5 next; T6/T7 pending.
 **Target:** Existing agent-model-presets review branch; do not merge until the user reviews the completed diff and explicitly approves.
 **Scope:** All eight findings from the 2026-10-19 code review, plus the follow-up on global workers/concurrency. This is not the separate orchestration proposal or the general execution-UX backlog.
 **Guidance:** Read .agents/README.md and the repository-change-workflow and software-change skills before modifying code. For observed defects follow systematic-debugging. Reuse the existing review branch rather than splitting this review into speculative branches.
 
 ## Coordination and ownership (2026-10-19)
 
-- **ChatGPT coordinator (this review):** #1 (keep existing relative Electron diagnostic import), #3 (preserve meaningful JS source boundaries), #7 (move diagnostics endpoint to shared MEŽS API with local-access restrictions). T1's diagnostics API verification has passed, and T2/T3 changes were reviewed.
+- **ChatGPT coordinator (this review):** #1 (keep existing relative Electron diagnostic import), #3 (preserve meaningful JS source boundaries), #7 (shared diagnostics API with local-access restrictions). T1–T4 implementation has been reviewed; the small T4 follow-up awaits local test verification.
 - **MEŽS local implementation agent:** #2 (base-class account session/diagnostics ownership, preserving inheritance), #4 (deploy source JS files directly without a bundler), #5 (guest pageOperations rewrite and live guest characterization), #6 (safe, general escaped-tag/parser correction based on actual raw replies), #8 (remove global limits and fixed worker pool while preserving durable dispatcher and recovery).
 - **Ownership rule:** Execute the MEŽS handoff after pulling the already-pushed coordinator changes. Work on the same agent-model-presets review branch; do not overwrite, revert, or parallel-edit the coordinator's files without reviewing them. Existing untracked/local user files are not cleanup targets.
-- **Verification:** T1 shared diagnostics validation completed and reviewed (commit `42ae609`): reported HTTP 22/22, targeted builds/publish and diagnostics/Agent/Electron tests passed; remote-IP denial exercised via synthetic remote address; pre-existing full architecture failure on generated JS remains assigned to T3. Remaining tasks require their own checks. No merge authorization is implied.
+- **Verification:** T1 HTTP diagnostics 22/22 PASS (synthetic remote IP); T2 targeted account/Grok ownership tests PASS; T3 published CommonJS probe and Node 90/90 PASS; T4 Node 99/99, guest 14/14, lifecycle 8/8 PASS as reported by local agents. T4 coordinator follow-up needs rerun of guest tests, IPC tests, TS check, and relevant builds. No merge authorization is implied.
 
 ## Small-task handoff sequence
 
@@ -22,7 +22,7 @@
 3. **T3 — Source JS module packaging (#3/#4): COMPLETE, reviewed.** Agent commit `453328c`; removed generated bundle/build script, embedded eight unmodified CommonJS modules, added direct extraction while preserving Grok/Gemini. Reported Node 90/90, .NET Release build, isolated publish and native Node require probe PASS. Live Electron conversation deferred to T7.
 **T3 residual verification:** Native Node loading from isolated published resources passed; full live Electron conversation is deferred to T7. Concurrent extraction was not independently tested; inspect only if a concrete runtime issue appears.
 
-4. **T4 — Guest send simplification (#5).** Reuse preload `pageOperations`; eliminate guest `executeJavaScript`, bounded observation, no blind replay. Characterize live guest access without inventing success.
+4. **T4 — Guest send simplification (#5): COMPLETE, reviewed.** Agent commit `533c155`; guest moved to existing preload `pageOperations` IPC; one send attempt, bounded completion and reliable listener cleanup. Agent reported Node 99/99, guest 14/14, lifecycle 8/8, full Release build PASS. Live isolated guest loaded ChatGPT and observed a login wall before any send; anonymous success unverified. Coordinator follow-up `796d863`–`3010bb6` moved the 190s guest timeout to the guest integration through optional `page.invoke` argument, removing a ChatGPT-name check from generic Electron host; targeted tests for this follow-up must run before T5 changes.
 5. **T5 — Parser presentation/protocol boundary (#6).** Investigate actual escaped-command samples first, remove DONE-only workaround safely, keep literal examples inert and block bodies opaque.
 6. **T6 — Agent dispatcher and global-limit removal (#8).** Remove global queue/worker limits as one atomic change while preserving durable claim, lifecycle, same-chat serialization, cancellation and recovery. If scope proves too large, stop after a concrete design/testing report rather than leaving a broken intermediate state.
 7. **T7 — Integrated validation and documentation.** Full relevant .NET/Node/PowerShell tests, isolated deployment checks, harmless authenticated multi-turn/live Agent test, docs update, final diff review and push. No extra implementation unless correcting a demonstrated regression.
