@@ -9,7 +9,7 @@ interface BrowserWindow {
 }
 
 interface BrowserPage {
-  invoke(operation: string, args?: any): Promise<any>;
+  invoke(operation: string, args?: any, timeoutMs?: number): Promise<any>;
 }
 
 interface InitializationContext {
