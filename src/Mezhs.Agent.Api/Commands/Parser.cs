@@ -15,18 +15,18 @@ public sealed class Parser
         var lines = ReadLines(content);
         var commands = new List<Command>();
         var visible = new List<string>();
+        var insideEscape = false;
 
         for (var i = 0; i < lines.Count; i++)
         {
             var text = lines[i].Text.Trim();
-            // Some model renderers encode the standalone DONE marker as escaped markup.
-            // All other escape wrappers are visible text, never executable commands.
-            if (text == "<escape><DONE></escape>")
-                text = "<DONE>";
-            else if (text.StartsWith("<escape>", StringComparison.Ordinal) &&
-                     text.EndsWith("</escape>", StringComparison.Ordinal))
+            // Escaped presentation text is literal, including command-shaped examples.
+            // Never promote escaped markup into executable Agent commands.
+            if (insideEscape || text.Contains("<escape>", StringComparison.Ordinal) ||
+                text.Contains("<escape ", StringComparison.Ordinal))
             {
                 visible.Add(lines[i].Text);
+                insideEscape = !text.Contains("</escape>", StringComparison.Ordinal);
                 continue;
             }
             if (!TryTag(text, out var name, out var closing))

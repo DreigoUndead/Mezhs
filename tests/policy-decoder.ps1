@@ -165,7 +165,8 @@ try
     store.Initialize();
     var executor = new ExecutorService(executorPath);
     var evaluations = new PolicyEvaluationService(store, executor);
-    var interpreter = new Interpreter(parser, evaluations, new Shell(executor, shellOptions));
+    // This test exercises SH only; no ATTACH operation is dispatched.
+    var interpreter = new Interpreter(parser, evaluations, new Shell(executor, shellOptions), null!);
     var emptyEnvironment = new Dictionary<string, string>();
 
     var serialA1 = store.TryCreateRootExecution(

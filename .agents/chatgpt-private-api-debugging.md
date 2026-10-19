@@ -50,6 +50,8 @@ A 200 from preparation/finalization means the request completed, **not** that gu
 
 **Verification for commit `0f561ac`:** `tests/chatgpt-guest-composer.test.js` covers rendered/completed Octane responses, one bounded new-chat blank retry, existing-conversation no-replay, explicit login requirement before or after the click, stalled submission, and successful non-login finalization. On 2026-10-14 all **61/61 Node tests** passed and the ChatGPT integration .NET project built with **0 warnings / 0 errors** using an isolated output directory. The in-place full solution build was obstructed by locks from already-running MEŽS and Visual Studio processes; this does **not** demonstrate a compilation failure. The login-required logic has deterministic tests, but **was not verified by a new successful guest conversation** because the live anonymous session required login. The local sanitized diagnostic report was written to `%TEMP%/mezhs-guest-capture-summary.json` (temporary, **not** committed); raw test probes also lived in `%TEMP%`, not this repository.
 
+**Agent command boundary (T5, 2026-10-19):** Persisted ChatGPT Account replies contain both raw standalone `<DONE>` and the exact literal `<escape><DONE></escape>` wrapper. The same wrapper can represent an example, so raw message text alone cannot reliably recover completion intent. The parser deliberately accepts only the raw standalone protocol marker; escaped text is preserved verbatim and cannot execute or complete. A historical reply with only escaped DONE will require a subsequent raw `<DONE>` to complete. SH/ATTACH bodies remain opaque, and the existing Registry/Interpreter retain command validation and authorization.
+
 ## Owners / moving parts
 
 | Owner | Path | Purpose |
@@ -58,7 +60,7 @@ A 200 from preparation/finalization means the request completed, **not** that gu
 | Account .NET wrapper | `integrations/Mezhs.Integrations.ChatGpt/ChatGptIntegration.cs` | Connection/session, transport requests and results |
 | Electron window and CDP | `electron/main.js` | Logged-in renderer, browser session, passive request trace, diagnostic inspection |
 | Diagnostics allowlist | `src/Mezhs.Integration.Browser/BrowserDiagnosticsModule.cs` | Exposes bounded browser diagnostic operations |
-| Agent command grammar | `src/Mezhs.Agent.Api/Commands/Parser.cs` | `SH` and `DONE`, including exact escaped DONE |
+| Agent command grammar | `src/Mezhs.Agent.Api/Commands/Parser.cs` | `SH`, `ATTACH` and raw `DONE`; escaped presentation text is inert |
 | Agent/Executor | `src/Mezhs.Agent.Api`, `src/Mezhs.Executor` | Policy, durable command execution, command-result turns |
 | Regression tests | `tests/chatgpt-rspack-signature.test.js`, `tests/chatgpt-account-api.test.js`, `tests/browser-provider-operations.test.js`, `tests/electron-rspack-inspection.test.js`, `tests/agent-protocol-result.ps1` | Contract, fail-closed, partial stream, replay safety, diagnostics and real shell smoke |
 
@@ -73,7 +75,7 @@ The conceptual request path is: logged-in Electron session → account identity/
 5. **Recovered the callback contract.** `lXE.f` began conceptually with `let t=g(), n=p(await e(t))`. It expected `e(requirementsKey)` to return the server's requirements object, then handled challenges and returned `{ chatRequirements, headers, proofToken, requirementsKey, turnstileToken, ... }`. Rather than reimplementing browser proof/Turnstile logic, MEŽS supplies the authenticated prepare callback and accepts the browser helper's headers.
 6. **Verified live end-to-end.** The user log then showed accepted prompts, served model/effort, tool use, completed responses and command-result follow-ups.
 7. **Isolated intermittent discovery failure.** A subsequent log recorded `ChatGPT Rspack runtime is not loaded` both before a first turn and after a successful shell action when submitting command results. The fragile repeated Resource Timing lookup was repaired by **same-document caching of the verified function reference**, with a new-document fail-closed regression. This fixes a demonstrated weakness; the precise reason entries went missing in the user's renderer is not independently proven.
-8. **Polished independent Agent/UI issues.** Exact standalone `<escape><DONE></escape>` is now recognized as completion, but escaped `SH` and shell bodies remain inert/opaque. For citations, the adapter uses message `metadata.content_references`, exact `matched_text` and `alt` Markdown when available; otherwise shows `[citation unavailable]` rather than inventing URLs. These are *not* authentication fixes.
+8. **Polished independent Agent/UI issues.** Historically, exact standalone `<escape><DONE></escape>` was temporarily recognized as completion; T5 removed that exception because escaped examples must remain literal. Raw `<DONE>` completes; escaped `SH` and shell bodies remain inert/opaque. For citations, the adapter uses message `metadata.content_references`, exact `matched_text` and `alt` Markdown when available; otherwise shows `[citation unavailable]` rather than inventing URLs. These are *not* authentication fixes.
 
 ### Historical Rspack exports, not stable names
 
@@ -163,7 +165,7 @@ When tools are unavailable locally, `.agents/README.md` documents the repository
 | Guest `guest_submission_timeout` | Click did not produce a detectable new transcript turn within ~30 s; **not** necessarily a login requirement | Check preparation/finalization and whether a conversation request was actually made; do not blindly resend |
 | Guest `empty_guest_reply` | New assistant was marked complete but stayed unreadable through a bounded grace period | Distinguish DOM rendering from event stream; only the existing `newChat` path retries once, never an existing turn |
 | Agent `Failed` after a completed `SH` | Shell side effect succeeded but later model communication failed | Inspect Executor evidence **separately** from the Agent message timeline; never rerun side effects blindly |
-| Escaped `DONE` / raw citation markers | Parser or text presentation issue, not an HTTP transport problem | Exact escaped-marker grammar and `content_references` metadata |
+| Escaped `DONE` / raw citation markers | Parser or text presentation issue, not an HTTP transport problem | Raw standalone Agent commands versus literal escaped presentation markup, and `content_references` metadata |
 
 ## Next agent's checklist
 
