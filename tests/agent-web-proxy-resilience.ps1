@@ -9,6 +9,7 @@ $agentWebDll = Join-Path $root "src\Mezhs.Agent.Web\bin\Release\net10.0\Mezhs.Ag
 $stdout = Join-Path ([IO.Path]::GetTempPath()) ("mezhs-agent-web-proxy-" + [Guid]::NewGuid().ToString("N") + ".out.log")
 $stderr = Join-Path ([IO.Path]::GetTempPath()) ("mezhs-agent-web-proxy-" + [Guid]::NewGuid().ToString("N") + ".err.log")
 
+Add-Type -AssemblyName System.Net.Http
 Add-Type -TypeDefinition @'
 using System;
 using System.IO;
@@ -35,8 +36,8 @@ public static class TruncatedHttpServer
     public static void Stop()
     {
         _running = false;
-        try { _listener?.Stop(); } catch { }
-        try { _thread?.Join(2000); } catch { }
+        try { if (_listener != null) _listener.Stop(); } catch { }
+        try { if (_thread != null) _thread.Join(2000); } catch { }
     }
 
     private static void Run()
@@ -45,8 +46,7 @@ public static class TruncatedHttpServer
         {
             try
             {
-                using var client = _listener.AcceptTcpClient();
-                Handle(client);
+                using (var client = _listener.AcceptTcpClient()) Handle(client);
             }
             catch (SocketException)
             {
@@ -61,18 +61,18 @@ public static class TruncatedHttpServer
 
     private static void Handle(TcpClient client)
     {
-        using var stream = client.GetStream();
+        var stream = client.GetStream();
         var request = ReadHeaders(stream);
         var firstLineEnd = request.IndexOf("\r\n", StringComparison.Ordinal);
         var firstLine = firstLineEnd >= 0 ? request.Substring(0, firstLineEnd) : request;
 
-        if (firstLine.Contains(" /health ", StringComparison.Ordinal))
+        if (firstLine.IndexOf(" /health ", StringComparison.Ordinal) >= 0)
         {
             WriteComplete(stream, "{\"status\":\"ok\"}");
             return;
         }
 
-        if (firstLine.Contains(" /v1/broken ", StringComparison.Ordinal))
+        if (firstLine.IndexOf(" /v1/broken ", StringComparison.Ordinal) >= 0)
         {
             var header = "HTTP/1.1 200 OK\r\n" +
                          "Content-Type: application/json\r\n" +
@@ -93,7 +93,7 @@ public static class TruncatedHttpServer
 
     private static string ReadHeaders(Stream stream)
     {
-        using var buffer = new MemoryStream();
+        var buffer = new MemoryStream();
         var state = 0;
         while (buffer.Length < 16384)
         {

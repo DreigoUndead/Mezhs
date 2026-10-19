@@ -1,7 +1,7 @@
 # Plan: agent-model-presets architecture review cleanup
 
 **Date:** 2026-10-19
-**Status:** T1–T6 committed, locally verified and coordinator-reviewed as of 2026-10-20. T7 integrated validation pending; no merge authorization.
+**Status:** T1–T7 implemented and integrated validation completed on 2026-10-20. Ready for user review on agent-model-presets; NOT merged and no merge authorization.
 **Target:** Existing agent-model-presets review branch; do not merge until the user reviews the completed diff and explicitly approves.
 **Scope:** All eight findings from the 2026-10-19 code review, plus the follow-up on global workers/concurrency. This is not the separate orchestration proposal or the general execution-UX backlog.
 **Guidance:** Read .agents/README.md and the repository-change-workflow and software-change skills before modifying code. For observed defects follow systematic-debugging. Reuse the existing review branch rather than splitting this review into speculative branches.
@@ -147,3 +147,32 @@ Current code uses QueueCapacity (32) + MaxConcurrentExecutions (4) as a global m
 Run targeted Node tests (ChatGPT account, guest, provider operations, diagnostics), .NET 10 build/publish, tests/agent-protocol-result.ps1, tests/agent-runtime-resilience.ps1, tests/agent-architecture.ps1 and relevant browser packaging tests. Use isolated build outputs if normal build files are locked; do not kill user applications. Include a harmless live authenticated multi-turn Agent test if available: prompt -> SH -> durable result -> follow-up -> DONE. Test guest live only if upstream permits it. Finish with git diff --check and a review of all changed files. Record which tests ran and which external behaviors remain unverified.
 
 **Finish condition:** Implementation is committed and pushed to the existing review branch; offer the user its diff/PR for review; leave it unmerged. This planning document alone is not implementation or permission to merge.
+
+## T7 final integrated validation (2026-10-20)
+
+**Disposition:** Review-ready on the existing `agent-model-presets` branch; do not merge without explicit user approval. No live user application processes were terminated. T7 includes only a whitespace correction, a PowerShell 5.1 compatibility fix in the proxy regression, and this validation record.
+
+### Verified locally
+
+- Full Node regression suite: **99/99 pass** (`node --test tests\*.test.js`); syntax checks pass for 12 JavaScript files.
+- `dotnet build Mezhs.sln -c Release --nologo -v quiet`: **pass**, zero errors. The final post-T7 build reported **zero warnings**; an earlier build reported one historical `CS0114` warning in `Mezhs.WhatsApp/WhatsAppApplication.Tests.cs` (the affected method is also present on `main`).
+- TypeScript `tsc --noEmit -p`: **pass** for the ChatGPT browser, Agent Web, and Web ClientApp projects.
+- Isolated Release `dotnet publish`: **pass** for core API, Agent API, and packaging probe. Published ChatGPT assembly extraction/native Node import: **pass** for eight CommonJS resources, repeat extraction, and missing/stale resource repair.
+- Published ChatGPT `entry.js` loaded by the actual Electron `main.js` and `browser-preload.js` using a disposable profile: **pass**; diagnostics invocation completed successfully.
+- Electron disposable-profile runtime checks: diagnostics, browser identity/OAuth state, hidden authorization, visible login flow, and provider operation regression: **pass**.
+- Architecture/policy/integration regressions: **pass** for repository architecture, Agent architecture, provider lifetime, integration resources, diagnostics architecture, policy decoder, Grok architecture, and cancellation contract.
+- Diagnostics API: **pass** across both API hosts, including rejection of synthetic non-loopback access. Parser/protocol, conversation restore, Agent store migration, cancellation/recovery, shared Agent Web UI, attachment staging, and mock end-to-end attachment tests: **pass**.
+- Agent runtime resilience: **pass** with six concurrent runnable Agent roots and six overlapping shell commands, failure isolation, cancellation, queued cancellation, same-chat serialization, persisted restart/recovery, and no duplicate shell start. Graceful shutdown/recovery regression: **pass**.
+- Isolated Agent API/Web smoke: **pass**, including loopback-only Agent/API exposure, browser CORS restriction, shared endpoints, policy behavior, and debug logs after generic API shutdown. Isolated Agent Web proxy interrupted-upstream regression: **pass**, including controlled 503 and recovery.
+- Authenticated live ChatGPT Account Agent on `127.0.0.1:5060`: **verified** real multi-turn `SH` round trip. The harmless marker command `2737` returned exit code 0, its `/v1/executions/2737` record was `Completed` with parent `exec_8fc6f096c3aa465083f4f4a64c7cdf84`, exactly one such execution ID was found in the chat execution listing, and the marker appeared in the durable debug log. The current root remains active until the final `DONE` response.
+
+### Known limitations / non-regressions
+
+- Full `tests/account-login-flow.ps1` and `tests/grok-account-login-flow.ps1` each fail a prior-history reconstruction assertion; **both failures were reproduced independently on a clean `origin/main` source baseline**, not attributed to T1–T7. Their T2 ownership-only tests both pass. Keep history reconstruction as separate follow-up work.
+- Live guest upstream completion was not tested, and no external paid ChatGPT/Grok login, model catalog refresh, or real file upload was forced during T7. The authenticated Agent smoke uses the already running user session; the published-module Electron smoke uses a disposable unauthenticated profile.
+- Windows PowerShell 5.1 cannot compile newer syntax in the original proxy test; T7 adapted only the test harness to 5.1-compatible C# and explicitly loaded `System.Net.Http`. The checked-in script now passes directly.
+- An earlier build emitted `CS0114`, but the final incremental Release build was warning-free. The historical warning is not claimed fixed by this task. This review does not claim unrelated defects are fixed or the branch has been merged.
+
+### Release gate
+
+Finish with `git diff --check` against `main` and the working tree, inspect the final T7 diff, commit/push `agent-model-presets`, verify remote SHA equality and a clean worktree. Branch remains unmerged.
