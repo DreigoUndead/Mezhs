@@ -84,8 +84,12 @@ public static class MezhsApi
             CancellationToken cancellationToken) =>
         {
             var remote = http.Connection.RemoteIpAddress;
+            // The standalone API allows cross-origin requests elsewhere; diagnostics must not.
+            var origin = http.Request.Headers.Origin.ToString();
             if (remote is null ||
-                !IPAddress.IsLoopback(remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote))
+                !IPAddress.IsLoopback(remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote) ||
+                (!string.IsNullOrEmpty(origin) &&
+                 (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri) || !originUri.IsLoopback)))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
             if (!integrations.TryGet(connectionId, out var integration))
