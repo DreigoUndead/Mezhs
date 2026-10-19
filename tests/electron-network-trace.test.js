@@ -1,15 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const vm = require("node:vm");
 const { EventEmitter } = require("node:events");
+const { captureDiagnosticNetwork } = require("../electron/diagnostics");
 
 function diagnosticHarness() {
-  const source = fs.readFileSync(path.resolve(__dirname, "../electron/main.js"), "utf8");
-  const start = source.indexOf("async function captureDiagnosticNetwork(");
-  const end = source.indexOf("async function invokeDiagnostic(", start);
-  assert.ok(start >= 0 && end > start);
   class Debugger extends EventEmitter {
     attached = false;
     isAttached() { return this.attached; }
@@ -18,15 +12,9 @@ function diagnosticHarness() {
     async sendCommand(method) { assert.equal(method, "Network.enable"); return {}; }
   }
   const debuggerClient = new Debugger();
-  const context = {
-    window: { webContents: { debugger: debuggerClient } },
-    URL,
-    sleep: async () => {}
-  };
-  const capture = vm.runInNewContext(
-    source.slice(start, end) + "\ncaptureDiagnosticNetwork",
-    context
-  );
+  const window = { webContents: { debugger: debuggerClient } };
+  const capture = (action, waitMs, options = {}) =>
+    captureDiagnosticNetwork(action, waitMs, { window, sleep: async () => {}, ...options });
   return { capture, debuggerClient };
 }
 
