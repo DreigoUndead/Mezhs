@@ -25,7 +25,8 @@ public sealed record Interpretation(
 public sealed class Interpreter(
     Parser parser,
     PolicyEvaluationService evaluations,
-    Shell shell)
+    Shell shell,
+    Mezhs.Agent.Services.AgentAttachmentStaging attachments)
 {
     public async Task<Interpretation> InterpretAsync(
         ExecutionRecord execution,
@@ -82,6 +83,13 @@ public sealed class Interpreter(
 
             switch (definition.Behavior)
             {
+                case CommandBehavior.Attach:
+                    results.Add(await attachments.StageAsync(
+                        new ExecutionContext(execution, timeout, assistantMessageId, executableIndex),
+                        body,
+                        cancellationToken));
+                    executableIndex++;
+                    break;
                 case CommandBehavior.Shell:
                     results.Add(await shell.ExecuteAsync(
                         new ExecutionContext(execution, timeout, assistantMessageId, executableIndex),

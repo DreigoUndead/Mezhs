@@ -101,9 +101,11 @@ public sealed class MessageService(
 
     public async Task<ApiMessage> SendWithReplyAsync(
         PostMessageRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<ApiMessage>? onSubmitted = null)
     {
         var created = Post(request, cancellationToken);
+        onSubmitted?.Invoke(created);
         return await WaitForReplyAsync(created.MessageId, cancellationToken);
     }
 

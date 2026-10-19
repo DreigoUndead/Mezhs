@@ -80,6 +80,7 @@ policies:
     commands:
       allow:
         - SH
+        - ATTACH
     environment:
       allow: []
     completion:
@@ -97,6 +98,7 @@ policies:
     commands:
       allow:
         - SH
+        - ATTACH
     environment:
       allow: []
     completion:
@@ -114,6 +116,7 @@ policies:
     commands:
       allow:
         - SH
+        - ATTACH
     environment:
       allow: []
     completion:

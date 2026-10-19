@@ -35,6 +35,7 @@ builder.Services.AddSingleton<PolicyEvaluationService>();
 builder.Services.AddSingleton<AgentPromptBuilder>();
 builder.Services.AddSingleton<Parser>();
 builder.Services.AddSingleton<Shell>();
+builder.Services.AddSingleton<AgentAttachmentStaging>();
 builder.Services.AddSingleton<Interpreter>();
 builder.Services.AddSingleton<AgentDebugLogBuilder>();
 builder.Services.AddSingleton<AgentWorker>();
