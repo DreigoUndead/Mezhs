@@ -1,7 +1,7 @@
 # Plan: agent-model-presets architecture review cleanup
 
 **Date:** 2026-10-19
-**Status:** T1-T5 committed and coordinator-reviewed. T6 implemented and locally verified on 2026-10-20, awaiting coordinator review. T7 pending.
+**Status:** T1–T6 committed, locally verified and coordinator-reviewed as of 2026-10-20. T7 integrated validation pending; no merge authorization.
 **Target:** Existing agent-model-presets review branch; do not merge until the user reviews the completed diff and explicitly approves.
 **Scope:** All eight findings from the 2026-10-19 code review, plus the follow-up on global workers/concurrency. This is not the separate orchestration proposal or the general execution-UX backlog.
 **Guidance:** Read .agents/README.md and the repository-change-workflow and software-change skills before modifying code. For observed defects follow systematic-debugging. Reuse the existing review branch rather than splitting this review into speculative branches.
@@ -24,10 +24,10 @@
 
 4. **T4 — Guest send simplification (#5): COMPLETE, reviewed.** Agent commit `533c155`; guest moved to existing preload `pageOperations` IPC; one send attempt, bounded completion and reliable listener cleanup. Agent reported Node 99/99, guest 14/14, lifecycle 8/8, full Release build PASS. Live isolated guest loaded ChatGPT and observed a login wall before any send; anonymous success unverified. Coordinator follow-up `796d863`–`3010bb6` moved the 190s guest timeout to the guest integration through optional `page.invoke` argument, removing a provider-name check from generic Electron; T5 agent reported all 22 related Node regressions PASS.
 5. **T5 — Parser presentation/protocol boundary (#6): COMPLETE, reviewed.** Agent commit `d4296ec`; removed escaped-DONE promotion, treated escaped examples and multiline display markup as inert, preserved raw markers and opaque block bodies, added parser/API regressions using isolated storage/port. Reported protocol, policy, architecture, cancellation-recovery and .NET Release build PASS; all 22 T4 Node regressions PASS. Historical escaped DONE now requires a later raw marker to complete; do not silently re-enable ambiguous commands.
-6. **T6 - Agent dispatcher and global-limit removal (#8): IMPLEMENTED, awaiting coordinator review.** Removed global limits and kept SQLite claims, same-chat serialization and task lifecycle. Isolated tests verified six concurrent roots in the API, SQLite and Executor; cancellation and failure isolation; queued cancellation; same-chat wake; graceful shutdown; forced and graceful restart recovery without duplicate shells.
+6. **T6 — Agent dispatcher and global-limit removal (#8): COMPLETE, reviewed.** Agent commit `c4d81ba`; removed global capacity/settings, replaced fixed pool with single claim dispatcher plus tracked independent tasks. Reported isolated six concurrent Running roots in API, SQLite and Executor; cancellation, failure isolation, same-chat wake, graceful shutdown, forced and graceful restart without duplicate Executor shells PASS; Release build 0 warnings/errors. Coordinator reviewed code/tests without independently rerunning local tests.
 7. **T7 — Integrated validation and documentation.** Full relevant .NET/Node/PowerShell tests, isolated deployment checks, harmless authenticated multi-turn/live Agent test, docs update, final diff review and push. No extra implementation unless correcting a demonstrated regression.
 
-**Do not parallelize tasks that share `agent-model-presets` or run a later task on stale code.** T1–T3 have been reviewed; further tasks require their own evidence and coordinator review. Approval of individual tasks does not authorize a merge.
+**Do not parallelize tasks that share `agent-model-presets` or run a later task on stale code.** T1–T6 have been reviewed; T7 must independently validate integrated behavior and report limitations. Approval of individual tasks does not authorize a merge.
 
 ## Decisions and non-goals
 
