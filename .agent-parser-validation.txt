@@ -1,0 +1,49 @@
+OVERALL: PASS
+Build exit: 0
+Agent parser test exit: 0
+===== Agent parser tests =====
+PASS: Agent parser keeps unrelated tag-like SH text opaque and rejects a complete nested SH block.
+PASS: Presentation markup stays inert, while malformed uppercase commands are rejected.
+PASS: Same-turn completion and command-result continuation both preserve protocol-stripped visible Agent results.
+===== Build last 80 lines =====
+  Determining projects to restore...
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\Mezhs.Integrations.Mock.csproj (in 188 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\Mezhs.Integrations.ChatGpt.csproj (in 188 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj (in 188 ms).
+  Restored D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj (in 188 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Common\Mezhs.Common.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Shared\Mezhs.Log.Shared.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\Mezhs.Api.Contracts.csproj (in 0.9 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Api\Mezhs.Api.csproj (in 1.28 sec).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\Mezhs.Browser.Electron.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\Mezhs.Browser.Abstractions.csproj (in 0.8 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\Mezhs.Integration.Abstractions.csproj (in 0.8 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Sqlite\Mezhs.Sqlite.csproj (in 1.91 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Log.Sql\Mezhs.Log.Sql.csproj (in 1.91 sec).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Executor\Mezhs.Executor.csproj (in 597 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Console\Mezhs.Console.csproj (in 2 ms).
+  Restored D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj (in 1.9 sec).
+  Mezhs.Integration.Abstractions -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Abstractions\bin\Release\net10.0\Mezhs.Integration.Abstractions.dll
+  Mezhs.Api.Contracts -> D:\a\Mezhs\Mezhs\src\Mezhs.Api.Contracts\bin\Release\net10.0\Mezhs.Api.Contracts.dll
+  Mezhs.Sqlite -> D:\a\Mezhs\Mezhs\src\Mezhs.Sqlite\bin\Release\net10.0\Mezhs.Sqlite.dll
+  Mezhs.Common -> D:\a\Mezhs\Mezhs\src\Mezhs.Common\bin\Release\net10.0\Mezhs.Common.dll
+  Mezhs.Integrations.Mock -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Mock\bin\Release\net10.0\Mezhs.Integrations.Mock.dll
+  Mezhs.Browser.Abstractions -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Abstractions\bin\Release\net10.0\Mezhs.Browser.Abstractions.dll
+  Mezhs.Browser.Electron -> D:\a\Mezhs\Mezhs\transports\Mezhs.Browser.Electron\bin\Release\net10.0\Mezhs.Browser.Electron.dll
+  Mezhs.Integration.Browser -> D:\a\Mezhs\Mezhs\src\Mezhs.Integration.Browser\bin\Release\net10.0\Mezhs.Integration.Browser.dll
+  Mezhs.Integrations.Gemini -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Gemini\bin\Release\net10.0\Mezhs.Integrations.Gemini.dll
+  Mezhs.Integrations.ChatGpt -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.ChatGpt\bin\Release\net10.0\Mezhs.Integrations.ChatGpt.dll
+  Mezhs.Integrations.Grok -> D:\a\Mezhs\Mezhs\integrations\Mezhs.Integrations.Grok\bin\Release\net10.0\Mezhs.Integrations.Grok.dll
+  Mezhs.Console -> D:\a\Mezhs\Mezhs\src\Mezhs.Console\bin\Release\net10.0\Mezhs.Console.dll
+  Mezhs.Log.Shared -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Shared\bin\Release\net10.0\Mezhs.Log.Shared.dll
+  Mezhs.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Api\bin\Release\net10.0\Mezhs.Api.dll
+  Mezhs.Log.Sql -> D:\a\Mezhs\Mezhs\src\Mezhs.Log.Sql\bin\Release\net10.0\Mezhs.Log.Sql.dll
+  Mezhs.Executor -> D:\a\Mezhs\Mezhs\src\Mezhs.Executor\bin\Release\net10.0\Mezhs.Executor.dll
+  Mezhs.Agent.Api -> D:\a\Mezhs\Mezhs\src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:16.47
