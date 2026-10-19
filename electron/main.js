@@ -187,9 +187,8 @@ function invokeProvider({ operation, arguments: args }, reportProgress) {
     window,
     session: activeSession,
     page: {
-      invoke: (pageOperation, pageArgs) =>
-        invokePageOperation(window, pageOperation, pageArgs,
-          browserModule.name === "ChatGPT" && operation === "sendPrompt" ? 190000 : 0)
+      invoke: (pageOperation, pageArgs, timeoutMs = 0) =>
+        invokePageOperation(window, pageOperation, pageArgs, timeoutMs)
     },
     args: args ?? {},
     sleep,
