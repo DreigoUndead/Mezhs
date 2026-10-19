@@ -17,7 +17,7 @@ app.MapGet("/", () => Results.Ok(new
 {
     name = "MEŽS",
     version = 1,
-    endpoints = new[] { "/v1/connections", "/v1/messages", "/v1/chats", "/v1/categories", "/v1/files" }
+    endpoints = new[] { "/v1/connections", "/v1/messages", "/v1/chats", "/v1/categories", "/v1/files", "/v1/diagnostics/connections/{connectionId}/browser/{operation}" }
 }));
 app.MapMezhsApi();
 
