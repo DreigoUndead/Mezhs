@@ -13,6 +13,20 @@
 - **Ownership rule:** Execute the MEŽS handoff after pulling the already-pushed coordinator changes. Work on the same agent-model-presets review branch; do not overwrite, revert, or parallel-edit the coordinator's files without reviewing them. Existing untracked/local user files are not cleanup targets.
 - **Verification:** Run the architecture test including shared diagnostics ownership, run a full .NET build and the runtime/ChatGPT/guest tests as applicable, and perform representative live checks. The coordinator will review logs, diff, and reported causal evidence before any merge. No merge authorization is implied.
 
+## Small-task handoff sequence
+
+**Run one MEŽS agent task at a time.** Each agent run must read the repository skills, inspect the local tree, synchronize without destroying local work, implement *only* its assigned scope, run targeted tests, commit/push to `agent-model-presets`, report file/test/commit evidence, and stop. The coordinator reviews each report before the next task. Never merge.
+
+1. **T1 — Shared diagnostics verification (#7).** Build and exercise the already committed shared endpoint in standalone and Agent API; test the trusted-local boundary. Repair only verified regressions.
+2. **T2 — Browser diagnostics/session ownership (#2).** Reuse one account browser session in `BrowserIntegrationBase`, preserve provider inheritance and anonymous behavior. No new base type.
+3. **T3 — Source JS module packaging (#3/#4).** Remove generated `chatgpt.ts`/build.js, package normal CommonJS files; update build and architecture tests. Preserve other providers.
+4. **T4 — Guest send simplification (#5).** Reuse preload `pageOperations`; eliminate guest `executeJavaScript`, bounded observation, no blind replay. Characterize live guest access without inventing success.
+5. **T5 — Parser presentation/protocol boundary (#6).** Investigate actual escaped-command samples first, remove DONE-only workaround safely, keep literal examples inert and block bodies opaque.
+6. **T6 — Agent dispatcher and global-limit removal (#8).** Remove global queue/worker limits as one atomic change while preserving durable claim, lifecycle, same-chat serialization, cancellation and recovery. If scope proves too large, stop after a concrete design/testing report rather than leaving a broken intermediate state.
+7. **T7 — Integrated validation and documentation.** Full relevant .NET/Node/PowerShell tests, isolated deployment checks, harmless authenticated multi-turn/live Agent test, docs update, final diff review and push. No extra implementation unless correcting a demonstrated regression.
+
+**Do not parallelize tasks that share `agent-model-presets` or run a later task on stale code.** The current handoff includes #7 implementation committed by the coordinator; that code is not yet verified by a local build/runtime. Each task's completion does not imply approval to merge.
+
 ## Decisions and non-goals
 
 - Prefer deleting machinery and moving responsibilities to their existing owners. No new integration base class, diagnostics application, queue framework, dependency-injection layer, or provider-agnostic browser automation framework.
