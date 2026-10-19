@@ -100,6 +100,24 @@ if (opaqueBody.Commands.Count != 1 ||
 
 Console.WriteLine("PASS: Escaped standalone DONE accepted; escaped SH and command bodies remain inert.");
 Console.WriteLine("PASS: Agent parser keeps unrelated tag-like SH text opaque and rejects a complete nested SH block.");
+
+const string displayMarkup = "<row align=\"center\" gap={2}>\n<badge color=\"success\">OK</badge>\n</row>\n<text color=\"secondary\">Visible</text>"; 
+var formatted = parser.Parse(displayMarkup);
+if (formatted.Commands.Count != 0 || formatted.VisibleContent != displayMarkup)
+    throw new InvalidOperationException("Presentation markup was treated as an Agent command or changed.");
+
+// Malformed *command-shaped* markup must still be rejected, not silently displayed.
+try
+{
+    parser.Parse("<SH extra=\"true\">");
+    throw new InvalidOperationException("Malformed uppercase command was silently accepted.");
+}
+catch (CommandParseException)
+{
+}
+
+Console.WriteLine("PASS: Presentation markup stays inert, while malformed uppercase commands are rejected.");
+
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
     dotnet run --project (Join-Path $temp 'ParserTest.csproj') -c Release

@@ -81,6 +81,10 @@ public sealed class Parser
             closing = true;
             value = value[1..];
         }
+        // Display markup uses lowercase tag names and may include attributes.
+        // Only command-shaped uppercase tags participate in the Agent protocol.
+        if (value.Length == 0 || value[0] is < 'A' or > 'Z')
+            return false;
         if (!TryCommandName(value, out name))
             throw new CommandParseException($"Malformed command tag '{text}'.");
         return true;
