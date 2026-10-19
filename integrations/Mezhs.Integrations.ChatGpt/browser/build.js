@@ -40,14 +40,17 @@ const output = [
 
 const destination = path.join(directory, 'chatgpt.ts');
 const previous = fs.existsSync(destination) ? fs.readFileSync(destination, 'utf8') : null;
+// Git on Windows may checkout source modules and the bundle with CRLF line endings.
+const sameContent = previous !== null &&
+  previous.replace(/\r\n/g, '\n') === output.replace(/\r\n/g, '\n');
 if (process.argv.includes('--check')) {
-  if (previous !== output) {
+  if (!sameContent) {
     console.error('ChatGPT browser bundle is stale. Run node browser/build.js');
     process.exitCode = 1;
   } else {
     console.log('ChatGPT browser bundle is current.');
   }
-} else if (previous !== output) {
+} else if (!sameContent) {
   fs.writeFileSync(destination, output);
   console.log('Generated ChatGPT browser module (' + modules.length + ' sources).');
 } else {
