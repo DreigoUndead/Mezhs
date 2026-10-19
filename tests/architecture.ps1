@@ -157,6 +157,17 @@ if ($apiComposition -notmatch 'AddExceptionHandler<ApiExceptionHandler>' -or
 if ($program -notmatch 'AddMezhsApi' -or $program -notmatch 'UseMezhsApi' -or $program -notmatch 'MapMezhsApi') {
     throw "Mezhs.Api is not a thin host over the reusable API composition."
 }
+
+$agentProgram = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Program.cs") -Raw
+if ($apiComposition -notmatch '/v1/diagnostics/connections/\{connectionId\}/browser/\{operation\}' -or
+    $apiComposition -notmatch 'integration.Diagnostics.InvokeAsync' -or
+    $apiComposition -notmatch 'IPAddress.IsLoopback' -or
+    $apiComposition -notmatch 'originUri.IsLoopback' -or
+    $agentProgram -match 'MapAgentDiagnostics' -or
+    (Test-Path (Join-Path $root "src/Mezhs.Agent.Api/DiagnosticsApi.cs"))) {
+    throw "Browser diagnostics must have one shared API endpoint restricted to trusted local callers."
+}
+
 if ($apiExceptionHandler -notmatch 'Status400BadRequest' -or
     $apiExceptionHandler -notmatch 'Status404NotFound' -or
     $apiExceptionHandler -notmatch 'WriteAsJsonAsync') {
