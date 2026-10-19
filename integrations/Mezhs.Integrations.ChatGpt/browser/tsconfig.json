@@ -2,13 +2,14 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "CommonJS",
+    "allowJs": true,
     "lib": ["ES2022", "DOM"],
     "noEmit": true,
     "strict": false,
     "skipLibCheck": true
   },
   "files": [
-    "../../../src/Mezhs.Integration.Browser/BrowserModule.d.ts",
-    "chatgpt.ts"
-  ]
+    "../../../src/Mezhs.Integration.Browser/BrowserModule.d.ts"
+  ],
+  "include": ["modules/*.js"]
 }

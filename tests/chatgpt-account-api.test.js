@@ -8,14 +8,9 @@ const { EventEmitter } = require("node:events");
 const root = path.resolve(__dirname, "..");
 
 function loadChatGptModule() {
-  const source = fs.readFileSync(
-    path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "chatgpt.ts"),
-    "utf8"
-  );
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mezhs-chatgpt-api-"));
-  const file = path.join(directory, "chatgpt.cjs");
-  fs.writeFileSync(file, source);
-  return require(file);
+  fs.cpSync(path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "modules"), directory, { recursive: true });
+  return require(path.join(directory, "entry.js"));
 }
 
 function jsonResponse(value, status = 200) {

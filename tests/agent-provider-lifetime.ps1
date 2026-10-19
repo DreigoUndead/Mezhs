@@ -6,7 +6,7 @@ function Read-Source([string] $relativePath) {
     return [System.IO.File]::ReadAllText((Join-Path $root $relativePath))
 }
 
-$chatGpt = Read-Source 'integrations\Mezhs.Integrations.ChatGpt\browser\chatgpt.ts'
+$chatGpt = Read-Source 'integrations\Mezhs.Integrations.ChatGpt\browser\modules\account-messages.js'
 if ($chatGpt.Contains('canUseNativeSend') -or
     $chatGpt.Contains('sendNativeAccountMessage') -or
     $chatGpt.Contains('observeNativeConversationRequest') -or

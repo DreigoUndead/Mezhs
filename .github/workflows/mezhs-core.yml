@@ -30,8 +30,10 @@ jobs:
       - name: JavaScript syntax and provider regression tests
         shell: pwsh
         run: |
-          node --check integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($file in (Get-ChildItem integrations/Mezhs.Integrations.ChatGpt/browser/modules -Filter '*.js')) {
+            node --check $file.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
           node --check electron/main.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $files = @(Get-ChildItem tests -Filter '*.test.js' | ForEach-Object FullName)

@@ -1,8 +1,10 @@
 # ChatGPT browser integration
 
-Edit the JavaScript source in `modules/`, not the generated `chatgpt.ts`.
-The .NET integration embeds exactly one resource named `Mezhs.Integrations.ChatGpt.BrowserModule`.
-The browser host extracts that resource as a standalone `.js` file; it never deploys sibling source modules.
+The files in `modules/` are the deployed CommonJS source (no generated bundle).
+The .NET integration embeds each `modules/*.js` file under the resource prefix
+`Mezhs.Integrations.ChatGpt.BrowserModule.`. The shared browser host extracts them
+side by side into the connection's module directory and passes `entry.js` to Electron.
+Electron uses Node's ordinary `require()` to resolve the sibling files.
 
 ## Module ownership
 
@@ -17,8 +19,8 @@ The browser host extracts that resource as a standalone `.js` file; it never dep
 
 ## Packaging and checks
 
-Run `node browser/build.js` from the integration directory (or invoke it by path) after changing a module.
-Run `node browser/build.js --check` to reject a stale generated resource.
-The .NET project regenerates the bundle before embedding it during build.
-Run `node --test tests/*.test.js`, `dotnet build Mezhs.sln -c Release`, and the existing `tests/integration-resources.ps1` check from the repository root.
-The packaging regression test copies the generated resource to an isolated directory and loads it without sibling modules.
+Run `node --check` on each `browser/modules/*.js` file and `node --test tests/*.test.js`.
+Build with `dotnet build Mezhs.sln -c Release` and run `tests/integration-resources.ps1`.
+The package regression tests verify that all eight modules load from an isolated directory.
+The published-module probe additionally checks the real embedded resources and extraction
+without access to the source checkout.

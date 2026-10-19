@@ -1,12 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'integrations', 'Mezhs.Integrations.ChatGpt', 'browser', 'chatgpt.ts'), 'utf8');
-const moduleUnderTest = { exports: {} };
-new Function('module', 'require', source)(moduleUnderTest, require);
+const moduleUnderTest = require(path.join(__dirname, '..', 'integrations', 'Mezhs.Integrations.ChatGpt', 'browser', 'modules', 'entry.js'));
 
 function mockPage(mode, options = {}) {
   let clicked = 0;
@@ -76,7 +73,7 @@ function mockPage(mode, options = {}) {
 
 test('Octane composer waits for complete, rendered reply content', async () => {
   const page = mockPage('octane');
-  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'hello' } });
+  const result = await moduleUnderTest.operations.sendPrompt({ window: page.window, args: { prompt: 'hello' } });
   assert.equal(page.entered, 'hello');
   assert.equal(page.clicked, 1);
   assert.equal(result.ok, true);
@@ -86,7 +83,7 @@ test('Octane composer waits for complete, rendered reply content', async () => {
 
 test('legacy composer and reply extraction still work', async () => {
   const page = mockPage('legacy');
-  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'legacy' } });
+  const result = await moduleUnderTest.operations.sendPrompt({ window: page.window, args: { prompt: 'legacy' } });
   assert.equal(page.clicked, 1);
   assert.equal(result.ok, true);
   assert.equal(result.text, 'LEGACY_OK');
@@ -94,7 +91,7 @@ test('legacy composer and reply extraction still work', async () => {
 
 test('aria-disabled send button is never clicked', async () => {
   const page = mockPage('octane', { neverEnable: true });
-  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'not sent' } });
+  const result = await moduleUnderTest.operations.sendPrompt({ window: page.window, args: { prompt: 'not sent' } });
   assert.equal(result.ok, false);
   assert.match(result.error, /send button did not become available/i);
   assert.equal(page.clicked, 0);
@@ -102,7 +99,7 @@ test('aria-disabled send button is never clicked', async () => {
 
 test('missing editor fails without sending', async () => {
   const page = mockPage('missing');
-  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'not sent' } });
+  const result = await moduleUnderTest.operations.sendPrompt({ window: page.window, args: { prompt: 'not sent' } });
   assert.equal(result.ok, false);
   assert.match(result.error, /prompt editor was not found/i);
   assert.equal(page.clicked, 0);
@@ -110,7 +107,7 @@ test('missing editor fails without sending', async () => {
 
 test('completed blank Octane reply returns an error instead of waiting forever', async () => {
   const page = mockPage('octane', { emptyReply: true });
-  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'Reply with the completion tag.' } });
+  const result = await moduleUnderTest.operations.sendPrompt({ window: page.window, args: { prompt: 'Reply with the completion tag.' } });
   assert.equal(result.ok, false);
   assert.match(result.error, /completed.*without readable text/i);
   assert.equal(page.clicked, 1);
@@ -119,7 +116,7 @@ test('completed blank Octane reply returns an error instead of waiting forever',
 
 test('Octane completion marker may precede text becoming visible', async () => {
   const page = mockPage('octane', { contentAfterTicks: 9 });
-  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'slow render' } });
+  const result = await moduleUnderTest.operations.sendPrompt({ window: page.window, args: { prompt: 'slow render' } });
   assert.equal(result.ok, true);
   assert.equal(result.text, 'OCTANE_OK');
   assert.ok(page.ticks >= 9);
@@ -128,7 +125,7 @@ test('Octane completion marker may precede text becoming visible', async () => {
 test('new anonymous chat recovers from a completed empty reply with one fresh conversation', async () => {
   const page = mockPage('octane', { emptyFirstReply: true });
   const prompt = '[User]\\nTest received.\\n[User]\\nReturn <DONE>';
-  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt, newChat: true } });
+  const result = await moduleUnderTest.operations.sendPrompt({ window: page.window, args: { prompt, newChat: true } });
   assert.equal(result.ok, true);
   assert.equal(result.text, 'OCTANE_OK');
   assert.equal(page.clicked, 2);
@@ -138,7 +135,7 @@ test('new anonymous chat recovers from a completed empty reply with one fresh co
 
 test('anonymous guest retry is bounded and reports a second blank reply', async () => {
   const page = mockPage('octane', { emptyReply: true });
-  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: '[User]\\nReturn <DONE>', newChat: true } });
+  const result = await moduleUnderTest.operations.sendPrompt({ window: page.window, args: { prompt: '[User]\\nReturn <DONE>', newChat: true } });
   assert.equal(result.ok, false);
   assert.match(result.error, /completed.*without readable text/i);
   assert.match(result.error, /retry/i);
@@ -148,7 +145,7 @@ test('anonymous guest retry is bounded and reports a second blank reply', async 
 
 test('anonymous guest does not replay a failed reply into an existing conversation', async () => {
   const page = mockPage('octane', { emptyReply: true });
-  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'Return <DONE>', newChat: false } });
+  const result = await moduleUnderTest.operations.sendPrompt({ window: page.window, args: { prompt: 'Return <DONE>', newChat: false } });
   assert.equal(result.ok, false);
   assert.equal(page.clicked, 1);
   assert.equal(page.navigations, 0);
@@ -156,7 +153,7 @@ test('anonymous guest does not replay a failed reply into an existing conversati
 
 test('guest login requirement stops without retrying another anonymous session', async () => {
   const page = mockPage('octane', { challengeFinalization: true, forceLogin: true, noSubmission: true });
-  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'test', newChat: true } });
+  const result = await moduleUnderTest.operations.sendPrompt({ window: page.window, args: { prompt: 'test', newChat: true } });
   assert.equal(result.ok, false);
   assert.equal(result.errorCode, 'guest_login_required');
   assert.match(result.error, /requires login/i);
@@ -166,7 +163,7 @@ test('guest login requirement stops without retrying another anonymous session',
 
 test('guest login requirement interrupts send-button polling before a click', async () => {
   const page = mockPage('octane', { challengeOnInput: true, forceLogin: true, neverEnable: true });
-  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'test', newChat: true } });
+  const result = await moduleUnderTest.operations.sendPrompt({ window: page.window, args: { prompt: 'test', newChat: true } });
   assert.equal(result.errorCode, 'guest_login_required');
   assert.equal(page.clicked, 0);
   assert.equal(page.navigations, 1);
@@ -175,7 +172,7 @@ test('guest login requirement interrupts send-button polling before a click', as
 
 test('guest send without a conversation fails after a bounded wait instead of hanging', async () => {
   const page = mockPage('octane', { noSubmission: true });
-  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'test', newChat: true } });
+  const result = await moduleUnderTest.operations.sendPrompt({ window: page.window, args: { prompt: 'test', newChat: true } });
   assert.equal(result.ok, false);
   assert.equal(result.errorCode, 'guest_submission_timeout');
   assert.equal(page.clicked, 1);
@@ -185,7 +182,7 @@ test('guest send without a conversation fails after a bounded wait instead of ha
 
 test('guest challenge without force_login does not stop a successful reply', async () => {
   const page = mockPage('octane', { challengeFinalization: true, forceLogin: false });
-  const result = await moduleUnderTest.exports.operations.sendPrompt({ window: page.window, args: { prompt: 'hello' } });
+  const result = await moduleUnderTest.operations.sendPrompt({ window: page.window, args: { prompt: 'hello' } });
   assert.equal(result.ok, true);
   assert.equal(result.text, 'OCTANE_OK');
   assert.equal(page.clicked, 1);

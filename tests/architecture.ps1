@@ -43,7 +43,7 @@ $requiredFiles = @(
     "src/Mezhs.Integration.Browser/IBrowserIntegrationHost.cs",
     "src/Mezhs.Integration.Browser/BrowserModule.d.ts",
     "integrations/Mezhs.Integrations.ChatGpt/Mezhs.Integrations.ChatGpt.csproj",
-    "integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts",
+    "integrations/Mezhs.Integrations.ChatGpt/browser/modules/entry.js",
     "integrations/Mezhs.Integrations.Gemini/Mezhs.Integrations.Gemini.csproj",
     "integrations/Mezhs.Integrations.Gemini/browser/gemini.ts",
     "integrations/Mezhs.Integrations.Mock/Mezhs.Integrations.Mock.csproj",
@@ -69,9 +69,22 @@ if ($coreIntegrationContract -notmatch 'IntegrationAttribute') {
     throw "Concrete integration registration metadata is missing from the core contract."
 }
 
-$runtimeJavascript = Get-ChildItem (Join-Path $root "integrations") -Filter "*.js" -File -Recurse
-if ($runtimeJavascript) {
-    throw "Integration browser behavior has duplicate committed JavaScript sources: $($runtimeJavascript.FullName -join ', ')"
+$moduleRoot = [IO.Path]::GetFullPath((Join-Path $root "integrations/Mezhs.Integrations.ChatGpt/browser/modules"))
+$moduleNames = @('entry.js', 'guest.js', 'account-transport.js', 'account-models.js',
+    'account-files.js', 'account-messages.js', 'account-stream.js', 'account-results.js')
+$runtimeJavascript = @(Get-ChildItem (Join-Path $root "integrations") -Filter "*.js" -File -Recurse)
+$unexpectedJavascript = @($runtimeJavascript | Where-Object {
+    $_.DirectoryName -ne $moduleRoot -or $_.Name -notin $moduleNames
+})
+if ($unexpectedJavascript -or $runtimeJavascript.Count -ne $moduleNames.Count) {
+    throw "Integration JavaScript must consist only of the eight ChatGPT source modules."
+}
+$chatGptProject = Get-Content (Join-Path $root 'integrations/Mezhs.Integrations.ChatGpt/Mezhs.Integrations.ChatGpt.csproj') -Raw
+if ((Test-Path (Join-Path $root 'integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts')) -or
+    (Test-Path (Join-Path $root 'integrations/Mezhs.Integrations.ChatGpt/browser/build.js')) -or
+    $chatGptProject -match 'BundleChatGptBrowser|chatgpt\.ts|build\.js' -or
+    -not $chatGptProject.Contains('browser\modules\*.js')) {
+    throw 'ChatGPT must embed source modules directly, without a generated bundle.'
 }
 
 $legacyElectronModules = Get-ChildItem (Join-Path $root "electron/providers") -File -ErrorAction SilentlyContinue

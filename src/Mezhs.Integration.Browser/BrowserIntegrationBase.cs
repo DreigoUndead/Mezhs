@@ -14,6 +14,7 @@ public abstract class BrowserIntegrationBase(
     protected IBrowserIntegrationHost Host { get; } = BrowserIntegrationHost.Require(host);
     protected abstract Assembly BrowserModuleAssembly { get; }
     protected abstract string BrowserModuleResourceName { get; }
+    protected virtual string? BrowserModuleEntryFileName => null;
 
     protected string PersistentProfilePath =>
         Path.Combine(Host.GetConnectionRoot(Connection.Id), "profile");
@@ -95,6 +96,9 @@ public abstract class BrowserIntegrationBase(
 
     private string GetBrowserModulePath()
     {
+        if (BrowserModuleEntryFileName is { } entryFileName)
+            return ExtractBrowserModuleDirectory(entryFileName);
+
         if (_browserModulePath is not null && File.Exists(_browserModulePath))
             return _browserModulePath;
 
@@ -108,6 +112,37 @@ public abstract class BrowserIntegrationBase(
         source.CopyTo(target);
         _browserModulePath = path;
         return path;
+    }
+
+    private string ExtractBrowserModuleDirectory(string entryFileName)
+    {
+        var directory = Path.Combine(
+            Host.GetConnectionRoot(Connection.Id), "modules", BrowserModuleAssembly.GetName().Name!);
+        Directory.CreateDirectory(directory);
+
+        var prefix = BrowserModuleResourceName + ".";
+        var resources = BrowserModuleAssembly.GetManifestResourceNames()
+            .Where(name => name.StartsWith(prefix, StringComparison.Ordinal))
+            .ToArray();
+        if (resources.Length == 0)
+            throw new InvalidOperationException($"No browser module resources found under '{prefix}'.");
+
+        foreach (var resource in resources)
+        {
+            var path = Path.Combine(directory, resource[prefix.Length..]);
+            using var source = BrowserModuleAssembly.GetManifestResourceStream(resource)!;
+            using var buffer = new MemoryStream();
+            source.CopyTo(buffer);
+            var contents = buffer.ToArray();
+            if (!File.Exists(path) || !File.ReadAllBytes(path).AsSpan().SequenceEqual(contents))
+                File.WriteAllBytes(path, contents);
+        }
+
+        var entry = Path.Combine(directory, entryFileName);
+        if (!File.Exists(entry))
+            throw new InvalidOperationException($"Browser module entry '{entryFileName}' was not embedded.");
+        _browserModulePath = entry;
+        return entry;
     }
 
     private sealed record BrowserSendResult(

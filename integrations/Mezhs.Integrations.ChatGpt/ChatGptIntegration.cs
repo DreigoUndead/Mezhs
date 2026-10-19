@@ -15,6 +15,7 @@ public class ChatGptWebIntegration : BrowserIntegrationBase
 
     protected override Assembly BrowserModuleAssembly => typeof(ChatGptWebIntegration).Assembly;
     protected override string BrowserModuleResourceName => "Mezhs.Integrations.ChatGpt.BrowserModule";
+    protected override string BrowserModuleEntryFileName => "entry.js";
 
     public override Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,

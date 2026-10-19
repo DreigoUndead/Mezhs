@@ -16,7 +16,7 @@ A **separate intermittent** failure remained: `ChatGPT Rspack runtime is not loa
 
 ## Anonymous guest incident: completed blank replies versus login required (2026-10-13/14)
 
-This is a **different path** from the authenticated Account transport above. Anonymous ChatGPT uses `operations.sendPrompt` in `integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts` with the guest web composer and DOM transcript; authenticated Account `newChat`/`send` uses semantic requests, native requirements and conversation IDs. Do not transfer guest DOM assumptions to Account sending, or apply the Account Rspack repair to guest failures without evidence.
+This is a **different path** from the authenticated Account transport above. Anonymous ChatGPT uses `operations.sendPrompt` via `integrations/Mezhs.Integrations.ChatGpt/browser/modules/guest.js` with the guest web composer and DOM transcript; authenticated Account `newChat`/`send` uses semantic requests, native requirements and conversation IDs. Do not transfer guest DOM assumptions to Account sending, or apply the Account Rspack repair to guest failures without evidence.
 
 ### Incident A: a completed assistant with no readable text
 
@@ -54,7 +54,7 @@ A 200 from preparation/finalization means the request completed, **not** that gu
 
 | Owner | Path | Purpose |
 | --- | --- | --- |
-| ChatGPT account JS adapter | `integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts` | Auth, model/preset, conduit and native requirements, semantic submission, conversation polling, citations |
+| ChatGPT account JS adapter | `integrations/Mezhs.Integrations.ChatGpt/browser/modules/entry.js` | Auth, model/preset, conduit and native requirements, semantic submission, conversation polling, citations |
 | Account .NET wrapper | `integrations/Mezhs.Integrations.ChatGpt/ChatGptIntegration.cs` | Connection/session, transport requests and results |
 | Electron window and CDP | `electron/main.js` | Logged-in renderer, browser session, passive request trace, diagnostic inspection |
 | Diagnostics allowlist | `src/Mezhs.Integration.Browser/BrowserDiagnosticsModule.cs` | Exposes bounded browser diagnostic operations |
@@ -132,7 +132,7 @@ This example uses **historical** module identities. The inspection diagnostic it
 Use a clean Windows PowerShell checkout; the last command starts a **local test Agent host** and test shell execution:
 
 ```powershell
-node --check integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts
+node --check integrations/Mezhs.Integrations.ChatGpt/browser/modules/entry.js
 node --test (Get-ChildItem tests -Filter *.test.js | ForEach-Object FullName)
 dotnet build Mezhs.sln -c Release --nologo
 pwsh -NoProfile -File tests/agent-protocol-result.ps1

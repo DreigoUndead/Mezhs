@@ -2,18 +2,14 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
 $output = Join-Path $root 'src\Mezhs.Api\bin\Release\net10.0'
+$moduleDirectory = Join-Path $root 'integrations\Mezhs.Integrations.ChatGpt\browser\modules'
+$chatGptNames = @('account-files.js', 'account-messages.js', 'account-models.js',
+    'account-results.js', 'account-stream.js', 'account-transport.js', 'entry.js', 'guest.js')
 
 $checks = @(
-    @{
-        Assembly = 'Mezhs.Integrations.ChatGpt.dll'
-        Resource = 'Mezhs.Integrations.ChatGpt.BrowserModule'
-        Marker = 'https://chatgpt.com'
-    },
-    @{
-        Assembly = 'Mezhs.Integrations.Gemini.dll'
-        Resource = 'Mezhs.Integrations.Gemini.BrowserModule'
-        Marker = 'gemini.google.com'
-    }
+    @{ Assembly = 'Mezhs.Integrations.ChatGpt.dll'; Prefix = 'Mezhs.Integrations.ChatGpt.BrowserModule.' },
+    @{ Assembly = 'Mezhs.Integrations.Gemini.dll'; Resource = 'Mezhs.Integrations.Gemini.BrowserModule'; Marker = 'gemini.google.com' },
+    @{ Assembly = 'Mezhs.Integrations.Grok.dll'; Resource = 'Mezhs.Integrations.Grok.BrowserModule'; Marker = 'module.exports' }
 )
 
 foreach ($check in $checks) {
@@ -21,42 +17,44 @@ foreach ($check in $checks) {
     if (-not (Test-Path -LiteralPath $assemblyPath)) {
         throw "Integration assembly was not copied to API output: $($check.Assembly)"
     }
-
     $assembly = [Reflection.Assembly]::LoadFrom($assemblyPath)
-    $resources = $assembly.GetManifestResourceNames()
-    if ($resources -notcontains $check.Resource) {
-        throw "Integration assembly '$($check.Assembly)' does not contain browser resource '$($check.Resource)'."
-    }
-
-    $stream = $assembly.GetManifestResourceStream($check.Resource)
-    if ($null -eq $stream) { throw "Could not open browser resource '$($check.Resource)'." }
-    try {
-        $reader = [IO.StreamReader]::new($stream)
-        try { $source = $reader.ReadToEnd() }
-        finally { $reader.Dispose() }
-    }
-    finally {
-        $stream.Dispose()
-    }
-
-    if ($check.Assembly -eq 'Mezhs.Integrations.ChatGpt.dll') {
-        $browserSourcePath = Join-Path $root 'integrations\Mezhs.Integrations.ChatGpt\browser\chatgpt.ts'
-        $expectedSource = [IO.File]::ReadAllText($browserSourcePath)
-        if ($source -cne $expectedSource) {
-            throw 'ChatGPT embedded browser resource differs from its generated standalone source.'
+    $resources = @($assembly.GetManifestResourceNames())
+    if ($check.Prefix) {
+        $expectedResources = @($chatGptNames | ForEach-Object { $check.Prefix + $_ })
+        $actualResources = @($resources | Where-Object { $_.StartsWith($check.Prefix) })
+        if (@(Compare-Object $expectedResources $actualResources).Count -ne 0) {
+            throw "ChatGPT embedded resources do not match the eight CommonJS source modules: $($actualResources -join ', ')"
         }
     }
+    else { $expectedResources = @($check.Resource) }
 
-    if ($source -notmatch 'module\.exports' -or $source -notmatch 'operations' -or $source -notlike "*$($check.Marker)*") {
-        throw "Browser resource '$($check.Resource)' does not contain the expected runtime module."
-    }
+    foreach ($resource in $expectedResources) {
+        if ($resources -notcontains $resource) {
+            throw "Missing resource '$resource' from '$($check.Assembly)'."
+        }
+        $stream = $assembly.GetManifestResourceStream($resource)
+        if ($null -eq $stream) { throw "Could not open browser resource '$resource'." }
+        try {
+            $buffer = [IO.MemoryStream]::new()
+            try { $stream.CopyTo($buffer); $bytes = $buffer.ToArray() }
+            finally { $buffer.Dispose() }
+        }
+        finally { $stream.Dispose() }
 
-    # The embedded .ts source deliberately contains only JavaScript runtime syntax.
-    # This protects the direct extract-as-.js mechanism from accidentally acquiring
-    # TypeScript-only declarations that Node could not execute.
-    if ($source -match '(?m)^\s*(interface|type|declare|enum|namespace)\s+') {
-        throw "Browser resource '$($check.Resource)' contains TypeScript-only runtime syntax."
+        if ($check.Prefix) {
+            $name = $resource.Substring($check.Prefix.Length)
+            $expected = [IO.File]::ReadAllBytes((Join-Path $moduleDirectory $name))
+            if (-not ([Convert]::ToBase64String($bytes) -eq [Convert]::ToBase64String($expected))) {
+                throw "Embedded ChatGPT module '$name' differs from source."
+            }
+        }
+        else {
+            $source = [Text.Encoding]::UTF8.GetString($bytes)
+            if ($source -notlike "*$($check.Marker)*" -or $source -notmatch 'module\.exports') {
+                throw "Browser resource '$resource' does not contain the expected runtime module."
+            }
+        }
     }
 }
 
-Write-Host 'PASS: browser integration modules are embedded, copied with plugin DLLs, and executable as JavaScript source.'
+Write-Host 'PASS: all eight ChatGPT source modules and single-file Grok/Gemini modules are embedded unchanged.'
