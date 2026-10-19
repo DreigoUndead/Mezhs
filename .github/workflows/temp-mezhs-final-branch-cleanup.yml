@@ -1,0 +1,23 @@
+name: Temporary Final Review Branch Cleanup
+on:
+  push:
+    branches:
+      - agent-model-presets
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete reviewed and merged EOL fix branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          merged=$(gh api "repos/$GITHUB_REPOSITORY/pulls/37" --jq '.merged')
+          test "$merged" = "true"
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/review/chatgpt-bundle-windows-eol" --silent
+          echo "DELETED: review/chatgpt-bundle-windows-eol"
