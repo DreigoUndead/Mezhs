@@ -51,24 +51,45 @@ function loadBrowserModule(modulePath) {
   return implementation;
 }
 
-function invokePageOperation(targetWindow, operation, args) {
+function invokePageOperation(targetWindow, operation, args, timeoutMs = 0) {
   const responseChannel = `mezhs:page-operation-result:${randomUUID()}`;
   return new Promise((resolve, reject) => {
-    const handler = (_event, response) => {
-      if (response?.ok)
-        resolve(response.result);
-      else
-        reject(new Error(response?.error || `Browser page operation '${operation}' failed.`));
+    const contents = targetWindow.webContents;
+    let timer;
+    const cleanup = () => {
+      ipcMain.removeListener(responseChannel, onResponse);
+      contents.removeListener("did-start-navigation", onNavigation);
+      contents.removeListener("render-process-gone", onGone);
+      contents.removeListener("destroyed", onGone);
+      clearTimeout(timer);
     };
-    ipcMain.once(responseChannel, handler);
+    const fail = reason => {
+      cleanup();
+      reject(new Error(reason));
+    };
+    const onResponse = (_event, response) => {
+      cleanup();
+      if (response?.ok) resolve(response.result);
+      else reject(new Error(response?.error || `Browser page operation '${operation}' failed.`));
+    };
+    const onNavigation = (_event, details, isInPlace, isMainFrame) => {
+      const inPlace = typeof details === "object" ? details?.isInPlace : isInPlace;
+      const mainFrame = typeof details === "object" ? details?.isMainFrame : isMainFrame;
+      if (mainFrame !== false && !inPlace)
+        fail(`Browser navigated during '${operation}'; outcome is uncertain.`);
+    };
+    const onGone = () => fail(`Browser renderer disappeared during '${operation}'; outcome is uncertain.`);
+    ipcMain.on(responseChannel, onResponse);
+    contents.on("did-start-navigation", onNavigation);
+    contents.on("render-process-gone", onGone);
+    contents.on("destroyed", onGone);
+    if (timeoutMs > 0)
+      timer = setTimeout(() => fail(`Browser page operation '${operation}' timed out; outcome is uncertain.`), timeoutMs);
     try {
-      targetWindow.webContents.send("mezhs:page-operation", {
-        responseChannel,
-        operation,
-        args: args ?? {}
-      });
+      if (contents.isDestroyed?.()) return onGone();
+      contents.send("mezhs:page-operation", { responseChannel, operation, args: args ?? {} });
     } catch (error) {
-      ipcMain.removeListener(responseChannel, handler);
+      cleanup();
       reject(error);
     }
   });
@@ -167,7 +188,8 @@ function invokeProvider({ operation, arguments: args }, reportProgress) {
     session: activeSession,
     page: {
       invoke: (pageOperation, pageArgs) =>
-        invokePageOperation(window, pageOperation, pageArgs)
+        invokePageOperation(window, pageOperation, pageArgs,
+          browserModule.name === "ChatGPT" && operation === "sendPrompt" ? 190000 : 0)
     },
     args: args ?? {},
     sleep,
