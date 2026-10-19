@@ -16,6 +16,7 @@ $grok = Read-Source 'integrations\Mezhs.Integrations.Grok\GrokIntegration.cs'
 $agentProgram = Read-Source 'src\Mezhs.Agent.Api\Program.cs'
 $diagnosticsApi = Read-Source 'src\Mezhs.Agent.Api\DiagnosticsApi.cs'
 $electron = Read-Source 'electron\main.js'
+$electronDiagnostics = Read-Source 'electron\diagnostics.js'
 $solution = Read-Source 'Mezhs.sln'
 
 Assert ($contracts.Contains('public interface IIntegrationDiagnosticsModule') -and
@@ -46,8 +47,12 @@ Assert (-not $solution.Contains('Mezhs.Diagnostics.Api') -and
         -not $solution.Contains('src\Mezhs.Diagnostics\Mezhs.Diagnostics.csproj')) `
     'Obsolete standalone diagnostics projects remain in the solution.'
 
+Assert ($electron.Contains('require("./diagnostics")') -and
+        $electron.Contains('startsWith("$diagnostics/")') -and
+        $electron.Contains('invokeDiagnostic(')) `
+    'Electron main does not delegate diagnostic requests to its diagnostics module.'
+
 foreach ($marker in @(
-    'startsWith("$diagnostics/")',
     "case 'snapshot'",
     "case 'inspectPoint'",
     "case 'click'",
@@ -55,14 +60,14 @@ foreach ($marker in @(
     "case 'key'",
     "case 'screenshot'"
 )) {
-    Assert ($electron.Contains($marker)) "Electron diagnostic primitive is missing: $marker"
+    Assert ($electronDiagnostics.Contains($marker)) "Electron diagnostic primitive is missing: $marker"
 }
 
-Assert ($electron.Contains('url: parsed.origin + parsed.pathname') -and
-        -not $electron.Contains('headers: params.request.headers')) `
+Assert ($electronDiagnostics.Contains('url: parsed.origin + parsed.pathname') -and
+        -not $electronDiagnostics.Contains('headers: params.request.headers')) `
     'Diagnostic network observation is not limited to redacted method/path/status metadata.'
 
-Assert ($electron.Contains("element.type === 'password' ? ''")) `
+Assert ($electronDiagnostics.Contains("element.type === 'password' ? ''")) `
     'Diagnostic snapshots can expose password field values.'
 
 Write-Host 'PASS: diagnostics reuse the integration-owned authenticated BrowserAccountSession, are ordinary Agent.Api endpoints, and keep generic browser probes in Electron.'
