@@ -1,0 +1,71 @@
+name: Temporary MEZS Integration Verification and Cleanup
+on:
+  push:
+    branches:
+      - agent-model-presets
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  verify-and-clean:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify integrated .NET build and JavaScript tests
+        shell: pwsh
+        run: |
+          dotnet build Mezhs.sln --configuration Release --nologo
+          if ($LASTEXITCODE -ne 0) { throw "Solution build failed" }
+          node --check electron/main.js
+          if ($LASTEXITCODE -ne 0) { throw "Electron main syntax check failed" }
+          node --check electron/diagnostics.js
+          if ($LASTEXITCODE -ne 0) { throw "Electron diagnostics syntax check failed" }
+          node --test tests/*.test.js
+          if ($LASTEXITCODE -ne 0) { throw "Node test suite failed" }
+          Write-Host "PASS: build and Node tests"
+      - name: Verify integrated Agent and resource tests
+        shell: pwsh
+        run: |
+          & ./tests/agent-protocol-result.ps1
+          if (!$? -or $LASTEXITCODE -ne 0) { throw "Agent protocol test failed" }
+          & ./tests/agent-attachment-staging.ps1
+          if (!$? -or $LASTEXITCODE -ne 0) { throw "Agent staging test failed" }
+          & ./tests/agent-attachment-endtoend.ps1
+          if (!$? -or $LASTEXITCODE -ne 0) { throw "Agent attachment E2E failed" }
+          & ./tests/integration-resources.ps1
+          if (!$? -or $LASTEXITCODE -ne 0) { throw "Integration resources test failed" }
+          Write-Host "PASS: all integrated Agent/resource tests"
+      - name: Verify PR integrations and delete superseded review branches
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          foreach ($number in @(32,33,34,36)) {
+            $merged = gh api "repos/$env:GITHUB_REPOSITORY/pulls/$number" --jq '.merged'
+            if ($LASTEXITCODE -ne 0 -or $merged.Trim() -ne 'true') { throw "PR #$number is not merged" }
+          }
+          $branches = @(
+            'review/electron-diagnostics-isolation',
+            'review/modular-chatgpt-browser',
+            'review/agent-execution-file-attachments',
+            'review/agent-parser-display-markup',
+            'review/agent-parser-presets-integration'
+          )
+          foreach ($branch in $branches) {
+            gh api "repos/$env:GITHUB_REPOSITORY/git/ref/heads/$branch" --silent
+            if ($LASTEXITCODE -ne 0) { throw "Review branch missing before cleanup: $branch" }
+          }
+          foreach ($branch in $branches) {
+            gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/heads/$branch" --silent
+            if ($LASTEXITCODE -ne 0) { throw "Could not delete review branch: $branch" }
+            Write-Host "DELETED: $branch"
+          }
+          Write-Host "PASS: PR verification and review branch cleanup"
