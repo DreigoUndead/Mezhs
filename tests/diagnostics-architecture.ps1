@@ -14,7 +14,7 @@ $browserDiagnostics = Read-Source 'src\Mezhs.Integration.Browser\BrowserDiagnost
 $chatGpt = Read-Source 'integrations\Mezhs.Integrations.ChatGpt\ChatGptIntegration.cs'
 $grok = Read-Source 'integrations\Mezhs.Integrations.Grok\GrokIntegration.cs'
 $agentProgram = Read-Source 'src\Mezhs.Agent.Api\Program.cs'
-$diagnosticsApi = Read-Source 'src\Mezhs.Agent.Api\DiagnosticsApi.cs'
+$diagnosticsApi = Read-Source 'src\Mezhs.Api\MezhsApi.cs'
 $electron = Read-Source 'electron\main.js'
 $electronDiagnostics = Read-Source 'electron\diagnostics.js'
 $solution = Read-Source 'Mezhs.sln'
@@ -36,8 +36,8 @@ foreach ($source in @($chatGpt, $grok)) {
 }
 
 Assert (-not $agentProgram.Contains('--diagnostics') -and
-        $agentProgram.Contains('app.MapAgentDiagnostics();')) `
-    'Agent API diagnostics must be an ordinary always-mapped endpoint, not a launch mode.'
+        $agentProgram.Contains('app.MapMezhsApi();')) `
+    'Agent API must register the shared diagnostics endpoint through MapMezhsApi, not a separate launch mode.'
 
 Assert ($diagnosticsApi.Contains('/v1/diagnostics/connections/{connectionId}/browser/{operation}') -and
         $diagnosticsApi.Contains('integration.Diagnostics.InvokeAsync')) `
@@ -70,4 +70,4 @@ Assert ($electronDiagnostics.Contains('url: parsed.origin + parsed.pathname') -a
 Assert ($electronDiagnostics.Contains("element.type === 'password' ? ''")) `
     'Diagnostic snapshots can expose password field values.'
 
-Write-Host 'PASS: diagnostics reuse the integration-owned authenticated BrowserAccountSession, are ordinary Agent.Api endpoints, and keep generic browser probes in Electron.'
+Write-Host 'PASS: diagnostics reuse the integration-owned authenticated BrowserAccountSession, are shared API endpoints, and keep generic browser probes in Electron.'
