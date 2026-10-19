@@ -24,6 +24,8 @@ public class MockIntegration : ChatIntegrationBase
         IntegrationSendContext context,
         CancellationToken cancellationToken = default)
     {
+        if (context.Message.Content.Contains("MEZHS_TEST_INTEGRATION_FAILURE", StringComparison.Ordinal))
+            throw new InvalidOperationException("Intentional mock integration failure.");
         await Task.Delay(25, cancellationToken);
         var outputFiles = context.Files.Select(file => new IntegrationOutputFile(
             file.Path,

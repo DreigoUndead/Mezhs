@@ -92,7 +92,7 @@ public sealed class AgentStore(AgentOptions options)
         legacyInterrupted.ExecuteNonQuery();
     }
 
-    public ExecutionRecord? TryCreateRootExecution(
+    public ExecutionRecord TryCreateRootExecution(
         string policyId,
         string connectionId,
         string? chatId,
@@ -101,12 +101,8 @@ public sealed class AgentStore(AgentOptions options)
         string request,
         IReadOnlyDictionary<string, string> environment,
         string policySnapshot,
-        long maxOutstandingExecutions,
         string? model = null)
     {
-        if (maxOutstandingExecutions <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxOutstandingExecutions));
-
         var executionId = AgentIds.New("exec");
         var record = new ExecutionRecord
         {
@@ -124,7 +120,8 @@ public sealed class AgentStore(AgentOptions options)
             Environment = environment,
             PolicySnapshot = policySnapshot
         };
-        return InsertExecution(record, maxOutstandingExecutions) ? record : null;
+        InsertExecution(record);
+        return record;
     }
 
     public ExecutionRecord? GetExecution(string executionId)
@@ -618,7 +615,7 @@ public sealed class AgentStore(AgentOptions options)
         transaction.Commit();
     }
 
-    private bool InsertExecution(ExecutionRecord record, long maxOutstandingAgentExecutions)
+    private void InsertExecution(ExecutionRecord record)
     {
         using var connection = _database.Open();
         using var command = connection.CreateCommand();
@@ -628,24 +625,15 @@ public sealed class AgentStore(AgentOptions options)
                 PolicyId, ConnectionId, Model, Source, SourceReference, Status,
                 Request, EnvironmentJson, Result, Error, ExitCode, PolicySnapshot,
                 CreatedAt, StartedAt, CompletedAt)
-            SELECT
+            VALUES (
                 $executionId, $parentExecutionId, $correlationId, $kind, $chatId,
                 $policyId, $connectionId, $model, $source, $sourceReference, $status,
                 $request, $environmentJson, NULL, NULL, NULL, $policySnapshot,
-                $createdAt, NULL, NULL
-            WHERE (
-                SELECT COUNT(*)
-                FROM Executions
-                WHERE Kind = $agentKind
-                  AND Status IN ($queued, $running, $cancelRequested)) < $maxOutstanding;
+                $createdAt, NULL, NULL);
             """;
         BindExecution(command, record);
-        command.Parameters.AddWithValue("$maxOutstanding", maxOutstandingAgentExecutions);
-        command.Parameters.AddWithValue("$agentKind", AgentExecutionKind.Agent.ToString());
-        command.Parameters.AddWithValue("$queued", AgentExecutionStatus.Queued.ToString());
-        command.Parameters.AddWithValue("$running", AgentExecutionStatus.Running.ToString());
-        command.Parameters.AddWithValue("$cancelRequested", AgentExecutionStatus.CancelRequested.ToString());
-        return command.ExecuteNonQuery() == 1;
+        if (command.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException("Agent execution could not be persisted.");
     }
 
     private bool Finish(

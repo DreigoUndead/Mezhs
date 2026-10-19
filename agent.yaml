@@ -33,10 +33,6 @@ connections:
 agentStorage: data/agent.sqlite
 workspace: .
 
-runtime:
-  queueCapacity: 32
-  maxConcurrentExecutions: 4
-
 messages:
   continue: |
     Continue the assigned agent task according to the applicable policy.

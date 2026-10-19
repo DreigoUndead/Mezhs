@@ -9,8 +9,7 @@ public sealed class AgentService(
     AgentStore store,
     PolicyRegistry policies,
     AgentWorker worker,
-    IntegrationRegistry integrations,
-    AgentOptions options)
+    IntegrationRegistry integrations)
 {
     public ExecutionRecord Start(CreateExecutionRequest request)
     {
@@ -54,8 +53,6 @@ public sealed class AgentService(
             }
         }
 
-        var maxOutstandingExecutions =
-            (long)options.Runtime.QueueCapacity + options.Runtime.MaxConcurrentExecutions;
         var execution = store.TryCreateRootExecution(
             policyId,
             connectionId,
@@ -65,10 +62,7 @@ public sealed class AgentService(
             request.Input.Trim(),
             environment,
             policies.Snapshot(policyId),
-            maxOutstandingExecutions,
             model);
-        if (execution is null)
-            throw new AgentCapacityExceededException("MEŽS Agent execution queue is full. Try again after queued work starts.");
 
         worker.SignalWork();
         return execution;

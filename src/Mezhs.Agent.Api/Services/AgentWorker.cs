@@ -1,7 +1,5 @@
-using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Mezhs.Agent.Commands;
-using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
@@ -25,8 +23,10 @@ public sealed class AgentWorker : BackgroundService
     private readonly AgentRecoveryState _recovery;
     private readonly AgentAttachmentStaging _attachments;
     private readonly Channel<bool> _wake;
-    private readonly int _maxConcurrentExecutions;
-    private readonly ConcurrentDictionary<string, CancellationTokenSource> _cancellations =
+    private readonly Dictionary<string, Task> _inFlight = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _cancellationSync = new();
+    private readonly ILogger<AgentWorker> _logger;
+    private readonly Dictionary<string, CancellationTokenSource> _cancellations =
         new(StringComparer.OrdinalIgnoreCase);
 
     public AgentWorker(
@@ -41,7 +41,7 @@ public sealed class AgentWorker : BackgroundService
         ExecutorService executor,
         AgentRecoveryState recovery,
         AgentAttachmentStaging attachments,
-        AgentOptions options)
+        ILogger<AgentWorker> logger)
     {
         _store = store;
         _policies = policies;
@@ -54,10 +54,10 @@ public sealed class AgentWorker : BackgroundService
         _executor = executor;
         _recovery = recovery;
         _attachments = attachments;
-        _maxConcurrentExecutions = options.Runtime.MaxConcurrentExecutions;
+        _logger = logger;
         _wake = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
         {
-            SingleReader = false,
+            SingleReader = true,
             SingleWriter = false,
             FullMode = BoundedChannelFullMode.DropWrite
         });
@@ -73,6 +73,8 @@ public sealed class AgentWorker : BackgroundService
             throw new RequestValidationException("Only root Agent executions can be cancelled directly.");
 
         var (record, changed) = _store.RequestCancel(executionId);
+        if (changed)
+            SignalWork();
         if (!changed || record.Status != AgentExecutionStatus.CancelRequested)
             return record;
 
@@ -86,24 +88,50 @@ public sealed class AgentWorker : BackgroundService
             }
         }
 
-        if (_cancellations.TryGetValue(executionId, out var cancellation))
-            cancellation.Cancel();
+        lock (_cancellationSync)
+        {
+            if (_cancellations.TryGetValue(executionId, out var cancellation))
+                cancellation.Cancel();
+        }
         return record;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var consumers = Enumerable.Range(0, _maxConcurrentExecutions)
-            .Select(_ => ConsumeAsync(stoppingToken))
-            .ToArray();
         SignalWork();
-
         try
         {
-            await Task.WhenAll(consumers);
+            await foreach (var _ in _wake.Reader.ReadAllAsync(stoppingToken))
+            {
+                // Only the dispatcher reads or removes in-flight tasks. SQLite owns runnable order.
+                foreach (var (id, task) in _inFlight.Where(pair => pair.Value.IsCompleted).ToArray())
+                {
+                    await task;
+                    _inFlight.Remove(id);
+                }
+
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    var execution = _store.TryClaimNextQueuedExecution();
+                    if (execution is null)
+                        break;
+
+                    // Schedule independently; a long-running execution never occupies a dispatcher slot.
+                    var task = Task.Run(() => RunExecutionAsync(execution, stoppingToken));
+                    _inFlight.Add(execution.ExecutionId, task);
+                    // Notify only once the task itself has completed, so it is always collectible.
+                    task.GetAwaiter().OnCompleted(SignalWork);
+                }
+            }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
+        }
+        finally
+        {
+            // Stop claiming before waiting. All started executions retain their cancellation lifetime.
+            await Task.WhenAll(_inFlight.Values);
+            _inFlight.Clear();
         }
     }
 
@@ -113,22 +141,25 @@ public sealed class AgentWorker : BackgroundService
         return base.StopAsync(cancellationToken);
     }
 
-    private async Task ConsumeAsync(CancellationToken stoppingToken)
+    private async Task RunExecutionAsync(ExecutionRecord execution, CancellationToken stoppingToken)
     {
-        await foreach (var _ in _wake.Reader.ReadAllAsync(stoppingToken))
+        try
         {
-            var execution = _store.TryClaimNextQueuedExecution();
-            if (execution is null)
-                continue;
-
-            SignalWork();
+            await ProcessAsync(execution, stoppingToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected failure in Agent execution {ExecutionId}", execution.ExecutionId);
             try
             {
-                await ProcessAsync(execution, stoppingToken);
+                if (_store.GetExecution(execution.ExecutionId)?.Status == AgentExecutionStatus.CancelRequested)
+                    _store.CompleteCancellation(execution.ExecutionId);
+                else
+                    _store.Fail(execution.ExecutionId, ex.Message);
             }
-            finally
+            catch (Exception persistenceError)
             {
-                SignalWork();
+                _logger.LogError(persistenceError, "Could not persist failure for {ExecutionId}", execution.ExecutionId);
             }
         }
     }
@@ -136,13 +167,15 @@ public sealed class AgentWorker : BackgroundService
     private async Task ProcessAsync(ExecutionRecord execution, CancellationToken stoppingToken)
     {
         var executionId = execution.ExecutionId;
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-        _cancellations[executionId] = cancellation;
-        if (_store.GetExecution(executionId)?.Status == AgentExecutionStatus.CancelRequested)
-            cancellation.Cancel();
-
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        lock (_cancellationSync)
+            _cancellations[executionId] = cancellation;
         try
         {
+            // Cancellation may have reached SQLite before the token was registered.
+            if (_store.GetExecution(executionId)?.Status == AgentExecutionStatus.CancelRequested)
+                cancellation.Cancel();
+            cancellation.Token.ThrowIfCancellationRequested();
             var policy = _policies.Get(execution.PolicyId);
             var recovering = _recovery.TryTake(executionId);
 
@@ -236,7 +269,12 @@ public sealed class AgentWorker : BackgroundService
         }
         finally
         {
-            _cancellations.TryRemove(executionId, out _);
+            // Serialize disposal against concurrent Cancel(), including its synchronous callbacks.
+            lock (_cancellationSync)
+            {
+                _cancellations.Remove(executionId);
+                cancellation.Dispose();
+            }
         }
     }
 

@@ -29,10 +29,6 @@ connections:
 agentStorage: data-agent-test/agent.sqlite
 workspace: ..
 
-runtime:
-  queueCapacity: 1
-  maxConcurrentExecutions: 1
-
 messages:
   continue: |
     Continue the assigned deterministic test task.

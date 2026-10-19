@@ -43,8 +43,7 @@ var execution = store.TryCreateRootExecution(
     sourceReference: null,
     request: "legacy execution",
     environment: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-    policySnapshot: "snapshot",
-    maxOutstandingExecutions: 1)
+    policySnapshot: "snapshot")
     ?? throw new InvalidOperationException("Could not seed legacy execution.");
 
 using (var connection = new SqliteConnection($"Data Source={databasePath}"))

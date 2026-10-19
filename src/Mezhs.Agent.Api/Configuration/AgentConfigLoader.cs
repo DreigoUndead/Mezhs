@@ -22,7 +22,6 @@ public static class AgentConfigLoader
             throw new InvalidOperationException($"workspace directory '{options.Workspace}' does not exist.");
 
         Validate(options, "agent");
-        Validate(options.Runtime, "runtime");
         Validate(options.Messages, "messages");
 
         var yaml = new YamlStream();

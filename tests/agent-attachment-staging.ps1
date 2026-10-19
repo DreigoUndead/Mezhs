@@ -30,7 +30,7 @@ var store = new AgentStore(options);
 store.Initialize();
 ExecutionRecord Create(string label) => store.TryCreateRootExecution(
     "test-policy", "test-connection", null, "manual", null, label,
-    new Dictionary<string, string>(), "snapshot", 10)
+    new Dictionary<string, string>(), "snapshot")
     ?? throw new InvalidOperationException("Root creation failed");
 
 var one = Create("attachment owner");

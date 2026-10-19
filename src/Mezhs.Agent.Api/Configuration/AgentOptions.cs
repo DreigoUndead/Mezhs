@@ -13,7 +13,6 @@ public sealed class AgentOptions : MezhsOptions
     [Required]
     public string Workspace { get; set; } = ".";
 
-    public AgentRuntimeOptions Runtime { get; set; } = new();
     public AgentRuntimeMessages Messages { get; set; } = new();
 
     [YamlMember(Alias = "policies")]
@@ -22,15 +21,6 @@ public sealed class AgentOptions : MezhsOptions
     [YamlIgnore]
     public IReadOnlyDictionary<string, PolicyContext> Policies { get; set; } =
         new Dictionary<string, PolicyContext>(StringComparer.OrdinalIgnoreCase);
-}
-
-public sealed class AgentRuntimeOptions
-{
-    [Range(1, int.MaxValue)]
-    public int QueueCapacity { get; set; } = 32;
-
-    [Range(1, int.MaxValue)]
-    public int MaxConcurrentExecutions { get; set; } = 4;
 }
 
 public sealed class AgentRuntimeMessages

@@ -48,7 +48,7 @@ Assert ($coreComposition -match 'MapMezhsApi' -and $coreComposition -match 'AddM
 Assert ($options -match ': MezhsOptions' -and $config -match 'MezhsConfigLoader\.Load<AgentOptions>' -and $config -match 'options\.Server\.Listen' -and $config -match 'listen\.IsLoopback') "Agent configuration does not extend core MEŽS configuration while enforcing loopback binding."
 Assert ($agentWebHost -match 'RequireLoopbackUrls' -and $agentWebHost -match 'RequireLoopbackUri' -and $agentWebHost -match 'builder\.WebHost\.UseUrls') "Agent Web does not enforce its loopback listener boundary."
 Assert ($agentWebHost -notmatch 'Authorization|Bearer|MEZHS_AGENT_API_KEY') "Agent Web still carries redundant bearer authentication machinery."
-Assert ($options -match 'QueueCapacity' -and $options -match 'MaxConcurrentExecutions' -and $options -match 'Workspace') "Agent runtime capacity/workspace settings are not typed configuration."
+Assert ($options -match 'Workspace' -and $options -notmatch 'QueueCapacity|MaxConcurrentExecutions|AgentRuntimeOptions' -and $config -notmatch 'Validate\(options\.Runtime') "Global capacity settings or obsolete runtime configuration remain."
 Assert ($options -notmatch 'ManualChats|AgentManualChatOptions' -and
         $program -notmatch 'manual-chat-configs' -and
         $agentClient -notmatch 'ManualChat') "Redundant manual Agent chat configuration/API still exists."
@@ -59,11 +59,11 @@ Assert ($policyContext -match 'DefaultModel' -and
         $agentService -match 'policy\.DefaultModel') "Policy-owned names/model defaults are not compiled and applied by Agent."
 
 Assert ($worker -match 'Channel\.CreateBounded<bool>' -and $worker -match 'SignalWork' -and $worker -notmatch 'Channel\.CreateBounded<string>|_queuedCount|_activeCount') "Agent worker still owns execution IDs/state instead of using a wake-only channel."
-Assert ($worker -match 'Enumerable\.Range\(0, _maxConcurrentExecutions\)' -and $worker -notmatch 'HashSet<Task>|_chatGates|SemaphoreSlim') "Agent worker concurrency or per-chat serialization remains in transient task/gate state."
+Assert ($worker -match 'Task\.Run' -and $worker -match '_inFlight' -and $worker -match 'Task\.WhenAll\(_inFlight\.Values\)' -and $worker -match 'SingleReader = true' -and $worker -notmatch 'Enumerable\.Range|MaxConcurrentExecutions|_maxConcurrentExecutions|_chatGates|SemaphoreSlim') "Agent worker must dispatch independently and track all tasks through shutdown."
 Assert ($store -match 'TryCreateRootExecution' -and $store -match 'TryClaimNextQueuedExecution' -and $store -match 'RETURNING \*') "SQLite is not the authoritative admission/claim owner for root Agent executions."
 Assert ($store -match 'ClaimAgentChat\(\s*string executionId' -and $store -match 'attach\.Transaction = transaction' -and $store -notmatch 'public void AttachChat') "Agent chat ownership and execution chat attachment are not published atomically."
 Assert ($store -match 'NOT EXISTS \(' -and $store -match 'active\.ChatId = queued\.ChatId') "Queued same-chat work is not serialized before becoming Running."
-Assert ($agentService -match 'QueueCapacity.*MaxConcurrentExecutions' -and $agentService -match 'TryCreateRootExecution' -and $agentService -match 'SignalWork') "Admission is not coupled to durable queue capacity and worker wake-up."
+Assert ($agentService -match 'TryCreateRootExecution' -and $agentService -match 'SignalWork' -and $agentService -notmatch 'maxOutstandingExecutions|QueueCapacity|MaxConcurrentExecutions|AgentCapacityExceededException' -and $store -notmatch '\$maxOutstanding|COUNT\(\*\).*maxOutstanding') "Durable admission must not reject global outstanding capacity."
 Assert ($models -match 'string\? ConnectionId' -and
         $agentService -match 'ResolveConnectionId' -and
         $agentService -match 'request\.ConnectionId' -and

@@ -38,8 +38,6 @@ var done = options.Policies["test-done"];
 var evidencePolicy = options.Policies["test-evidence"];
 var timeoutPolicy = options.Policies["test-timeout"];
 
-Assert(options.Runtime.QueueCapacity == 1 && options.Runtime.MaxConcurrentExecutions == 1,
-    "Typed runtime capacity settings were not loaded.");
 Assert(Directory.Exists(options.Workspace), "Configured Agent workspace was not resolved to an existing directory.");
 Assert(options.Policies["low"].Name == "Test Instant" &&
        options.Policies["low"].ConnectionId == "test" &&
@@ -153,7 +151,6 @@ var shellOptions = new AgentOptions
     Connections = options.Connections,
     AgentStorage = Path.Combine(Path.GetTempPath(), $"mezhs-agent-policy-{Guid.NewGuid():N}.sqlite"),
     Workspace = options.Workspace,
-    Runtime = options.Runtime,
     Messages = options.Messages,
     Policies = options.Policies
 };
@@ -171,17 +168,17 @@ try
 
     var serialA1 = store.TryCreateRootExecution(
         normal.Id, normal.ConnectionId, "chat_serial_a", "manual", null,
-        "serial a1", emptyEnvironment, normal.Snapshot, 100)
+        "serial a1", emptyEnvironment, normal.Snapshot)
         ?? throw new InvalidOperationException("Could not admit serial execution A1.");
     Thread.Sleep(5);
     var serialA2 = store.TryCreateRootExecution(
         normal.Id, normal.ConnectionId, "chat_serial_a", "manual", null,
-        "serial a2", emptyEnvironment, normal.Snapshot, 100)
+        "serial a2", emptyEnvironment, normal.Snapshot)
         ?? throw new InvalidOperationException("Could not admit serial execution A2.");
     Thread.Sleep(5);
     var parallelB = store.TryCreateRootExecution(
         normal.Id, normal.ConnectionId, "chat_parallel_b", "manual", null,
-        "parallel b", emptyEnvironment, normal.Snapshot, 100)
+        "parallel b", emptyEnvironment, normal.Snapshot)
         ?? throw new InvalidOperationException("Could not admit parallel execution B.");
 
     var firstClaim = store.TryClaimNextQueuedExecution();
@@ -201,7 +198,7 @@ try
 
     var root = store.TryCreateRootExecution(
         normal.Id, normal.ConnectionId, "chat_shell", "manual", null,
-        "shell test", emptyEnvironment, normal.Snapshot, 100)
+        "shell test", emptyEnvironment, normal.Snapshot)
         ?? throw new InvalidOperationException("Shell test root execution was not admitted.");
     root = store.TryClaimNextQueuedExecution()
         ?? throw new InvalidOperationException("Shell test root execution did not start.");
@@ -253,7 +250,7 @@ try
 
     var timeoutRoot = store.TryCreateRootExecution(
         timeoutPolicy.Id, timeoutPolicy.ConnectionId, "chat_timeout", "manual", null,
-        "timeout test", emptyEnvironment, timeoutPolicy.Snapshot, 100)
+        "timeout test", emptyEnvironment, timeoutPolicy.Snapshot)
         ?? throw new InvalidOperationException("Timeout root execution was not admitted.");
     timeoutRoot = store.TryClaimNextQueuedExecution()
         ?? throw new InvalidOperationException("Timeout root execution did not start.");
