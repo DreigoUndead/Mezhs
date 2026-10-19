@@ -1,14 +1,14 @@
 # Plan: agent-model-presets architecture review cleanup
 
 **Date:** 2026-10-19
-**Status:** Implementation in progress; T1 (#7) and T2 (#2) committed, verified, coordinator-reviewed 2026-10-19. T3 next; remaining tasks pending.
+**Status:** Implementation in progress; T1 (#7), T2 (#2), and T3 (#3/#4) committed, verified, and coordinator-reviewed on 2026-10-19. T4 next; remaining tasks pending.
 **Target:** Existing agent-model-presets review branch; do not merge until the user reviews the completed diff and explicitly approves.
 **Scope:** All eight findings from the 2026-10-19 code review, plus the follow-up on global workers/concurrency. This is not the separate orchestration proposal or the general execution-UX backlog.
 **Guidance:** Read .agents/README.md and the repository-change-workflow and software-change skills before modifying code. For observed defects follow systematic-debugging. Reuse the existing review branch rather than splitting this review into speculative branches.
 
 ## Coordination and ownership (2026-10-19)
 
-- **ChatGPT coordinator (this review):** #1 (keep existing relative Electron diagnostic import), #3 (preserve meaningful JS source boundaries), #7 (move diagnostics endpoint to shared MEŽS API with loopback remote and browser-origin restrictions, remove Agent-only mapper, add structural test). #7 code is committed but not yet compiled or exercised live; the MEŽS agent must run the verification gates below.
+- **ChatGPT coordinator (this review):** #1 (keep existing relative Electron diagnostic import), #3 (preserve meaningful JS source boundaries), #7 (move diagnostics endpoint to shared MEŽS API with local-access restrictions). T1's diagnostics API verification has passed, and T2/T3 changes were reviewed.
 - **MEŽS local implementation agent:** #2 (base-class account session/diagnostics ownership, preserving inheritance), #4 (deploy source JS files directly without a bundler), #5 (guest pageOperations rewrite and live guest characterization), #6 (safe, general escaped-tag/parser correction based on actual raw replies), #8 (remove global limits and fixed worker pool while preserving durable dispatcher and recovery).
 - **Ownership rule:** Execute the MEŽS handoff after pulling the already-pushed coordinator changes. Work on the same agent-model-presets review branch; do not overwrite, revert, or parallel-edit the coordinator's files without reviewing them. Existing untracked/local user files are not cleanup targets.
 - **Verification:** T1 shared diagnostics validation completed and reviewed (commit `42ae609`): reported HTTP 22/22, targeted builds/publish and diagnostics/Agent/Electron tests passed; remote-IP denial exercised via synthetic remote address; pre-existing full architecture failure on generated JS remains assigned to T3. Remaining tasks require their own checks. No merge authorization is implied.
@@ -19,15 +19,15 @@
 
 1. **T1 — Shared diagnostics verification (#7): COMPLETE, reviewed.** Agent commit `42ae609`; targeted builds/publish, HTTP 22/22, diagnostics tests and relevant architecture checks reported PASS. Non-loopback-IP check used a synthetic peer address; full architecture JS-packaging failure deferred to T3.
 2. **T2 — Browser diagnostics/session ownership (#2): COMPLETE, reviewed.** Agent commit `c985bba`; centralized base-owned account session/diagnostics/disposal, preserved hierarchy and guest separation. Targeted account/Grok ownership tests, diagnostics and provider checks reported PASS. Live Grok snapshot and browser opening worked; Grok message encountered provider ToS gate and ChatGPT Account lacked login. Two historical full-flow tests reportedly also fail on baseline; validate integrated provider flows in T7.
-3. **T3 — Source JS module packaging (#3/#4).** Remove generated `chatgpt.ts`/build.js, package normal CommonJS files; update build and architecture tests. Preserve other providers.
-**T3 preparation:** Electron `main.js` and `browser-preload.js` already use Node `require(absoluteModulePath)` and should not need a replacement loader. Update references in `tests/browser-provider-operations.test.js`, `tests/chatgpt-account-api.test.js`, `tests/chatgpt-conversation-unavailable.test.js`, `tests/chatgpt-guest-composer.test.js`, `tests/agent-provider-lifetime.ps1`, `tests/architecture.ps1`, and `browser/tsconfig.json`. Preserve the T4 guest behavioral test coverage while changing only how it loads the entry module. Avoid a generated duplicate source; use ordinary CommonJS sibling paths. Verify resource extraction is safe on repeated initializations and actually works when launched from published artifacts.**
+3. **T3 — Source JS module packaging (#3/#4): COMPLETE, reviewed.** Agent commit `453328c`; removed generated bundle/build script, embedded eight unmodified CommonJS modules, added direct extraction while preserving Grok/Gemini. Reported Node 90/90, .NET Release build, isolated publish and native Node require probe PASS. Live Electron conversation deferred to T7.
+**T3 residual verification:** Native Node loading from isolated published resources passed; full live Electron conversation is deferred to T7. Concurrent extraction was not independently tested; inspect only if a concrete runtime issue appears.
 
 4. **T4 — Guest send simplification (#5).** Reuse preload `pageOperations`; eliminate guest `executeJavaScript`, bounded observation, no blind replay. Characterize live guest access without inventing success.
 5. **T5 — Parser presentation/protocol boundary (#6).** Investigate actual escaped-command samples first, remove DONE-only workaround safely, keep literal examples inert and block bodies opaque.
 6. **T6 — Agent dispatcher and global-limit removal (#8).** Remove global queue/worker limits as one atomic change while preserving durable claim, lifecycle, same-chat serialization, cancellation and recovery. If scope proves too large, stop after a concrete design/testing report rather than leaving a broken intermediate state.
 7. **T7 — Integrated validation and documentation.** Full relevant .NET/Node/PowerShell tests, isolated deployment checks, harmless authenticated multi-turn/live Agent test, docs update, final diff review and push. No extra implementation unless correcting a demonstrated regression.
 
-**Do not parallelize tasks that share `agent-model-presets` or run a later task on stale code.** The current handoff includes #7 implementation committed by the coordinator; that code is not yet verified by a local build/runtime. Each task's completion does not imply approval to merge.
+**Do not parallelize tasks that share `agent-model-presets` or run a later task on stale code.** T1–T3 have been reviewed; further tasks require their own evidence and coordinator review. Approval of individual tasks does not authorize a merge.
 
 ## Decisions and non-goals
 
