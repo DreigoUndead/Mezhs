@@ -1,10 +1,17 @@
 # Plan: agent-model-presets architecture review cleanup
 
 **Date:** 2026-10-19
-**Status:** Agreed direction and implementation plan; implementation NOT started by this document.
+**Status:** Implementation in progress; shared diagnostics API move (#7) committed, build/live verification pending; remaining changes delegated for live MEŽS testing.
 **Target:** Existing agent-model-presets review branch; do not merge until the user reviews the completed diff and explicitly approves.
 **Scope:** All eight findings from the 2026-10-19 code review, plus the follow-up on global workers/concurrency. This is not the separate orchestration proposal or the general execution-UX backlog.
 **Guidance:** Read .agents/README.md and the repository-change-workflow and software-change skills before modifying code. For observed defects follow systematic-debugging. Reuse the existing review branch rather than splitting this review into speculative branches.
+
+## Coordination and ownership (2026-10-19)
+
+- **ChatGPT coordinator (this review):** #1 (keep existing relative Electron diagnostic import), #3 (preserve meaningful JS source boundaries), #7 (move diagnostics endpoint to shared MEŽS API with loopback remote and browser-origin restrictions, remove Agent-only mapper, add structural test). #7 code is committed but not yet compiled or exercised live; the MEŽS agent must run the verification gates below.
+- **MEŽS local implementation agent:** #2 (base-class account session/diagnostics ownership, preserving inheritance), #4 (deploy source JS files directly without a bundler), #5 (guest pageOperations rewrite and live guest characterization), #6 (safe, general escaped-tag/parser correction based on actual raw replies), #8 (remove global limits and fixed worker pool while preserving durable dispatcher and recovery).
+- **Ownership rule:** Execute the MEŽS handoff after pulling the already-pushed coordinator changes. Work on the same agent-model-presets review branch; do not overwrite, revert, or parallel-edit the coordinator's files without reviewing them. Existing untracked/local user files are not cleanup targets.
+- **Verification:** Run the architecture test including shared diagnostics ownership, run a full .NET build and the runtime/ChatGPT/guest tests as applicable, and perform representative live checks. The coordinator will review logs, diff, and reported causal evidence before any merge. No merge authorization is implied.
 
 ## Decisions and non-goals
 
