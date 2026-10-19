@@ -69,7 +69,6 @@ app.MapGet("/", () => Results.Ok(new
     }
 }));
 app.MapMezhsApi();
-app.MapAgentDiagnostics();
 
 app.MapGet("/v1/policies", (PolicyRegistry policies) =>
     Results.Ok(policies.GetViews()));
