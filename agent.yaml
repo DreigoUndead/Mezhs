@@ -68,9 +68,9 @@ messages:
 
 policies:
   low:
-    name: ChatGPT Instant
+    name: Manual ChatGPT Instant
     connectionId: chatgpt-sub
-    defaultModel: gpt-5-6-instant
+    defaultModel: gpt-6-instant
     instructions: |
       Complete the assigned task and keep actions auditable.
     commands:
@@ -80,15 +80,15 @@ policies:
     environment:
       allow: []
     completion:
-      requireDone: true
+      requireDone: false
       requiredSuccessfulCommands: []
     limits:
       commandTimeoutSeconds: 120
 
   mid:
-    name: ChatGPT Mid
+    name: Manual ChatGPT Mid
     connectionId: chatgpt-sub
-    defaultModel: gpt-5-6-thinking::thinking-effort=standard
+    defaultModel: gpt-6-thinking::thinking-effort=standard
     instructions: |
       Complete the assigned task and keep actions auditable.
     commands:
@@ -98,15 +98,15 @@ policies:
     environment:
       allow: []
     completion:
-      requireDone: true
+      requireDone: false
       requiredSuccessfulCommands: []
     limits:
       commandTimeoutSeconds: 120
 
   high:
-    name: ChatGPT High
+    name: Manual ChatGPT High
     connectionId: chatgpt-sub
-    defaultModel: gpt-5-6-thinking::thinking-effort=extended
+    defaultModel: gpt-6-thinking::thinking-effort=extended
     instructions: |
       Complete the assigned task and keep actions auditable.
     commands:
@@ -116,7 +116,7 @@ policies:
     environment:
       allow: []
     completion:
-      requireDone: true
+      requireDone: false
       requiredSuccessfulCommands: []
     limits:
       commandTimeoutSeconds: 120
