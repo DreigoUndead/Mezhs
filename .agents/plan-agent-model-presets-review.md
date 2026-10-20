@@ -1,7 +1,7 @@
 # Plan: agent-model-presets architecture review cleanup
 
 **Date:** 2026-10-19
-**Status:** T1–T7 implemented; coordinator review 2026-10-20: PASS WITH LIMITATIONS. Automated/published/runtime evidence passes, but the live authenticated root's final DONE/Completed state was not evidenced in T7's report. Await final root-state verification and explicit user merge approval.
+**Status:** T1–T7 implemented and final authenticated completion verified on 2026-10-20. Ready for user merge review, with two baseline-reproduced account-history test failures separately documented. NOT merged; explicit merge approval still required.
 **Target:** Existing agent-model-presets review branch; do not merge until the user reviews the completed diff and explicitly approves.
 **Scope:** All eight findings from the 2026-10-19 code review, plus the follow-up on global workers/concurrency. This is not the separate orchestration proposal or the general execution-UX backlog.
 **Guidance:** Read .agents/README.md and the repository-change-workflow and software-change skills before modifying code. For observed defects follow systematic-debugging. Reuse the existing review branch rather than splitting this review into speculative branches.
@@ -181,6 +181,10 @@ Finish with `git diff --check` against `main` and the working tree, inspect the 
 
 - **T7 diff reviewed:** commit `613fb429` changes only this validation record, a whitespace correction, and the Windows PowerShell 5.1 proxy-test harness. No unrelated production behavior was altered by T7.
 - **Result:** PASS WITH LIMITATIONS. Reported Node 99/99, .NET Release build, TypeScript, isolated publish/Electron, diagnostics, Agent concurrency/cancellation/recovery and live authenticated SH execution all pass. Baseline-reproduced account-history failures remain separately documented.
-- **Outstanding live acceptance:** T7 records root `exec_8fc6f096c3aa465083f4f4a64c7cdf84` as still active after successfully recording child shell `2737`. Verify that this same root reaches `Completed` with a genuine raw DONE response and correct durable result. Do not resubmit the marker shell command or infer final completion from its successful child execution alone.
+- **Live acceptance closed (2026-10-20):** User-provided API response for root `exec_8fc6f096c3aa465083f4f4a64c7cdf84` shows `status: Completed`, `isTerminal: True`, `completedAt: 2026-10-19T22:39:50.0822179+00:00`, `policySnapshot.completion.requireDone: true`, and a populated durable final result. The T7 report independently recorded single child shell execution `2737` with exit code 0 and matching parent. Under the T5 parser rules, the completed, requireDone=true root indicates completion was accepted through the raw protocol (the provided root response does not itself contain the exact final assistant message). No shell command was rerun.
 - **Merge comparison:** GitHub comparison of `main` to `agent-model-presets` at T7 review shows the branch **456 commits ahead and 1 commit behind**, with 99 changed files; these totals include broader branch work outside T1–T7. Recheck branch drift and final integration scope before any explicitly user-approved merge.
 - No merge, deletion, or deployment authorized by this review.
+
+### Final coordinator acceptance update
+
+User provided the live execution's final API record, confirming the outstanding root has completed under the requireDone=true policy and a durable result is stored. Thus the T7 live acceptance gate is closed. T1–T7 are review-complete. Baseline account-history failures remain known limitations. Branch merge/rebase against current `main` is a separate explicit user decision; do not merge or delete branches without authorization.
