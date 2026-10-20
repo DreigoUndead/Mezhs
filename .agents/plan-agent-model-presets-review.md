@@ -1,7 +1,7 @@
 # Plan: agent-model-presets architecture review cleanup
 
 **Date:** 2026-10-19
-**Status:** T1–T7 implemented and integrated validation completed on 2026-10-20. Ready for user review on agent-model-presets; NOT merged and no merge authorization.
+**Status:** T1–T7 implemented; coordinator review 2026-10-20: PASS WITH LIMITATIONS. Automated/published/runtime evidence passes, but the live authenticated root's final DONE/Completed state was not evidenced in T7's report. Await final root-state verification and explicit user merge approval.
 **Target:** Existing agent-model-presets review branch; do not merge until the user reviews the completed diff and explicitly approves.
 **Scope:** All eight findings from the 2026-10-19 code review, plus the follow-up on global workers/concurrency. This is not the separate orchestration proposal or the general execution-UX backlog.
 **Guidance:** Read .agents/README.md and the repository-change-workflow and software-change skills before modifying code. For observed defects follow systematic-debugging. Reuse the existing review branch rather than splitting this review into speculative branches.
@@ -176,3 +176,11 @@ Run targeted Node tests (ChatGPT account, guest, provider operations, diagnostic
 ### Release gate
 
 Finish with `git diff --check` against `main` and the working tree, inspect the final T7 diff, commit/push `agent-model-presets`, verify remote SHA equality and a clean worktree. Branch remains unmerged.
+
+## Coordinator review of T7 (2026-10-20)
+
+- **T7 diff reviewed:** commit `613fb429` changes only this validation record, a whitespace correction, and the Windows PowerShell 5.1 proxy-test harness. No unrelated production behavior was altered by T7.
+- **Result:** PASS WITH LIMITATIONS. Reported Node 99/99, .NET Release build, TypeScript, isolated publish/Electron, diagnostics, Agent concurrency/cancellation/recovery and live authenticated SH execution all pass. Baseline-reproduced account-history failures remain separately documented.
+- **Outstanding live acceptance:** T7 records root `exec_8fc6f096c3aa465083f4f4a64c7cdf84` as still active after successfully recording child shell `2737`. Verify that this same root reaches `Completed` with a genuine raw DONE response and correct durable result. Do not resubmit the marker shell command or infer final completion from its successful child execution alone.
+- **Merge comparison:** GitHub comparison of `main` to `agent-model-presets` at T7 review shows the branch **456 commits ahead and 1 commit behind**, with 99 changed files; these totals include broader branch work outside T1–T7. Recheck branch drift and final integration scope before any explicitly user-approved merge.
+- No merge, deletion, or deployment authorized by this review.
