@@ -65,6 +65,26 @@ jobs:
           pwsh -NoProfile -File tests/agent-web-proxy-resilience.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Architecture, provider lifecycle, and embedded module contracts
+        shell: pwsh
+        run: |
+          foreach ($test in @(
+            'agent-architecture.ps1',
+            'agent-provider-lifetime.ps1',
+            'integration-resources.ps1'
+          )) {
+            pwsh -NoProfile -File (Join-Path tests $test)
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Agent concurrency and restart recovery
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File tests/agent-runtime-resilience.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/agent-graceful-shutdown.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Verify both frontend build outputs
         shell: pwsh
         run: |
