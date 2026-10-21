@@ -77,6 +77,18 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      - name: Browser module publication and version consistency
+        shell: pwsh
+        run: |
+          $temp = Join-Path $env:RUNNER_TEMP ('mezhs-module-probe-' + [Guid]::NewGuid().ToString('N'))
+          try {
+            dotnet run --project tests/ChatGptPackagingProbe/ChatGptPackagingProbe.csproj -c Release -- $temp
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          finally {
+            Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Agent concurrency and restart recovery
         shell: pwsh
         run: |
