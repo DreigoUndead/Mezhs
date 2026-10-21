@@ -317,7 +317,15 @@ public sealed class AgentWorker : BackgroundService
             replyContent,
             cancellationToken);
         if (interpretation.Error is { } commandError)
-            return new ReplyProcessing(false, _prompts.BuildCommandCorrection(commandError));
+        {
+            if (interpretation.Results.Count == 0)
+                return new ReplyProcessing(false, _prompts.BuildCommandCorrection(commandError));
+            var resultsPrompt = _prompts.BuildCommandResults(interpretation.Results, policy);
+            return new ReplyProcessing(false, resultsPrompt with
+            {
+                Content = $"Command execution stopped: {commandError}\nPreviously executed command results follow; do not replay them.\n{resultsPrompt.Content}"
+            });
+        }
 
         if (interpretation.Results.Count > 0)
         {

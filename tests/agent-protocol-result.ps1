@@ -172,6 +172,73 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
         -WorkingDirectory $root -RedirectStandardOutput $agentOut -RedirectStandardError $agentErr -WindowStyle Hidden -PassThru
     Wait-Health "$base/health"
 
+    function Assert-RejectedBatch([string]$label, [string]$suffix) {
+        $marker = Join-Path $temp "rejected-$label.txt"
+        $shellText = "echo EXECUTED>>`"$marker`""
+        $taskText = "<SH>`n$shellText`n</SH>`n$suffix"
+        $run = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
+            -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $taskText })
+        $outcome = Wait-Execution $run.executionId 20
+        if ($outcome.status -ne 'Completed') {
+            throw "Rejected batch $label did not finish: $($outcome.status), $($outcome.error)"
+        }
+        $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/executions")
+        $shells = @($history | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+        if ((Test-Path -LiteralPath $marker) -or $shells.Count -ne 0) {
+            throw "Rejected batch $label ran an earlier shell command. Shell count=$($shells.Count), marker=$(Test-Path -LiteralPath $marker)"
+        }
+        Write-Host "PASS: Rejected $label batch produced no shell execution or filesystem side effect."
+    }
+
+    Assert-RejectedBatch 'unknown' '<UNKNOWN>'
+    Assert-RejectedBatch 'unclosed' '<SH>'
+    Assert-RejectedBatch 'empty-shell' "<SH>`n `n</SH>"
+    Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"
+    Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"
+    Assert-RejectedBatch 'done-body' "<DONE>`nbody`n</DONE>"
+
+    $orderedFile = Join-Path $temp 'ordered-batch.txt'
+    $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
+    $orderedCreated = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
+        -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $orderedTask })
+    $orderedResult = Wait-Execution $orderedCreated.executionId 20
+    if ($orderedResult.status -ne 'Completed') {
+        throw "Valid ordered SH + SH + DONE failed: $($orderedResult.status), $($orderedResult.error)"
+    }
+    $orderedLines = @(Get-Content -LiteralPath $orderedFile)
+    if ($orderedLines.Count -ne 2 -or $orderedLines[0] -ne 'FIRST' -or $orderedLines[1] -ne 'SECOND') {
+        throw "Valid batch did not run exactly once in order: $($orderedLines -join ', ')"
+    }
+    $orderedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($orderedResult.chatId)/executions")
+    $orderedShells = @($orderedHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' } | Sort-Object commandIndex)
+    if ($orderedShells.Count -ne 2 -or $orderedShells[0].commandIndex -ne 0 -or
+        $orderedShells[1].commandIndex -ne 1 -or
+        $orderedShells[0].executionId -eq $orderedShells[1].executionId -or
+        @($orderedShells | Where-Object { $_.status -ne 'Completed' }).Count -ne 0) {
+        throw "Valid batch lost shell ordering, unique durable IDs, or success: $($orderedHistory | ConvertTo-Json -Depth 6 -Compress)"
+    }
+    Write-Host 'PASS: Valid two-shell batch executes exactly once in order with durable IDs and command indices.'
+
+    $partialFile = Join-Path $temp 'partial-results.txt'
+    $firstShell = 'echo EARLIER>>' + [char]34 + $partialFile + [char]34
+    $partialTask = '<SH>' + [char]10 + $firstShell + [char]10 + '</SH>' + [char]10 + '<SH>' + [char]10 + 'exit /b 37' + [char]10 + '</SH>'
+    $partialCreated = Invoke-RestMethod -Method Post -Uri ($base + '/v1/executions') -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence-auto'; input = $partialTask })
+    $partialResult = Wait-Execution $partialCreated.executionId 20
+    if ($partialResult.status -ne 'Completed') { throw 'Failure-result batch did not finish.' }
+    $partialLines = @(Get-Content -LiteralPath $partialFile)
+    $partialHistory = @(Invoke-RestMethod -Uri ($base + '/v1/agent-chats/' + $partialResult.chatId + '/executions'))
+    $partialShells = @($partialHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' } | Sort-Object commandIndex)
+    if ($partialLines.Count -ne 1 -or $partialShells.Count -ne 2 -or $partialShells[0].status -ne 'Completed' -or $partialShells[1].status -ne 'Failed') {
+        throw 'Partial failure lost exactly-once execution or durable shell records.'
+    }
+    $partialMessages = @(Invoke-RestMethod -Uri ($base + '/v1/agent-chats/' + $partialResult.chatId + '/messages'))
+    $partialPrompts = @($partialMessages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'user' -and $_.content -match 'Command results JSON:' })
+    if ($partialPrompts.Count -ne 1 -or -not $partialPrompts[0].content.Contains($partialShells[0].executionId) -or
+        -not $partialPrompts[0].content.Contains($partialShells[1].executionId)) {
+        throw 'Partial failure did not communicate both actual shell results and durable IDs to the agent.'
+    }
+    Write-Host 'PASS: Later shell failure preserves earlier result and communicates both durable execution IDs.'
+
     $task = @'
 <SH>
 echo SAME_TURN_DONE_OK

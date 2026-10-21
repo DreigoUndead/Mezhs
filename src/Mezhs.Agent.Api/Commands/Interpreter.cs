@@ -45,61 +45,68 @@ public sealed class Interpreter(
             return new Interpretation(false, [], ex.Message);
         }
 
-        var results = new List<Result>();
+        var executable = new List<(CommandDefinition Definition, string Body)>();
         var completionClaimed = false;
-        var timeout = TimeSpan.FromSeconds(policy.Settings.Limits.CommandTimeoutSeconds);
-        var executableIndex = 0;
 
         for (var i = 0; i < batch.Commands.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var command = batch.Commands[i];
             if (!Registry.TryGet(command.Name, out var definition))
-                return new Interpretation(completionClaimed, results, $"Unknown agent command <{command.Name}>.");
+                return new Interpretation(completionClaimed, [], $"Unknown agent command <{command.Name}>.");
 
             var hasBody = command.Body is not null;
             if (definition.Form == CommandForm.Block && !hasBody)
-                return new Interpretation(completionClaimed, results, $"<{definition.Name}> requires a closing </{definition.Name}> tag.");
+                return new Interpretation(completionClaimed, [], $"<{definition.Name}> requires a closing </{definition.Name}> tag.");
             if (definition.Form == CommandForm.Marker && hasBody)
-                return new Interpretation(completionClaimed, results, $"<{definition.Name}> is a marker and cannot have a body.");
+                return new Interpretation(completionClaimed, [], $"<{definition.Name}> is a marker and cannot have a body.");
 
             if (definition.Behavior == CommandBehavior.Complete)
             {
                 if (completionClaimed)
-                    return new Interpretation(true, results, $"<{definition.Name}> may appear only once in an assistant reply.");
+                    return new Interpretation(true, [], $"<{definition.Name}> may appear only once in an assistant reply.");
                 if (i != batch.Commands.Count - 1)
-                    return new Interpretation(true, results, $"<{definition.Name}> must be the final agent command in an assistant reply.");
+                    return new Interpretation(true, [], $"<{definition.Name}> must be the final agent command in an assistant reply.");
                 completionClaimed = true;
                 continue;
             }
 
             var body = command.Body ?? string.Empty;
+            if (definition.Behavior == CommandBehavior.Shell && string.IsNullOrWhiteSpace(body))
+                return new Interpretation(completionClaimed, [], "Shell command body cannot be empty.");
             var decision = evaluations.ValidateAction(
                 policy,
                 execution,
                 new PolicyAction(definition, body));
             if (!decision.Allowed)
-                return new Interpretation(completionClaimed, results, decision.Error ?? $"Policy denied {definition.Name} action.");
+                return new Interpretation(completionClaimed, [], decision.Error ?? $"Policy denied {definition.Name} action.");
 
-            switch (definition.Behavior)
+            if (definition.Behavior is not (CommandBehavior.Shell or CommandBehavior.Attach))
+                return new Interpretation(completionClaimed, [], $"Agent command <{definition.Name}> has no executable behavior.");
+            executable.Add((definition, body));
+        }
+
+        var results = new List<Result>();
+        var timeout = TimeSpan.FromSeconds(policy.Settings.Limits.CommandTimeoutSeconds);
+        var executableIndex = 0;
+        foreach (var (definition, body) in executable)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var context = new ExecutionContext(execution, timeout, assistantMessageId, executableIndex);
+            try
             {
-                case CommandBehavior.Attach:
-                    results.Add(await attachments.StageAsync(
-                        new ExecutionContext(execution, timeout, assistantMessageId, executableIndex),
-                        body,
-                        cancellationToken));
-                    executableIndex++;
-                    break;
-                case CommandBehavior.Shell:
-                    results.Add(await shell.ExecuteAsync(
-                        new ExecutionContext(execution, timeout, assistantMessageId, executableIndex),
-                        body,
-                        cancellationToken));
-                    executableIndex++;
-                    break;
-                default:
-                    return new Interpretation(completionClaimed, results, $"Agent command <{definition.Name}> has no executable behavior.");
+                results.Add(definition.Behavior == CommandBehavior.Shell
+                    ? await shell.ExecuteAsync(context, body, cancellationToken)
+                    : await attachments.StageAsync(context, body, cancellationToken));
             }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                // A command may already have started before throwing; the outcome is not safe to replay.
+                results.Add(new Result(definition.Name, null, false, null, null,
+                    $"Execution result unavailable: {ex.Message}. Check durable execution history before retrying."));
+                return new Interpretation(false, results, $"Execution of <{definition.Name}> was interrupted.");
+            }
+            executableIndex++;
         }
 
         return new Interpretation(completionClaimed, results, null);
