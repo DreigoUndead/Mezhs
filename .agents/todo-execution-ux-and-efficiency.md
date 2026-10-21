@@ -1,7 +1,7 @@
 # TODO: MEŽS agent execution UX, reliability, and efficiency
 
 **Handoff date:** 2026-10-14
-**Status:** assessment and proposed work only; **nothing in this checklist has been implemented by this handoff**.
+**Status:** historical observations and open improvement candidates. The presentation-tag parser issue (B) was addressed in the completed T5 work on `agent-model-presets`; verify the remaining items against current source before acting.
 **Basis:** one unusually long MEŽS agent session involving anonymous ChatGPT debugging, local browser probes, TypeScript changes, Node tests, .NET build, Git commits/pushes, and `.agents` documentation. It is a qualitative case study, **not** an instrumented performance benchmark.
 **Related:** ChatGPT Account and guest incident handoff at .agents/chatgpt-private-api-debugging.md on agent-model-presets; review branch `agent-model-presets`, PR #21.
 
@@ -33,13 +33,9 @@ The agent rated MEŽS approximately **7.5/10 overall** (subjective): task comple
 
 **Acceptance:** Reproduce failed edit -> successful test; the failure is visible and cannot be confused with an applied change. Require a post-edit verification (`git diff` or hash) before claiming files changed. Preserve execution IDs, cancellation, and existing single-command behavior.
 
-### B. Distinguish ordinary presentation markup from commands (P1, correctness)
+### B. Distinguish ordinary presentation markup from commands (resolved in T5)
 
-**Problem:** The reply contained a harmless `<box ...>` UI element, and MEŽS rejected it as `Malformed command tag`. This is not an attempted shell command; it indicates a formatting/parser-boundary problem worth reproducing.
-
-**Next chat:** Inspect `src/Mezhs.Agent.Api/Commands/Parser.cs`, Agent Worker and transport rendering. Test ordinary markup, unknown tags, exact standalone `<SH>` / `<DONE>`, escaped completion examples, and untrusted command-shaped content. Preserve strict authorization for real shell execution; do not fix the problem by executing loose or malformed tags.
-
-**Acceptance:** User-visible formatting is inert; valid command directives still work; malformed intended commands fail safely with useful errors. Add regression tests for the actual `<box>` incident.
+The `<box ...>` / escaped-completion parsing issue was addressed in the architecture cleanup on PR #21. This entry is retained as historical incident context, not a request to implement another parser fix. Preserve the existing regression coverage.
 
 ## Priority 2: Reduce unnecessary work
 
