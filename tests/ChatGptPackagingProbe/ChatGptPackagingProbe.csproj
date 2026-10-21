@@ -8,4 +8,12 @@
   <ItemGroup>
     <ProjectReference Include="../../integrations/Mezhs.Integrations.ChatGpt/Mezhs.Integrations.ChatGpt.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="fixtures/version-one/*.js"
+                      LogicalName="Mezhs.Tests.VersionOne.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="fixtures/version-two/*.js"
+                      LogicalName="Mezhs.Tests.VersionTwo.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="fixtures/single.js"
+                      LogicalName="Mezhs.Tests.SingleModule" />
+  </ItemGroup>
 </Project>

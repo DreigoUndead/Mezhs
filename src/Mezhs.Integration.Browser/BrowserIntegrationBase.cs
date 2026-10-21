@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using Mezhs.Browser;
 
 namespace Mezhs.Integrations.Browser;
@@ -7,7 +9,6 @@ public abstract class BrowserIntegrationBase(
     IntegrationConnection connection,
     IIntegrationHost host) : ChatIntegrationBase(connection)
 {
-    private string? _browserModulePath;
     private BrowserAccountSession? _accountSession;
     private BrowserDiagnosticsModule? _diagnostics;
 
@@ -96,53 +97,71 @@ public abstract class BrowserIntegrationBase(
 
     private string GetBrowserModulePath()
     {
-        if (BrowserModuleEntryFileName is { } entryFileName)
-            return ExtractBrowserModuleDirectory(entryFileName);
-
-        if (_browserModulePath is not null && File.Exists(_browserModulePath))
-            return _browserModulePath;
-
-        var directory = Path.Combine(Host.GetConnectionRoot(Connection.Id), "modules");
-        Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, $"{BrowserModuleAssembly.GetName().Name}.js");
-        using var source = BrowserModuleAssembly.GetManifestResourceStream(BrowserModuleResourceName)
-            ?? throw new InvalidOperationException(
-                $"Browser module resource '{BrowserModuleResourceName}' was not found in '{BrowserModuleAssembly.GetName().Name}'.");
-        using var target = File.Create(path);
-        source.CopyTo(target);
-        _browserModulePath = path;
-        return path;
-    }
-
-    private string ExtractBrowserModuleDirectory(string entryFileName)
-    {
-        var directory = Path.Combine(
-            Host.GetConnectionRoot(Connection.Id), "modules", BrowserModuleAssembly.GetName().Name!);
-        Directory.CreateDirectory(directory);
-
+        var assembly = BrowserModuleAssembly;
+        var entryFileName = BrowserModuleEntryFileName ?? $"{assembly.GetName().Name}.js";
         var prefix = BrowserModuleResourceName + ".";
-        var resources = BrowserModuleAssembly.GetManifestResourceNames()
-            .Where(name => name.StartsWith(prefix, StringComparison.Ordinal))
-            .ToArray();
-        if (resources.Length == 0)
+        string[] resourceNames = BrowserModuleEntryFileName is null
+            ? [BrowserModuleResourceName]
+            : assembly.GetManifestResourceNames()
+                .Where(name => name.StartsWith(prefix, StringComparison.Ordinal))
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+        if (resourceNames.Length == 0)
             throw new InvalidOperationException($"No browser module resources found under '{prefix}'.");
 
-        foreach (var resource in resources)
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var files = new List<(string Name, byte[] Contents)>(resourceNames.Length);
+        foreach (var resourceName in resourceNames)
         {
-            var path = Path.Combine(directory, resource[prefix.Length..]);
-            using var source = BrowserModuleAssembly.GetManifestResourceStream(resource)!;
+            using var source = assembly.GetManifestResourceStream(resourceName)
+                ?? throw new InvalidOperationException(
+                    $"Browser module resource '{resourceName}' was not found in '{assembly.GetName().Name}'.");
             using var buffer = new MemoryStream();
             source.CopyTo(buffer);
+            var name = BrowserModuleEntryFileName is null ? entryFileName : resourceName[prefix.Length..];
             var contents = buffer.ToArray();
-            if (!File.Exists(path) || !File.ReadAllBytes(path).AsSpan().SequenceEqual(contents))
-                File.WriteAllBytes(path, contents);
+            files.Add((name, contents));
+            hash.AppendData(Encoding.UTF8.GetBytes(name));
+            hash.AppendData([0]);
+            hash.AppendData(SHA256.HashData(contents));
+        }
+        if (!files.Any(file => file.Name == entryFileName))
+            throw new InvalidOperationException($"Browser module entry '{entryFileName}' was not embedded.");
+
+        var parent = Path.Combine(Host.GetConnectionRoot(Connection.Id), "modules", assembly.GetName().Name!);
+        var directory = Path.Combine(parent, Convert.ToHexString(hash.GetHashAndReset()));
+        if (!Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(parent);
+            var staging = Path.Combine(parent, $".{Guid.NewGuid():N}.tmp");
+            Directory.CreateDirectory(staging);
+            try
+            {
+                foreach (var file in files)
+                    File.WriteAllBytes(Path.Combine(staging, file.Name), file.Contents);
+                try
+                {
+                    Directory.Move(staging, directory);
+                }
+                catch (IOException) when (Directory.Exists(directory))
+                {
+                    // Another instance published the same complete version first.
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(staging))
+                    Directory.Delete(staging, recursive: true);
+            }
         }
 
-        var entry = Path.Combine(directory, entryFileName);
-        if (!File.Exists(entry))
-            throw new InvalidOperationException($"Browser module entry '{entryFileName}' was not embedded.");
-        _browserModulePath = entry;
-        return entry;
+        foreach (var file in files)
+        {
+            var path = Path.Combine(directory, file.Name);
+            if (!File.Exists(path) || !File.ReadAllBytes(path).AsSpan().SequenceEqual(file.Contents))
+                throw new IOException($"Published browser module is missing or differs from embedded resource: '{path}'.");
+        }
+        return Path.Combine(directory, entryFileName);
     }
 
     private sealed record BrowserSendResult(
