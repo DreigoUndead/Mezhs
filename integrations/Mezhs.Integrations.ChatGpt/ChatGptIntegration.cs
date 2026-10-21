@@ -133,10 +133,9 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         if (matches.Length == 1)
             return matches[0].Id;
 
-        Console.Error.WriteLine(matches.Length == 0
-            ? $"ChatGPT project '{projectName}' was not found; using no project."
-            : $"ChatGPT project '{projectName}' is ambiguous; using no project.");
-        return null;
+        throw new InvalidOperationException(matches.Length == 0
+            ? $"ChatGPT project '{projectName}' was not found."
+            : $"ChatGPT project '{projectName}' is ambiguous.");
     }
 
     private static IReadOnlyList<IntegrationOutputFile> OutputFiles(
