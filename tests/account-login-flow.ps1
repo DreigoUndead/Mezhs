@@ -1,3 +1,4 @@
+param([switch]$OwnershipOnly)
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -16,6 +17,7 @@ try {
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="$chatGptProject" />
+    <ProjectReference Include="$root\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj" />
   </ItemGroup>
 </Project>
 "@ | Set-Content -LiteralPath (Join-Path $temp 'Test.csproj') -Encoding UTF8
@@ -26,11 +28,16 @@ using Mezhs.Browser;
 using Mezhs.Integrations;
 using Mezhs.Integrations.Browser;
 using Mezhs.Integrations.ChatGpt;
+using Mezhs.Integrations.Gemini;
 
 var root = Path.Combine(Path.GetTempPath(), "mezhs-account-login-flow", Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 try
 {
+    await TestSessionOwnershipAsync(Path.Combine(root, "ownership"));
+    await TestAnonymousDiagnosticsAsync(Path.Combine(root, "guests"));
+    Console.WriteLine("PASS: T2 browser session ownership and diagnostics regressions");
+    if (args.Contains("--ownership-only")) return;
     await TestAutomaticLoginAsync(Path.Combine(root, "automatic"));
     await TestExplicitLoginAsync(Path.Combine(root, "explicit"));
     await TestModelDeduplicationAsync(Path.Combine(root, "models"));
@@ -132,6 +139,81 @@ static async Task TestStaleConversationRecoveryAsync(string root)
     Assert(fallback.Contains("new question", StringComparison.Ordinal), "fallback prompt lost current message");
 }
 
+static IntegrationSendContext SimpleContext() => new(
+    new IntegrationChatContext("chat", "account"),
+    new IntegrationMessageContext("message", "user", "hello", false, DateTimeOffset.UtcNow),
+    Array.Empty<IntegrationMessageContext>(),
+    Array.Empty<IntegrationInputFile>());
+
+static async Task TestSessionOwnershipAsync(string root)
+{
+    var host = new FakeHost(root, authorized: true);
+    var integration = new ChatGptAccountIntegration(Connection(), host);
+    try
+    {
+        var diagnostics = integration.Diagnostics;
+        Assert(diagnostics is not null, "ChatGPT Account diagnostics unavailable");
+        Assert(ReferenceEquals(diagnostics, integration.Diagnostics), "diagnostics instance was not reused");
+        Assert(host.ActiveTransports == 0, "reading diagnostics unexpectedly opened a browser");
+        var method = typeof(BrowserIntegrationBase).GetMethod("CreateAccountSession",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var first = (BrowserAccountSession)method.Invoke(integration, null)!;
+        var second = (BrowserAccountSession)method.Invoke(integration, null)!;
+        Assert(ReferenceEquals(first, second), "CreateAccountSession returned different sessions");
+
+        var snapshot = await diagnostics!.InvokeAsync("snapshot", JsonSerializer.SerializeToElement(new { }));
+        Assert(snapshot.GetProperty("snapshot").GetBoolean(), "snapshot diagnostics did not execute");
+        Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
+            "diagnostics did not initialize exactly one authorized browser transport");
+
+        await integration.Login!.OpenBrowserAsync();
+        Assert(host.ShowCount == 1 && host.Initializations.Count == 1,
+            "opening existing browser unexpectedly created another transport");
+        var send = await integration.SendMessageAsync(SimpleContext());
+        Assert(send.Text == "ok", "normal sending failed after diagnostics and browser show");
+        await integration.Models!.GetModelsAsync();
+        Assert(host.Invocations.Select(x => x.Operation).SequenceEqual(
+            ["$diagnostics/snapshot", "newChat", "getModels"]),
+            "diagnostics, sending, and model discovery did not use the expected transport");
+        Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
+            "login, sending, or model discovery created a second transport");
+    }
+    finally
+    {
+        await integration.DisposeAsync();
+    }
+    Assert(host.ActiveTransports == 0, "disposing ChatGPT account leaked the browser transport");
+    await integration.DisposeAsync();
+}
+
+static async Task TestAnonymousDiagnosticsAsync(string root)
+{
+    var host = new FakeHost(root, authorized: true);
+    var settings = new Dictionary<string, string?>();
+    await using (var guest = new ChatGptWebIntegration(
+        new IntegrationConnection("guest-chatgpt", "ChatGPT Guest", "chatgpt-web", settings), host))
+    {
+        Assert(guest.Diagnostics is null && host.ActiveTransports == 0,
+            "ChatGPT guest diagnostics opened a persistent account session");
+        var result = await guest.SendMessageAsync(SimpleContext());
+        Assert(result.Text == "guest-ok", "ChatGPT anonymous sending changed");
+        Assert(guest.Diagnostics is null && host.ActiveTransports == 0,
+            "ChatGPT guest left a persistent transport after sending");
+    }
+    await using (var guest = new GeminiWebIntegration(
+        new IntegrationConnection("guest-gemini", "Gemini Guest", "gemini-web", settings), host))
+    {
+        Assert(guest.Diagnostics is null && host.ActiveTransports == 0,
+            "Gemini guest diagnostics opened a persistent account session");
+        var result = await guest.SendMessageAsync(SimpleContext());
+        Assert(result.Text == "guest-ok", "Gemini anonymous sending changed");
+        Assert(guest.Diagnostics is null && host.ActiveTransports == 0,
+            "Gemini guest left a persistent transport after sending");
+    }
+    Assert(host.Initializations.Count == 2 && host.Initializations.All(x => !x.RequireAuthorization),
+        "guest transports unexpectedly required account authorization");
+}
+
 static void Assert(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);
@@ -145,6 +227,7 @@ sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
     public IReadOnlyList<IntegrationModel> ModelResults { get; set; } = [];
     public int PromptCount { get; set; }
     public int ActiveTransports { get; set; }
+    public int ShowCount { get; set; }
     public bool Authorized { get; set; } = authorized;
     public bool UnavailableContinuationOnce { get; set; }
 
@@ -186,6 +269,11 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
     {
         host.Invocations.Add((operation, JsonSerializer.Serialize(arguments, JsonOptions)));
 
+        if (operation == "$diagnostics/snapshot")
+            return Result<TResult>(new { snapshot = true });
+        if (operation == "sendPrompt")
+            return Result<TResult>(new { ok = true, text = "guest-ok" });
+
         if (operation == "getModels")
             return Result<TResult>(host.ModelResults);
         if (operation == "getProjects")
@@ -221,7 +309,11 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         return Task.FromResult(JsonSerializer.Deserialize<TResult>(json, JsonOptions)!);
     }
 
-    public Task ShowAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task ShowAsync(CancellationToken cancellationToken = default)
+    {
+        host.ShowCount++;
+        return Task.CompletedTask;
+    }
 
     public ValueTask DisposeAsync()
     {
@@ -235,7 +327,11 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 }
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
+    if ($OwnershipOnly) {
+    dotnet run --project (Join-Path $temp 'Test.csproj') -c Release -- --ownership-only
+    } else {
     dotnet run --project (Join-Path $temp 'Test.csproj') -c Release
+    }
     if ($LASTEXITCODE -ne 0) { throw "Account integration flow test failed with exit code $LASTEXITCODE." }
 }
 finally {

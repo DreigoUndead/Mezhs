@@ -8,6 +8,7 @@
     <ProjectReference Include="..\..\src\Mezhs.Integration.Browser\Mezhs.Integration.Browser.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="browser\chatgpt.ts" LogicalName="Mezhs.Integrations.ChatGpt.BrowserModule" />
+    <EmbeddedResource Include="browser\modules\*.js"
+                      LogicalName="Mezhs.Integrations.ChatGpt.BrowserModule.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

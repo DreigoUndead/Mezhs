@@ -91,7 +91,6 @@ try
         Server = new() { Listen = "http://127.0.0.1:1" },
         AgentStorage = agentPath,
         Workspace = workspace,
-        Runtime = new AgentRuntimeOptions(),
         Messages = new AgentRuntimeMessages
         {
             Continue = "continue",

@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Mezhs.Integrations;
 
 public sealed record IntegrationConnection(
@@ -42,6 +44,14 @@ public interface IModelModule
         CancellationToken cancellationToken = default);
 }
 
+public interface IIntegrationDiagnosticsModule
+{
+    Task<JsonElement> InvokeAsync(
+        string operation,
+        JsonElement arguments,
+        CancellationToken cancellationToken = default);
+}
+
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
 public sealed class IntegrationAttribute(string type) : Attribute
 {
@@ -54,6 +64,7 @@ public interface IChatIntegration : IAsyncDisposable
     IntegrationCapabilities Capabilities { get; }
     ILoginModule? Login { get; }
     IModelModule? Models { get; }
+    IIntegrationDiagnosticsModule? Diagnostics { get; }
 
     Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
@@ -66,6 +77,7 @@ public abstract class ChatIntegrationBase(IntegrationConnection connection) : IC
     public virtual IntegrationCapabilities Capabilities => new();
     public virtual ILoginModule? Login => null;
     public virtual IModelModule? Models => null;
+    public virtual IIntegrationDiagnosticsModule? Diagnostics => null;
 
     public abstract Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,

@@ -3,18 +3,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { EventEmitter } = require("node:events");
 
 const root = path.resolve(__dirname, "..");
 
 function loadChatGptModule() {
-  const source = fs.readFileSync(
-    path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "chatgpt.ts"),
-    "utf8"
-  );
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mezhs-chatgpt-api-"));
-  const file = path.join(directory, "chatgpt.cjs");
-  fs.writeFileSync(file, source);
-  return require(file);
+  fs.cpSync(path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "modules"), directory, { recursive: true });
+  return require(path.join(directory, "entry.js"));
 }
 
 function jsonResponse(value, status = 200) {
@@ -31,7 +27,15 @@ function textResponse(value, status = 200, contentType = "text/plain") {
   });
 }
 
-function completedConversation(conversationId, requestMessageId, text = "answer") {
+function completedConversation(
+  conversationId,
+  requestMessageId,
+  text = "answer",
+  assistantModel = "gpt-5-6-thinking",
+  requestResolvedModel = assistantModel,
+  thinkingEffort = null,
+  contentReferences = null
+) {
   return {
     conversation_id: conversationId,
     current_node: "assistant-new",
@@ -43,7 +47,11 @@ function completedConversation(conversationId, requestMessageId, text = "answer"
           author: { role: "assistant" },
           status: "finished_successfully",
           content: { parts: [text] },
-          metadata: { model_slug: "gpt-5-6-thinking" }
+          metadata: {
+            model_slug: assistantModel,
+            ...(thinkingEffort ? { thinking_effort: thinkingEffort } : {}),
+            ...(contentReferences ? { content_references: contentReferences } : {})
+          }
         }
       },
       "request-new": {
@@ -53,7 +61,7 @@ function completedConversation(conversationId, requestMessageId, text = "answer"
           author: { role: "user" },
           status: "finished_successfully",
           content: { parts: ["prompt"] },
-          metadata: { resolved_model_slug: "gpt-5-6-thinking" }
+          metadata: { resolved_model_slug: requestResolvedModel }
         }
       }
     }
@@ -61,71 +69,113 @@ function completedConversation(conversationId, requestMessageId, text = "answer"
 }
 
 function apiSession(handler) {
+  const cookies = new Map();
   return {
     fetch: handler,
-    cookies: { get: async () => [] }
-  };
-}
-
-function hostileBrowserSurface() {
-  return {
-    window: {
-      loadURL: async () => {
-        throw new Error("ChatGPT account send must not navigate the UI.");
+    cookies: {
+      get: async ({ name } = {}) => {
+        const value = cookies.get(name);
+        return value == null ? [] : [{ name, value }];
       },
-      webContents: {
-        getUserAgent: () => "TestBrowser/1.0",
-        debugger: {
-          isAttached() { throw new Error("ChatGPT account send must not inspect the debugger."); },
-          attach() { throw new Error("ChatGPT account send must not attach the debugger."); },
-          sendCommand() { throw new Error("ChatGPT account send must not use debugger commands."); }
-        }
+      set: async cookie => {
+        cookies.set(cookie.name, cookie.value);
       }
     },
-    page: {
-      invoke: async () => {
-        throw new Error("ChatGPT account send must not invoke page operations.");
+    __cookies: cookies
+  };
+}
+
+function nativeBrowserSurface() {
+  // Production account submission must not depend on any browser DOM or input APIs.
+  return {
+    window: {
+    webContents: {
+      executeJavaScript: async source => {
+        assert.match(source, /lXE/);
+        assert.doesNotThrow(() => new Function(`return ${source};`));
+        assert.doesNotMatch(source, /document\.querySelector|querySelectorAll|sendInputEvent/);
+        return {
+          headers: {
+            "OpenAI-Sentinel-Chat-Requirements-Token": "native-requirements",
+            "OpenAI-Sentinel-Proof-Token": "native-proof",
+            "OpenAI-Sentinel-Turnstile-Token": "native-turnstile"
+          },
+          forceLogin: false
+        };
       }
+    }
+  },
+    page: {
+      invoke: async () => { throw new Error("UI access is forbidden."); }
     }
   };
 }
 
-function protocolSession({ conversationId, onConversationRead, onConversationPost }) {
-  return apiSession(async (url, options = {}) => {
-    const target = new URL(String(url));
+function protocolSession({
+  conversationId,
+  onConversationRead,
+  onConversationPost,
+  conversationStream
+}) {
+  const state = {
+    conversationId,
+    onConversationPost,
+    conversationStream,
+    model: "gpt-5-6-thinking",
+    thinkingEffort: null,
+    lastStream: "",
+    posts: 0
+  };
 
+  const session = apiSession(async (url, options = {}) => {
+    const target = new URL(String(url));
     if (target.pathname === "/api/auth/session")
       return jsonResponse({ accessToken: "token", user: { id: "account-1" } });
-
-    if (target.pathname === "/backend-api/f/conversation/prepare")
-      return jsonResponse({ conduit_token: "conduit" });
-
-    if (target.pathname === "/backend-api/sentinel/chat-requirements/prepare")
-      return jsonResponse({ prepare_token: "prepared" });
-
-    if (target.pathname === "/backend-api/sentinel/chat-requirements/finalize")
-      return jsonResponse({ token: "sentinel" });
-
-    if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
-      const body = JSON.parse(options.body);
-      onConversationPost?.(body);
-      return textResponse(
-        `data: {"conversation_id":"${conversationId}"}\n\ndata: [DONE]\n\n`,
-        200,
-        "text/event-stream"
-      );
+    if (target.pathname === "/backend-api/settings/user_last_used_model_config") {
+      state.patchedModel = target.searchParams.get("model_slug");
+      state.patchedThinkingEffort = target.searchParams.get("thinking_effort");
+      return textResponse("");
     }
-
+    if (target.pathname === "/backend-api/conversation/init")
+      return jsonResponse({ default_model_slug: state.model });
+    if (target.pathname === "/backend-api/f/conversation/prepare")
+      return jsonResponse({ conduit_token: "conduit-server-issued" });
+    if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
+      assert.equal(options.headers["OpenAI-Sentinel-Chat-Requirements-Token"], "native-requirements");
+      assert.equal(options.headers["OpenAI-Sentinel-Proof-Token"], "native-proof");
+      assert.equal(options.headers["OpenAI-Sentinel-Turnstile-Token"], "native-turnstile");
+      const body = JSON.parse(options.body);
+      state.posts++;
+      state.onConversationPost?.(body);
+      if (state.abortBeforeResponse)
+        throw new Error("Native network connection aborted before HTTP response.");
+      const stream = state.conversationStream?.(body) ??
+        `data: {"conversation_id":"${conversationId}"}\n\ndata: [DONE]\n\n`;
+      if (state.abortAfterResponse) {
+        let sent = false;
+        return new Response(new ReadableStream({
+          pull(controller) {
+            if (!sent) {
+              sent = true;
+              controller.enqueue(new TextEncoder().encode(stream));
+            } else {
+              controller.error(new Error("response stream interrupted"));
+            }
+          }
+        }), { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      return textResponse(stream, 200, "text/event-stream");
+    }
     if (target.pathname === `/backend-api/conversation/${conversationId}`)
       return onConversationRead();
-
     throw new Error(`Unexpected request ${target}`);
   });
+  session.__native = state;
+  return session;
 }
 
-test("ChatGPT account newChat uses the semantic API even when browser UI hooks exist", async () => {
+test("ChatGPT account newChat submits a semantic request and reads conversation state", async () => {
   const chatgpt = loadChatGptModule();
-  const browser = hostileBrowserSurface();
   let requestMessageId;
   let conversationPosts = 0;
 
@@ -140,8 +190,10 @@ test("ChatGPT account newChat uses the semantic API even when browser UI hooks e
       jsonResponse(completedConversation("conv-api", requestMessageId, "API_OK"))
   });
 
+  session.__native.draft = "stale draft from a previous native send";
+
   const result = await chatgpt.operations.newChat({
-    ...browser,
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "hello api", files: [] },
     sleep: async () => {}
@@ -152,7 +204,135 @@ test("ChatGPT account newChat uses the semantic API even when browser UI hooks e
   assert.equal(result.text, "API_OK");
 });
 
-test("ChatGPT follow-up ignores a stale assistant until the sent API message appears in ancestry", async () => {
+test("ChatGPT resolves citation glyphs from matching content references", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  const cited = "\uE200cite\uE202turn0search0\uE201";
+  const unknown = "\uE200cite\uE202turn0search3\uE201";
+  const memory = "\uE200memcite\uE201";
+  const session = protocolSession({
+    conversationId: "conv-citations",
+    onConversationPost: body => { requestMessageId = body.messages[0].id; },
+    onConversationRead: () => jsonResponse(completedConversation(
+      "conv-citations",
+      requestMessageId,
+      "Sources for fruit " + cited + " and " + unknown + ". " + memory,
+      "gpt-5-6-thinking",
+      "gpt-5-6-thinking",
+      null,
+      [
+        { type: "grouped_webpages", matched_text: cited,
+          alt: "([Growing guide](https://example.org/watermelons))" },
+        { type: "sources_footnote", matched_text: " ", alt: "should NOT replace spaces" }
+      ]
+    ))
+  });
+
+  const result = await chatgpt.operations.newChat({
+    ...nativeBrowserSurface(),
+    session,
+    args: { prompt: "give sources", files: [] },
+    sleep: async () => {}
+  });
+  assert.equal(
+    result.text,
+    "Sources for fruit ([Growing guide](https://example.org/watermelons)) and [citation unavailable]."
+  );
+  assert.doesNotMatch(result.text, /[\uE200-\uE203]/);
+});
+
+test("ChatGPT fails closed when browser-owned requirements are unavailable", async () => {
+  const chatgpt = loadChatGptModule();
+  let posts = 0;
+  const session = protocolSession({
+    conversationId: "conv-missing-requirements",
+    onConversationPost: () => { posts++; },
+    onConversationRead: () => {
+      throw new Error("No conversation polling should occur.");
+    }
+  });
+  const browser = nativeBrowserSurface();
+  browser.window.webContents.executeJavaScript = async () => ({
+    requirementsToken: null, prepareToken: null, forceLogin: false
+  });
+  await assert.rejects(
+    chatgpt.operations.newChat({
+      ...browser,
+      session,
+      args: { prompt: "should not submit", files: [] },
+      sleep: async () => {}
+    }),
+    /did not produce a requirements token/
+  );
+  assert.equal(posts, 0);
+  assert.equal(session.__native.posts, 0);
+});
+
+test("ChatGPT continues after a partial semantic response stream is aborted", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  let posts = 0;
+
+  const session = protocolSession({
+    conversationId: "conv-aborted",
+    onConversationPost: body => {
+      posts++;
+      requestMessageId = body.messages[0].id;
+    },
+    onConversationRead: () =>
+      jsonResponse(completedConversation(
+        "conv-aborted",
+        requestMessageId,
+        "ABORTED_STREAM_OK"
+      ))
+  });
+  session.__native.model = "gpt-5-6-thinking";
+  session.__native.thinkingEffort = "extended";
+  session.__native.abortAfterResponse = true;
+  session.__native.responseBodyUnavailable = true;
+  session.__native.stayOnProjectUrl = true;
+  session.__native.emitConversationInitRequest = true;
+
+  const result = await chatgpt.operations.newChat({
+    ...nativeBrowserSurface(session),
+    session,
+    args: {
+      prompt: "test successful renderer abort",
+      model: "gpt-5-6-thinking::thinking-effort=extended",
+      files: []
+    },
+    sleep: async () => {}
+  });
+
+  assert.equal(posts, 1);
+  assert.equal(result.conversationId, "conv-aborted");
+  assert.equal(result.text, "ABORTED_STREAM_OK");
+});
+
+test("ChatGPT does not retry when the semantic request aborts before a response", async () => {
+  const chatgpt = loadChatGptModule();
+
+  const session = protocolSession({
+    conversationId: "conv-never-accepted",
+    onConversationPost: () => {},
+    onConversationRead: () => {
+      throw new Error("Conversation polling must not start.");
+    }
+  });
+  session.__native.abortBeforeResponse = true;
+
+  await assert.rejects(
+    chatgpt.operations.newChat({
+      ...nativeBrowserSurface(session),
+      session,
+      args: { prompt: "must fail", files: [] },
+      sleep: async () => {}
+    }),
+    /Native network connection aborted before HTTP response/
+  );
+});
+
+test("ChatGPT follow-up ignores a stale assistant until its user message appears in ancestry", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
   let reads = 0;
@@ -195,7 +375,7 @@ test("ChatGPT follow-up ignores a stale assistant until the sent API message app
   });
 
   const result = await chatgpt.operations.send({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: {
       prompt: "continue",
@@ -210,7 +390,52 @@ test("ChatGPT follow-up ignores a stale assistant until the sent API message app
   assert.equal(result.text, "fresh answer");
 });
 
-test("ChatGPT API polling backs off on 429 without resending the turn", async () => {
+test("ChatGPT final conversation metadata overrides earlier stream model metadata", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  const progress = [];
+
+  const session = protocolSession({
+    conversationId: "conv-served-model",
+    onConversationPost: body => {
+      requestMessageId = body.messages[0].id;
+    },
+    conversationStream: () =>
+      'data: {"conversation_id":"conv-served-model","metadata":{"resolved_model_slug":"gpt-5-6-thinking","thinking_effort":"extended"}}\n\ndata: [DONE]\n\n',
+    onConversationRead: () =>
+      jsonResponse(completedConversation(
+        "conv-served-model",
+        requestMessageId,
+        "served instant",
+        "gpt-5-6",
+        "gpt-5-6-thinking"
+      ))
+  });
+
+  session.__native.model = "gpt-5-6-thinking";
+  session.__native.thinkingEffort = "extended";
+
+  const result = await chatgpt.operations.newChat({
+    ...nativeBrowserSurface(session),
+    session,
+    args: {
+      prompt: "verify served model",
+      model: "gpt-5-6-thinking::thinking-effort=extended",
+      files: []
+    },
+    sleep: async () => {},
+    reportProgress: value => progress.push(value)
+  });
+
+  assert.equal(result.model, "gpt-5-6");
+  assert.ok(progress.some(value =>
+    value.state === "completed" &&
+    value.detail.includes("served model gpt-5-6") &&
+    value.detail.includes("requested model gpt-5-6-thinking")
+  ));
+});
+
+test("ChatGPT conversation polling backs off on 429 without resending the turn", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
   let reads = 0;
@@ -238,7 +463,7 @@ test("ChatGPT API polling backs off on 429 without resending the turn", async ()
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "test", files: [] },
     sleep: async ms => { sleeps.push(ms); }
@@ -250,129 +475,6 @@ test("ChatGPT API polling backs off on 429 without resending the turn", async ()
   assert.equal(result.text, "survived rate limit");
 });
 
-
-test("ChatGPT reposts once when a submitted turn never shows model activity", async () => {
-  const chatgpt = loadChatGptModule();
-  const requestIds = [];
-  const postedConversationIds = [];
-  let reads = 0;
-
-  const session = protocolSession({
-    conversationId: "conv-retry-start",
-    onConversationPost: body => {
-      requestIds.push(body.messages[0].id);
-      postedConversationIds.push(body.conversation_id ?? null);
-    },
-    onConversationRead: () => {
-      reads++;
-      const activeRequestId = requestIds.at(-1);
-      if (requestIds.length === 1) {
-        return jsonResponse({
-          conversation_id: "conv-retry-start",
-          current_node: "request-new",
-          mapping: {
-            "request-new": {
-              parent: null,
-              message: {
-                id: activeRequestId,
-                author: { role: "user" },
-                status: "finished_successfully",
-                content: { content_type: "text", parts: ["prompt"] }
-              }
-            }
-          }
-        });
-      }
-      return jsonResponse(
-        completedConversation("conv-retry-start", activeRequestId, "retry worked")
-      );
-    }
-  });
-
-  const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
-    session,
-    args: { prompt: "retry me", files: [] },
-    sleep: async () => {}
-  });
-
-  assert.equal(requestIds.length, 2);
-  assert.notEqual(requestIds[0], requestIds[1]);
-  assert.deepEqual(postedConversationIds, [null, "conv-retry-start"]);
-  assert.ok(reads >= 11);
-  assert.equal(result.text, "retry worked");
-});
-
-test("ChatGPT reposts when model activity stops without a final reply", async () => {
-  const chatgpt = loadChatGptModule();
-  const requestIds = [];
-  let reads = 0;
-  const progress = [];
-
-  const stalledConversation = requestMessageId => ({
-    conversation_id: "conv-stalled-activity",
-    current_node: "assistant-analysis",
-    mapping: {
-      "assistant-analysis": {
-        parent: "request-new",
-        message: {
-          id: "assistant-analysis",
-          author: { role: "assistant" },
-          status: "finished_successfully",
-          channel: "analysis",
-          content: {
-            content_type: "text",
-            parts: ["Command finished; deciding what to do next."]
-          }
-        }
-      },
-      "request-new": {
-        parent: null,
-        message: {
-          id: requestMessageId,
-          author: { role: "user" },
-          status: "finished_successfully",
-          content: { content_type: "text", parts: ["prompt"] }
-        }
-      }
-    }
-  });
-
-  const session = protocolSession({
-    conversationId: "conv-stalled-activity",
-    onConversationPost: body => {
-      requestIds.push(body.messages[0].id);
-    },
-    onConversationRead: () => {
-      reads++;
-      const activeRequestId = requestIds.at(-1);
-      return jsonResponse(
-        requestIds.length === 1
-          ? stalledConversation(activeRequestId)
-          : completedConversation("conv-stalled-activity", activeRequestId, "retry recovered")
-      );
-    }
-  });
-
-  const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
-    session,
-    args: { prompt: "recover stalled turn", files: [] },
-    sleep: async () => {},
-    reportProgress: value => progress.push(value)
-  });
-
-  assert.equal(requestIds.length, 2);
-  assert.notEqual(requestIds[0], requestIds[1]);
-  assert.ok(reads >= 12);
-  assert.equal(result.text, "retry recovered");
-  assert.ok(progress.some(value =>
-    value.state === "waiting" &&
-    value.detail === "Model activity was observed, but no active generation is currently detected." &&
-    value.analysis === "Command finished; deciding what to do next."
-  ));
-  assert.ok(progress.some(value => value.state === "retrying"));
-});
 
 test("ChatGPT inactivity watchdog resets when the conversation advances", async () => {
   const chatgpt = loadChatGptModule();
@@ -428,7 +530,7 @@ test("ChatGPT inactivity watchdog resets when the conversation advances", async 
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "keep progressing", files: [] },
     sleep: async () => {}
@@ -488,7 +590,7 @@ test("ChatGPT keeps waiting while explicit in-progress analysis remains active",
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "state please", files: [] },
     sleep: async () => {},
@@ -501,6 +603,123 @@ test("ChatGPT keeps waiting while explicit in-progress analysis remains active",
   assert.ok(progress.some(value =>
     value.state === "thinking" &&
     value.analysis === "Inspecting the failure state."
+  ));
+});
+
+test("ChatGPT captures transient provider reasoning metadata from the response stream", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  let postedPayload;
+  const progress = [];
+
+  const session = protocolSession({
+    conversationId: "conv-stream-reasoning",
+    onConversationPost: body => {
+      postedPayload = body;
+      requestMessageId = body.messages[0].id;
+    },
+    conversationStream: () => [
+      'data: {"type":"message_marker","conversation_id":"conv-stream-reasoning","message_id":"reasoning-1","marker":"cot_token","event":"first"}',
+      "",
+      'event: delta',
+      'data: {"v":{"message":{"id":"reasoning-1","author":{"role":"assistant"},"content":{"content_type":"reasoning_recap","content":"Worked"},"status":"finished_successfully","metadata":{"reasoning_status":"reasoning_ended","reasoning_start_time":100.25,"reasoning_end_time":103.75,"resolved_model_slug":"provider-thinking-model","model_slug":"provider-thinking-model","thinking_effort":"provider-high","can_save":false}},"conversation_id":"conv-stream-reasoning"}}',
+      "",
+      'event: delta',
+      'data: {"v":{"message":{"id":"tool-call-1","author":{"role":"assistant"},"recipient":"web.run","content":{"content_type":"text","parts":[""]},"status":"finished_successfully","metadata":{"resolved_model_slug":"provider-thinking-model","thinking_effort":"provider-high"}},"conversation_id":"conv-stream-reasoning"}}',
+      "",
+      'event: delta',
+      'data: {"v":{"message":{"id":"tool-result-1","author":{"role":"tool","name":"web.run"},"content":{"content_type":"text","parts":[""]},"status":"finished_successfully","metadata":{}},"conversation_id":"conv-stream-reasoning"}}',
+      "",
+      'data: {"type":"message_marker","conversation_id":"conv-stream-reasoning","message_id":"assistant-new","marker":"final_channel_token","event":"first"}',
+      "",
+      "data: [DONE]",
+      ""
+    ].join("\n"),
+    onConversationRead: () =>
+      jsonResponse(completedConversation(
+        "conv-stream-reasoning",
+        requestMessageId,
+        "done",
+        "provider-thinking-model",
+        "provider-thinking-model",
+        "provider-high"
+      ))
+  });
+
+  session.__native.model = "provider-thinking-model";
+  session.__native.thinkingEffort = "provider-high";
+
+  const result = await chatgpt.operations.newChat({
+    ...nativeBrowserSurface(session),
+    session,
+    args: {
+      prompt: "reason",
+      model: "provider-thinking-model::thinking-effort=provider-high",
+      files: []
+    },
+    sleep: async () => {},
+    reportProgress: value => progress.push(value)
+  });
+
+  assert.equal(postedPayload.model, "provider-thinking-model");
+  assert.equal(postedPayload.thinking_effort, "provider-high");
+  assert.equal(
+    result.model,
+    "provider-thinking-model::thinking-effort=provider-high"
+  );
+  assert.ok(progress.some(value =>
+    value.state === "thinking" &&
+    value.detail === "ChatGPT reported reasoning activity."
+  ));
+  assert.ok(progress.some(value =>
+    value.state === "responding" &&
+    value.detail === "ChatGPT is generating the visible response."
+  ));
+  assert.ok(progress.some(value =>
+    value.state === "completed" &&
+    value.detail ===
+      "Model response received (served model provider-thinking-model, effort provider-high, reasoning 3.5s, tools web.run)."
+  ));
+  const states = progress.map(value => value.state);
+  assert.ok(states.indexOf("waiting") >= 0);
+  assert.ok(states.indexOf("waiting") < states.indexOf("thinking"));
+  assert.ok(states.indexOf("thinking") < states.indexOf("responding"));
+});
+
+test("ChatGPT distinguishes requested thinking effort from provider-confirmed effort", async () => {
+  const chatgpt = loadChatGptModule();
+  let requestMessageId;
+  const progress = [];
+
+  const session = protocolSession({
+    conversationId: "conv-effort-unconfirmed",
+    onConversationPost: body => {
+      requestMessageId = body.messages[0].id;
+    },
+    onConversationRead: () =>
+      jsonResponse(completedConversation("conv-effort-unconfirmed", requestMessageId, "done"))
+  });
+
+  session.__native.model = "gpt-5-6-thinking";
+  session.__native.thinkingEffort = "extended";
+
+  const result = await chatgpt.operations.newChat({
+    ...nativeBrowserSurface(session),
+    session,
+    args: {
+      prompt: "reason",
+      model: "gpt-5-6-thinking::thinking-effort=extended",
+      files: []
+    },
+    sleep: async () => {},
+    reportProgress: value => progress.push(value)
+  });
+
+  assert.equal(result.model, "gpt-5-6-thinking");
+  assert.ok(progress.some(value =>
+    value.state === "completed" &&
+    value.detail ===
+      "Model response received (served model gpt-5-6-thinking, requested effort extended, not confirmed by provider)."
   ));
 });
 
@@ -531,7 +750,7 @@ test("rate-limited state checks do not consume the turn-start watchdog", async (
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "do not duplicate", files: [] },
     sleep: async () => {}
@@ -542,7 +761,7 @@ test("rate-limited state checks do not consume the turn-start watchdog", async (
   assert.equal(result.text, "after throttling");
 });
 
-test("ChatGPT fails after one automatic repost if model activity still never starts", async () => {
+test("ChatGPT fails stalled state polling without replaying a request", async () => {
   const chatgpt = loadChatGptModule();
   let requestMessageId;
   let posts = 0;
@@ -572,14 +791,14 @@ test("ChatGPT fails after one automatic repost if model activity still never sta
 
   await assert.rejects(
     chatgpt.operations.newChat({
-      ...hostileBrowserSurface(),
+      ...nativeBrowserSurface(session),
       session,
       args: { prompt: "never starts", files: [] },
       sleep: async () => {}
     }),
-    /showed no active generation for 20s after the automatic retry/
+    /showed no active generation for 20s after the native request completed/
   );
-  assert.equal(posts, 2);
+  assert.equal(posts, 1);
 });
 
 test("ChatGPT account does not surface analysis-channel control text as the reply", async () => {
@@ -649,7 +868,7 @@ test("ChatGPT account does not surface analysis-channel control text as the repl
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "test internal filtering", files: [] },
     sleep: async () => {}
@@ -711,7 +930,7 @@ test("ChatGPT account walks past hidden current nodes to the visible final reply
   });
 
   const result = await chatgpt.operations.newChat({
-    ...hostileBrowserSurface(),
+    ...nativeBrowserSurface(session),
     session,
     args: { prompt: "test hidden tail", files: [] },
     sleep: async () => {}
@@ -719,4 +938,328 @@ test("ChatGPT account walks past hidden current nodes to the visible final reply
 
   assert.equal(result.text, "Actual visible reply");
   assert.equal(result.parentMessageId, "assistant-final");
+});
+test('ChatGPT Account uploads images and documents before one semantic turn', async () => {
+  const chatgpt = loadChatGptModule();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mezhs-upload-fixtures-'));
+  const image = path.join(dir, 'sample.png');
+  const document = path.join(dir, 'sample.txt');
+  const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGM4YS4CAALeART0GtlNAAAAAElFTkSuQmCC', 'base64');
+  fs.writeFileSync(image, imageBytes);
+  fs.writeFileSync(document, 'hello file');
+  let requestMessageId;
+  const stages = [];
+  const session = protocolSession({
+    conversationId: 'conv-upload',
+    onConversationPost: body => {
+      stages.push('submit');
+      requestMessageId = body.messages[0].id;
+      const message = body.messages[0];
+      assert.equal(message.content.content_type, 'multimodal_text');
+      assert.deepEqual(message.content.parts, [{
+        content_type: 'image_asset_pointer',
+        asset_pointer: 'file-service://file-1',
+        size_bytes: imageBytes.length,
+        width: 1,
+        height: 1
+      }, 'describe these']);
+      assert.deepEqual(message.metadata.attachments, [
+        { id: 'file-1', name: 'sample.png', mimeType: 'image/png', size: imageBytes.length, width: 1, height: 1 },
+        { id: 'file-2', name: 'sample.txt', mimeType: 'text/plain', size: 10 }
+      ]);
+    },
+    onConversationRead: () => jsonResponse(completedConversation('conv-upload', requestMessageId, 'processed'))
+  });
+  const originalFetch = session.fetch;
+  let nextId = 0;
+  session.fetch = async (url, options = {}) => {
+    const target = new URL(String(url));
+    if (target.pathname === '/backend-api/f/conversation/prepare') {
+      const body = JSON.parse(options.body);
+      assert.equal(body.partial_query.content.content_type, 'text');
+      assert.deepEqual(body.partial_query.content.parts, ['describe these']);
+      stages.push('prepare');
+    }
+    if (target.pathname === '/backend-api/files') {
+      const body = JSON.parse(options.body);
+      assert.equal(body.entry_surface, 'chat_composer');
+      assert.equal(body.use_case, nextId === 0 ? 'multimodal' : 'my_files');
+      assert.equal(body.mime_type, nextId === 0 ? 'image/png' : 'text/plain');
+      const id = 'file-' + (++nextId);
+      stages.push('create-' + id);
+      return jsonResponse({ status: 'success', file_id: id,
+        upload_url: id === 'file-1'
+          ? 'https://uploads.example.net/test/file-1'
+          : 'https://uploads.blob.core.windows.net/test/' + id });
+    }
+    if (['uploads.example.net', 'uploads.blob.core.windows.net'].includes(target.hostname)) {
+      assert.equal(options.method, 'PUT');
+      assert.equal(options.credentials, 'omit');
+      assert.equal(options.headers['x-ms-blob-type'], 'BlockBlob');
+      assert.equal(options.headers['x-ms-version'], '2020-04-08');
+      const id = target.pathname.split('/').at(-1);
+      stages.push('transfer-' + id);
+      return textResponse('', 201);
+    }
+    if (target.pathname === '/backend-api/files/process_upload_stream') {
+      const body = JSON.parse(options.body);
+      assert.equal(options.method, 'POST');
+      assert.equal(body.entry_surface, 'chat_composer');
+      const id = body.file_id;
+      stages.push('process-' + id);
+      return textResponse('data: ' + JSON.stringify({
+        event: 'file.processing.completed', file_id: id
+      }) + String.fromCharCode(10, 10), 200, 'text/event-stream');
+    }
+    return originalFetch(url, options);
+  };
+  try {
+    const result = await chatgpt.operations.newChat({
+      ...nativeBrowserSurface(session), session,
+      args: { prompt: 'describe these', files: [
+        { path: image, name: 'sample.png', contentType: 'image/png' },
+        { path: document, name: 'sample.txt', contentType: 'text/plain' }
+      ] },
+      sleep: async () => {}
+    });
+    assert.equal(result.text, 'processed');
+    assert.deepEqual(stages, [
+      'create-file-1', 'transfer-file-1', 'process-file-1',
+      'create-file-2', 'transfer-file-2', 'process-file-2', 'prepare', 'submit'
+    ]);
+    assert.equal(session.__native.posts, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ChatGPT Account uploads on an existing conversation with JSON-lines processing', async () => {
+  const chatgpt = loadChatGptModule();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mezhs-upload-existing-'));
+  const document = path.join(dir, 'follow-up.txt');
+  fs.writeFileSync(document, 'follow-up file');
+  let requestMessageId;
+  const stages = [];
+  const session = protocolSession({
+    conversationId: 'conv-existing-upload',
+    onConversationPost: body => {
+      stages.push('submit');
+      requestMessageId = body.messages[0].id;
+      assert.equal(body.conversation_id, 'conv-existing-upload');
+      assert.equal(body.parent_message_id, 'assistant-existing');
+      assert.equal(body.messages[0].content.content_type, 'text');
+      assert.deepEqual(body.messages[0].content.parts, ['read this follow-up']);
+      assert.deepEqual(body.messages[0].metadata.attachments, [
+        { id: 'file-existing', name: 'follow-up.txt', mimeType: 'text/plain', size: 14 }
+      ]);
+    },
+    onConversationRead: () => jsonResponse(
+      completedConversation('conv-existing-upload', requestMessageId, 'existing processed')
+    )
+  });
+  const originalFetch = session.fetch;
+  session.fetch = async (url, options = {}) => {
+    const target = new URL(String(url));
+    if (target.pathname === '/backend-api/files') {
+      stages.push('create');
+      return jsonResponse({
+        status: 'success',
+        file_id: 'file-existing',
+        upload_url: 'https://uploads.blob.core.windows.net/test/file-existing'
+      });
+    }
+    if (target.hostname === 'uploads.blob.core.windows.net') {
+      stages.push('transfer');
+      return textResponse('', 201);
+    }
+    if (target.pathname === '/backend-api/files/process_upload_stream') {
+      stages.push('process');
+      return textResponse([
+        { event: 'file.processing.started', file_id: 'file-existing', progress: 0 },
+        { event: 'file.processing.file_ready', file_id: 'file-existing', progress: 50 },
+        { event: 'file.processing.progress', file_id: 'file-existing', progress: 90 },
+        { event: 'file.processing.completed', file_id: 'file-existing', progress: 100 }
+      ].map(JSON.stringify).join(String.fromCharCode(10)), 200, 'text/event-stream');
+    }
+    return originalFetch(url, options);
+  };
+
+  try {
+    const result = await chatgpt.operations.send({
+      ...nativeBrowserSurface(session),
+      session,
+      args: {
+        prompt: 'read this follow-up',
+        conversationId: 'conv-existing-upload',
+        parentMessageId: 'assistant-existing',
+        files: [
+          { path: document, name: 'follow-up.txt', contentType: 'text/plain' }
+        ]
+      },
+      sleep: async () => {}
+    });
+
+    assert.equal(result.text, 'existing processed');
+    assert.deepEqual(stages, ['create', 'transfer', 'process', 'submit']);
+    assert.equal(session.__native.posts, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ChatGPT Account stops before semantic submission when attachment upload fails', async t => {
+  const chatgpt = loadChatGptModule();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mezhs-upload-errors-'));
+  const document = path.join(dir, 'sample.txt');
+  fs.writeFileSync(document, 'hello file');
+  try {
+    for (const failure of ['create', 'transfer', 'transfer-code', 'transfer-unsafe-code', 'process-http', 'process-event', 'process-incomplete', 'process-empty', 'process-json', 'process-ndjson-mismatch', 'process-ndjson-incomplete', 'process-ndjson-failed', 'multipart', 'estuary', 'unsafe-url']) {
+      await t.test(failure, async () => {
+        const session = protocolSession({
+          conversationId: 'conv-upload-error',
+          onConversationRead: () => { throw Error('Unexpected conversation read'); }
+        });
+        const originalFetch = session.fetch;
+        session.fetch = async (url, options = {}) => {
+          const target = new URL(String(url));
+          if (target.pathname === '/backend-api/files') return failure === 'multipart'
+            ? jsonResponse({ status: 'success', file_id: 'file-1', upload_url: 'https://uploads.blob.core.windows.net/test/file-1', direct_library_upload_strategy: { kind: 'direct_azure_multipart', part_count: 2 } })
+            : failure === 'estuary'
+            ? jsonResponse({ status: 'success', file_id: 'file-1', upload_url: 'https://chatgpt.com/backend-api/estuary/upload_content_bytes' })
+            : failure === 'unsafe-url'
+            ? jsonResponse({ status: 'success', file_id: 'file-1', upload_url: 'http://uploads.blob.core.windows.net/test/file-1' })
+            : failure === 'create'
+            ? jsonResponse({ status: 'error', error_code: 'quota' })
+            : jsonResponse({ status: 'success', file_id: 'file-1',
+              upload_url: 'https://uploads.blob.core.windows.net/test/file-1' });
+          if (target.hostname === 'uploads.blob.core.windows.net') {
+            if (failure === 'transfer-code' || failure === 'transfer-unsafe-code')
+              return new Response('PRIVATE_RESPONSE_BODY', {
+                status: 400, headers: { 'x-ms-error-code': failure === 'transfer-code'
+                  ? 'InvalidHeaderValue' : 'Bad https://private.signed.url' }
+              });
+            return textResponse('', failure === 'transfer' ? 403 : 201);
+          }
+          if (target.pathname === '/backend-api/files/process_upload_stream') {
+            if (failure === 'process-http') return textResponse('error', 500);
+            if (failure === 'process-empty') return textResponse('', 200, 'text/event-stream');
+            if (failure === 'process-json') return jsonResponse({ status: 'success', private_value: 'PRIVATE_RESPONSE_BODY', upload_url: 'https://private.signed.url' });
+            if (failure.startsWith('process-ndjson-')) return textResponse([
+              { event: 'file.processing.started', file_id: 'file-1', status: 'processing', private_value: 'PRIVATE_RESPONSE_BODY' },
+              ...(failure === 'process-ndjson-failed' ? [{ event: 'file.processing.file_ready', file_id: 'file-1', status: 'ready' }] : []),
+              ...(failure === 'process-ndjson-incomplete' ? [] : [{ event: failure === 'process-ndjson-failed' ? 'file.processing.failed' : 'file.processing.completed', file_id: failure === 'process-ndjson-mismatch' ? 'file-different' : 'file-1', status: 'completed', upload_url: 'https://private.signed.url' }])
+            ].map(JSON.stringify).join(String.fromCharCode(10)), 200, 'text/event-stream');
+            const event = failure === 'process-event'
+              ? 'file.processing.failed' : 'file.processing.in_progress';
+            return textResponse('data: ' + JSON.stringify({ event, file_id: 'file-1', private_value: 'PRIVATE_RESPONSE_BODY', upload_url: 'https://private.signed.url' }) +
+              String.fromCharCode(10, 10), 200, 'text/event-stream');
+          }
+          return originalFetch(url, options);
+        };
+        await assert.rejects(chatgpt.operations.newChat({
+          ...nativeBrowserSurface(session), session,
+          args: { prompt: 'should not send', files: [
+            { path: document, name: 'sample.txt', contentType: 'text/plain' }
+          ] },
+          sleep: async () => {}
+        }), error => {
+          if (failure === 'transfer-code') assert.match(error.message, /HTTP 400 [(]InvalidHeaderValue[)]/);
+          if (failure === 'transfer-unsafe-code') assert.match(error.message, /HTTP 400[.]/);
+          if (failure === 'process-event') assert.match(error.message, /HTTP 200; type=text\/event-stream; size=\d+; shape=sse; jsonStatus=none; lines=1; samples=sse; events=file[.]processing[.]failed[(]topId=match,dataId=absent[)]/);
+          if (failure === 'process-incomplete') assert.match(error.message, /HTTP 200; type=text\/event-stream; size=\d+; shape=sse; jsonStatus=none; lines=1; samples=sse; events=file[.]processing[.]in_progress[(]topId=match,dataId=absent[)]/);
+          if (failure === 'process-empty') assert.match(error.message, /HTTP 200; type=text\/event-stream; size=0; shape=empty; jsonStatus=none; lines=0; samples=none; events=none;/);
+          if (failure === 'process-json') assert.match(error.message, /HTTP 200; type=application\/json; size=\d+; shape=json-object; jsonStatus=success; lines=1; samples=object[^;]+; events=unnamed[(]topId=absent,dataId=absent[)];/);
+          if (failure.startsWith('process-ndjson-')) {
+            if (failure === 'process-ndjson-incomplete') assert.match(error.message, /shape=json-object; jsonStatus=processing; lines=1; samples=object/);
+            else assert.match(error.message, /shape=json-object; jsonStatus=invalid-json; lines=[23]; samples=object/);
+            assert.match(error.message, /events=file[.]processing[.]started[(]topId=match,dataId=absent[)]/);
+            if (failure === 'process-ndjson-mismatch') assert.match(error.message, /file[.]processing[.]completed[(]topId=different,dataId=absent[)]/);
+            if (failure === 'process-ndjson-failed') assert.match(error.message, /file[.]processing[.]failed[(]topId=match,dataId=absent[)]/);
+            if (failure === 'process-ndjson-incomplete') assert.doesNotMatch(error.message, /file[.]processing[.]completed/);
+          }
+          assert.doesNotMatch(error.message, /PRIVATE_RESPONSE_BODY|private[.]signed[.]url/);
+          return true;
+        });
+        assert.equal(session.__native.posts, 0, 'must not send a prompt after an upload failure');
+      });
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ChatGPT Account rejects invalid image before upload or prompt', async () => {
+  const chatgpt = loadChatGptModule();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mezhs-invalid-png-'));
+  const file = path.join(dir, 'invalid.png');
+  fs.writeFileSync(file, 'not a PNG');
+  const session = protocolSession({ conversationId: 'invalid-image', onConversationRead: () => { throw Error('Unexpected read'); } });
+  const fetchOriginal = session.fetch;
+  let uploadRequests = 0;
+  session.fetch = (url, options) => {
+    if (new URL(String(url)).pathname === '/backend-api/files') uploadRequests++;
+    return fetchOriginal(url, options);
+  };
+  try {
+    await assert.rejects(chatgpt.operations.newChat({
+      ...nativeBrowserSurface(session), session,
+      args: { prompt: 'do not send', files: [{ path: file, name: 'invalid.png', contentType: 'image/png' }] },
+      sleep: async () => {}
+    }), /Unsupported or invalid image format or dimensions/);
+    assert.equal(uploadRequests, 0);
+    assert.equal(session.__native.posts, 0);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('ChatGPT Account attaches JPEG GIF and WebP with dimensions', async t => {
+  const chatgpt = loadChatGptModule();
+  const gif = Buffer.from([71,73,70,56,57,97,2,0,3,0]);
+  const jpg = Buffer.alloc(24);
+  jpg[0]=255; jpg[1]=216; jpg[2]=255; jpg[3]=192;
+  jpg.writeUInt16BE(17,4); jpg[6]=8; jpg.writeUInt16BE(3,7); jpg.writeUInt16BE(2,9);
+  const webp = Buffer.alloc(30);
+  webp.write('RIFF',0); webp.write('WEBP',8); webp.write('VP8X',12);
+  webp[24]=1; webp[27]=2;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(),'mezhs-image-metadata-'));
+  try {
+    for (const [extension,bytes,mime] of [['gif',gif,'image/gif'],['jpg',jpg,'image/jpeg'],['webp',webp,'image/webp']]) {
+      await t.test(extension,async()=>{
+        const imagePath=path.join(dir,'sample.'+extension);
+        fs.writeFileSync(imagePath,bytes);
+        let sentId;
+        const session=protocolSession({
+          conversationId:'conv-format-'+extension,
+          onConversationPost:body=>{
+            const m=body.messages[0]; sentId=m.id;
+            assert.deepEqual(m.content.parts[0],{
+              content_type:'image_asset_pointer', asset_pointer:'file-service://format-id',
+              size_bytes:bytes.length, width:2, height:3
+            });
+            assert.deepEqual(m.metadata.attachments,[{
+              id:'format-id', name:'sample.'+extension, mimeType:mime,
+              size:bytes.length, width:2, height:3
+            }]);
+          },
+          onConversationRead:()=>jsonResponse(completedConversation('conv-format-'+extension,sentId))
+        });
+        const originalFetch=session.fetch;
+        session.fetch=(url,opts={})=>{
+          const target=new URL(String(url));
+          if(target.pathname==='/backend-api/files')
+            return jsonResponse({status:'success',file_id:'format-id',upload_url:'https://uploads.example.net/format-id'});
+          if(target.hostname==='uploads.example.net')return textResponse('',201);
+          if(target.pathname==='/backend-api/files/process_upload_stream')
+            return textResponse(JSON.stringify({event:'file.processing.completed',file_id:'format-id'}),200,'text/event-stream');
+          return originalFetch(url,opts);
+        };
+        const result=await chatgpt.operations.newChat({
+          ...nativeBrowserSurface(session),session,
+          args:{prompt:'inspect image',files:[{path:imagePath,name:'sample.'+extension,contentType:mime}]},
+          sleep:async()=>{}
+        });
+        assert.equal(result.text,'answer');
+        assert.equal(session.__native.posts,1);
+      });
+    }
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });

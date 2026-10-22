@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Mezhs.Api.Contracts;
 using Mezhs.Configuration;
@@ -69,6 +71,47 @@ public static class MezhsApi
             catch (IntegrationAuthorizationRequiredException ex)
             {
                 return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status401Unauthorized);
+            }
+        });
+
+        // Diagnostics intentionally expose powerful browser operations, but only to local callers.
+        app.MapPost("/v1/diagnostics/connections/{connectionId}/browser/{operation}", async (
+            HttpContext http,
+            string connectionId,
+            string operation,
+            JsonElement? arguments,
+            IntegrationRegistry integrations,
+            CancellationToken cancellationToken) =>
+        {
+            var remote = http.Connection.RemoteIpAddress;
+            // The standalone API allows cross-origin requests elsewhere; diagnostics must not.
+            var origin = http.Request.Headers.Origin.ToString();
+            if (remote is null ||
+                !IPAddress.IsLoopback(remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote) ||
+                (!string.IsNullOrEmpty(origin) &&
+                 (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri) || !originUri.IsLoopback)))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            if (!integrations.TryGet(connectionId, out var integration))
+                return Results.NotFound(new { error = $"Connection '{connectionId}' was not found." });
+            if (integration.Diagnostics is null)
+                return Results.BadRequest(new { error = $"Connection '{connectionId}' does not expose live diagnostics." });
+
+            try
+            {
+                var result = await integration.Diagnostics.InvokeAsync(
+                    operation,
+                    arguments ?? JsonSerializer.SerializeToElement(new { }),
+                    cancellationToken);
+                return Results.Ok(result);
+            }
+            catch (IntegrationAuthorizationRequiredException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status401Unauthorized);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
             }
         });
 

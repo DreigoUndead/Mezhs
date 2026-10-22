@@ -9,7 +9,8 @@ public enum CommandForm
 public enum CommandBehavior
 {
     Complete,
-    Shell
+    Shell,
+    Attach
 }
 
 public sealed record CommandDefinition(
@@ -22,7 +23,8 @@ public static class Registry
     public static readonly CommandDefinition[] All =
     [
         new("DONE", CommandForm.Marker, CommandBehavior.Complete),
-        new("SH", CommandForm.Block, CommandBehavior.Shell)
+        new("SH", CommandForm.Block, CommandBehavior.Shell),
+        new("ATTACH", CommandForm.Block, CommandBehavior.Attach)
     ];
 
     private static readonly IReadOnlyDictionary<string, CommandDefinition> ByName =

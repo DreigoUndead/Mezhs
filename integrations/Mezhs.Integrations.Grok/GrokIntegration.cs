@@ -10,7 +10,6 @@ namespace Mezhs.Integrations.Grok;
 [Integration("grok-web-account")]
 public sealed class GrokAccountIntegration : BrowserIntegrationBase
 {
-    private readonly BrowserAccountSession _session;
     private readonly ILoginModule _login;
     private readonly IModelModule _models;
 
@@ -18,9 +17,9 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
         IntegrationConnection connection,
         IIntegrationHost host) : base(Validate(connection), host)
     {
-        _session = CreateAccountSession();
-        _login = new LoginModule(_session);
-        _models = new ModelModule(_session);
+        var session = CreateAccountSession();
+        _login = new LoginModule(session);
+        _models = new ModelModule(session);
     }
 
     protected override Assembly BrowserModuleAssembly => typeof(GrokAccountIntegration).Assembly;
@@ -32,7 +31,7 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
     public override Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
         CancellationToken cancellationToken = default) =>
-        _session.UseAsync(async (transport, token) =>
+        CreateAccountSession().UseAsync(async (transport, token) =>
         {
             var response = await transport.InvokeAsync<GrokSendResponse>(
                 "newChat",
@@ -44,8 +43,6 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
                 response.Text,
                 response.ChatUrl);
         }, cancellationToken);
-
-    public override ValueTask DisposeAsync() => _session.DisposeAsync();
 
     private static IntegrationConnection Validate(IntegrationConnection connection)
     {

@@ -8,14 +8,9 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 
 function loadChatGptModule() {
-  const source = fs.readFileSync(
-    path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "chatgpt.ts"),
-    "utf8"
-  );
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mezhs-chatgpt-unavailable-test-"));
-  const file = path.join(directory, "chatgpt.cjs");
-  fs.writeFileSync(file, source);
-  return require(file);
+  fs.cpSync(path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "modules"), directory, { recursive: true });
+  return require(path.join(directory, "entry.js"));
 }
 
 function jsonResponse(value, status = 200) {
@@ -66,9 +61,29 @@ function sessionForConversationError(code) {
   };
 }
 
+function noBrowserUi() {
+  return {
+    webContents: {
+      executeJavaScript: async source => {
+        assert.match(source, /lXE/);
+        assert.doesNotThrow(() => new Function(`return ${source};`));
+        assert.doesNotMatch(source, /document\.querySelector|querySelectorAll|sendInputEvent/);
+        return {
+          headers: {
+            "OpenAI-Sentinel-Chat-Requirements-Token": "native-requirements",
+            "OpenAI-Sentinel-Proof-Token": "native-proof",
+            "OpenAI-Sentinel-Turnstile-Token": "native-turnstile"
+          },
+          forceLogin: false
+        };
+      }
+    }
+  };
+}
+
 function send(chatgpt, session) {
   return chatgpt.operations.send({
-    window: { webContents: { getUserAgent: () => "TestBrowser/1.0" } },
+    window: noBrowserUi(),
     session,
     args: {
       prompt: "continue",

@@ -13,7 +13,6 @@ public sealed class AgentApiExceptionHandler : IExceptionHandler
         var statusCode = exception switch
         {
             ExecutionNotFoundException => StatusCodes.Status404NotFound,
-            AgentCapacityExceededException => StatusCodes.Status429TooManyRequests,
             _ => (int?)null
         };
 

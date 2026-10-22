@@ -1,3 +1,4 @@
+param([switch]$OwnershipOnly)
 # Verifies Grok account login, semantic mode propagation, and local-history reconstruction.
 $ErrorActionPreference = 'Stop'
 
@@ -32,6 +33,9 @@ var root = Path.Combine(Path.GetTempPath(), "mezhs-grok-account-flow", Guid.NewG
 Directory.CreateDirectory(root);
 try
 {
+    await TestSessionOwnershipAsync(Path.Combine(root, "ownership"));
+    Console.WriteLine("PASS: T2 browser session ownership and diagnostics regressions");
+    if (args.Contains("--ownership-only")) return;
     await TestAutomaticLoginAsync(Path.Combine(root, "automatic"));
     await TestExplicitLoginAsync(Path.Combine(root, "explicit"));
     await TestLocalHistoryAsync(Path.Combine(root, "history"));
@@ -117,6 +121,45 @@ static async Task TestLocalHistoryAsync(string root)
         "semantic Grok request still depends on stored remote chat URL");
 }
 
+static async Task TestSessionOwnershipAsync(string root)
+{
+    var host = new FakeHost(root, authorized: true);
+    var integration = new GrokAccountIntegration(Connection(), host);
+    try
+    {
+        var diagnostics = integration.Diagnostics;
+        Assert(diagnostics is not null, "Grok Account diagnostics unavailable");
+        Assert(ReferenceEquals(diagnostics, integration.Diagnostics), "diagnostics module was not reused");
+        Assert(host.ActiveTransports == 0, "reading Grok diagnostics unexpectedly opened a browser");
+        var method = typeof(BrowserIntegrationBase).GetMethod("CreateAccountSession",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var first = (BrowserAccountSession)method.Invoke(integration, null)!;
+        var second = (BrowserAccountSession)method.Invoke(integration, null)!;
+        Assert(ReferenceEquals(first, second), "Grok CreateAccountSession created duplicate sessions");
+
+        var snapshot = await diagnostics!.InvokeAsync("snapshot", JsonSerializer.SerializeToElement(new { }));
+        Assert(snapshot.GetProperty("snapshot").GetBoolean(), "Grok snapshot diagnostics failed");
+        Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
+            "Grok snapshot did not initialize exactly one authorized transport");
+        await integration.Login!.OpenBrowserAsync();
+        Assert(host.ShowCount == 1 && host.Initializations.Count == 1,
+            "opening Grok account browser created an extra transport");
+        var send = await integration.SendMessageAsync(Context());
+        Assert(send.Text == "ok", "Grok sending failed after diagnostics");
+        await integration.Models!.GetModelsAsync();
+        Assert(host.Operations.SequenceEqual(["$diagnostics/snapshot", "newChat", "getModels"]),
+            "Grok diagnostics, send, and models did not share the transport");
+        Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
+            "Grok reused operations created another browser transport");
+    }
+    finally
+    {
+        await integration.DisposeAsync();
+    }
+    Assert(host.ActiveTransports == 0, "Grok account dispose leaked the browser");
+    await integration.DisposeAsync();
+}
+
 static void Assert(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);
@@ -129,6 +172,7 @@ sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
     public List<string> Operations { get; } = [];
     public JsonElement? LastArguments { get; set; }
     public int ActiveTransports { get; set; }
+    public int ShowCount { get; set; }
     public bool Authorized { get; set; } = authorized;
 
     public string GetConnectionRoot(string connectionId)
@@ -170,6 +214,10 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         CancellationToken cancellationToken = default)
     {
         host.Operations.Add(operation);
+        if (operation == "$diagnostics/snapshot")
+            return Task.FromResult(JsonSerializer.Deserialize<TResult>("{\"snapshot\":true}", JsonOptions)!);
+        if (operation == "getModels")
+            return Task.FromResult(JsonSerializer.Deserialize<TResult>("[]", JsonOptions)!);
         host.LastArguments = JsonSerializer.SerializeToElement(arguments, JsonOptions);
         var json = JsonSerializer.Serialize(new
         {
@@ -179,8 +227,11 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         return Task.FromResult(JsonSerializer.Deserialize<TResult>(json, JsonOptions)!);
     }
 
-    public Task ShowAsync(CancellationToken cancellationToken = default) =>
-        Task.CompletedTask;
+    public Task ShowAsync(CancellationToken cancellationToken = default)
+    {
+        host.ShowCount++;
+        return Task.CompletedTask;
+    }
 
     public ValueTask DisposeAsync()
     {
@@ -194,7 +245,11 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 }
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
+    if ($OwnershipOnly) {
+    dotnet run --project (Join-Path $temp 'Test.csproj') -c Release -- --ownership-only
+    } else {
     dotnet run --project (Join-Path $temp 'Test.csproj') -c Release
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Grok account flow test failed with exit code $LASTEXITCODE."
     }

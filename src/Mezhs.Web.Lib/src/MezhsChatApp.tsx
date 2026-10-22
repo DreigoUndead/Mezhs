@@ -1,6 +1,7 @@
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
 import { modelActivityLabel } from "./ChatSurface";
+import { ConnectionModelPicker } from "./ConnectionModelPicker";
 import { ChatProviderRegistry } from "./providers/registry";
 import { useAutoResizeTextArea } from "./useAutoResizeTextArea";
 import type {
@@ -87,10 +88,6 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const selectedConnection = useMemo(
     () => connections.find((connection) => connection.id === connectionId),
     [connections, connectionId],
-  );
-  const selectedModel = useMemo(
-    () => models.find((model) => (model.id || "") === modelId),
-    [models, modelId],
   );
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
@@ -471,24 +468,17 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
 
         <button className="new-chat" onClick={() => newChat()}><span>+</span> New conversation</button>
 
-        <label className="section-label" htmlFor="connection">New messages use</label>
-        <div className="connection-picker">
-          <div className="connection-avatar">{selectedConnection ? makeInitials(selectedConnection.name) : "AI"}</div>
-          <select id="connection" value={connectionId} onChange={(event) => changeConnection(event.target.value)} disabled={loading}>
-            {connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
-          </select>
-        </div>
-
-        {selectedConnection?.supportsModels && (
-          <label className="model-picker">
-            <span>Model</span>
-            <select value={modelId} onChange={(event) => setModelId(event.target.value)} disabled={modelsLoading || sending}>
-              {models.length > 0
-                ? models.map((model, index) => <option key={model.id || `default-${index}`} value={model.id || ""}>{model.name}</option>)
-                : <option value="">{modelsLoading ? "Loading models..." : "Default"}</option>}
-            </select>
-          </label>
-        )}
+        <ConnectionModelPicker
+          connections={connections}
+          connectionId={connectionId}
+          models={models}
+          modelId={modelId}
+          onConnectionChange={changeConnection}
+          onModelChange={setModelId}
+          connectionDisabled={loading || sending}
+          modelDisabled={sending}
+          modelsLoading={modelsLoading}
+        />
 
 
         <div className="groups-heading">

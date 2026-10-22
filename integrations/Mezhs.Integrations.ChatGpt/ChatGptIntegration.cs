@@ -15,6 +15,7 @@ public class ChatGptWebIntegration : BrowserIntegrationBase
 
     protected override Assembly BrowserModuleAssembly => typeof(ChatGptWebIntegration).Assembly;
     protected override string BrowserModuleResourceName => "Mezhs.Integrations.ChatGpt.BrowserModule";
+    protected override string BrowserModuleEntryFileName => "entry.js";
 
     public override Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
@@ -34,7 +35,6 @@ public class ChatGptWebIntegration : BrowserIntegrationBase
 [Integration("chatgpt-web-account")]
 public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
 {
-    private readonly BrowserAccountSession _session;
     private readonly ILoginModule _login;
     private readonly IModelModule _models;
 
@@ -42,9 +42,9 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         IntegrationConnection connection,
         IIntegrationHost host) : base(connection, host)
     {
-        _session = CreateAccountSession();
-        _login = new LoginModule(_session);
-        _models = new ModelModule(_session);
+        var session = CreateAccountSession();
+        _login = new LoginModule(session);
+        _models = new ModelModule(session);
     }
 
     public override IntegrationCapabilities Capabilities => new(
@@ -58,7 +58,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
     public override Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context,
         CancellationToken cancellationToken = default) =>
-        _session.UseAsync(async (transport, token) =>
+        CreateAccountSession().UseAsync(async (transport, token) =>
         {
             var hasRemoteConversation =
                 !string.IsNullOrWhiteSpace(context.Chat.RemoteConversationId) &&
@@ -114,8 +114,6 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 sent.Response.Model);
         }, cancellationToken);
 
-    public override ValueTask DisposeAsync() => _session.DisposeAsync();
-
     private static async Task<string?> ResolveProjectIdAsync(
         IChatBrowserTransport transport,
         string? projectName,
@@ -135,10 +133,9 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         if (matches.Length == 1)
             return matches[0].Id;
 
-        Console.Error.WriteLine(matches.Length == 0
-            ? $"ChatGPT project '{projectName}' was not found; using no project."
-            : $"ChatGPT project '{projectName}' is ambiguous; using no project.");
-        return null;
+        throw new InvalidOperationException(matches.Length == 0
+            ? $"ChatGPT project '{projectName}' was not found."
+            : $"ChatGPT project '{projectName}' is ambiguous.");
     }
 
     private static IReadOnlyList<IntegrationOutputFile> OutputFiles(

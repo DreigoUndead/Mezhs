@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Mezhs.Integrations.Mock;
 
 [Integration("mock")]
@@ -22,6 +24,8 @@ public class MockIntegration : ChatIntegrationBase
         IntegrationSendContext context,
         CancellationToken cancellationToken = default)
     {
+        if (context.Message.Content.Contains("MEZHS_TEST_INTEGRATION_FAILURE", StringComparison.Ordinal))
+            throw new InvalidOperationException("Intentional mock integration failure.");
         await Task.Delay(25, cancellationToken);
         var outputFiles = context.Files.Select(file => new IntegrationOutputFile(
             file.Path,
@@ -71,5 +75,34 @@ public sealed class MockLoginIntegration : MockIntegration
     {
         public Task LoginAsync(CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
+    }
+}
+
+[Integration("mock-diagnostics")]
+public sealed class MockDiagnosticsIntegration : MockIntegration
+{
+    private static readonly IIntegrationDiagnosticsModule DiagnosticModule = new DeterministicDiagnosticsModule();
+
+    public MockDiagnosticsIntegration(IntegrationConnection connection, IIntegrationHost host)
+        : base(connection, host)
+    {
+    }
+
+    public override IIntegrationDiagnosticsModule Diagnostics => DiagnosticModule;
+
+    private sealed class DeterministicDiagnosticsModule : IIntegrationDiagnosticsModule
+    {
+        public Task<JsonElement> InvokeAsync(
+            string operation,
+            JsonElement arguments,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (operation != "echo")
+                throw new InvalidOperationException(
+                    $"Browser diagnostic operation '{operation}' is not supported.");
+
+            return Task.FromResult(JsonSerializer.SerializeToElement(new { operation, arguments }));
+        }
     }
 }

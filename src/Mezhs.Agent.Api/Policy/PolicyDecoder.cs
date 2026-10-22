@@ -39,11 +39,17 @@ public sealed class PolicyDecoder
         var commands = definition.Commands!;
         var completion = definition.Completion!;
         var limits = definition.Limits!;
+        var name = string.IsNullOrWhiteSpace(definition.Name) ? id : definition.Name.Trim();
         var connectionId = definition.ConnectionId!.Trim();
+        var defaultModel = string.IsNullOrWhiteSpace(definition.DefaultModel)
+            ? null
+            : definition.DefaultModel.Trim();
         var instructions = definition.Instructions?.Trim() ?? string.Empty;
 
         var settings = new PolicySettings(
+            name,
             connectionId,
+            defaultModel,
             instructions,
             new PolicyCommandSettings(
                 NormalizeCommandNames(commands.Allow, $"policies.{id}.commands.allow"),
@@ -126,6 +132,10 @@ public sealed class PolicyDecoder
                 $"To execute host shell text, return <{shell.Name}> on a line by itself, then the shell text, then </{shell.Name}> on a line by itself. " +
                 "The text between those tags is passed to the host shell unchanged. Multiple command blocks run in order.");
         }
+
+        if (settings.Commands.Allow.Contains("ATTACH", StringComparer.OrdinalIgnoreCase) &&
+            !settings.Commands.Deny.Contains("ATTACH", StringComparer.OrdinalIgnoreCase))
+            rules.Add("To stage locally generated attachments for your own next agent message, use <ATTACH> on its own line, list one file path per line, then </ATTACH>. Uploading does not send a message; the agent runtime includes the files in the next ordinary turn. Do not use /v1/messages from shell.");
 
         if (settings.Completion.RequireDone)
         {

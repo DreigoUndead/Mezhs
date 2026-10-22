@@ -35,6 +35,7 @@ builder.Services.AddSingleton<PolicyEvaluationService>();
 builder.Services.AddSingleton<AgentPromptBuilder>();
 builder.Services.AddSingleton<Parser>();
 builder.Services.AddSingleton<Shell>();
+builder.Services.AddSingleton<AgentAttachmentStaging>();
 builder.Services.AddSingleton<Interpreter>();
 builder.Services.AddSingleton<AgentDebugLogBuilder>();
 builder.Services.AddSingleton<AgentWorker>();
@@ -63,7 +64,8 @@ app.MapGet("/", () => Results.Ok(new
         "/v1/files",
         "/v1/policies",
         "/v1/agent-chats",
-        "/v1/executions"
+        "/v1/executions",
+        "/v1/diagnostics/connections/{connectionId}/browser/{operation}"
     }
 }));
 app.MapMezhsApi();

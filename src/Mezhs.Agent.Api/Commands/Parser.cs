@@ -15,10 +15,20 @@ public sealed class Parser
         var lines = ReadLines(content);
         var commands = new List<Command>();
         var visible = new List<string>();
+        var insideEscape = false;
 
         for (var i = 0; i < lines.Count; i++)
         {
             var text = lines[i].Text.Trim();
+            // Escaped presentation text is literal, including command-shaped examples.
+            // Never promote escaped markup into executable Agent commands.
+            if (insideEscape || text.Contains("<escape>", StringComparison.Ordinal) ||
+                text.Contains("<escape ", StringComparison.Ordinal))
+            {
+                visible.Add(lines[i].Text);
+                insideEscape = !text.Contains("</escape>", StringComparison.Ordinal);
+                continue;
+            }
             if (!TryTag(text, out var name, out var closing))
             {
                 visible.Add(lines[i].Text);
@@ -71,6 +81,10 @@ public sealed class Parser
             closing = true;
             value = value[1..];
         }
+        // Display markup uses lowercase tag names and may include attributes.
+        // Only command-shaped uppercase tags participate in the Agent protocol.
+        if (value.Length == 0 || value[0] is < 'A' or > 'Z')
+            return false;
         if (!TryCommandName(value, out name))
             throw new CommandParseException($"Malformed command tag '{text}'.");
         return true;

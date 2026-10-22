@@ -6,6 +6,7 @@ const {
   cleanChromeUserAgent,
   configureSessionBrowserIdentity
 } = require("./browser-identity");
+const { invokeDiagnostic } = require("./diagnostics");
 
 let window = null;
 let browserModule = null;
@@ -50,24 +51,45 @@ function loadBrowserModule(modulePath) {
   return implementation;
 }
 
-function invokePageOperation(targetWindow, operation, args) {
+function invokePageOperation(targetWindow, operation, args, timeoutMs = 0) {
   const responseChannel = `mezhs:page-operation-result:${randomUUID()}`;
   return new Promise((resolve, reject) => {
-    const handler = (_event, response) => {
-      if (response?.ok)
-        resolve(response.result);
-      else
-        reject(new Error(response?.error || `Browser page operation '${operation}' failed.`));
+    const contents = targetWindow.webContents;
+    let timer;
+    const cleanup = () => {
+      ipcMain.removeListener(responseChannel, onResponse);
+      contents.removeListener("did-start-navigation", onNavigation);
+      contents.removeListener("render-process-gone", onGone);
+      contents.removeListener("destroyed", onGone);
+      clearTimeout(timer);
     };
-    ipcMain.once(responseChannel, handler);
+    const fail = reason => {
+      cleanup();
+      reject(new Error(reason));
+    };
+    const onResponse = (_event, response) => {
+      cleanup();
+      if (response?.ok) resolve(response.result);
+      else reject(new Error(response?.error || `Browser page operation '${operation}' failed.`));
+    };
+    const onNavigation = (_event, details, isInPlace, isMainFrame) => {
+      const inPlace = typeof details === "object" ? details?.isInPlace : isInPlace;
+      const mainFrame = typeof details === "object" ? details?.isMainFrame : isMainFrame;
+      if (mainFrame !== false && !inPlace)
+        fail(`Browser navigated during '${operation}'; outcome is uncertain.`);
+    };
+    const onGone = () => fail(`Browser renderer disappeared during '${operation}'; outcome is uncertain.`);
+    ipcMain.on(responseChannel, onResponse);
+    contents.on("did-start-navigation", onNavigation);
+    contents.on("render-process-gone", onGone);
+    contents.on("destroyed", onGone);
+    if (timeoutMs > 0)
+      timer = setTimeout(() => fail(`Browser page operation '${operation}' timed out; outcome is uncertain.`), timeoutMs);
     try {
-      targetWindow.webContents.send("mezhs:page-operation", {
-        responseChannel,
-        operation,
-        args: args ?? {}
-      });
+      if (contents.isDestroyed?.()) return onGone();
+      contents.send("mezhs:page-operation", { responseChannel, operation, args: args ?? {} });
     } catch (error) {
-      ipcMain.removeListener(responseChannel, handler);
+      cleanup();
       reject(error);
     }
   });
@@ -156,6 +178,8 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
 function invokeProvider({ operation, arguments: args }, reportProgress) {
   if (!window || !browserModule || !activeSession)
     throw new Error("Electron browser is not initialized.");
+  if (String(operation || "").startsWith("$diagnostics/"))
+    return invokeDiagnostic(String(operation).slice("$diagnostics/".length), args ?? {}, { window, browserModule, sleep });
   const method = browserModule.operations[operation];
   if (typeof method !== "function")
     throw new Error(`${browserModule.name} does not support provider operation '${operation}'.`);
@@ -163,14 +187,15 @@ function invokeProvider({ operation, arguments: args }, reportProgress) {
     window,
     session: activeSession,
     page: {
-      invoke: (pageOperation, pageArgs) =>
-        invokePageOperation(window, pageOperation, pageArgs)
+      invoke: (pageOperation, pageArgs, timeoutMs = 0) =>
+        invokePageOperation(window, pageOperation, pageArgs, timeoutMs)
     },
     args: args ?? {},
     sleep,
     reportProgress
   });
 }
+
 
 function readJson(request) {
   return new Promise((resolve, reject) => {
