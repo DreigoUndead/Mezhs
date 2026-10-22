@@ -45,7 +45,11 @@ When editing source through an agent, a proper patch/edit operation is preferred
 
 Use Codegraph before broad manual source searching when investigating architecture, dependencies, references, callers, implementations, or change impact. Local agents should prefer the live `codegraph` CLI; GitHub-only agents should use the committed `.agents/codegraph/graph.json` as the shared dependency map. Treat Codegraph as navigation evidence, not compiler truth.
 
-`.codegraph/` is local cache and must never be committed. `.agents/codegraph/graph.json` is generated shared state and must not be edited manually. Any change that can alter code relationships must refresh it before final review with `codegraph graph --root . --json --output .agents/codegraph/graph.json`.
+`.codegraph/` is local cache and must never be committed. `.agents/codegraph/graph.json` is generated shared state and must not be edited manually. Any change that can alter code relationships must refresh the graph before final review. From the repository root, with Codegraph 3.0.0 and Node.js installed, run:
+
+    node .agents/codegraph/export.cjs
+
+The exporter runs Codegraph on actual repository source while excluding `.agents/codegraph/` from indexing. It converts absolute entries in `files[]` to tracked repository-relative paths and validates every file and dependency edge. It preserves the compact numeric-index graph schema. Raw `codegraph graph --json` emits checkout-specific paths; `codegraph artifact --graph-json` emits a different, much larger schema and also writes a non-portable manifest. Do not commit that manifest.
 
 If the committed graph is missing or outdated, inform the user; when running as a local agent with Codegraph available, refresh it as part of the task rather than leaving it stale.
 
