@@ -41,6 +41,14 @@ Use the GitHub integration when the task is primarily remote repository work, su
 
 When editing source through an agent, a proper patch/edit operation is preferred when available. Rewriting files through shell scripts or small Python one-liners is acceptable as a fallback, but should not be the first choice when a dedicated edit mechanism exists.
 
+## Code navigation
+
+Use Codegraph before broad manual source searching when investigating architecture, dependencies, references, callers, implementations, or change impact. Local agents should prefer the live `codegraph` CLI; GitHub-only agents should use the committed `.agents/codegraph/graph.json` as the shared dependency map. Treat Codegraph as navigation evidence, not compiler truth.
+
+`.codegraph/` is local cache and must never be committed. `.agents/codegraph/graph.json` is generated shared state and must not be edited manually. Any change that can alter code relationships must refresh it before final review with `codegraph graph --root . --json --output .agents/codegraph/graph.json`.
+
+If the committed graph is missing or outdated, inform the user; when running as a local agent with Codegraph available, refresh it as part of the task rather than leaving it stale.
+
 ## Validation when local tooling is unavailable
 
 If required local tooling such as .NET or PowerShell is unavailable, use a temporary GitHub Actions workflow on the same review branch rather than stopping at "validation unavailable."
