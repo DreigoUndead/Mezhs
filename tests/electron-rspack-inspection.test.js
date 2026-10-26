@@ -20,11 +20,11 @@ test("Rspack export inspection reads only requested function source and never in
   const script = makeScript("lXE", ["b", "f"]);
   assert.doesNotThrow(() => new Function(`return ${script};`));
   const runnable = script.replace(
-    "await import(resources[resources.length - 1])",
-    "await __testImport(resources[resources.length - 1])"
+    "await import(runtimeUrl)",
+    "await __testImport(runtimeUrl)"
   );
   const result = await vm.runInNewContext(runnable, {
-    performance: { getEntriesByType: () => [{ name: "https://chatgpt.com/cdn/assets/633146.123abc.js" }] },
+    performance: { getEntriesByType: () => [{ name: "https://chatgpt.com/cdn/assets/manifest-currentbuild.js" }] },
     __testImport: async () => ({ __webpack_require__: loader })
   });
   assert.equal(result.moduleId, "lXE");

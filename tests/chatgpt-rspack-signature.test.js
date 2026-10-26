@@ -8,25 +8,32 @@ const { nativeChatRequirementsHeaders: getNativeHeaders } = require(
   path.resolve(__dirname, "../integrations/Mezhs.Integrations.ChatGpt/browser/modules/account-transport.js")
 );
 
-function testBrowser({ requirements, returnedHeaders, status = 200, providerAvailable = true }) {
+function testBrowser({ requirements, returnedHeaders, status = 200, providerAvailable = true,
+  resourceNames = ["https://chatgpt.com/cdn/assets/manifest-currentbuild.js"],
+  providerResourceName = resourceNames[0], providerModuleId = "lXEa" }) {
   const calls = [];
   const imports = [];
   let resourceVisible = true;
   const provider = async callback => {
-    const received = await callback("gAAAAAC-browser-generated");
-    assert.deepEqual(JSON.parse(JSON.stringify(received)), requirements);
-    return { chatRequirements: received, headers: returnedHeaders };
+    const requirementsKey = "gAAAAAC-browser-generated";
+    const chatRequirements = await callback(requirementsKey);
+    const proofToken = null;
+    const turnstileToken = null;
+    assert.deepEqual(JSON.parse(JSON.stringify(chatRequirements)), requirements);
+    return { chatRequirements, headers: returnedHeaders, proofToken, requirementsKey, turnstileToken };
   };
-  const loader = { c: { lXE: { exports: providerAvailable ? { f: provider } : {} } } };
+  const loader = {
+    c: { [providerModuleId]: { exports: providerAvailable ? { f: provider } : {} } }
+  };
   // One context represents one renderer document. Consecutive script executions
   // must share the same global object even when Resource Timing entries disappear.
   const context = vm.createContext({
-    performance: { getEntriesByType: () => resourceVisible ? [{
-      name: "https://chatgpt.com/cdn/assets/633146.abc123.js"
-    }] : [] },
+    performance: { getEntriesByType: () => resourceVisible
+      ? resourceNames.map(name => ({ name }))
+      : [] },
     __testImport: async url => {
       imports.push(url);
-      return { __webpack_require__: loader };
+      return url === providerResourceName ? { __webpack_require__: loader } : {};
     },
     fetch: async (url, options) => {
       calls.push({ url, ...options });
@@ -67,6 +74,45 @@ test("native requirements coordinator receives browser key and sends it to prepa
   assert.deepEqual(JSON.parse(calls[0].body), { p: "gAAAAAC-browser-generated" });
 });
 
+test("native requirements runtime discovery supports current ChatGPT asset names", async () => {
+  const expected = { token: "issued" };
+  const { window, imports } = testBrowser({
+    requirements: expected,
+    returnedHeaders: { "OpenAI-Sentinel-Chat-Requirements-Token": "issued" },
+    resourceNames: [
+      "https://chatgpt.com/cdn/assets/entry.client-currentbuild.js",
+      "https://chatgpt.com/cdn/assets/4813494d-currentbuild.js"
+    ],
+    providerResourceName: "https://chatgpt.com/cdn/assets/4813494d-currentbuild.js"
+  });
+  const headers = await getNativeHeaders(window, {}, "access-secret");
+  assert.equal(headers["OpenAI-Sentinel-Chat-Requirements-Token"], "issued");
+  assert.deepEqual(imports, [
+    "https://chatgpt.com/cdn/assets/entry.client-currentbuild.js",
+    "https://chatgpt.com/cdn/assets/4813494d-currentbuild.js"
+  ]);
+});
+
+test("native requirements discovery supports semantic fallback after module renames", async () => {
+  const { window } = testBrowser({
+    requirements: { token: "issued" },
+    returnedHeaders: { "OpenAI-Sentinel-Chat-Requirements-Token": "issued" },
+    providerModuleId: "futureRenamedModule"
+  });
+  const headers = await getNativeHeaders(window, {}, "access-secret");
+  assert.equal(headers["OpenAI-Sentinel-Chat-Requirements-Token"], "issued");
+});
+
+test("native requirements discovery retains the legacy module id", async () => {
+  const { window } = testBrowser({
+    requirements: { token: "issued" },
+    returnedHeaders: { "OpenAI-Sentinel-Chat-Requirements-Token": "issued" },
+    providerModuleId: "lXE"
+  });
+  const headers = await getNativeHeaders(window, {}, "access-secret");
+  assert.equal(headers["OpenAI-Sentinel-Chat-Requirements-Token"], "issued");
+});
+
 test("cached provider survives Resource Timing loss in the same renderer document", async () => {
   const expected = { token: "issued" };
   const { window, calls, imports, setResourceVisible } = testBrowser({
@@ -102,7 +148,7 @@ test("native requirements fail closed when frontend provider is unavailable", as
   const { window, calls } = testBrowser({ requirements: {}, providerAvailable: false });
   await assert.rejects(
     getNativeHeaders(window, {}, "access-secret"),
-    /native requirements provider lXE.f is unavailable/
+    /native requirements provider export is unavailable/
   );
   assert.equal(calls.length, 0);
 });

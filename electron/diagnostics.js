@@ -125,13 +125,22 @@ async function captureDiagnosticNetwork(action, waitMs, { traceHeaders = false, 
 async function inspectRspackExportsPage(moduleId, exportKeys) {
       const resources = performance.getEntriesByType("resource")
         .map(item => String(item.name || ""))
-        .filter(url => url.startsWith("https://chatgpt.com/cdn/assets/633146.") &&
-          url.split("?")[0].endsWith(".js"));
+        .filter(url => /^https:\/\/chatgpt\.com\/cdn\/assets\/[^/?#]+\.js(?:[?#].*)?$/i.test(url));
       if (!resources.length)
         throw new Error("ChatGPT Rspack runtime was not loaded.");
-      const runtime = await import(resources[resources.length - 1]);
-      const loader = runtime?.__webpack_require__;
-      const record = loader?.c?.[moduleId];
+      const preferred = resources.filter(url =>
+        /\/(?:manifest|entry\.client|root)-[^/?#]*\.js(?:[?#]|$)/i.test(url));
+      const candidates = [...new Set([...preferred, ...resources.slice().reverse()])];
+      let record;
+      for (const runtimeUrl of candidates) {
+        try {
+          const runtime = await import(runtimeUrl);
+          record = runtime?.__webpack_require__?.c?.[moduleId];
+          if (record) break;
+        } catch {
+          // Some loaded scripts are not importable modules; inspect the next asset.
+        }
+      }
       if (!record)
         throw new Error("Requested Rspack module was not present in the loaded cache.");
       const exports = record.exports;

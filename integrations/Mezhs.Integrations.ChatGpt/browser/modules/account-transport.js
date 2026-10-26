@@ -44,23 +44,53 @@ async function nativeChatRequirementsHeaders(window, session, token) {
     (async () => {
       const providerCacheKey = Symbol.for("mezhs.chatgpt.nativeRequirementsProvider");
       const resources = performance.getEntriesByType("resource");
-      const runtimeUrl = resources
+      const runtimeUrls = resources
         .map(entry => String(entry.name || ""))
-        .find(url => /^https:\\/\\/chatgpt\\.com\\/cdn\\/assets\\/633146\\.[a-f0-9]+\\.js(?:[?#].*)?$/i.test(url));
+        .filter(url => /^https:\\/\\/chatgpt\\.com\\/cdn\\/assets\\/[^/?#]+\\.js(?:[?#].*)?$/i.test(url));
 
       // Resource Timing can be cleared or truncated without unloading the page.
       // Keep only the verified function for this renderer document, not credentials
       // or challenge results. A real page navigation resets globalThis.
       let provider = globalThis[providerCacheKey];
-      if (runtimeUrl) {
-        const runtime = await import(runtimeUrl);
-        provider = runtime?.__webpack_require__?.c?.lXE?.exports?.f;
-        if (typeof provider === "function" && provider.length === 1)
-          globalThis[providerCacheKey] = provider;
+      if (typeof provider !== "function") {
+        const preferred = runtimeUrls.filter(url =>
+          /\\/(?:manifest|entry\\.client|root)-[^/?#]*\\.js(?:[?#]|$)/i.test(url));
+        const candidates = [...new Set([...preferred, ...runtimeUrls.slice().reverse()])];
+        for (const runtimeUrl of candidates) {
+          try {
+            const runtime = await import(runtimeUrl);
+            const moduleCache = runtime?.__webpack_require__?.c;
+            const knownCandidate =
+              moduleCache?.lXEa?.exports?.f ?? moduleCache?.lXE?.exports?.f;
+            if (typeof knownCandidate === "function" && knownCandidate.length === 1) {
+              provider = knownCandidate;
+            } else {
+              const semanticCandidates = [...new Set(
+                Object.values(moduleCache || {})
+                  .map(record => record?.exports?.f)
+                  .filter(candidate => {
+                    if (typeof candidate !== "function" || candidate.length !== 1)
+                      return false;
+                    const source = Function.prototype.toString.call(candidate);
+                    return ["chatRequirements", "proofToken", "requirementsKey", "turnstileToken"]
+                      .every(marker => source.includes(marker));
+                  })
+              )];
+              if (semanticCandidates.length === 1)
+                provider = semanticCandidates[0];
+            }
+            if (typeof provider !== "function") continue;
+            globalThis[providerCacheKey] = provider;
+            break;
+          } catch {
+            // A loaded asset may not be importable as a module. Keep looking.
+          }
+        }
       }
       if (typeof provider !== "function" || provider.length !== 1) {
-        throw new Error(runtimeUrl
-          ? "ChatGPT native requirements provider lXE.f is unavailable."
+        throw new Error(runtimeUrls.length
+          ? "ChatGPT native requirements provider export is unavailable " +
+            "(runtimeCandidates=" + runtimeUrls.length + ")."
           : "ChatGPT native requirements provider was not observed in this document " +
             "(resourceEntries=" + resources.length + ", cachedProvider=false).");
       }
