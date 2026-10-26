@@ -1,4 +1,5 @@
 const fs = require('node:fs/promises');
+const { randomUUID } = require('node:crypto');
 const os = require('node:os');
 const path = require('node:path');
 const { ORIGIN, API, apiFetch, apiJson } = require('./account-transport.js');
@@ -192,9 +193,9 @@ async function downloadFiles(session, token, refs) {
         credentials: "include"
       });
       if (!response.ok) continue;
-      const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mezhs-artifact-"));
       const name = path.basename(String(requestedName || "download")) || "download";
-      const localPath = path.join(directory, name);
+      // The importer deletes this file after copying it; avoid an orphaned directory.
+      const localPath = path.join(os.tmpdir(), `mezhs-artifact-${randomUUID()}-${name}`);
       await fs.writeFile(localPath, new Uint8Array(await response.arrayBuffer()));
       artifacts.push({
         url: download.download_url,
