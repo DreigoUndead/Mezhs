@@ -17,6 +17,7 @@ function harness() {
   const contents = new EventEmitter();
   const sent = [];
   const activeTimers = new Set();
+  contents.mainFrame = { id: 'trusted-main-frame' };
   contents.send = (channel, request) => sent.push({ channel, request });
   contents.isDestroyed = () => false;
   const invoke = vm.runInNewContext(implementation + '\ninvokePageOperation', {
@@ -36,7 +37,9 @@ function harness() {
       assert.equal(contents.listenerCount(event), 0, `${event} listener leaked`);
     assert.equal(activeTimers.size, 0);
   };
-  return { invoke, ipcMain, contents, sent, targetWindow, verifyClean, activeTimers };
+  const respond = (response, event = { sender: contents, senderFrame: contents.mainFrame }) =>
+    ipcMain.emit(sent[0].request.responseChannel, event, response);
+  return { invoke, ipcMain, contents, sent, targetWindow, verifyClean, activeTimers, respond };
 }
 
 test('named page result resolves once and cleans IPC listeners and deadline', async () => {
@@ -45,8 +48,21 @@ test('named page result resolves once and cleans IPC listeners and deadline', as
   assert.equal(h.sent.length, 1);
   assert.equal(h.sent[0].channel, 'mezhs:page-operation');
   assert.equal(h.sent[0].request.operation, 'sendPrompt');
-  h.ipcMain.emit(h.sent[0].request.responseChannel, {}, { ok: true, result: { ok: true, text: 'OK' } });
+  h.respond({ ok: true, result: { ok: true, text: 'OK' } });
   assert.equal((await result).text, 'OK');
+  h.verifyClean();
+});
+
+test('IPC replies from other renderers or subframes are ignored', async () => {
+  const h = harness();
+  const result = h.invoke(h.targetWindow, 'sendPrompt', {}, 50);
+  h.respond({ ok: true, result: 'forged renderer' },
+    { sender: new EventEmitter(), senderFrame: h.contents.mainFrame });
+  h.respond({ ok: true, result: 'forged subframe' },
+    { sender: h.contents, senderFrame: { id: 'subframe' } });
+  assert.equal(h.ipcMain.listenerCount(h.sent[0].request.responseChannel), 1);
+  h.respond({ ok: true, result: 'trusted' });
+  assert.equal(await result, 'trusted');
   h.verifyClean();
 });
 
@@ -63,7 +79,7 @@ test('in-place navigation preserves an active request', async () => {
   const h = harness();
   const result = h.invoke(h.targetWindow, 'sendPrompt', {}, 50);
   h.contents.emit('did-start-navigation', {}, { isMainFrame: true, isInPlace: true });
-  h.ipcMain.emit(h.sent[0].request.responseChannel, {}, { ok: true, result: 'done' });
+  h.respond({ ok: true, result: 'done' });
   assert.equal(await result, 'done');
   h.verifyClean();
 });
@@ -91,7 +107,7 @@ test('unbounded default does not impose a deadline on other providers', async ()
   const h = harness();
   const result = h.invoke(h.targetWindow, 'sendPrompt', {});
   assert.equal(h.activeTimers.size, 0);
-  h.ipcMain.emit(h.sent[0].request.responseChannel, {}, { ok: true, result: 42 });
+  h.respond({ ok: true, result: 42 });
   assert.equal(await result, 42);
   h.verifyClean();
 });

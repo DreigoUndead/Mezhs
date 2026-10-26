@@ -7,6 +7,7 @@ const {
   configureSessionBrowserIdentity
 } = require("./browser-identity");
 const { invokeDiagnostic } = require("./diagnostics");
+const { createBrowserPreload } = require("./preload-builder");
 
 let window = null;
 let browserModule = null;
@@ -14,9 +15,7 @@ let activeSession = null;
 let keepVisible = false;
 let shuttingDown = false;
 const parentProcessId = Number(process.env.MEZHS_PARENT_PROCESS_ID || 0);
-const browserPreload = path.join(__dirname, "browser-preload.js");
 
-app.commandLine.appendSwitch("no-sandbox");
 app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("disable-gpu-compositing");
 app.commandLine.appendSwitch("disable-software-rasterizer");
@@ -67,7 +66,8 @@ function invokePageOperation(targetWindow, operation, args, timeoutMs = 0) {
       cleanup();
       reject(new Error(reason));
     };
-    const onResponse = (_event, response) => {
+    const onResponse = (event, response) => {
+      if (event.sender !== contents || event.senderFrame !== contents.mainFrame) return;
       cleanup();
       if (response?.ok) resolve(response.result);
       else reject(new Error(response?.error || `Browser page operation '${operation}' failed.`));
@@ -98,6 +98,8 @@ function invokePageOperation(targetWindow, operation, args, timeoutMs = 0) {
 async function initialize({ profileDirectory, showBrowser, modulePath, requireAuthorization }) {
   await app.whenReady();
   browserModule = loadBrowserModule(modulePath);
+  const browserPreload = createBrowserPreload(modulePath, browserModule);
+  app.once("will-quit", browserPreload.cleanup);
   keepVisible = Boolean(showBrowser);
   const persistentSession = session.fromPath(path.resolve(profileDirectory));
   configureSessionBrowserIdentity(persistentSession);
@@ -114,9 +116,10 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
     title: `MEŽS - ${browserModule.name}`,
     webPreferences: {
       session: persistentSession,
-      preload: browserPreload,
+      preload: browserPreload.path,
       contextIsolation: true,
-      sandbox: false,
+      nodeIntegration: false,
+      sandbox: true,
       backgroundThrottling: false
     }
   });
@@ -125,9 +128,10 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
     overrideBrowserWindowOptions: {
       webPreferences: {
         session: persistentSession,
-        preload: browserPreload,
+        preload: browserPreload.path,
         contextIsolation: true,
-        sandbox: false
+        nodeIntegration: false,
+        sandbox: true
       }
     }
   }));

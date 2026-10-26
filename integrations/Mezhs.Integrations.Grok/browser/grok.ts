@@ -33,6 +33,8 @@ module.exports = {
     }
   },
 
+  // This complete single-file module has no Node imports and retains the page helpers.
+  pageOperationFile: true,
   pageOperations: {
     async models() {
       return (await discoverModeCatalog()).models;
