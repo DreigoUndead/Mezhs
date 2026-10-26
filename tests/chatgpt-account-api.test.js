@@ -1285,7 +1285,7 @@ test('ChatGPT downloaded artifacts are standalone temporary files that need no d
     assert.equal(output.name, 'report.txt');
     assert.equal(output.contentType, 'text/plain');
     assert.equal(path.dirname(output.localPath), os.tmpdir());
-    assert.match(path.basename(output.localPath), /^mezhs-artifact-[0-9a-f-]+-report\\.txt$/i);
+    assert.match(path.basename(output.localPath), /^mezhs-artifact-[0-9a-f-]+-report[.]txt$/i);
     assert.equal(fs.readFileSync(output.localPath, 'utf8'), data.toString());
     fs.unlinkSync(output.localPath);
     assert.equal(fs.existsSync(output.localPath), false);
