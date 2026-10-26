@@ -340,6 +340,8 @@ function directSession({ conversationId = "conv-test", projectId = null, convers
       );
     }
     if (target.pathname === `/backend-api/conversation/${conversationId}`) {
+      if (!state.posted)
+        return jsonResponse({ conversation_id: conversationId });
       return jsonResponse(completedConversation(
         conversationId,
         projectId,
@@ -390,6 +392,7 @@ test("ChatGPT account continuations target the known conversation without UI nav
   assert.equal(state.postCount, 1);
   assert.equal(state.posted.conversation_id, "conv-test");
   assert.equal(state.posted.parent_message_id, "assistant-previous");
+  assert.equal(state.requests.filter(x => x.path === "/backend-api/conversation/conv-test").length, 2);
   assert.equal(result.text, "answer");
 });
 
@@ -405,7 +408,7 @@ test("ChatGPT does not replay a turn when the backend rejects direct submission"
     /HTTP 403/
   );
   assert.equal(state.postCount, 1);
-  assert.equal(state.requests.filter(x => x.path === "/backend-api/conversation/conv-test").length, 0);
+  assert.equal(state.requests.filter(x => x.path === "/backend-api/conversation/conv-test").length, 1);
 });
 
 test("ChatGPT authenticated modules avoid DOM and native input submission", () => {
