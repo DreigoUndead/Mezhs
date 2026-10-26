@@ -74,8 +74,11 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 var projectId = newChat
                     ? await ResolveProjectIdAsync(transport, workspace, token)
                     : null;
+                var prompt = newChat && hasRemoteConversation
+                    ? (context with { RestoreConversation = true }).Prompt
+                    : context.Prompt;
                 var request = new ChatGptSendRequest(
-                    context.Prompt,
+                    prompt,
                     newChat ? null : context.Chat.RemoteConversationId,
                     newChat ? null : context.Chat.RemoteParentMessageId,
                     projectId,
@@ -96,7 +99,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
             if (hasRemoteConversation && sent.Response.ConversationUnavailable)
             {
                 Console.Error.WriteLine(
-                    $"ChatGPT conversation '{context.Chat.RemoteConversationId}' is unavailable; starting a new remote conversation from local history.");
+                    $"ChatGPT conversation '{context.Chat.RemoteConversationId}' was unavailable before submission; restoring the new remote conversation from local history.");
                 sent = await SendAsync(newChat: true);
             }
 

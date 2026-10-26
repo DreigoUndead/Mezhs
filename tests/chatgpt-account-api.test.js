@@ -367,7 +367,7 @@ test("ChatGPT follow-up ignores a stale assistant until its user message appears
     onConversationRead: () => {
       reads++;
       return jsonResponse(
-        reads === 1
+        reads <= 2
           ? stale
           : completedConversation("conv-existing", requestMessageId, "fresh answer")
       );
@@ -386,7 +386,7 @@ test("ChatGPT follow-up ignores a stale assistant until its user message appears
     sleep: async () => {}
   });
 
-  assert.equal(reads, 2);
+  assert.equal(reads, 3, "preflight and polling must see the stale reply before the new user turn");
   assert.equal(result.text, "fresh answer");
 });
 

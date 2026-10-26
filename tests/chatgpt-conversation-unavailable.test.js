@@ -27,8 +27,10 @@ function textResponse(value, status = 200, contentType = "text/plain") {
   });
 }
 
-function sessionForConversationError(code) {
+function sessionForConversationError(code, { availableBeforeSubmission = false } = {}) {
+  let posts = 0;
   return {
+    get posts() { return posts; },
     cookies: { get: async () => [] },
     async fetch(url, options = {}) {
       const target = new URL(String(url));
@@ -40,13 +42,17 @@ function sessionForConversationError(code) {
         return jsonResponse({ prepare_token: "prepared" });
       if (target.pathname === "/backend-api/sentinel/chat-requirements/finalize")
         return jsonResponse({ token: "sentinel" });
-      if (target.pathname === "/backend-api/f/conversation" && options.method === "POST")
+      if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
+        posts++;
         return textResponse(
           'data: {"conversation_id":"stale-conversation"}\n\n',
           200,
           "text/event-stream"
         );
+      }
       if (target.pathname === "/backend-api/conversation/stale-conversation") {
+        if (availableBeforeSubmission && posts === 0)
+          return jsonResponse({ conversation_id: "stale-conversation" });
         return jsonResponse({
           detail: {
             message: "You don’t have access to this conversation.",
@@ -95,16 +101,27 @@ function send(chatgpt, session) {
   });
 }
 
-test("ChatGPT inaccessible continuation returns provider state instead of throwing", async () => {
+test("ChatGPT inaccessible continuation is detected before submission", async () => {
   const chatgpt = loadChatGptModule();
-  const result = await send(chatgpt, sessionForConversationError("conversation_inaccessible"));
+  const session = sessionForConversationError("conversation_inaccessible");
+  const result = await send(chatgpt, session);
   assert.deepEqual(result, { conversationUnavailable: true });
+  assert.equal(session.posts, 0);
+});
+
+test("ChatGPT inaccessible polling after an accepted POST never triggers an automatic replay", async () => {
+  const chatgpt = loadChatGptModule();
+  const session = sessionForConversationError("conversation_inaccessible", { availableBeforeSubmission: true });
+  await assert.rejects(send(chatgpt, session), error =>
+    error.status === 404 && error.providerCode === "conversation_inaccessible");
+  assert.equal(session.posts, 1);
 });
 
 test("ChatGPT unrelated conversation 404 fails without exposing provider response text", async () => {
   const chatgpt = loadChatGptModule();
+  const session = sessionForConversationError("some_other_error");
   await assert.rejects(
-    send(chatgpt, sessionForConversationError("some_other_error")),
+    send(chatgpt, session),
     error => {
       assert.equal(error.status, 404);
       assert.equal(error.providerCode, "some_other_error");
@@ -114,6 +131,7 @@ test("ChatGPT unrelated conversation 404 fails without exposing provider respons
       return true;
     }
   );
+  assert.equal(session.posts, 0);
 });
 
 test("ChatGPT non-JSON HTTP errors retain status without logging response bodies", async () => {

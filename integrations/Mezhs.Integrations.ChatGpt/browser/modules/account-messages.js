@@ -14,6 +14,17 @@ async function sendAccountMessage(context, isNew) {
 
 
 async function sendApiAccountMessage({ window, session, args, sleep, reportProgress }, isNew, token, selection) {
+  if (!isNew) {
+    const endpoint = API.conversationById(args.conversationId);
+    try {
+      const response = await apiFetch(session, token, endpoint);
+      await response.body?.cancel();
+    } catch (error) {
+      if (isConversationUnavailable(error, args.conversationId))
+        return { conversationUnavailable: true };
+      throw error;
+    }
+  }
   const uploaded = await uploadFiles(session, token, args.files || []);
   const imageParts = uploaded
     .filter(file => file.contentType.startsWith("image/"))
@@ -120,7 +131,7 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
     throw new Error("ChatGPT did not return a conversation id.");
 
   return completeAccountMessage(
-    session, token, conversationId, requestMessageId, sleep, isNew,
+    session, token, conversationId, requestMessageId, sleep,
     reportProgress, execution
   );
 }
@@ -190,26 +201,18 @@ async function completeAccountMessage(
   conversationId,
   requestMessageId,
   sleep,
-  isNew,
   reportProgress,
   execution
 ) {
-  let result;
-  try {
-    result = await waitForConversation(
-      session,
-      token,
-      conversationId,
-      requestMessageId,
-      sleep,
-      reportProgress,
-      execution
-    );
-  } catch (error) {
-    if (!isNew && isConversationUnavailable(error, conversationId))
-      return { conversationUnavailable: true };
-    throw error;
-  }
+  const result = await waitForConversation(
+    session,
+    token,
+    conversationId,
+    requestMessageId,
+    sleep,
+    reportProgress,
+    execution
+  );
 
   return {
     text: result.text,
