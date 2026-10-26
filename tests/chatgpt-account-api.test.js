@@ -1293,3 +1293,63 @@ test('ChatGPT downloaded artifacts are standalone temporary files that need no d
     if (output) fs.rmSync(output.localPath, { force: true });
   }
 });
+
+
+test('ChatGPT artifact downloads never forward account credentials to external or lookalike hosts', async t => {
+  const { downloadFiles } = require(path.join(root,
+    'integrations/Mezhs.Integrations.ChatGpt/browser/modules/account-files.js'));
+  const cases = [
+    { url: 'https://chatgpt.com/backend-api/files/downloaded', authorized: true },
+    { url: 'https://signed-storage.example.net/file?signature=test', authorized: false },
+    { url: 'https://chatgpt.com.evil.example/file', authorized: false }
+  ];
+  for (const { url, authorized } of cases) {
+    await t.test(authorized ? 'same origin receives bearer token' : new URL(url).hostname, async () => {
+      let downloads = 0;
+      const session = apiSession(async (requestUrl, options = {}) => {
+        const target = new URL(String(requestUrl));
+        if (target.pathname === '/backend-api/files/file-output/download')
+          return jsonResponse({ download_url: url });
+        downloads++;
+        assert.equal(target.href, url);
+        assert.equal(options.credentials, authorized ? 'include' : 'omit');
+        assert.equal(options.headers?.Authorization, authorized ? 'Bearer test-access-token' : undefined);
+        return textResponse('download', 200, 'text/plain');
+      });
+      const results = await downloadFiles(session, 'test-access-token',
+        new Map([['file-output', 'safe.txt']]));
+      try {
+        assert.equal(downloads, 1);
+        assert.equal(results.length, 1);
+      } finally {
+        for (const result of results)
+          fs.rmSync(result.localPath, { force: true });
+      }
+    });
+  }
+
+  await t.test('insecure destination is rejected before network fetch', async () => {
+    let downloads = 0;
+    const session = apiSession(async requestUrl => {
+      const target = new URL(String(requestUrl));
+      if (target.pathname === '/backend-api/files/file-output/download')
+        return jsonResponse({ download_url: 'http://chatgpt.com.evil.example/file' });
+      downloads++;
+      throw new Error('Insecure download must not be requested');
+    });
+    const previousLog = console.error;
+    const errors = [];
+    console.error = message => errors.push(message);
+    try {
+      const results = await downloadFiles(session, 'test-access-token',
+        new Map([['file-output', 'safe.txt']]));
+      assert.deepEqual(results, []);
+      assert.equal(downloads, 0);
+      assert.equal(errors.length, 1);
+      assert.match(errors[0], /download destination must use HTTPS/);
+      assert.doesNotMatch(errors[0], /test-access-token/);
+    } finally {
+      console.error = previousLog;
+    }
+  });
+});

@@ -186,11 +186,13 @@ async function downloadFiles(session, token, refs) {
     try {
       const download = await apiJson(session, token, API.fileDownload(id));
       if (!download?.download_url) continue;
-      const response = await session.fetch(download.download_url, {
-        headers: download.download_url.startsWith(ORIGIN)
-          ? { Authorization: `Bearer ${token}` }
-          : undefined,
-        credentials: "include"
+      const destination = new URL(download.download_url, ORIGIN);
+      if (destination.protocol !== "https:")
+        throw new Error("ChatGPT file download destination must use HTTPS.");
+      const sameOrigin = destination.origin === ORIGIN;
+      const response = await session.fetch(destination.href, {
+        headers: sameOrigin ? { Authorization: `Bearer ${token}` } : undefined,
+        credentials: sameOrigin ? "include" : "omit"
       });
       if (!response.ok) continue;
       const name = path.basename(String(requestedName || "download")) || "download";
