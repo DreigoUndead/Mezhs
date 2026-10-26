@@ -198,17 +198,24 @@ async function apiFetch(session, token, endpoint, options = {}) {
 
   if (response.ok) return response;
 
-  const detail = (await response.text()).slice(0, 1000);
-  const error = Object.assign(
-    new Error(`ChatGPT ${endpoint} failed with HTTP ${response.status}: ${detail}`),
+  let providerCode = null;
+  try {
+    const error = await response.json();
+    const code = error?.detail?.code ?? error?.code;
+    if (typeof code === "string" && /^[a-z0-9_-]{1,80}$/i.test(code))
+      providerCode = code;
+  } catch {
+    // Non-JSON errors still retain HTTP status without retaining private response bodies.
+  }
+  throw Object.assign(
+    new Error(`ChatGPT ${endpoint} failed with HTTP ${response.status}`),
     {
       status: response.status,
       endpoint,
-      detail,
+      providerCode,
       retryAfterMs: parseRetryAfterMs(response.headers.get("retry-after"))
     }
   );
-  throw error;
 }
 
 async function integrityStateObservation(session) {
@@ -256,7 +263,7 @@ function parseRetryAfterMs(value) {
 function isConversationUnavailable(error, conversationId) {
   return error?.status === 404 &&
     error?.endpoint === API.conversationById(conversationId) &&
-    /"code"\s*:\s*"conversation_inaccessible"/.test(String(error?.detail || ""));
+    error?.providerCode === "conversation_inaccessible";
 }
 
 async function apiJson(session, token, endpoint, options = {}) {

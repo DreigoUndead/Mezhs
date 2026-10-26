@@ -1263,3 +1263,33 @@ test('ChatGPT Account attaches JPEG GIF and WebP with dimensions', async t => {
     }
   }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+
+test('ChatGPT downloaded artifacts are standalone temporary files that need no directory cleanup', async () => {
+  const { downloadFiles } = require(path.join(root,
+    'integrations/Mezhs.Integrations.ChatGpt/browser/modules/account-files.js'));
+  const data = Buffer.from('downloaded content');
+  const session = apiSession(async url => {
+    const target = new URL(String(url));
+    if (target.pathname === '/backend-api/files/file-output/download')
+      return jsonResponse({ download_url: 'https://files.example.net/artifact' });
+    if (target.hostname === 'files.example.net')
+      return new Response(data, { status: 200, headers: { 'content-type': 'text/plain' } });
+    throw new Error('Unexpected file request: ' + target.pathname);
+  });
+  let output;
+  try {
+    const results = await downloadFiles(session, 'token', new Map([['file-output', 'report.txt']]));
+    assert.equal(results.length, 1);
+    output = results[0];
+    assert.equal(output.name, 'report.txt');
+    assert.equal(output.contentType, 'text/plain');
+    assert.equal(path.dirname(output.localPath), os.tmpdir());
+    assert.match(path.basename(output.localPath), /^mezhs-artifact-[0-9a-f-]+-report[.]txt$/i);
+    assert.equal(fs.readFileSync(output.localPath, 'utf8'), data.toString());
+    fs.unlinkSync(output.localPath);
+    assert.equal(fs.existsSync(output.localPath), false);
+  } finally {
+    if (output) fs.rmSync(output.localPath, { force: true });
+  }
+});
