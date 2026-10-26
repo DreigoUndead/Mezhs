@@ -101,10 +101,33 @@ test("ChatGPT inaccessible continuation returns provider state instead of throwi
   assert.deepEqual(result, { conversationUnavailable: true });
 });
 
-test("ChatGPT unrelated conversation 404 still fails", async () => {
+test("ChatGPT unrelated conversation 404 fails without exposing provider response text", async () => {
   const chatgpt = loadChatGptModule();
   await assert.rejects(
     send(chatgpt, sessionForConversationError("some_other_error")),
-    /ChatGPT \/backend-api\/conversation\/stale-conversation failed with HTTP 404/
+    error => {
+      assert.equal(error.status, 404);
+      assert.equal(error.providerCode, "some_other_error");
+      assert.match(error.message, /ChatGPT \/backend-api\/conversation\/stale-conversation failed with HTTP 404/);
+      assert.doesNotMatch(String(error.stack), /You don.t have access/);
+      assert.equal(Object.hasOwn(error, "detail"), false);
+      return true;
+    }
   );
+});
+
+test("ChatGPT non-JSON HTTP errors retain status without logging response bodies", async () => {
+  const { apiFetch } = require(path.join(root,
+    "integrations/Mezhs.Integrations.ChatGpt/browser/modules/account-transport.js"));
+  const session = {
+    cookies: { get: async () => [] },
+    fetch: async () => new Response("private-server-response-secret", { status: 503 })
+  };
+  await assert.rejects(apiFetch(session, "access-token", "/backend-api/f/conversation"), error => {
+    assert.equal(error.status, 503);
+    assert.equal(error.providerCode, null);
+    assert.doesNotMatch(String(error.stack), /private-server-response-secret/);
+    assert.doesNotMatch(JSON.stringify(error), /private-server-response-secret/);
+    return true;
+  });
 });
