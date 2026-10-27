@@ -107,7 +107,7 @@ Assert ($agentService -match 'Policy does not allow environment variable' -and $
 Assert ($program -notmatch '/v1/metrics|AgentMetrics' -and $evaluation -notmatch 'AgentMetrics' -and $agentClient -notmatch 'GetMetricsAsync|AgentMetricsView') "Unused Agent metrics infrastructure still exists."
 Assert ($program -notmatch 'X-MEZHS-Requester|GetRequester|Requester' -and $agentWebHost -notmatch 'X-MEZHS-Requester|Requester' -and $agentClient -notmatch 'X-MEZHS-Requester|Requester') "Unauthenticated requester provenance still exists at API boundaries."
 Assert ($models -notmatch '\bRequester\b' -and $store -notmatch 'Requester TEXT|\$requester|record\.Requester|GetOrdinal\("Requester"\)' -and $shell -notmatch 'MEZHS_REQUESTER|\.Requester' -and $agentWebApp -notmatch '\brequester\b') "Requester residue remains in persistence, shell context, or dashboard."
-Assert ($sharedChat -match 'MarkdownContent' -and $markdown -match 'safeLink') "Shared chat rendering does not own safe Markdown presentation."
+Assert ($sharedChat -match 'MarkdownContent' -and $markdown -match 'remarkGfm' -and $markdown -match 'remarkStaticUi') "Shared chat rendering does not own safe Markdown presentation."
 Assert ($targetPicker -match 'ConnectionModelPicker' -and
         $targetPicker -match 'target-picker-field' -and
         $targetPicker -notmatch 'className="connection-picker"|className="model-picker"|connection-avatar' -and
