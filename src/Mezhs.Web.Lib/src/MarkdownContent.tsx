@@ -14,7 +14,7 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
   try {
     rendered = Markdown({
       children: content,
-      remarkPlugins: [remarkGfm, remarkMdx, remarkStaticUi],
+      remarkPlugins: [remarkGfm, remarkMdx as unknown as typeof remarkGfm, remarkStaticUi],
       components: uiComponents,
     });
   } catch {
