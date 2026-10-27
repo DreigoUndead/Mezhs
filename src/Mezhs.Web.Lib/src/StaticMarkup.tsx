@@ -39,10 +39,10 @@ export function remarkStaticUi() {
           for (const attribute of child.attributes ?? []) {
             if (attribute.type !== "mdxJsxAttribute" || !attribute.name || !properties.has(attribute.name))
               continue;
+            const expression = attribute.value && typeof attribute.value === "object" ? attribute.value.value : "";
             const value = typeof attribute.value === "string" ? attribute.value
-              : typeof attribute.value?.value === "string" && /^(?:\d+(?:\.\d+)?|true|false)$/.test(attribute.value.value.trim())
-                ? attribute.value.value.trim()
-                : attribute.value === null ? "true" : undefined;
+              : /^(?:\d+(?:\.\d+)?|true|false)$/.test(expression.trim()) ? expression.trim()
+              : attribute.value === null ? "true" : undefined;
             if (value !== undefined) safe["data-mezhs-" + attribute.name] = value;
           }
           child.data = { hName: "mezhs-" + child.name.toLowerCase(), hProperties: safe };
