@@ -1,5 +1,6 @@
 import { Fragment, ReactNode } from "react";
 import "./markdown.css";
+import { parseStaticMarkup, renderStaticMarkup } from "./StaticMarkup";
 
 type MarkdownContentProps = {
   content: string;
@@ -11,7 +12,8 @@ type MarkdownBlock =
   | { kind: "quote"; content: string }
   | { kind: "unordered-list"; items: string[] }
   | { kind: "ordered-list"; items: string[] }
-  | { kind: "paragraph"; content: string };
+  | { kind: "paragraph"; content: string }
+  | { kind: "table"; headings: string[]; align: Array<"left" | "center" | "right" | undefined>; rows: string[][] };
 
 const inlineToken = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]\n]+\]\([^\s)]+\))/g;
 
@@ -49,6 +51,42 @@ function renderInline(value: string): ReactNode[] {
   return result;
 }
 
+
+// Split only unescaped pipes outside inline code. GFM permits missing edge pipes.
+function tableCells(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  const cells: string[] = [];
+  let cell = "";
+  let code = false;
+  for (let index = 0; index < trimmed.length; index++) {
+    const ch = trimmed[index];
+    if (ch === "\\" && trimmed[index + 1] === "|") {
+      cell += "|";
+      index++;
+    } else if (ch === "\`") {
+      code = !code;
+      cell += ch;
+    } else if (ch === "|" && !code) {
+      cells.push(cell.trim());
+      cell = "";
+    } else cell += ch;
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+function tableStart(lines: string[], index: number) {
+  if (index + 1 >= lines.length || !lines[index].includes("|")) return null;
+  const headings = tableCells(lines[index]);
+  const separators = tableCells(lines[index + 1]);
+  if (headings.length < 2 || headings.length !== separators.length ||
+      !separators.every(cell => /^:?-{3,}:?$/.test(cell))) return null;
+  const align = separators.map((cell): "left" | "center" | "right" | undefined =>
+    cell.startsWith(":") && cell.endsWith(":") ? "center"
+      : cell.endsWith(":") ? "right" : cell.startsWith(":") ? "left" : undefined);
+  return { headings, align };
+}
+
 function parseBlocks(content: string): MarkdownBlock[] {
   const lines = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
   const blocks: MarkdownBlock[] = [];
@@ -67,6 +105,20 @@ function parseBlocks(content: string): MarkdownBlock[] {
       while (index < lines.length && !/^\s*```\s*$/.test(lines[index])) body.push(lines[index++]);
       if (index < lines.length) index++;
       blocks.push({ kind: "code", language: fence[1].trim() || undefined, content: body.join("\n") });
+      continue;
+    }
+
+    const start = tableStart(lines, index);
+    if (start) {
+      index += 2;
+      const rows: string[][] = [];
+      while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
+        const cells = tableCells(lines[index]);
+        if (cells.length !== start.headings.length) break;
+        rows.push(cells);
+        index++;
+      }
+      blocks.push({ kind: "table", ...start, rows });
       continue;
     }
 
@@ -113,7 +165,7 @@ function parseBlocks(content: string): MarkdownBlock[] {
 
     const paragraph: string[] = [];
     while (index < lines.length && lines[index].trim()) {
-      if (paragraph.length > 0 && (/^\s*```/.test(lines[index]) || /^\s*#{1,6}\s+/.test(lines[index]) || /^\s*>\s?/.test(lines[index]) || /^\s*[-*+]\s+/.test(lines[index]) || /^\s*\d+[.)]\s+/.test(lines[index]))) break;
+      if (paragraph.length > 0 && (tableStart(lines, index) || /^\s*```/.test(lines[index]) || /^\s*#{1,6}\s+/.test(lines[index]) || /^\s*>\s?/.test(lines[index]) || /^\s*[-*+]\s+/.test(lines[index]) || /^\s*\d+[.)]\s+/.test(lines[index]))) break;
       paragraph.push(lines[index++].trim());
     }
     blocks.push({ kind: "paragraph", content: paragraph.join(" ") });
@@ -133,25 +185,41 @@ function Heading({ level, children }: { level: number; children: ReactNode }) {
   }
 }
 
+function renderMarkdown(content: string, inline: boolean): ReactNode {
+  if (inline) return renderInline(content);
+  return parseBlocks(content).map((block, index) => {
+    switch (block.kind) {
+      case "code":
+        return <pre key={index}><code data-language={block.language}>{block.content}</code></pre>;
+      case "heading":
+        return <Heading key={index} level={block.level}>{renderInline(block.content)}</Heading>;
+      case "quote":
+        return <blockquote key={index}>{block.content.split("\n").map((line, lineIndex) => <Fragment key={lineIndex}>{renderInline(line)}{lineIndex < block.content.split("\n").length - 1 && <br />}</Fragment>)}</blockquote>;
+      case "unordered-list":
+        return <ul key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item)}</li>)}</ul>;
+      case "ordered-list":
+        return <ol key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item)}</li>)}</ol>;
+      case "table":
+        return <div key={index} className="markdown-table-wrap"><table>
+          <thead><tr>{block.headings.map((heading, column) =>
+            <th key={column} style={{ textAlign: block.align[column] }}>{renderInline(heading)}</th>)}</tr></thead>
+          <tbody>{block.rows.map((cells, row) =>
+            <tr key={row}>{cells.map((cell, column) =>
+              <td key={column} style={{ textAlign: block.align[column] }}>{renderInline(cell)}</td>)}</tr>)}</tbody>
+        </table></div>;
+      case "paragraph":
+        return <p key={index}>{renderInline(block.content)}</p>;
+    }
+  });
+}
+
+function renderMixed(content: string, inline: boolean): ReactNode {
+  return parseStaticMarkup(content).map((piece, index) =>
+    typeof piece === "string"
+      ? <Fragment key={index}>{renderMarkdown(piece, inline)}</Fragment>
+      : <Fragment key={index}>{renderStaticMarkup(piece, renderMixed, index)}</Fragment>);
+}
+
 export function MarkdownContent({ content }: MarkdownContentProps) {
-  return (
-    <div className="markdown-content">
-      {parseBlocks(content).map((block, index) => {
-        switch (block.kind) {
-          case "code":
-            return <pre key={index}><code data-language={block.language}>{block.content}</code></pre>;
-          case "heading":
-            return <Heading key={index} level={block.level}>{renderInline(block.content)}</Heading>;
-          case "quote":
-            return <blockquote key={index}>{block.content.split("\n").map((line, lineIndex) => <Fragment key={lineIndex}>{renderInline(line)}{lineIndex < block.content.split("\n").length - 1 && <br />}</Fragment>)}</blockquote>;
-          case "unordered-list":
-            return <ul key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item)}</li>)}</ul>;
-          case "ordered-list":
-            return <ol key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item)}</li>)}</ol>;
-          case "paragraph":
-            return <p key={index}>{renderInline(block.content)}</p>;
-        }
-      })}
-    </div>
-  );
+  return <div className="markdown-content">{renderMixed(content, false)}</div>;
 }
