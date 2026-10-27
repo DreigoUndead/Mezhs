@@ -1,14 +1,8 @@
 // Attaches provider page operations to each Electron renderer. The Chrome runtime
 // shim below is the isolated Electron-34 compatibility exception for Google OAuth.
 const { ipcRenderer, webFrame } = require("electron");
-const path = require("node:path");
-const { CHROME_RUNTIME_SHIM } = require("./browser-identity");
-
-const modulePath = process.env.MEZHS_BROWSER_MODULE;
-const browserModule = modulePath
-  ? require(path.resolve(modulePath))
-  : null;
-const pageOperations = browserModule?.pageOperations || {};
+if (process.sandboxed !== true)
+  throw new Error("MEZS provider preload requires an enabled renderer sandbox.");
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 ipcRenderer.on("mezhs:page-operation", async (_event, request) => {
@@ -17,7 +11,7 @@ ipcRenderer.on("mezhs:page-operation", async (_event, request) => {
 
   try {
     const operation = String(request?.operation || "");
-    const method = pageOperations[operation];
+    const method = Object.hasOwn(pageOperations, operation) ? pageOperations[operation] : null;
     if (typeof method !== "function")
       throw new Error(`Browser page operation '${operation}' is not available.`);
 

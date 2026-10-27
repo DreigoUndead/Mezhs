@@ -29,8 +29,8 @@ var assembly = typeof(ChatGptWebIntegration).Assembly;
 var names = assembly.GetManifestResourceNames()
     .Where(resource => resource.StartsWith(prefix, StringComparison.Ordinal))
     .OrderBy(resource => resource, StringComparer.Ordinal).ToArray();
-if (names.Length != 8)
-    throw new Exception($"Expected eight ChatGPT module resources, got {names.Length}.");
+if (names.Length != 9)
+    throw new Exception($"Expected nine ChatGPT module resources, got {names.Length}.");
 void CheckResources()
 {
     foreach (var resource in names)
