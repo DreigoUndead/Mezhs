@@ -20,14 +20,24 @@ function createBrowserPreload(modulePath, browserModule) {
   ].join('\n');
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mezhs-sandbox-preload-'));
   const preloadPath = path.join(directory, 'preload.js');
+  const authPath = path.join(directory, 'auth-preload.js');
+  const authSource = [
+    'const { webFrame } = require("electron");',
+    'if (process.sandboxed !== true) throw new Error("MEZS auth preload requires renderer sandbox.");',
+    'void webFrame.executeJavaScript(' + JSON.stringify(CHROME_RUNTIME_SHIM) + ').catch(error => {',
+    '  console.error("Chrome compatibility shim failed: " + String(error?.message ?? error));',
+    '});'
+  ].join('\n');
   try {
     fs.writeFileSync(preloadPath, source, 'utf8');
+    fs.writeFileSync(authPath, authSource, 'utf8');
   } catch (error) {
     fs.rmSync(directory, { recursive: true, force: true });
     throw error;
   }
   return {
     path: preloadPath,
+    authPath,
     cleanup: () => fs.rmSync(directory, { recursive: true, force: true })
   };
 }

@@ -8,6 +8,7 @@ const {
 } = require("./browser-identity");
 const { invokeDiagnostic } = require("./diagnostics");
 const { createBrowserPreload } = require("./preload-builder");
+const { attachPopupPolicy } = require("./popup-policy");
 
 let window = null;
 let browserModule = null;
@@ -123,18 +124,7 @@ async function initialize({ profileDirectory, showBrowser, modulePath, requireAu
       backgroundThrottling: false
     }
   });
-  window.webContents.setWindowOpenHandler(() => ({
-    action: "allow",
-    overrideBrowserWindowOptions: {
-      webPreferences: {
-        session: persistentSession,
-        preload: browserPreload.path,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true
-      }
-    }
-  }));
+  attachPopupPolicy(window.webContents, browserModule.homeUrl, persistentSession, browserPreload.authPath);
 
   window.on("close", event => {
     if (shuttingDown) return;

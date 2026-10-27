@@ -22,7 +22,18 @@ $stdoutPath = Join-Path $temp 'stdout.log'
 $stderrPath = Join-Path $temp 'stderr.log'
 New-Item -ItemType Directory -Path $profile -Force | Out-Null
 @'
-const http = require("node:http");
+const { session: electronSession } = require("electron");
+// Synthetic provider and IdP content: no real authentication, credentials or network.
+const fixtureSession = electronSession.fromPath(process.env.MEZHS_PROFILE_DIRECTORY);
+fixtureSession.protocol.handle("https", request => {
+  const url = new URL(request.url);
+  if (url.origin === "https://accounts.google.com" && url.pathname === "/redirect")
+    return new Response(null, { status: 302, headers: { Location: "https://evil.example/next" } });
+  const body = url.origin === "https://chatgpt.com"
+    ? "<html><body>identity</body></html>"
+    : "<html><body>oauth child</body></html>";
+  return new Response(body, { headers: { "Content-Type": "text/html" } });
+});
 
 async function readIdentity(webContents) {
   return webContents.executeJavaScript(`({
@@ -35,26 +46,12 @@ async function readIdentity(webContents) {
 }
 
 function createChildServer() {
-  return new Promise((resolve, reject) => {
-    const server = http.createServer((_request, response) => {
-      const body = "<html><body>oauth child</body></html>";
-      response.writeHead(200, {
-        "Content-Type": "text/html",
-        "Content-Length": Buffer.byteLength(body)
-      });
-      response.end(body);
-    });
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      resolve({ server, url: `http://127.0.0.1:${address.port}/oauth` });
-    });
-  });
+  return { url: "https://accounts.google.com/oauth", server: { close: done => done() } };
 }
 
 module.exports = {
   name: "Browser Identity Test",
-  homeUrl: "data:text/html,<html><body>identity</body></html>",
+  homeUrl: "https://chatgpt.com/",
   operations: {
     async inspect({ window, session, page }) {
       await new Promise(resolve => setTimeout(resolve, 2500));
@@ -65,14 +62,21 @@ module.exports = {
       try {
         const childResult = await new Promise((resolve, reject) => {
           const timeout = setTimeout(() => reject(new Error("child window timed out")), 5000);
-          window.webContents.once("did-create-window", childWindow => {
+          window.webContents.once("did-create-window", (childWindow, details) => {
             const sameSession = childWindow.webContents.session === session;
+            const preferences = childWindow.webContents.getLastWebPreferences();
+            const childSecurity = {
+              sandbox: preferences.sandbox === true,
+              contextIsolation: preferences.contextIsolation === true,
+              nodeIntegrationDisabled: preferences.nodeIntegration === false,
+              authOnlyPreload: details.options?.webPreferences?.preload?.endsWith("auth-preload.js") === true
+            };
             childWindow.webContents.once("did-finish-load", async () => {
               try {
                 const identity = await readIdentity(childWindow.webContents);
                 clearTimeout(timeout);
                 childWindow.destroy();
-                resolve({ identity, sameSession });
+                resolve({ identity, sameSession, childSecurity });
               } catch (error) {
                 clearTimeout(timeout);
                 childWindow.destroy();
@@ -85,13 +89,44 @@ module.exports = {
             `void window.open(${url}, "_blank", "width=300,height=200"); true`,
             true);
         });
+        let deniedChildCreated = false;
+        const onUnexpectedChild = () => { deniedChildCreated = true; };
+        window.webContents.on("did-create-window", onUnexpectedChild);
+        const deniedReturn = await window.webContents.executeJavaScript(
+          'Boolean(window.open("https://unrelated.example/", "_blank"))', true);
+        await new Promise(resolve => setTimeout(resolve, 200));
+        window.webContents.removeListener("did-create-window", onUnexpectedChild);
+
+        const redirectResult = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("redirect child timed out")), 4000);
+          window.webContents.once("did-create-window", child => {
+            let redirectObserved = false;
+            let navigatedOutside = false;
+            child.webContents.on("will-redirect", (_event, details) => {
+              if ((typeof details === "string" ? details : details.url) === "https://evil.example/next")
+                redirectObserved = true;
+            });
+            child.webContents.on("did-navigate", (_event, url) => {
+              if (url === "https://evil.example/next") navigatedOutside = true;
+            });
+            setTimeout(() => {
+              clearTimeout(timeout);
+              child.destroy();
+              resolve({ redirectObserved, navigatedOutside });
+            }, 650);
+          });
+          void window.webContents.executeJavaScript(
+            'void window.open("https://accounts.google.com/redirect", "_blank"); true', true);
+        });
         return {
+          deniedReturn, deniedChildCreated, redirectResult,
           sessionUserAgent: session.getUserAgent(),
           attachedPageText,
           sandboxState,
           main,
           child: childResult.identity,
-          childSameSession: childResult.sameSession
+          childSameSession: childResult.sameSession,
+          childSecurity: childResult.childSecurity
         };
       } finally {
         await new Promise(resolve => childHost.server.close(resolve));
@@ -248,6 +283,19 @@ try {
     }
     Assert-ChromeIdentity $response.main 'main window'
     Assert-ChromeIdentity $response.child 'child OAuth window'
+    if ($response.deniedReturn -or $response.deniedChildCreated) {
+        throw 'Unrelated HTTPS popup was not denied by the live Electron handler.'
+    }
+    if (-not $response.redirectResult.redirectObserved -or $response.redirectResult.navigatedOutside) {
+        throw 'The live Electron child did not block the off-origin HTTP redirect.'
+    }
+    if (-not $response.childSecurity.sandbox -or
+        -not $response.childSecurity.contextIsolation -or
+        -not $response.childSecurity.nodeIntegrationDisabled -or
+        -not $response.childSecurity.authOnlyPreload) {
+        throw ('OAuth child lost its sandbox, context isolation, Node restriction, or auth-only preload: ' +
+            ($response.childSecurity | ConvertTo-Json -Compress))
+    }
     if (-not $response.childSameSession) {
         throw 'child OAuth window does not use the persistent provider session'
     }
@@ -255,7 +303,7 @@ try {
         throw 'child OAuth window lost window.opener'
     }
 
-    Write-Host 'PASS: Electron polls long provider operations through short HTTP requests and preserves OAuth session, opener, Chrome UA, and runtime identity.'
+    Write-Host 'PASS: Electron popup policy blocks unrelated destinations and redirects while preserving sandboxed authentication session, opener and browser identity.'
 }
 finally {
     if ($null -ne $port) {
