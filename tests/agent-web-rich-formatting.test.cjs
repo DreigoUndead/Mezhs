@@ -66,6 +66,20 @@ test("custom Link markup works inside GFM table cells", () => {
   assert.match(output, /<td>Merged<\/td>/);
 });
 
+
+test("screenshot-style mixed status layouts and PR table render together", () => {
+  const content = '<row align="center" gap={2}><icon name="check-circle" color="success"/> **MEŽS merge completed.**</row>\n\n' +
+    '<box gap={1}><row justify="between"><text color="secondary">Current main</text><badge color="success">0 ahead · 0 behind</badge></row></box>\n\n' +
+    '| Pull request | Final status |\n|---|---|\n| <Link url="https://github.com/example/repo/pull/21" title="PR #21"/> | Merged |';
+  const output = html(content);
+  assert.match(output, /class="rich-row"/);
+  assert.match(output, /<strong>MEŽS merge completed\.<\/strong>/);
+  assert.match(output, /class="rich-badge rich-success"/);
+  assert.match(output, /<table>/);
+  assert.match(output, /href="https:\/\/github.com\/example\/repo\/pull\/21"/);
+  assert.doesNotMatch(output, /&lt;box|&lt;Link/);
+});
+
 test("inline code and fenced code never become model UI components", () => {
   const output = html("Use \`<row>literal</row>\`.\n\n\`\`\`html\n<box>not a layout</box>\n\`\`\`");
   assert.match(output, /&lt;row&gt;literal&lt;\/row&gt;/);
