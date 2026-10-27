@@ -56,6 +56,15 @@ test("nested static layout, styles, badges, icons and link components", () => {
   assert.doesNotMatch(rendered, /&lt;row|&lt;box|&lt;Link/);
 });
 
+
+test("table cells may contain static Link components", () => {
+  const rendered = html('| Pull request | Status |\n|---|---|\n| <Link url="https://github.com/example/repo/pull/21" title="PR #21"/> | Merged |');
+  assert.match(rendered, /<table>/);
+  assert.match(rendered, /href="https:\/\/github.com\/example\/repo\/pull\/21"/);
+  assert.match(rendered, /<td>.*PR #21.*<\/td>/);
+  assert.match(rendered, /<td>Merged<\/td>/);
+});
+
 test("fenced and inline code preserve literal presentation tags", () => {
   const rendered = html("Here is \`<row>literal</row>\`:\n\n\`\`\`html\n<box>not a layout</box>\n\`\`\`");
   assert.match(rendered, /<code>&lt;row&gt;literal&lt;\/row&gt;<\/code>/);
