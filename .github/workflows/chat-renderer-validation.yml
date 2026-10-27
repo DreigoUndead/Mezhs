@@ -1,0 +1,19 @@
+name: Chat renderer validation
+on:
+  push:
+    branches: ["review/chat-rich-formatting"]
+permissions:
+  contents: read
+jobs:
+  renderer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install frontend dependencies
+        working-directory: src/Mezhs.Agent.Web
+        run: npm install
+      - name: Render regression tests
+        run: node tests/agent-web-rich-formatting.test.cjs
