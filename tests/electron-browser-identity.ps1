@@ -69,7 +69,10 @@ module.exports = {
               sandbox: preferences.sandbox === true,
               contextIsolation: preferences.contextIsolation === true,
               nodeIntegrationDisabled: preferences.nodeIntegration === false,
-              authOnlyPreload: preferences.preload?.endsWith("auth-preload.js") === true
+              authOnlyPreload: preferences.preload?.endsWith("auth-preload.js") === true,
+              preloadBasename: require("node:path").basename(preferences.preload || ""),
+              preloadPresent: Boolean(preferences.preload),
+              preferenceKeys: Object.keys(preferences).sort()
             };
             childWindow.webContents.once("did-finish-load", async () => {
               try {
