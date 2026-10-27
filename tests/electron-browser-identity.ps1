@@ -62,17 +62,14 @@ module.exports = {
       try {
         const childResult = await new Promise((resolve, reject) => {
           const timeout = setTimeout(() => reject(new Error("child window timed out")), 5000);
-          window.webContents.once("did-create-window", childWindow => {
+          window.webContents.once("did-create-window", (childWindow, details) => {
             const sameSession = childWindow.webContents.session === session;
             const preferences = childWindow.webContents.getLastWebPreferences();
             const childSecurity = {
               sandbox: preferences.sandbox === true,
               contextIsolation: preferences.contextIsolation === true,
               nodeIntegrationDisabled: preferences.nodeIntegration === false,
-              authOnlyPreload: preferences.preload?.endsWith("auth-preload.js") === true,
-              preloadBasename: require("node:path").basename(preferences.preload || ""),
-              preloadPresent: Boolean(preferences.preload),
-              preferenceKeys: Object.keys(preferences).sort()
+              authOnlyPreload: details.options?.webPreferences?.preload?.endsWith("auth-preload.js") === true
             };
             childWindow.webContents.once("did-finish-load", async () => {
               try {
