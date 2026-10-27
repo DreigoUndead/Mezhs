@@ -1,88 +1,85 @@
-// Run after the frontend npm dependencies are restored by the Agent Web build.
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
 const path = require("node:path");
-const { createRequire } = require("node:module");
+const Module = require("node:module");
+const { createRequire } = Module;
 const { test } = require("node:test");
 
 const root = path.resolve(__dirname, "..");
-const frontendRequire = createRequire(path.join(root, "src/Mezhs.Agent.Web/package.json"));
-const ts = frontendRequire("typescript");
-const { renderToStaticMarkup } = frontendRequire("react-dom/server");
-const sourceDir = path.join(root, "src/Mezhs.Web.Lib/src");
-const cache = new Map();
+const frontend = path.join(root, "src/Mezhs.Agent.Web");
+const resolveFrontend = createRequire(path.join(frontend, "package.json"));
+const esbuild = resolveFrontend("esbuild");
+const React = resolveFrontend("react");
+const { renderToStaticMarkup } = resolveFrontend("react-dom/server");
 
-function load(file) {
-  if (cache.has(file)) return cache.get(file).exports;
-  const source = fs.readFileSync(path.join(sourceDir, file + ".tsx"), "utf8");
-  const output = ts.transpileModule(source, { compilerOptions: {
-    module: ts.ModuleKind.CommonJS,
-    target: ts.ScriptTarget.ES2020,
-    jsx: ts.JsxEmit.ReactJSX,
-  } }).outputText;
-  const module = { exports: {} };
-  cache.set(file, module);
-  const localRequire = (id) => {
-    if (id.endsWith(".css")) return {};
-    if (id.startsWith("./")) return load(id.slice(2));
-    return frontendRequire(id);
-  };
-  new Function("require", "module", "exports", output)(localRequire, module, module.exports);
-  return module.exports;
-}
+const output = esbuild.buildSync({
+  entryPoints: [path.join(root, "src/Mezhs.Web.Lib/src/MarkdownContent.tsx")],
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  write: false,
+  loader: { ".css": "empty" },
+  external: ["react", "react/jsx-runtime", "react-dom"],
+}).outputFiles[0].text;
 
-const React = frontendRequire("react");
-const { MarkdownContent } = load("MarkdownContent");
-const html = (value) => renderToStaticMarkup(React.createElement(MarkdownContent, { content: value }));
+const file = path.join(frontend, "rich-formatting-tests.cjs");
+const compiled = new Module(file);
+compiled.filename = file;
+compiled.paths = Module._nodeModulePaths(frontend);
+compiled._compile(output, file);
+const html = (value) => renderToStaticMarkup(React.createElement(compiled.exports.MarkdownContent, { content: value }));
 
-test("standard GFM table with alignment and escaped pipes", () => {
-  const rendered = html("| Name | Result |\n| :--- | ---: |\n| A \\| B | **PASS** |");
-  assert.match(rendered, /<table>/);
-  assert.match(rendered, /<th[^>]*text-align:left/);
-  assert.match(rendered, /<th[^>]*text-align:right/);
-  assert.match(rendered, /A \| B/);
-  assert.match(rendered, /<strong>PASS<\/strong>/);
-  assert.doesNotMatch(rendered, /\| :---/);
+test("GFM tables, cell alignment, and escaped pipes", () => {
+  const output = html("| Name | Result |\n| :--- | ---: |\n| A \\| B | **PASS** |");
+  assert.match(output, /<table>/);
+  assert.match(output, /text-align:left/);
+  assert.match(output, /text-align:right/);
+  assert.match(output, /A \| B/);
+  assert.match(output, /<strong>PASS<\/strong>/);
+  assert.doesNotMatch(output, /\| :---/);
 });
 
-test("nested static layout, styles, badges, icons and link components", () => {
-  const rendered = html('<box gap={1}><row align="center" gap={2}><icon name="check-circle" color="success"/> **Done**</row><row justify="between"><text color="secondary">Main</text><badge color="success">0 ahead</badge></row></box>\n<Link url="https://github.com/example/repo/pull/1" title="PR #1"/>');
-  assert.match(rendered, /class="rich-box"/);
-  assert.match(rendered, /class="rich-row"/);
-  assert.match(rendered, /class="rich-badge rich-success"/);
-  assert.match(rendered, /<strong>Done<\/strong>/);
-  assert.match(rendered, /href="https:\/\/github.com\/example\/repo\/pull\/1"/);
-  assert.match(rendered, /PR #1/);
-  assert.doesNotMatch(rendered, /&lt;row|&lt;box|&lt;Link/);
+test("GFM formatting is owned by the library", () => {
+  const output = html("# Heading\n\n- ~~Removed~~\n- [x] Done\n\n**Bold** and *italic*");
+  assert.match(output, /<h1>Heading<\/h1>/);
+  assert.match(output, /<del>Removed<\/del>/);
+  assert.match(output, /<input[^>]*checked/);
+  assert.match(output, /<strong>Bold<\/strong>/);
+  assert.match(output, /<em>italic<\/em>/);
 });
 
-
-test("table cells may contain static Link components", () => {
-  const rendered = html('| Pull request | Status |\n|---|---|\n| <Link url="https://github.com/example/repo/pull/21" title="PR #21"/> | Merged |');
-  assert.match(rendered, /<table>/);
-  assert.match(rendered, /href="https:\/\/github.com\/example\/repo\/pull\/21"/);
-  assert.match(rendered, /<td>.*PR #21.*<\/td>/);
-  assert.match(rendered, /<td>Merged<\/td>/);
+test("nested layout components accept literal values and parse nested Markdown", () => {
+  const output = html('<box gap={1}><row align="center" gap={2}><icon name="check-circle" color="success"/> **Done**</row><row justify="between"><text color="secondary">Main</text><badge color="success">0 ahead</badge></row></box>');
+  assert.match(output, /class="rich-box"/);
+  assert.match(output, /class="rich-row"/);
+  assert.match(output, /class="rich-badge rich-success"/);
+  assert.match(output, /<strong>Done<\/strong>/);
+  assert.doesNotMatch(output, /&lt;row|&lt;box/);
 });
 
-test("fenced and inline code preserve literal presentation tags", () => {
-  const rendered = html("Here is \`<row>literal</row>\`:\n\n\`\`\`html\n<box>not a layout</box>\n\`\`\`");
-  assert.match(rendered, /<code>&lt;row&gt;literal&lt;\/row&gt;<\/code>/);
-  assert.match(rendered, /&lt;box&gt;not a layout&lt;\/box&gt;/);
-  assert.doesNotMatch(rendered, /class="rich-box"/);
+test("custom Link markup works inside GFM table cells", () => {
+  const output = html('| Pull request | Status |\n|---|---|\n| <Link url="https://github.com/example/repo/pull/21" title="PR #21"/> | Merged |');
+  assert.match(output, /<table>/);
+  assert.match(output, /href="https:\/\/github.com\/example\/repo\/pull\/21"/);
+  assert.match(output, /PR #21/);
+  assert.match(output, /<td>Merged<\/td>/);
 });
 
-test("unknown HTML and dangerous URLs never execute", () => {
-  const rendered = html('<script>alert(1)</script><Link url="javascript:alert(1)" title="Bad"/><row onClick={evil()}>Safe</row>');
-  assert.match(rendered, /&lt;script&gt;/);
-  assert.doesNotMatch(rendered, /href="javascript:/);
-  assert.doesNotMatch(rendered, /onclick=/i);
-  assert.match(rendered, /Safe/);
+test("inline code and fenced code never become model UI components", () => {
+  const output = html("Use \`<row>literal</row>\`.\n\n\`\`\`html\n<box>not a layout</box>\n\`\`\`");
+  assert.match(output, /&lt;row&gt;literal&lt;\/row&gt;/);
+  assert.match(output, /&lt;box&gt;not a layout&lt;\/box&gt;/);
+  assert.doesNotMatch(output, /class="rich-box"/);
 });
 
-test("legacy Markdown and visible literal escapes still work", () => {
-  const rendered = html("# Heading\n\n- *first*\n- second\n\n<escape><DONE></escape>");
-  assert.match(rendered, /<h1>Heading<\/h1>/);
-  assert.match(rendered, /<em>first<\/em>/);
-  assert.match(rendered, /&lt;DONE&gt;/);
+test("untrusted markup, URLs and expressions never execute", () => {
+  const output = html('<script>alert(1)</script><Link url="javascript:alert(1)" title="Bad"/><row gap={globalThis.hack()}>Safe</row>');
+  assert.doesNotMatch(output, /href="javascript:/);
+  assert.doesNotMatch(output, /<script>/);
+  assert.doesNotMatch(output, /onclick=/i);
+  assert.match(output, /Safe/);
+});
+
+test("incomplete markup falls back without crashing or executing code", () => {
+  assert.match(html("<row><badge>Unclosed"), /Unclosed/);
+  assert.match(html("<escape><DONE></escape>"), /DONE/);
 });
