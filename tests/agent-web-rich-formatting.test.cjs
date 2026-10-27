@@ -12,7 +12,8 @@ const React = resolveFrontend("react");
 const { renderToStaticMarkup } = resolveFrontend("react-dom/server");
 
 const output = esbuild.buildSync({
-  entryPoints: [path.join(root, "src/Mezhs.Web.Lib/src/MarkdownContent.tsx")],
+  entryPoints: [path.join(frontend, "node_modules/@mezhs/web-lib/src/MarkdownContent.tsx")],
+  preserveSymlinks: true,
   bundle: true,
   platform: "node",
   format: "cjs",
