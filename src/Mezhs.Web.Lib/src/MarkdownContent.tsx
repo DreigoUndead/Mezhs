@@ -202,10 +202,10 @@ function renderMarkdown(content: string, inline: boolean): ReactNode {
       case "table":
         return <div key={index} className="markdown-table-wrap"><table>
           <thead><tr>{block.headings.map((heading, column) =>
-            <th key={column} style={{ textAlign: block.align[column] }}>{renderInline(heading)}</th>)}</tr></thead>
+            <th key={column} style={{ textAlign: block.align[column] }}>{renderMixed(heading, true)}</th>)}</tr></thead>
           <tbody>{block.rows.map((cells, row) =>
             <tr key={row}>{cells.map((cell, column) =>
-              <td key={column} style={{ textAlign: block.align[column] }}>{renderInline(cell)}</td>)}</tr>)}</tbody>
+              <td key={column} style={{ textAlign: block.align[column] }}>{renderMixed(cell, true)}</td>)}</tr>)}</tbody>
         </table></div>;
       case "paragraph":
         return <p key={index}>{renderInline(block.content)}</p>;
@@ -213,11 +213,50 @@ function renderMarkdown(content: string, inline: boolean): ReactNode {
   });
 }
 
-function renderMixed(content: string, inline: boolean): ReactNode {
+// Tables are recognized before presentation tags so a <Link/> inside a cell
+// does not split the header/separator/body sequence into unrelated paragraphs.
+function splitTableSections(content: string): Array<{ content: string; table: boolean }> {
+  const lines = content.split("\n");
+  const sections: Array<{ content: string; table: boolean }> = [];
+  const plain: string[] = [];
+  let fenced = false;
+  function flush() {
+    if (plain.length) sections.push({ content: plain.join("\n"), table: false });
+    plain.length = 0;
+  }
+  for (let index = 0; index < lines.length;) {
+    if (/^\s*\x60{3}/.test(lines[index])) {
+      fenced = !fenced;
+      plain.push(lines[index++]);
+      continue;
+    }
+    const start = fenced ? null : tableStart(lines, index);
+    if (!start) { plain.push(lines[index++]); continue; }
+    flush();
+    const table = [lines[index++], lines[index++]];
+    while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
+      if (tableCells(lines[index]).length !== start.headings.length) break;
+      table.push(lines[index++]);
+    }
+    sections.push({ content: table.join("\n"), table: true });
+  }
+  flush();
+  return sections;
+}
+
+function renderStaticPieces(content: string, inline: boolean): ReactNode {
   return parseStaticMarkup(content).map((piece, index) =>
     typeof piece === "string"
       ? <Fragment key={index}>{renderMarkdown(piece, inline)}</Fragment>
       : <Fragment key={index}>{renderStaticMarkup(piece, renderMixed, index)}</Fragment>);
+}
+
+function renderMixed(content: string, inline: boolean): ReactNode {
+  if (inline) return renderStaticPieces(content, true);
+  return splitTableSections(content).map((section, index) =>
+    <Fragment key={index}>{section.table
+      ? renderMarkdown(section.content, false)
+      : renderStaticPieces(section.content, false)}</Fragment>);
 }
 
 export function MarkdownContent({ content }: MarkdownContentProps) {
