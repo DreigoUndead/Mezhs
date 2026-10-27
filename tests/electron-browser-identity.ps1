@@ -64,12 +64,19 @@ module.exports = {
           const timeout = setTimeout(() => reject(new Error("child window timed out")), 5000);
           window.webContents.once("did-create-window", childWindow => {
             const sameSession = childWindow.webContents.session === session;
+            const preferences = childWindow.webContents.getLastWebPreferences();
+            const childSecurity = {
+              sandbox: preferences.sandbox === true,
+              contextIsolation: preferences.contextIsolation === true,
+              nodeIntegrationDisabled: preferences.nodeIntegration === false,
+              authOnlyPreload: preferences.preload?.endsWith("auth-preload.js") === true
+            };
             childWindow.webContents.once("did-finish-load", async () => {
               try {
                 const identity = await readIdentity(childWindow.webContents);
                 clearTimeout(timeout);
                 childWindow.destroy();
-                resolve({ identity, sameSession });
+                resolve({ identity, sameSession, childSecurity });
               } catch (error) {
                 clearTimeout(timeout);
                 childWindow.destroy();
@@ -118,7 +125,8 @@ module.exports = {
           sandboxState,
           main,
           child: childResult.identity,
-          childSameSession: childResult.sameSession
+          childSameSession: childResult.sameSession,
+          childSecurity: childResult.childSecurity
         };
       } finally {
         await new Promise(resolve => childHost.server.close(resolve));
@@ -280,6 +288,13 @@ try {
     }
     if (-not $response.redirectResult.redirectObserved -or $response.redirectResult.navigatedOutside) {
         throw 'The live Electron child did not block the off-origin HTTP redirect.'
+    }
+    if (-not $response.childSecurity.sandbox -or
+        -not $response.childSecurity.contextIsolation -or
+        -not $response.childSecurity.nodeIntegrationDisabled -or
+        -not $response.childSecurity.authOnlyPreload) {
+        throw ('OAuth child lost its sandbox, context isolation, Node restriction, or auth-only preload: ' +
+            ($response.childSecurity | ConvertTo-Json -Compress))
     }
     if (-not $response.childSameSession) {
         throw 'child OAuth window does not use the persistent provider session'
