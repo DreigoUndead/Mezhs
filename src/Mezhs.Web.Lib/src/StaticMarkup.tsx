@@ -1,4 +1,4 @@
-import { Fragment, ReactNode } from "react";
+import { CSSProperties, Fragment, ReactNode } from "react";
 
 // Models can emit static ChatGPT-style presentation tags. This is a deliberately
 // small, inert vocabulary, NOT JSX/HTML evaluation or a full DIL runtime.
@@ -119,17 +119,20 @@ function spacing(value?: string) {
   if (!value || !/^\d+(?:\.\d+)?$/.test(value)) return undefined;
   return Math.min(Number(value), 12) * 4;
 }
-function alignment(value?: string) {
+function alignment(value?: string): CSSProperties["alignItems"] {
   if (value === "start") return "flex-start";
   if (value === "end") return "flex-end";
   if (value === "center" || value === "stretch" || value === "baseline") return value;
   return undefined;
 }
-function justification(value?: string) {
+function justification(value?: string): CSSProperties["justifyContent"] {
   if (value === "between") return "space-between";
   if (value === "around") return "space-around";
   if (value === "evenly") return "space-evenly";
-  return alignment(value);
+  if (value === "start") return "flex-start";
+  if (value === "end") return "flex-end";
+  if (value === "center") return "center";
+  return undefined;
 }
 function safeHref(value?: string) {
   return value && /^(https?:|mailto:)/i.test(value) ? value : undefined;
