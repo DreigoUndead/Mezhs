@@ -107,4 +107,7 @@ if ($agentApp -notmatch 'Promise\.allSettled' -or
     throw "Agent Web couples durable execution refresh to the remote chat-message request."
 }
 
+node (Join-Path $root "tests/agent-web-rich-formatting.test.cjs")
+if ($LASTEXITCODE -ne 0) { throw "Shared chat rich-formatting regressions failed." }
+
 Write-Host "PASS: shared chat/target controls, generic provider model discovery, independent Agent execution refresh, and canonical Agent protocol/evidence rendering are wired through their owning components."
