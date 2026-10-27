@@ -70,7 +70,7 @@ if ($agentCss -match 'min-height:\s*108px' -or
     throw "Agent composer is not compact or its native target dropdown options can fall back to the dark shared theme."
 }
 if ($shared -notmatch '<MarkdownContent content=\{message\.content\}' -or
-    $markdown -notmatch '```' -or $markdown -notmatch 'safeLink') {
+    $markdown -notmatch 'remarkGfm' -or $markdown -notmatch 'remarkStaticUi') {
     throw "Shared chat content is not rendered through the safe Markdown owner."
 }
 if ($resize -notmatch 'useLayoutEffect' -or $resize -notmatch 'scrollHeight') {
