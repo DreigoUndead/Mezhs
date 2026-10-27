@@ -14,3 +14,21 @@
 .markdown-content code { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
 .markdown-content :not(pre) > code { padding: .12em .35em; border-radius: 5px; background: #ece9e2; font-size: .92em; }
 .markdown-content a { color: #55672c; text-decoration: underline; text-underline-offset: 2px; }
+
+/* Markdown/GFM tables and inert model-provided presentation elements. */
+.markdown-content .markdown-table-wrap { max-width: 100%; margin: .8em 0; overflow-x: auto; }
+.markdown-content table { width: 100%; border-collapse: collapse; font-size: .95em; }
+.markdown-content th, .markdown-content td { padding: 8px 11px; border: 1px solid #ded9cf; vertical-align: top; }
+.markdown-content th { background: #ebe8df; font-weight: 700; }
+.markdown-content tbody tr:nth-child(even) { background: #f2efe7; }
+.markdown-content .rich-row { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; margin: .25em 0; }
+.markdown-content .rich-col, .markdown-content .rich-box { display: flex; flex-direction: column; min-width: 0; gap: 4px; }
+.markdown-content .rich-box { margin: .35em 0 .85em; }
+.markdown-content .rich-bordered { padding: 12px; border: 1px solid #ded9cf; border-radius: 10px; }
+.markdown-content .rich-row .rich-box, .markdown-content .rich-row .rich-col { flex: 1 1 auto; }
+.markdown-content .rich-row > *, .markdown-content .rich-box > * { min-width: 0; }
+.markdown-content .rich-badge { display: inline-flex; align-items: center; max-width: 100%; padding: 2px 8px; border-radius: 999px; background: #e9e6df; font-size: .82em; font-weight: 650; white-space: normal; }
+.markdown-content .rich-badge.rich-success { background: #e5efdc; color: #477829; }
+.markdown-content .rich-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; font-weight: 800; color: #477829; }
+.markdown-content .rich-title { font-size: 1.08em; }
+.markdown-content .rich-caption { font-size: .86em; color: #746f66; }
