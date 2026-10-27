@@ -18,7 +18,7 @@ const output = esbuild.buildSync({
   platform: "node",
   format: "cjs",
   write: false,
-  loader: { ".css": "empty" },
+  loader: { ".css": "text" },
   external: ["react", "react/jsx-runtime", "react-dom"],
 }).outputFiles[0].text;
 
