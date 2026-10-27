@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <Target Name="BuildFrontend" BeforeTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
-    <Exec WorkingDirectory="$(FrontendRoot)" Command="npm install" Condition="!Exists('$(FrontendRoot)node_modules') Or !Exists('$(FrontendRoot)node_modules\@mezhs\web-lib\package.json')" />
+    <Exec WorkingDirectory="$(FrontendRoot)" Command="npm install" Condition="!Exists('$(FrontendRoot)node_modules') Or !Exists('$(FrontendRoot)node_modules\@mezhs\web-lib\package.json') Or !Exists('$(FrontendRoot)node_modules\react-markdown\package.json')" />
     <Exec WorkingDirectory="$(FrontendRoot)" Command="npm run build" />
   </Target>
 </Project>
