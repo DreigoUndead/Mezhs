@@ -1,5 +1,5 @@
 // Authentication destinations are exact HTTPS origins documented by the providers.
-// Unknown OAuth/enterprise-SSO redirects fail closed until their chain is verified.
+// shortcut: Unknown OAuth/enterprise-SSO redirects fail closed; add hosts only after verifying the chain.
 const authOrigins = new Map([
   ["https://chatgpt.com", [
     "https://chatgpt.com",
@@ -13,7 +13,6 @@ const authOrigins = new Map([
     "https://grok.com",
     "https://accounts.x.ai",
     "https://auth.x.ai",
-    "https://auth.grok.com",
     "https://x.com",
     "https://accounts.google.com",
     "https://appleid.apple.com"
