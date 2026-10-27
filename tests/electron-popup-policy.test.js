@@ -12,7 +12,7 @@ test("Only provider-specific authentication HTTPS origins are accepted", () => {
     ["https://chatgpt.com/", "https://login.live.com/oauth20_authorize.srf", true],
     ["https://grok.com/", "https://accounts.x.ai/", true],
     ["https://grok.com/", "https://auth.x.ai/signin", true],
-    ["https://grok.com/", "https://auth.grok.com/", true],
+    ["https://grok.com/", "https://auth.grok.com/", false],
     ["https://grok.com/", "https://x.com/i/flow/login", true],
     ["https://gemini.google.com/app", "https://accounts.google.com/", true],
     ["https://gemini.google.com/app", "https://auth.openai.com/", false],
