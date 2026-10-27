@@ -17,6 +17,7 @@ const output = esbuild.buildSync({
   bundle: true,
   platform: "node",
   format: "cjs",
+  jsx: "automatic",
   write: false,
   loader: { ".css": "text" },
   external: ["react", "react/jsx-runtime", "react-dom"],
