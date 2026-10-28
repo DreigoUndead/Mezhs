@@ -30,8 +30,12 @@ jobs:
       - name: Install provider response converter
         shell: pwsh
         run: |
-          npm install --prefix electron --ignore-scripts --no-audit --no-fund
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Push-Location electron
+          try {
+            npm install --ignore-scripts --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          finally { Pop-Location }
           node --test tests/provider-response-normalization.test.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
