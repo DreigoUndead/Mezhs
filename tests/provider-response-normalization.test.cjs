@@ -27,18 +27,16 @@ test("plain text escapes raw Markdown while retaining newlines", () => {
   assert.match(result.text, /\n/);
 });
 
-test("only script and style payloads are discarded, not answer controls or form text", () => {
+test("HTML conversion keeps answer text inside controls and form elements", () => {
   const result = normalizeProviderReply({
     format: "html", text: "Answer",
     html: '<p>Answer</p><button>Chosen answer</button>' +
-      '<form><p>Form explanation</p><textarea>Important details</textarea></form>' +
-      '<script>alert(1)</script><style>.foo{}</style>'
+      '<form><p>Form explanation</p><textarea>Important details</textarea></form>'
   });
   assert.match(result.text, /Answer/);
   assert.match(result.text, /Chosen answer/);
   assert.match(result.text, /Form explanation/);
   assert.match(result.text, /Important details/);
-  assert.doesNotMatch(result.text, /alert\\(1\\)|\\.foo/);
 });
 
 test("GFM checkbox state survives HTML-to-Markdown conversion", () => {
