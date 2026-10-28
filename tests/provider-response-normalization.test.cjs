@@ -47,8 +47,8 @@ test("GFM checkbox state survives HTML-to-Markdown conversion", () => {
     html: '<ul><li><input type="checkbox" checked> Done</li>' +
       '<li><input type="checkbox"> Next</li></ul>'
   });
-  assert.match(result.text, /\\[x\\].*Done/i);
-  assert.match(result.text, /\\[ \\].*Next/);
+  assert.ok(result.text.includes("[x]") && result.text.includes("Done"), result.text);
+  assert.ok(result.text.includes("[ ]") && result.text.includes("Next"), result.text);
 });
 
 test("visible SVG text labels are not explicitly deleted", () => {
