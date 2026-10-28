@@ -17,7 +17,7 @@ test("provider HTML retains semantic headings, bold, code, links, lists and tabl
   assert.match(result.text, /First/);
   assert.match(result.text, /```/);
   assert.match(result.text, /\| Name \| Result \|/);
-  assert.doesNotMatch(result, /html/);
+  assert.equal(Object.prototype.hasOwnProperty.call(result, "html"), false);
 });
 
 test("plain text escapes raw Markdown while retaining newlines", () => {
