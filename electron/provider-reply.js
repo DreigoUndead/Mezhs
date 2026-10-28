@@ -10,9 +10,7 @@ function normalizeProviderReply(result) {
     return result;
   if (result.format !== "plain" && result.format !== "html") return result;
 
-
-  // HTML conversion is only performed when the provider has returned actual
-  // response markup. We do not invent structure from flattened text.
+  // Never infer Markdown structure from flattened provider text.
   let text = "";
   if (typeof result.html === "string" && result.html.trim())
     text = converter.turndown(result.html).trim();
