@@ -32,7 +32,7 @@ jobs:
         run: |
           Push-Location electron
           try {
-            npm install --ignore-scripts --no-audit --no-fund
+            npm ci --omit=dev --ignore-scripts --no-audit --no-fund
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           finally { Pop-Location }
