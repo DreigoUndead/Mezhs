@@ -1,6 +1,3 @@
-const TurndownService = require("turndown");
-const { gfm } = require("turndown-plugin-gfm");
-
 // Only the provider boundary knows whether text is raw Markdown, a rendered
 // HTML response or unformatted text. Chat storage/clients receive Markdown.
 function normalizeProviderReply(result) {
@@ -9,6 +6,10 @@ function normalizeProviderReply(result) {
   if (result.format === "markdown") return result;
   if (result.format !== "plain" && result.format !== "html") return result;
 
+  // Other providers can still run against an existing Electron installation
+  // even before the user installs this optional response-conversion dependency.
+  const TurndownService = require("turndown");
+  const { gfm } = require("turndown-plugin-gfm");
   const converter = new TurndownService({ codeBlockStyle: "fenced", headingStyle: "atx" });
   converter.use(gfm);
   converter.remove(["script", "style", "button", "svg", "form", "input", "textarea"]);
