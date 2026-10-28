@@ -57,6 +57,18 @@ Do not infer that Actions failed to run merely because `fetch_commit_workflow_ru
 
 Never store secrets, tokens, or other sensitive values in the result file, and keep temporary validation changes out of the final review diff.
 
+Prefer writing code using internal guthub tool instead of shell commands.
+
+##Question-driven, behavior-preserving simplification.
+
+Before changing or adding code, challenge every abstraction and responsibility:
+
+- Question necessity: Why does this class, interface, wrapper, or code path exist? Is it still needed?
+- Identify essential behavior: What must actually continue working? Separate business requirements from legacy implementation details.
+- Trace ownership and side effects: Find who creates, reads, writes, and consumes the data. Don't assume a method's purpose from its name.
+- Simplify aggressively: Remove redundant layers, move logic to its natural owner, and prefer direct, explicit code.
+- Verify independently: Confirm preserved behavior through code paths and tests. Distinguish proven facts from assumptions.
+
 ## Design intent
 
 The skills are not rigid coding rules. They are a sanity loop:
