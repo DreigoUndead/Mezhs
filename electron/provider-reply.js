@@ -12,10 +12,6 @@ function normalizeProviderReply(result) {
   const { gfm } = require("turndown-plugin-gfm");
   const converter = new TurndownService({ codeBlockStyle: "fenced", headingStyle: "atx" });
   converter.use(gfm);
-  // Strip non-answer code/styles, not arbitrary elements that may contain
-  // meaningful response content (e.g. buttons, task checkboxes or SVG labels).
-  // Provider-specific chrome should be excluded by the provider extractor.
-  converter.remove(["script", "style"]);
 
   // HTML conversion is only performed when the provider has returned actual
   // response markup. We do not invent structure from flattened text.
