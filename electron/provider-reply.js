@@ -8,7 +8,6 @@ converter.use(gfm);
 function normalizeProviderReply(result) {
   if (!result || typeof result !== "object" || typeof result.text !== "string")
     return result;
-  if (result.format === "markdown") return result;
   if (result.format !== "plain" && result.format !== "html") return result;
 
 
@@ -20,8 +19,7 @@ function normalizeProviderReply(result) {
 
   if (!text) {
     const escaped = result.text
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     text = converter.turndown("<p>" + escaped.replace(/\r\n?|\n/g, "<br>") + "</p>").trim();
   }
   const { html, format, ...rest } = result;
