@@ -27,12 +27,36 @@ test("plain text escapes raw Markdown while retaining newlines", () => {
   assert.match(result.text, /\n/);
 });
 
-test("rich response removes non-content elements", () => {
+test("only script and style payloads are discarded, not answer controls or form text", () => {
   const result = normalizeProviderReply({
     format: "html", text: "Answer",
-    html: '<p>Answer</p><button>Copy</button><script>alert(1)</script><style>.foo{}</style>'
+    html: '<p>Answer</p><button>Chosen answer</button>' +
+      '<form><p>Form explanation</p><textarea>Important details</textarea></form>' +
+      '<script>alert(1)</script><style>.foo{}</style>'
   });
-  assert.equal(result.text, "Answer");
+  assert.match(result.text, /Answer/);
+  assert.match(result.text, /Chosen answer/);
+  assert.match(result.text, /Form explanation/);
+  assert.match(result.text, /Important details/);
+  assert.doesNotMatch(result.text, /alert\\(1\\)|\\.foo/);
+});
+
+test("GFM checkbox state survives HTML-to-Markdown conversion", () => {
+  const result = normalizeProviderReply({
+    format: "html", text: "Done Next",
+    html: '<ul><li><input type="checkbox" checked> Done</li>' +
+      '<li><input type="checkbox"> Next</li></ul>'
+  });
+  assert.match(result.text, /\\[x\\].*Done/i);
+  assert.match(result.text, /\\[ \\].*Next/);
+});
+
+test("visible SVG text labels are not explicitly deleted", () => {
+  const result = normalizeProviderReply({
+    format: "html", text: "Revenue 120",
+    html: '<p>Summary</p><svg><title>Revenue chart</title><text>Revenue 120</text></svg>'
+  });
+  assert.match(result.text, /Revenue 120/);
 });
 
 test("explicit Markdown is passed through and existing transport replies are unchanged", () => {
