@@ -71,7 +71,7 @@ if ($agentCss -match 'min-height:\s*108px' -or
 }
 if ($shared -notmatch '<MarkdownContent content=\{message\.content\}' -or
     $sharedApp -notmatch '<MarkdownContent content=\{message\.content\}' -or
-    $markdown -notmatch 'remarkGfm' -or $markdown -notmatch 'remarkStaticUi') {
+    $markdown -notmatch 'remarkGfm' -or $markdown -match 'remarkMdx|StaticMarkup') {
     throw "Both chat surfaces must render messages through the shared Markdown owner."
 }
 if ($resize -notmatch 'useLayoutEffect' -or $resize -notmatch 'scrollHeight') {
