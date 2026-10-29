@@ -139,7 +139,7 @@ module.exports = {
           const chatUrl = location.href;
           if (!isGrokConversationUrl(chatUrl))
             throw new Error(`Grok response completed without a conversation URL at ${chatUrl}.`);
-          return { text: current.text, format: "plain", html: current.html, chatUrl };
+          return { text: current.text, chatUrl };
         }
         await sleep(500);
       }
@@ -341,10 +341,7 @@ function responseSnapshot() {
       return {
         count: nodes.length,
         node,
-        text: String(node.innerText || node.textContent || "").trim(),
-        // Only the dedicated reply-content node is known to exclude controls.
-        html: selector === ".response-content-markdown" && typeof node.innerHTML === "string"
-          ? node.innerHTML : undefined
+        text: String(node.textContent || "").trim()
       };
     }
   }
