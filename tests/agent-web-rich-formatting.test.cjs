@@ -49,53 +49,36 @@ test("GFM formatting is owned by the library", () => {
   assert.match(output, /<em>italic<\/em>/);
 });
 
-test("nested layout components accept literal values and parse nested Markdown", () => {
-  const output = html('<box gap={1}><row align="center" gap={2}><icon name="check-circle" color="success"/> **Done**</row><row justify="between"><text color="secondary">Main</text><badge color="success">0 ahead</badge></row></box>');
-  assert.match(output, /class="rich-box"/);
-  assert.match(output, /class="rich-row"/);
-  assert.match(output, /class="rich-badge rich-success"/);
-  assert.match(output, /<strong>Done<\/strong>/);
-  assert.doesNotMatch(output, /&lt;row|&lt;box/);
+test("standard Markdown links, blockquotes and fenced code render normally", () => {
+  const output = html(
+    "> A **quoted** point\n\n" +
+    "[Website](https://example.com)\n\n" +
+    "```js\nconst message = '<box>text</box>';\n```"
+  );
+  assert.match(output, /<blockquote>/);
+  assert.match(output, /<strong>quoted<\/strong>/);
+  assert.match(output, /href="https:\/\/example\.com"/);
+  assert.match(output, /<pre><code/);
+  assert.match(output, /&lt;box&gt;text&lt;\/box&gt;/);
 });
 
-test("custom Link markup works inside GFM table cells", () => {
-  const output = html('| Pull request | Status |\n|---|---|\n| <Link url="https://github.com/example/repo/pull/21" title="PR #21"/> | Merged |');
-  assert.match(output, /<table>/);
-  assert.match(output, /href="https:\/\/github.com\/example\/repo\/pull\/21"/);
-  assert.match(output, /PR #21/);
-  assert.match(output, /<td>Merged<\/td>/);
+test("model-supplied HTML and UI-like tags remain text, not components", () => {
+  const output = html('<row align="center"><badge color="success">Done</badge></row>\n\n<script>alert(1)</script>');
+  assert.match(output, /&lt;row/);
+  assert.match(output, /&lt;badge/);
+  assert.match(output, /Done/);
+  assert.doesNotMatch(output, /class="rich-|<script>/);
 });
 
-
-test("screenshot-style mixed status layouts and PR table render together", () => {
-  const content = '<row align="center" gap={2}><icon name="check-circle" color="success"/> **MEŽS merge completed.**</row>\n\n' +
-    '<box gap={1}><row justify="between"><text color="secondary">Current main</text><badge color="success">0 ahead · 0 behind</badge></row></box>\n\n' +
-    '| Pull request | Final status |\n|---|---|\n| <Link url="https://github.com/example/repo/pull/21" title="PR #21"/> | Merged |';
-  const output = html(content);
-  assert.match(output, /class="rich-row"/);
-  assert.match(output, /<strong>MEŽS merge completed\.<\/strong>/);
-  assert.match(output, /class="rich-badge rich-success"/);
-  assert.match(output, /<table>/);
-  assert.match(output, /href="https:\/\/github.com\/example\/repo\/pull\/21"/);
-  assert.doesNotMatch(output, /&lt;box|&lt;Link/);
+test("unsafe links and HTML event handlers are not activated", () => {
+  const output = html('[Unsafe](javascript:alert(1))\n\n<img src="x" onerror="alert(1)">');
+  assert.doesNotMatch(output, /href="javascript:/i);
+  assert.doesNotMatch(output, /<img\b|onerror=(?!&quot;)/i);
+  assert.match(output, /&lt;img/);
 });
 
-test("inline code and fenced code never become model UI components", () => {
-  const output = html("Use \`<row>literal</row>\`.\n\n\`\`\`html\n<box>not a layout</box>\n\`\`\`");
-  assert.match(output, /&lt;row&gt;literal&lt;\/row&gt;/);
-  assert.match(output, /&lt;box&gt;not a layout&lt;\/box&gt;/);
-  assert.doesNotMatch(output, /class="rich-box"/);
-});
-
-test("untrusted markup, URLs and expressions never execute", () => {
-  const output = html('<script>alert(1)</script><Link url="javascript:alert(1)" title="Bad"/><row gap={globalThis.hack()}>Safe</row>');
-  assert.doesNotMatch(output, /href="javascript:/);
-  assert.doesNotMatch(output, /<script>/);
-  assert.doesNotMatch(output, /onclick=/i);
-  assert.match(output, /Safe/);
-});
-
-test("incomplete markup falls back without crashing or executing code", () => {
-  assert.match(html("<row><badge>Unclosed"), /Unclosed/);
-  assert.match(html("<escape><DONE></escape>"), /DONE/);
+test("incomplete custom markup is displayed without crashing", () => {
+  const output = html('<row><badge>Unclosed');
+  assert.match(output, /Unclosed/);
+  assert.doesNotMatch(output, /class="rich-/);
 });
