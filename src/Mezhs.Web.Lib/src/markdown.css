@@ -1,4 +1,4 @@
-.markdown-content { white-space: normal; }
+.markdown-content { white-space: normal; overflow-x: auto; }
 .markdown-content > :first-child { margin-top: 0; }
 .markdown-content > :last-child { margin-bottom: 0; }
 .markdown-content p { margin: 0 0 .8em; }
@@ -14,3 +14,9 @@
 .markdown-content code { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
 .markdown-content :not(pre) > code { padding: .12em .35em; border-radius: 5px; background: #ece9e2; font-size: .92em; }
 .markdown-content a { color: #55672c; text-decoration: underline; text-underline-offset: 2px; }
+
+/* GFM tables. */
+.markdown-content table { width: 100%; border-collapse: collapse; font-size: .95em; }
+.markdown-content th, .markdown-content td { padding: 8px 11px; border: 1px solid #ded9cf; vertical-align: top; }
+.markdown-content th { background: #ebe8df; font-weight: 700; }
+.markdown-content tbody tr:nth-child(even) { background: #f2efe7; }

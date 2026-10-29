@@ -70,8 +70,9 @@ if ($agentCss -match 'min-height:\s*108px' -or
     throw "Agent composer is not compact or its native target dropdown options can fall back to the dark shared theme."
 }
 if ($shared -notmatch '<MarkdownContent content=\{message\.content\}' -or
-    $markdown -notmatch '```' -or $markdown -notmatch 'safeLink') {
-    throw "Shared chat content is not rendered through the safe Markdown owner."
+    $sharedApp -notmatch '<MarkdownContent content=\{message\.content\}' -or
+    $markdown -notmatch 'remarkGfm' -or $markdown -match 'remarkMdx|StaticMarkup') {
+    throw "Both chat surfaces must render messages through the shared Markdown owner."
 }
 if ($resize -notmatch 'useLayoutEffect' -or $resize -notmatch 'scrollHeight') {
     throw "Shared composer resize is not performed before paint from the textarea's measured content."
@@ -106,5 +107,8 @@ if ($agentApp -notmatch 'Promise\.allSettled' -or
     $agentApp -notmatch 'loadExecutions\(chatId, signal\)') {
     throw "Agent Web couples durable execution refresh to the remote chat-message request."
 }
+
+node (Join-Path $root "tests/agent-web-rich-formatting.test.cjs")
+if ($LASTEXITCODE -ne 0) { throw "Shared chat rich-formatting regressions failed." }
 
 Write-Host "PASS: shared chat/target controls, generic provider model discovery, independent Agent execution refresh, and canonical Agent protocol/evidence rendering are wired through their owning components."
