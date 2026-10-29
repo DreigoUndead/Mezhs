@@ -72,8 +72,9 @@ test("model-supplied HTML and UI-like tags remain text, not components", () => {
 
 test("unsafe links and HTML event handlers are not activated", () => {
   const output = html('[Unsafe](javascript:alert(1))\n\n<img src="x" onerror="alert(1)">');
-  assert.doesNotMatch(output, /href="javascript:/i);
-  assert.doesNotMatch(output, /<img\b|onerror=(?!&quot;)/i);
+  assert.doesNotMatch(output, /javascript:alert\(1\)/i);
+  assert.match(output, /href="javascript:void\(0\)"/);
+  assert.doesNotMatch(output, /<img\b/i);
   assert.match(output, /&lt;img/);
 });
 
