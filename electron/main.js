@@ -7,7 +7,6 @@ const {
   configureSessionBrowserIdentity
 } = require("./browser-identity");
 const { invokeDiagnostic } = require("./diagnostics");
-const { normalizeProviderReply } = require("./provider-reply");
 
 let window = null;
 let browserModule = null;
@@ -236,7 +235,7 @@ function queueProviderOperation(request) {
   operationQueue = operationQueue.then(async () => {
     state.status = "running";
     try {
-      state.result = normalizeProviderReply(await invokeProvider(request, progress => {
+      state.result = await invokeProvider(request, progress => {
         if (!progress || typeof progress !== "object") return;
         const progressState = String(progress.state || "").trim();
         if (!progressState) return;
@@ -245,7 +244,7 @@ function queueProviderOperation(request) {
           detail: progress.detail == null ? null : String(progress.detail),
           analysis: progress.analysis == null ? null : String(progress.analysis)
         };
-      }));
+      });
       state.status = "completed";
     } catch (error) {
       state.error = String(error?.stack ?? error);
