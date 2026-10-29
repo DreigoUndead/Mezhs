@@ -50,12 +50,7 @@ module.exports = {
             if (messages.length > beforeCount && text && text === lastText) stableSamples++;
             else stableSamples = 0;
             lastText = text;
-            if (text && !stopButton && stableSamples >= 6) return {
-              ok: true,
-              text,
-              format: 'plain',
-              html: typeof latest?.innerHTML === 'string' ? latest.innerHTML : undefined
-            };
+            if (text && !stopButton && stableSamples >= 6) return { ok: true, text };
             await sleep(500);
           }
         })()
