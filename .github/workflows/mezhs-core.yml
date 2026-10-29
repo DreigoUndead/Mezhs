@@ -27,18 +27,6 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Install provider response converter
-        shell: pwsh
-        run: |
-          Push-Location electron
-          try {
-            npm ci --omit=dev --ignore-scripts --no-audit --no-fund
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-          finally { Pop-Location }
-          node --test tests/provider-response-normalization.test.cjs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: JavaScript syntax and provider regression tests
         shell: pwsh
         run: |
