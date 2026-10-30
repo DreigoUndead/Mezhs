@@ -71,6 +71,7 @@ jobs:
           foreach ($test in @(
             'agent-architecture.ps1',
             'agent-provider-lifetime.ps1',
+            'gemini-account-login-flow.ps1',
             'integration-resources.ps1'
           )) {
             pwsh -NoProfile -File (Join-Path tests $test)
