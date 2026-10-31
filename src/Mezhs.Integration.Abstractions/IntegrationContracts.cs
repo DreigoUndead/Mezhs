@@ -99,8 +99,7 @@ public sealed record IntegrationMessageContext(
     string Content,
     bool Completed,
     DateTimeOffset CreatedAt,
-    string? Model = null,
-    string? RenderedHtml = null);
+    string? Model = null);
 
 public sealed record IntegrationSendContext(
     IntegrationChatContext Chat,
@@ -156,4 +155,5 @@ public sealed record IntegrationSendResult(
     string? RemoteConversationId = null,
     string? RemoteParentMessageId = null,
     IReadOnlyList<IntegrationOutputFile>? Files = null,
-    string? Model = null);
+    string? Model = null,
+    string? RenderedHtml = null);
