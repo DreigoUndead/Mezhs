@@ -29,6 +29,7 @@ compiled.filename = file;
 compiled.paths = Module._nodeModulePaths(frontend);
 compiled._compile(output, file);
 const html = (value) => renderToStaticMarkup(React.createElement(compiled.exports.MarkdownContent, { content: value }));
+const render = (renderedHtml, content = "Fallback") => renderToStaticMarkup(React.createElement(compiled.exports.MarkdownContent, { content, renderedHtml }));
 
 test("GFM tables, cell alignment, and escaped pipes", () => {
   const output = html("| Name | Result |\n| :--- | ---: |\n| A \\| B | **PASS** |");
@@ -82,4 +83,24 @@ test("incomplete custom markup is displayed without crashing", () => {
   const output = html('<row><badge>Unclosed');
   assert.match(output, /Unclosed/);
   assert.doesNotMatch(output, /class="rich-/);
+});
+
+test("rendered provider HTML preserves semantic structure", () => {
+  const output = render("<section><h3>Rich result</h3><table><tr><th>Key</th><th>Value</th></tr><tr><td>A</td><td>12</td></tr></table><blockquote>Explanation</blockquote></section>");
+  assert.match(output, /<h3>Rich result<\/h3>/);
+  assert.match(output, /<table>/);
+  assert.match(output, /<th>Key<\/th>/);
+  assert.match(output, /<blockquote>Explanation<\/blockquote>/);
+});
+
+test("provider HTML is sanitized, not executable", () => {
+  const output = render('<div onclick="alert(1)"><b>Safe</b><script>alert(2)</script><a href="javascript:alert(3)">Unsafe</a><img src="https://example.com/icon.png" onerror="alert(4)"></div>');
+  assert.match(output, /<b>Safe<\/b>/);
+  assert.doesNotMatch(output, /onclick=|onerror=|<script>|javascript:alert/i);
+  assert.match(output, /<img/);
+});
+
+test("plain Markdown is used when no provider HTML exists", () => {
+  const output = render(undefined, "## **Markdown fallback**");
+  assert.match(output, /<h2><strong>Markdown fallback<\/strong><\/h2>/);
 });

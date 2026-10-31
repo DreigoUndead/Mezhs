@@ -20,3 +20,5 @@
 .markdown-content th, .markdown-content td { padding: 8px 11px; border: 1px solid #ded9cf; vertical-align: top; }
 .markdown-content th { background: #ebe8df; font-weight: 700; }
 .markdown-content tbody tr:nth-child(even) { background: #f2efe7; }
+.markdown-content img { max-width: 100%; height: auto; }
+.markdown-content figure { margin: .75em 0; }
