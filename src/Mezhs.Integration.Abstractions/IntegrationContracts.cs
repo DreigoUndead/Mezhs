@@ -99,7 +99,8 @@ public sealed record IntegrationMessageContext(
     string Content,
     bool Completed,
     DateTimeOffset CreatedAt,
-    string? Model = null);
+    string? Model = null,
+    string? RenderedHtml = null);
 
 public sealed record IntegrationSendContext(
     IntegrationChatContext Chat,

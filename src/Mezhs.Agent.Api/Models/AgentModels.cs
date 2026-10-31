@@ -105,7 +105,8 @@ public sealed record AgentChatMessageView(
     string? Analysis,
     DateTimeOffset? ActivityAt,
     IReadOnlyList<AgentProtocolCommandView> Commands,
-    bool CompletionClaimed);
+    bool CompletionClaimed,
+    string? RenderedHtml = null);
 
 public sealed class ExecutionRecord
 {

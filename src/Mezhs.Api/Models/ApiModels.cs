@@ -36,6 +36,7 @@ public sealed class StoredMessage
     public required string Role { get; init; }
     public string Origin { get; init; } = "human";
     public required string Content { get; init; }
+    public string? RenderedHtml { get; init; }
     public string? Model { get; init; }
     public IReadOnlyList<string> FileIds { get; init; } = [];
     public string? ParentMessageId { get; init; }

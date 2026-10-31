@@ -41,7 +41,8 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
                 token);
             return new IntegrationSendResult(
                 response.Text,
-                response.ChatUrl);
+                response.ChatUrl,
+                RenderedHtml: response.Html);
         }, cancellationToken);
 
     private static IntegrationConnection Validate(IntegrationConnection connection)
@@ -58,7 +59,8 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
 
     private sealed record GrokSendResponse(
         string Text,
-        string? ChatUrl);
+        string? ChatUrl,
+        string? Html = null);
 
     private sealed class LoginModule(BrowserAccountSession session) : ILoginModule
     {
