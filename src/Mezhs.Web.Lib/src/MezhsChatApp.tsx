@@ -691,7 +691,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                     )}
                     {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
                   </div>
-                  {message.content && <div className="message-content"><MarkdownContent content={message.content} /></div>}
+                  {message.content && <div className="message-content"><MarkdownContent content={message.content} renderedHtml={message.renderedHtml} /></div>}
                   {message.files?.length > 0 && (
                     <div className="message-files">
                       {message.files.map((file) => file.contentType.startsWith("image/") ? (
