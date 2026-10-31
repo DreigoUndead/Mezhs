@@ -49,7 +49,7 @@ function mockPage(mode, options = {}) {
         hasAttribute: name => name === 'data-message-complete' &&
           !options.neverComplete && ticks >= (options.completeAfterTicks ?? 0),
         children: [{ innerText: 'ChatGPT said:' },
-          { get innerText() {
+          { innerHTML: "<h3>Octane answer</h3>", get innerText() {
             return ticks >= (options.contentAfterTicks ?? 2) && !options.emptyReply
               ? 'OCTANE_OK' : '';
           } }]
@@ -119,6 +119,7 @@ test('Octane sends once through preload and waits for completed, readable reply'
   assert.equal(page.navigations, 1);
   assert.equal(result.ok, true);
   assert.equal(result.text, 'OCTANE_OK');
+  assert.equal(result.html, '<h3>Octane answer</h3>');
   assert.equal(result.submissionAttempted, true);
   assert.ok(page.ticks >= 2);
 });
