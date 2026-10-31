@@ -104,3 +104,9 @@ test("plain Markdown is used when no provider HTML exists", () => {
   const output = render(undefined, "## **Markdown fallback**");
   assert.match(output, /<h2><strong>Markdown fallback<\/strong><\/h2>/);
 });
+
+test("rendered HTML keeps the provider text accessible as a fallback", () => {
+  const output = render("<svg><text>Unsupported chart</text></svg>", "Chart value: 42");
+  assert.match(output, /Show original text/);
+  assert.match(output, /Chart value: 42/);
+});

@@ -9,7 +9,13 @@ export function MarkdownContent({ content, renderedHtml }: { content: string; re
   return (
     <div className="markdown-content">
       {renderedHtml
-        ? <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{renderedHtml}</Markdown>
+        ? <>
+            <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{renderedHtml}</Markdown>
+            {content && <details className="rich-text-fallback">
+              <summary>Show original text</summary>
+              <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+            </details>}
+          </>
         : <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>}
     </div>
   );
