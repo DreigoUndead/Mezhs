@@ -63,12 +63,21 @@ test("standard Markdown links, blockquotes and fenced code render normally", () 
   assert.match(output, /&lt;box&gt;text&lt;\/box&gt;/);
 });
 
-test("model-supplied HTML and UI-like tags remain text, not components", () => {
-  const output = html('<row align="center"><badge color="success">Done</badge></row>\n\n<script>alert(1)</script>');
-  assert.match(output, /&lt;row/);
-  assert.match(output, /&lt;badge/);
-  assert.match(output, /Done/);
-  assert.doesNotMatch(output, /class="rich-|<script>/);
+test("ChatGPT rich markup from an Agent reply renders a real row and icon", () => {
+  const output = html('<row align="center" gap={2}><icon name="check-circle" color="success" size="lg"/> **Removal completed successfully.** </row>\n\nThe changes are applied.');
+  assert.match(output, /class="rich-row"/);
+  assert.match(output, /gap:8px/);
+  assert.match(output, /<svg[^>]*class="[^"]*lucide/);
+  assert.match(output, /<strong>Removal completed successfully\.<\/strong>/);
+  assert.match(output, /The changes are applied/);
+  assert.doesNotMatch(output, /&lt;row|&lt;icon/);
+});
+
+test("unsupported and executable MDX remains visible, not executable", () => {
+  const output = html('<unknown>Keep me</unknown>\n\n<row gap={globalThis.hack()}>Unsafe expression</row>');
+  assert.match(output, /Keep me/);
+  assert.match(output, /Unsafe expression/);
+  assert.doesNotMatch(output, /class="rich-row"|<unknown>|globalThis\.hack\(\)/);
 });
 
 test("unsafe links and HTML event handlers are not activated", () => {
