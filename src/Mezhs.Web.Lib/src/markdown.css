@@ -37,3 +37,10 @@
 .markdown-content .rich-tone-danger { color: #b13e35; }
 .markdown-content .rich-tone-warning { color: #956417; }
 .markdown-content .rich-tone-secondary, .markdown-content .rich-tone-muted { color: #746f66; }
+
+.markdown-content .rich-grid { display: grid; min-width: 0; margin: .35em 0 .8em; }
+.markdown-content .rich-grid-item { min-width: 0; }
+.markdown-content .rich-grid .rich-col { width: 100%; }
+@media (max-width: 680px) {
+  .markdown-content .rich-grid { grid-template-columns: minmax(0,1fr) !important; }
+}

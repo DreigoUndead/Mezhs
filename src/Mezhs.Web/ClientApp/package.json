@@ -16,7 +16,8 @@
     "rehype-raw": "6.1.1",
     "rehype-sanitize": "5.0.1",
     "remark-mdx": "2.3.0",
-    "lucide-react": "0.456.0"
+    "lucide-react": "0.456.0",
+    "json5": "2.2.3"
   },
   "devDependencies": {
     "@types/react": "18.2.79",

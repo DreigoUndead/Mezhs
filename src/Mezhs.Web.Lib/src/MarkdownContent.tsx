@@ -3,7 +3,7 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkMdx from "remark-mdx";
-import { remarkRichMarkup, richComponents } from "./RichMarkup";
+import { remarkRichMarkup, richComponents, expandRichTemplates } from "./RichMarkup";
 import "./markdown.css";
 
 // Provider DOM markup is parsed and sanitized as data; it is never executed.
@@ -28,7 +28,7 @@ function RichMarkdown({ content }: { content: string }) {
   // Incomplete markup (including an in-progress reply) remains readable as Markdown.
   try {
     return Markdown({
-      children: content,
+      children: expandRichTemplates(content),
       remarkPlugins: [remarkGfm, remarkMdx as unknown as typeof remarkGfm, remarkRichMarkup],
       components: richComponents,
     });
