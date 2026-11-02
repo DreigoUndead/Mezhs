@@ -17,6 +17,7 @@ if (-not (Test-Path -LiteralPath $executable)) {
 $temp = Join-Path $env:RUNNER_TEMP ('mezhs-browser-identity-' + [Guid]::NewGuid().ToString('N'))
 $profile = Join-Path $temp 'profile'
 $modulePath = Join-Path $temp 'integration.js'
+$pagePath = Join-Path $temp 'page.js'
 $stdoutPath = Join-Path $temp 'stdout.log'
 $stderrPath = Join-Path $temp 'stderr.log'
 New-Item -ItemType Directory -Path $profile -Force | Out-Null
@@ -58,6 +59,7 @@ module.exports = {
     async inspect({ window, session, page }) {
       await new Promise(resolve => setTimeout(resolve, 2500));
       const attachedPageText = await page.invoke("bodyText");
+    const sandboxState = await page.invoke("sandboxState");
       const main = await readIdentity(window.webContents);
       const childHost = await createChildServer();
       try {
@@ -86,6 +88,7 @@ module.exports = {
         return {
           sessionUserAgent: session.getUserAgent(),
           attachedPageText,
+          sandboxState,
           main,
           child: childResult.identity,
           childSameSession: childResult.sameSession
@@ -95,13 +98,23 @@ module.exports = {
       }
     }
   },
+  pageOperationFile: "page.js",
+  pageOperations: require("./page.js").pageOperations
+};
+'@ | Set-Content -LiteralPath $modulePath -Encoding UTF8
+
+@'
+module.exports = {
   pageOperations: {
-    bodyText() {
-      return document.body?.textContent?.trim() || "";
+    bodyText() { return document.body?.textContent?.trim() || ""; },
+    sandboxState() {
+      let unrestrictedNode = false;
+      try { require("node:fs"); unrestrictedNode = true; } catch {}
+      return { enabled: process.sandboxed === true, unrestrictedNode };
     }
   }
 };
-'@ | Set-Content -LiteralPath $modulePath -Encoding UTF8
+'@ | Set-Content -LiteralPath $pagePath -Encoding UTF8
 
 $previous = @{
     PROFILE = $env:MEZHS_PROFILE_DIRECTORY
@@ -220,6 +233,12 @@ try {
 
     if ($response.attachedPageText -ne 'identity') {
         throw "attached page operation did not execute in the loaded renderer: $($response.attachedPageText)"
+    }
+    if (-not $response.sandboxState.enabled) {
+        throw 'The live provider preload did not run inside the Chromium renderer sandbox.'
+    }
+    if ($response.sandboxState.unrestrictedNode) {
+        throw 'The sandboxed preload was able to import an unrestricted Node.js built-in.'
     }
     if ($response.sessionUserAgent -match 'Electron|mezhs') {
         throw "Session user agent leaks an embedded-browser product token: $($response.sessionUserAgent)"

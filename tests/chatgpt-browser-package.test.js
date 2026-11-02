@@ -8,11 +8,11 @@ const browser = path.resolve(__dirname, "../integrations/Mezhs.Integrations.Chat
 const modules = path.join(browser, "modules");
 const names = [
   "account-files.js", "account-messages.js", "account-models.js", "account-results.js",
-  "account-stream.js", "account-transport.js", "entry.js", "guest.js"
+  "account-stream.js", "account-transport.js", "entry.js", "guest-page.js", "guest.js"
 ];
 const operationNames = ["getModels", "getProjects", "newChat", "send", "sendPrompt"];
 
-test("ChatGPT deploys only the eight original CommonJS modules", () => {
+test("ChatGPT deploys the nine CommonJS modules including sandbox page code", () => {
   assert.deepEqual(fs.readdirSync(modules).filter(name => name.endsWith(".js")).sort(), names);
   assert.equal(fs.existsSync(path.join(browser, "chatgpt.ts")), false);
   assert.equal(fs.existsSync(path.join(browser, "build.js")), false);

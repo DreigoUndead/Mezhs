@@ -39,6 +39,7 @@ interface BrowserModule {
   readonly homeUrl: string;
   readonly operations: Record<string, BrowserOperation>;
   readonly pageOperations?: Record<string, BrowserPageOperation>;
+  readonly pageOperationFile?: string | true;
 
   isAuthorized?(window: BrowserWindow): Promise<boolean>;
   afterInitialize?(context: InitializationContext): Promise<void>;

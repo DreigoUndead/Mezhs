@@ -70,14 +70,14 @@ if ($coreIntegrationContract -notmatch 'IntegrationAttribute') {
 }
 
 $moduleRoot = [IO.Path]::GetFullPath((Join-Path $root "integrations/Mezhs.Integrations.ChatGpt/browser/modules"))
-$moduleNames = @('entry.js', 'guest.js', 'account-transport.js', 'account-models.js',
+$moduleNames = @('entry.js', 'guest.js', 'guest-page.js', 'account-transport.js', 'account-models.js',
     'account-files.js', 'account-messages.js', 'account-stream.js', 'account-results.js')
 $runtimeJavascript = @(Get-ChildItem (Join-Path $root "integrations") -Filter "*.js" -File -Recurse)
 $unexpectedJavascript = @($runtimeJavascript | Where-Object {
     $_.DirectoryName -ne $moduleRoot -or $_.Name -notin $moduleNames
 })
 if ($unexpectedJavascript -or $runtimeJavascript.Count -ne $moduleNames.Count) {
-    throw "Integration JavaScript must consist only of the eight ChatGPT source modules."
+    throw "Integration JavaScript must consist only of the nine ChatGPT source modules."
 }
 $chatGptProject = Get-Content (Join-Path $root 'integrations/Mezhs.Integrations.ChatGpt/Mezhs.Integrations.ChatGpt.csproj') -Raw
 if ((Test-Path (Join-Path $root 'integrations/Mezhs.Integrations.ChatGpt/browser/chatgpt.ts')) -or
