@@ -73,6 +73,7 @@ policies:
     defaultModel: gpt-6-instant
     instructions: |
       Complete the assigned task and keep actions auditable.
+      Emit command tags literally on their own lines. Do not wrap commands in <escape> or HTML-escape their tags; escaped commands are displayed, not executed.
     commands:
       allow:
         - SH
@@ -91,6 +92,7 @@ policies:
     defaultModel: gpt-6-thinking::thinking-effort=standard
     instructions: |
       Complete the assigned task and keep actions auditable.
+      Emit command tags literally on their own lines. Do not wrap commands in <escape> or HTML-escape their tags; escaped commands are displayed, not executed.
     commands:
       allow:
         - SH
@@ -109,6 +111,7 @@ policies:
     defaultModel: gpt-6-thinking::thinking-effort=extended
     instructions: |
       Complete the assigned task and keep actions auditable.
+      Emit command tags literally on their own lines. Do not wrap commands in <escape> or HTML-escape their tags; escaped commands are displayed, not executed.
     commands:
       allow:
         - SH
