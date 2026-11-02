@@ -261,11 +261,50 @@ function shieldFences(source: string) {
   return { result, fences };
 }
 
+// Markdown backtick spans are literal examples, not template instructions.
+// The lightweight scanner leaves JSX template literals (width={\`...\`})
+// alone so their restricted expressions can still be evaluated.
+function shieldInlineCode(source: string, protectedBlocks: string[]) {
+  let result = "";
+  let cursor = 0;
+  while (cursor < source.length) {
+    const open = source.indexOf("\`", cursor);
+    if (open < 0) break;
+    let count = 1;
+    while (source[open + count] === "\`") count++;
+    let search = open + count;
+    let close = -1;
+    while (search < source.length) {
+      const candidate = source.indexOf("\`", search);
+      if (candidate < 0) break;
+      let run = 1;
+      while (source[candidate + run] === "\`") run++;
+      if (run === count) { close = candidate; break; }
+      search = candidate + run;
+    }
+    if (close < 0) {
+      result += source.slice(cursor, open + count);
+      cursor = open + count;
+      continue;
+    }
+    const end = close + count;
+    if (/=\s*\{$/.test(source.slice(Math.max(0, open - 32), open))) {
+      result += source.slice(cursor, end);
+    } else {
+      result += source.slice(cursor, open) + "\uE000" + protectedBlocks.length + "\uE001";
+      protectedBlocks.push(source.slice(open, end));
+    }
+    cursor = end;
+  }
+  return result + source.slice(cursor);
+}
+
 export function expandRichTemplates(content: string) {
   if (!content.includes("{#each") && !/\b(?:border|padding|width)\s*=\s*\{/.test(content)) return content;
   const { result, fences } = shieldFences(content);
+  const shielded = shieldInlineCode(result, fences);
   try {
-    return expand(result, Object.create(null), 0, { count: 0 })
+    return expand(shielded, Object.create(null), 0, { count: 0 })
       .replace(/\uE000(\d+)\uE001/g, (_, n: string) => fences[Number(n)] || "");
   } catch {
     return content;
