@@ -208,6 +208,7 @@
     "tests/electron-network-trace.test.js",
     "tests/electron-page-operation-lifecycle.test.js",
     "tests/electron-rspack-inspection.test.js",
+    "tests/gemini-browser-module.test.js",
     "tests/grok-browser-module.test.js",
     "transports/Mezhs.Browser.Abstractions/IChatBrowserTransport.cs",
     "transports/Mezhs.Browser.Abstractions/Mezhs.Browser.Abstractions.csproj",
@@ -342,6 +343,14 @@
         "name": "System.Reflection"
       },
       "raw": "System.Reflection"
+    },
+    {
+      "from": 24,
+      "to": {
+        "type": "external",
+        "name": "node:crypto"
+      },
+      "raw": "node:crypto"
     },
     {
       "from": 24,
@@ -4639,7 +4648,39 @@
       "raw": "node:test"
     },
     {
-      "from": 211,
+      "from": 209,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 209,
+      "to": {
+        "type": "external",
+        "name": "node:fs"
+      },
+      "raw": "node:fs"
+    },
+    {
+      "from": 209,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 209,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 212,
       "to": {
         "type": "external",
         "name": "Mezhs.Browser"
@@ -4647,7 +4688,7 @@
       "raw": "Mezhs.Browser"
     },
     {
-      "from": 211,
+      "from": 212,
       "to": {
         "type": "external",
         "name": "System.Diagnostics"
@@ -4655,7 +4696,7 @@
       "raw": "System.Diagnostics"
     },
     {
-      "from": 211,
+      "from": 212,
       "to": {
         "type": "external",
         "name": "System.Net.Http.Json"
@@ -4663,7 +4704,7 @@
       "raw": "System.Net.Http.Json"
     },
     {
-      "from": 211,
+      "from": 212,
       "to": {
         "type": "external",
         "name": "System.Text.Json"
@@ -4675,7 +4716,7 @@
     "mode": "semantic",
     "backend": "native",
     "parserDegradedFiles": 0,
-    "nativeFilesUsed": 154,
+    "nativeFilesUsed": 155,
     "nativeFilesFellBack": 0,
     "label": "native semantic"
   }

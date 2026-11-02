@@ -22,6 +22,10 @@ connections:
     name: ChatGPT Guest
     integration: chatgpt-web
 
+  - id: gemini-account
+    name: Gemini Account
+    integration: gemini-web-account
+
   - id: gemini-guest
     name: Gemini Guest
     integration: gemini-web

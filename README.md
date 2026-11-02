@@ -2,7 +2,11 @@
 
 MEŽS exposes multiple AI integrations through one asynchronous HTTP API and one React frontend. Integrations may use a browser session, a native/local runtime, or a direct service API; the MEŽS core does not assume which transport an integration needs.
 
-Current built-in integrations are ChatGPT Web, ChatGPT Account, Gemini Web, Grok, and deterministic Mock integrations used by the test suite.
+Current built-in integrations are ChatGPT Web, ChatGPT Account, Gemini Web, Gemini Account, Grok, and deterministic Mock integrations used by the test suite.
+
+## Gemini account setup
+
+Select **Gemini Account** in the Web UI and sign in to Google in the MEŽS browser window. The account profile is persisted under `<storage.root>/connections/gemini-account/profile` (`data/connections/gemini-account/profile` with the default configuration). Account requests reuse the shared serialized browser-session lifecycle, verify sign-in before sending, and reconstruct conversation context from local MEŽS history. **Gemini Guest** continues to use disposable anonymous sessions. Gemini Account currently uses the website's default model and does not advertise model selection or attachments.
 
 ## Agent runtime
 
