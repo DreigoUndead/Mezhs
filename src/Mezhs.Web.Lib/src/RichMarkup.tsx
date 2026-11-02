@@ -60,8 +60,8 @@ function layout(props: RichProps): CSSProperties {
   const gap = read(props, "gap");
   const align = read(props, "align");
   const justify = read(props, "justify");
-  const positions: Record<string, string> = { start: "flex-start", center: "center", end: "flex-end" };
-  const justifications: Record<string, string> = { ...positions, between: "space-between", around: "space-around" };
+  const positions: Record<string, CSSProperties["alignItems"]> = { start: "flex-start", center: "center", end: "flex-end" };
+  const justifications: Record<string, CSSProperties["justifyContent"]> = { start: "flex-start", center: "center", end: "flex-end", between: "space-between", around: "space-around" };
   return {
     gap: /^\d+(?:\.\d+)?$/.test(gap) ? Math.min(12, Number(gap)) * 4 : undefined,
     alignItems: positions[align],
