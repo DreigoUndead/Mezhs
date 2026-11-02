@@ -1,0 +1,31 @@
+name: Temporary frontend lockfile refresh
+on:
+  push:
+    branches:
+      - review/chat-rich-formatting
+permissions:
+  contents: write
+jobs:
+  refresh:
+    if: github.repository == 'DreigoUndead/Mezhs'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Refresh and commit lockfile, removing this temporary workflow
+        shell: bash
+        run: |
+          npm install --package-lock-only --lockfile-version=1 --ignore-scripts --no-audit --no-fund --prefix src/Mezhs.Web/ClientApp
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/Mezhs.Web/ClientApp/package-lock.json
+          git rm .github/workflows/temp-rich-lock-refresh.yml
+          git diff --cached --stat
+          git diff --cached --quiet && { echo 'Expected lockfile update'; exit 1; } || true
+          git commit -m 'Refresh rich-renderer frontend lockfile and remove temporary workflow'
+          git push origin HEAD:review/chat-rich-formatting
