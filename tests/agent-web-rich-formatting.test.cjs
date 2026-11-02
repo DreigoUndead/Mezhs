@@ -77,7 +77,8 @@ test("unsupported and executable MDX remains visible, not executable", () => {
   const output = html('<unknown>Keep me</unknown>\n\n<row gap={globalThis.hack()}>Unsafe expression</row>');
   assert.match(output, /Keep me/);
   assert.match(output, /Unsafe expression/);
-  assert.doesNotMatch(output, /class="rich-row"|<unknown>|globalThis\.hack\(\)/);
+  assert.match(output, /&lt;row gap=\{globalThis\.hack\(\)\}/);
+  assert.doesNotMatch(output, /class="rich-row"|<unknown>/);
 });
 
 test("unsafe links and HTML event handlers are not activated", () => {
