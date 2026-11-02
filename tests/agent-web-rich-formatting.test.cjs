@@ -192,3 +192,65 @@ test("fenced DIL examples stay code and do not expand", () => {
   assert.match(output, /#each/);
   assert.match(output, /signal\.name/);
 });
+
+
+test("indexed tracing DIL loops render computed indent, border, and tabular spans", () => {
+  const input = [
+    "## Tracing fix completed and validated",
+    "",
+    '<badge color="success">PASS — Connected HTTP tracing</badge>',
+    "",
+    "The isolated integration test confirms one HTTP trace.",
+    "",
+    '<box border radius="lg" padding={3} gap={2}>',
+    '<text color="secondary" size="xs" weight="medium">Measured integration-test trace</text>',
+    '<box gap={2}>',
+    '{#each [{name:"HTTP GET /traceprobe",time:"210.85 ms",depth:0},',
+    '{name:"HTTP middleware",time:"154.39 ms",depth:1},',
+    '{name:"MVC TraceProbe.Get",time:"99.17 ms",depth:2},',
+    '{name:"Controller.Get",time:"55.09 ms",depth:3},',
+    '{name:"Query (simulated)",time:"23.36 ms",depth:4}] as s,i}',
+    '<row key={i} align="center" gap={2}>',
+    '<box width={`${s.depth*13}px`}/>',
+    '<box flex="1" border={{left:{size:2,color:i===0?"strong":"subtle"}}} padding={{left:2}}>',
+    '<row justify="between" align="center">',
+    '<text size="sm">{s.name}</text>',
+    '<text color="secondary" size="xs" tabularNums>{s.time}</text>',
+    '</row></box></row>',
+    '{/each}</box></box>',
+    "",
+    "## Changes made",
+  ].join("\n");
+  const output = html(input);
+  assert.match(output, /<h2>Tracing fix completed and validated<\/h2>/);
+  assert.match(output, /class="rich-badge rich-tone-success"/);
+  assert.match(output, /PASS — Connected HTTP tracing/);
+  for (const value of ["HTTP GET /traceprobe", "HTTP middleware", "MVC TraceProbe.Get",
+    "Controller.Get", "Query (simulated)", "210.85 ms", "23.36 ms", "Changes made"])
+    assert.ok(output.includes(value), "missing " + value);
+  assert.equal((output.match(/class="rich-row"/g) || []).length, 10);
+  assert.match(output, /width:52px/);
+  assert.match(output, /border-left:2px solid/);
+  assert.match(output, /padding-left:8px/);
+  assert.match(output, /font-variant-numeric:tabular-nums/);
+  assert.doesNotMatch(output, /\{#each|\{s\.name\}|\{s\.time\}|&lt;box|&lt;row/);
+});
+
+test("bad rich block cannot disable earlier supported badges", () => {
+  const input = '<badge color="success">PASS</badge>\n\n<box border={{left:{size:2,color:evil()}}}>Unsafe fragment';
+  const output = html(input);
+  assert.match(output, /class="rich-badge rich-tone-success"/);
+  assert.match(output, /evil\(\)/);
+  assert.doesNotMatch(output, /<script|onerror=/);
+});
+
+test("template expression calls and prototype access stay inert", () => {
+  const input = [
+    '<box>{#each [{name:"ok", depth:1}] as s,i}',
+    '<row key={i}><box width={`${s.depth.constructor(200)}px`}/><text>{s.name}</text></row>',
+    '{/each}</box>'
+  ].join("\n");
+  const output = html(input);
+  assert.doesNotMatch(output, /width:200px/);
+  assert.match(output, /constructor/);
+});

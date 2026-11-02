@@ -90,7 +90,7 @@ function evaluate(node: Expr, scope: Record<string, unknown>, depth = 0): unknow
       let result = node.quasis[0].value.cooked || "";
       for (let i = 0; i < node.expressions.length; i++) {
         const value = next(node.expressions[i]);
-        if (!["string", "number", "boolean"].includes(typeof value)) break;
+        if (!["string", "number", "boolean"].includes(typeof value)) throw Error("Unsafe template interpolation");
         result += String(value) + (node.quasis[i + 1].value.cooked || "");
       }
       if (result.length <= 2048) return result;
