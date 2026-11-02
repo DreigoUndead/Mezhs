@@ -262,7 +262,7 @@ function shieldFences(source: string) {
 }
 
 export function expandRichTemplates(content: string) {
-  if (!content.includes("{#each")) return content;
+  if (!content.includes("{#each") && !/\b(?:border|padding|width)\s*=\s*\{/.test(content)) return content;
   const { result, fences } = shieldFences(content);
   try {
     return expand(result, Object.create(null), 0, { count: 0 })

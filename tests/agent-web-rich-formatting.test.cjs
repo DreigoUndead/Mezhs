@@ -254,3 +254,13 @@ test("template expression calls and prototype access stay inert", () => {
   assert.doesNotMatch(output, /width:200px/);
   assert.match(output, /constructor/);
 });
+
+
+test("standalone object-valued layout properties use the restricted evaluator", () => {
+  const output = html('<box border={{left:{size:2,color:"subtle"}}} padding={{left:2}}>Standalone</box>');
+  assert.match(output, /class="rich-box"/);
+  assert.match(output, /border-left:2px solid/);
+  assert.match(output, /padding-left:8px/);
+  assert.match(output, /Standalone/);
+  assert.doesNotMatch(output, /&lt;box/);
+});
