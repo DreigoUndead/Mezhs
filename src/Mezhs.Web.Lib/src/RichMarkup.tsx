@@ -135,6 +135,7 @@ export const richComponents = {
 
 
 const maxLoopItems = 40;
+const maxTotalIterations = 256;
 const maxExpandedLength = 180_000;
 
 // The only supported template data is a JSON5 literal array; functions, calls
@@ -197,7 +198,7 @@ function interpolate(source: string, scope: Record<string, unknown>) {
   });
 }
 
-function expandEach(source: string, scope: Record<string, unknown>, level: number): string {
+function expandEach(source: string, scope: Record<string, unknown>, level: number, budget: { iterations: number }): string {
   if (level > 4) throw new Error("Nested UI templates exceed limit");
   let result = "";
   let cursor = 0;
@@ -212,7 +213,8 @@ function expandEach(source: string, scope: Record<string, unknown>, level: numbe
     result += interpolate(source.slice(cursor, start), scope);
     const body = source.slice(opening.end, closing.start);
     for (const value of values) {
-      result += expandEach(body, { ...scope, [opening.name]: value }, level + 1);
+      if (++budget.iterations > maxTotalIterations) throw new Error("Too many UI template iterations");
+      result += expandEach(body, { ...scope, [opening.name]: value }, level + 1, budget);
       if (result.length > maxExpandedLength) throw new Error("Expanded UI too large");
     }
     cursor = closing.end;
@@ -258,7 +260,7 @@ export function expandRichTemplates(content: string) {
   if (!content.includes("{#each")) return content;
   const { source, fences } = shieldFences(content);
   try {
-    return expandEach(source, {}, 0).replace(/\uE000(\d+)\uE001/g, (_, n: string) => fences[Number(n)] ?? "");
+    return expandEach(source, {}, 0, { iterations: 0 }).replace(/\uE000(\d+)\uE001/g, (_, n: string) => fences[Number(n)] ?? "");
   } catch {
     return content; // Unknown or invalid syntax remains readable.
   }
