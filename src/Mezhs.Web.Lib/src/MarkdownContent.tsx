@@ -7,11 +7,21 @@ import { remarkRichMarkup, richComponents } from "./RichMarkup";
 import { expandRichTemplates } from "./RichExpression";
 import "./markdown.css";
 
+// A browser guest may return the literal DIL tags as escaped DOM text.
+// Prefer the restricted rich renderer only in that case; preserve real provider
+// HTML (tables, images, etc.) otherwise.
+const richTag = /<(?:row|col|box|grid|grid-item|text|badge|icon|Link)(?=[\s/>])/;
+const escapedRichTag = /&lt;\s*(?:row|col|box|grid|grid-item|text|badge|icon|link)(?=\s|\/|&gt;)/i;
+
+function useRichSource(content: string, renderedHtml?: string | null) {
+  return !!renderedHtml && richTag.test(content) && escapedRichTag.test(renderedHtml);
+}
+
 // Provider DOM markup is parsed and sanitized as data; it is never executed.
 export function MarkdownContent({ content, renderedHtml }: { content: string; renderedHtml?: string | null }) {
   return (
     <div className="markdown-content">
-      {renderedHtml
+      {renderedHtml && !useRichSource(content, renderedHtml)
         ? <>
             <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{renderedHtml}</Markdown>
             {content && <details className="rich-text-fallback">
