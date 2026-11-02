@@ -161,7 +161,7 @@ test("template values cannot inject HTML or execute JavaScript", () => {
   const source = '<grid>{#each [{name:"<img src=x onerror=alert(1)>"}] as signal}<grid-item>{signal.name}</grid-item>{/each}</grid>';
   const output = html(source);
   assert.match(output, /&lt;img/);
-  assert.doesNotMatch(output, /<img\b|onerror="|onerror=alert/);
+  assert.doesNotMatch(output, /<img\b|onerror="/);
   assert.match(output, /class="rich-grid-item"/);
 });
 
