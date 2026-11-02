@@ -3,7 +3,8 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkMdx from "remark-mdx";
-import { remarkRichMarkup, richComponents, expandRichTemplates } from "./RichMarkup";
+import { remarkRichMarkup, richComponents } from "./RichMarkup";
+import { expandRichTemplates } from "./RichExpression";
 import "./markdown.css";
 
 // Provider DOM markup is parsed and sanitized as data; it is never executed.
@@ -23,9 +24,7 @@ export function MarkdownContent({ content, renderedHtml }: { content: string; re
   );
 }
 
-function RichMarkdown({ content }: { content: string }) {
-  // JSX syntax is parsed into inert AST nodes; model expressions are never evaluated.
-  // Incomplete markup (including an in-progress reply) remains readable as Markdown.
+function renderRichChunk(content: string) {
   try {
     return Markdown({
       children: expandRichTemplates(content),
@@ -34,5 +33,21 @@ function RichMarkdown({ content }: { content: string }) {
     });
   } catch {
     return <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>;
+  }
+}
+
+function RichMarkdown({ content }: { content: string }) {
+  try {
+    return Markdown({
+      children: expandRichTemplates(content),
+      remarkPlugins: [remarkGfm, remarkMdx as unknown as typeof remarkGfm, remarkRichMarkup],
+      components: richComponents,
+    });
+  } catch {
+    // A malformed or unsupported block should not disable earlier rich blocks.
+    // Recovery is paragraph-scoped; the original text stays visible for failures.
+    return <>{content.split(/\n\s*\n/).map((chunk, i) =>
+      <div key={i}>{renderRichChunk(chunk)}</div>
+    )}</>;
   }
 }

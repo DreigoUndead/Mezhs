@@ -18,6 +18,7 @@
     "rehype-sanitize": "5.0.1",
     "remark-mdx": "2.3.0",
     "lucide-react": "0.456.0",
-    "json5": "2.2.3"
+    "json5": "2.2.3",
+    "acorn": "8.14.1"
   }
 }

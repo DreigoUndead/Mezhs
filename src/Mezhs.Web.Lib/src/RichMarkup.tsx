@@ -1,5 +1,4 @@
 import { ReactNode, CSSProperties } from "react";
-import JSON5 from "json5";
 import type { Components } from "react-markdown";
 import { Check, CircleCheck, CircleAlert, CircleX, Info, ArrowDown, GitBranch, GitPullRequest } from "lucide-react";
 
@@ -14,7 +13,7 @@ type MarkupNode = {
 };
 
 const components = new Set(["row", "col", "box", "grid", "grid-item", "text", "badge", "icon", "Link"]);
-const attributes = new Set(["gap", "align", "justify", "color", "name", "size", "border", "strong", "url", "title", "columns", "padding", "radius", "background", "width", "weight", "textAlign"]);
+const attributes = new Set(["gap", "align", "justify", "color", "name", "size", "border", "strong", "url", "title", "columns", "padding", "radius", "background", "width", "weight", "textAlign", "key", "flex", "tabularNums"]);
 
 // Parse supported JSX-like markup as DATA. Unknown constructs and executable
 // expressions remain escaped text. MDX is never compiled or evaluated.
@@ -70,16 +69,43 @@ function layout(props: RichProps): CSSProperties {
   };
 }
 
+function boundedSpacing(value: unknown): number | undefined {
+  const number = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : NaN;
+  return Number.isFinite(number) && number >= 0 && number <= 12 ? number * 4 : undefined;
+}
+
+function structured(props: RichProps, key: string): Record<string, unknown> | null {
+  const value = read(props, key);
+  if (!value.startsWith("json:")) return null;
+  try {
+    const data: unknown = JSON.parse(decodeURIComponent(value.slice(5)));
+    return data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
 function surface(props: RichProps): CSSProperties {
   const padding = read(props, "padding");
-  const radius = read(props, "radius");
+  const paddingObject = structured(props, "padding");
+  const border = structured(props, "border");
+  const left = border?.left && typeof border.left === "object" ? border.left as Record<string, unknown> : null;
   const width = read(props, "width");
+  const flex = read(props, "flex");
+  const radius = read(props, "radius");
+  const leftSize = boundedSpacing(left?.size);
   return {
     ...layout(props),
-    padding: /^\d+$/.test(padding) ? Math.min(12, Number(padding)) * 4 : undefined,
+    padding: boundedSpacing(padding),
+    paddingLeft: boundedSpacing(paddingObject?.left),
     borderRadius: ({ sm: 5, md: 9, lg: 14, full: 999 } as Record<string, number>)[radius],
     background: read(props, "background") === "surface-secondary" ? "#eeebe5" : undefined,
-    width: /^(?:100|[1-9]?\d)%$/.test(width) ? width : undefined,
+    width: /^(?:100|[1-9]?\d)%$/.test(width) ||
+      /^\d{1,3}(?:\.\d+)?px$/.test(width) && parseFloat(width) <= 500 ? width : undefined,
+    flex: /^(?:1|2|3)$/.test(flex) ? Number(flex) : undefined,
+    borderLeft: leftSize !== undefined && leftSize > 0
+      ? (leftSize / 4) + "px solid " + (left?.color === "strong" ? "#504e49" : "#d5d0c6")
+      : undefined,
   };
 }
 
@@ -113,6 +139,7 @@ export const richComponents = {
       fontWeight: read(props, "strong") === "true" || weight === "bold" ? 700 : weight === "medium" ? 500 : undefined,
       fontSize: ({ "2xs": ".72em", xs: ".8em", sm: ".9em", lg: "1.15em" } as Record<string, string>)[size],
       textAlign: read(props, "textAlign") === "center" ? "center" : undefined,
+      fontVariantNumeric: read(props, "tabularNums") === "true" ? "tabular-nums" : undefined,
     }}>{children}</span>;
   },
   "mezhs-badge": ({ children, ...props }: RichProps) => <span className={"rich-badge" + tone(props)}>{children}</span>,
@@ -132,136 +159,3 @@ export const richComponents = {
       : <span>{label}</span>;
   },
 } as Components;
-
-
-const maxLoopItems = 40;
-const maxTotalIterations = 256;
-const maxExpandedLength = 180_000;
-
-// The only supported template data is a JSON5 literal array; functions, calls
-// and arbitrary JavaScript are never parsed or executed.
-function parseEach(source: string, index: number) {
-  let start = index + "{#each".length;
-  while (/\s/.test(source[start] || "")) start++;
-  if (source[start] !== "[") return null;
-  let depth = 0;
-  let quote = "";
-  for (let i = start; i < source.length; i++) {
-    const char = source[i];
-    if (quote) {
-      if (char === "\\") { i++; continue; }
-      if (char === quote) quote = "";
-    } else if (char === "'" || char === '"') {
-      quote = char;
-    } else if (char === "[") {
-      depth++;
-    } else if (char === "]" && --depth === 0) {
-      const after = /^\s+as\s+([A-Za-z_$][\w$]*)\s*\}/.exec(source.slice(i + 1));
-      if (!after) return null;
-      return { literal: source.slice(start, i + 1), name: after[1], end: i + 1 + after[0].length };
-    }
-  }
-  return null;
-}
-
-function closingEach(source: string, from: number) {
-  let depth = 1;
-  let position = from;
-  while (position < source.length) {
-    const next = source.indexOf("{#each", position);
-    const close = source.indexOf("{/each}", position);
-    if (close < 0) return null;
-    if (next >= 0 && next < close) {
-      depth++;
-      position = next + 6;
-    } else if (--depth === 0) {
-      return { start: close, end: close + "{/each}".length };
-    } else {
-      position = close + "{/each}".length;
-    }
-  }
-  return null;
-}
-
-function interpolate(source: string, scope: Record<string, unknown>) {
-  return source.replace(/\{([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\}/g, (match, path: string) => {
-    const segments = path.split(".");
-    let value: unknown = scope;
-    for (const segment of segments) {
-      if (value === null || typeof value !== "object" ||
-          !Object.prototype.hasOwnProperty.call(value, segment)) return match;
-      value = (value as Record<string, unknown>)[segment];
-    }
-    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") return match;
-    return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  });
-}
-
-function expandEach(source: string, scope: Record<string, unknown>, level: number, budget: { iterations: number }): string {
-  if (level > 4) throw new Error("Nested UI templates exceed limit");
-  let result = "";
-  let cursor = 0;
-  while (true) {
-    const start = source.indexOf("{#each", cursor);
-    if (start < 0) break;
-    const opening = parseEach(source, start);
-    const closing = opening && closingEach(source, opening.end);
-    if (!opening || !closing) throw new Error("Invalid UI template");
-    const values: unknown = JSON5.parse(opening.literal);
-    if (!Array.isArray(values) || values.length > maxLoopItems) throw new Error("Invalid UI template data");
-    result += interpolate(source.slice(cursor, start), scope);
-    const body = source.slice(opening.end, closing.start);
-    for (const value of values) {
-      if (++budget.iterations > maxTotalIterations) throw new Error("Too many UI template iterations");
-      result += expandEach(body, { ...scope, [opening.name]: value }, level + 1, budget);
-      if (result.length > maxExpandedLength) throw new Error("Expanded UI too large");
-    }
-    cursor = closing.end;
-  }
-  result += interpolate(source.slice(cursor), scope);
-  if (result.length > maxExpandedLength) throw new Error("Expanded UI too large");
-  return result;
-}
-
-// Leave fenced source examples intact: a fenced DIL snippet is documentation,
-// not an instruction to render a new UI.
-function shieldFences(source: string) {
-  const fences: string[] = [];
-  const lines = source.match(/[^\n]*\n|[^\n]+$/g) ?? [];
-  let output = "";
-  let open = "";
-  let block = "";
-  for (const line of lines) {
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (!open) {
-      if (!marker) { output += line; continue; }
-      open = marker;
-      block = line;
-    } else {
-      block += line;
-      if (marker && marker[0] === open[0] && marker.length >= open.length &&
-          /^\s*$/.test(line.slice(line.indexOf(marker) + marker.length))) {
-        output += "\uE000" + fences.length + "\uE001";
-        fences.push(block);
-        block = "";
-        open = "";
-      }
-    }
-  }
-  if (open) {
-    output += "\uE000" + fences.length + "\uE001";
-    fences.push(block);
-  }
-  return { source: output, fences };
-}
-
-export function expandRichTemplates(content: string) {
-  if (!content.includes("{#each")) return content;
-  const { source, fences } = shieldFences(content);
-  try {
-    return expandEach(source, {}, 0, { iterations: 0 }).replace(/\uE000(\d+)\uE001/g, (_, n: string) => fences[Number(n)] ?? "");
-  } catch {
-    return content; // Unknown or invalid syntax remains readable.
-  }
-}
