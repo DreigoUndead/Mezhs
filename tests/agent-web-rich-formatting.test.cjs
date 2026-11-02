@@ -120,3 +120,75 @@ test("rendered HTML keeps the provider text accessible as a fallback", () => {
   assert.match(output, /Show original text/);
   assert.match(output, /Chart value: 42/);
 });
+
+
+test("DIL telemetry example expands three entries into a styled grid", () => {
+  const sample = [
+    '<box border radius="lg" padding={3} gap={2}>',
+    '  <box background="surface-secondary" radius="md" padding={3} align="center">**eFlex Application**</box>',
+    '  <grid columns={3} gap={2}>',
+    '    {#each [{name:"Logs",source:"LogProvider",path:"/v1/logs"},',
+    '            {name:"Traces",source:"Initialize.cs",path:"/v1/traces"},',
+    '            {name:"Metrics",source:"Initialize.cs",path:"/v1/metrics"}] as signal}',
+    '      <grid-item><col align="center" gap={2}>',
+    '        <icon name="arrow-down" color="secondary"/>',
+    '        <box border radius="md" padding={2} width="100%" align="center" gap={1}>',
+    '          <text weight="medium" size="sm">{signal.name}</text>',
+    '          <text size="2xs" color="secondary" textAlign="center">{signal.source}</text>',
+    '        </box>',
+    '        <text>{signal.path}</text>',
+    '      </col></grid-item>',
+    '    {/each}',
+    '  </grid>',
+    '</box>',
+  ].join("\n");
+  const output = html(sample);
+  assert.match(output, /class="rich-grid"/);
+  assert.match(output, /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.equal((output.match(/class="rich-grid-item"/g) || []).length, 3);
+  assert.match(output, /Logs/);
+  assert.match(output, /Traces/);
+  assert.match(output, /Metrics/);
+  assert.match(output, /\/v1\/logs/);
+  assert.match(output, /\/v1\/traces/);
+  assert.match(output, /\/v1\/metrics/);
+  assert.match(output, /background:#eeebe5/);
+  assert.match(output, /<svg/);
+  assert.doesNotMatch(output, /\{#each|\{signal\.|&lt;grid/);
+});
+
+test("template values cannot inject HTML or execute JavaScript", () => {
+  const source = '<grid>{#each [{name:"<img src=x onerror=alert(1)>"}] as signal}<grid-item>{signal.name}</grid-item>{/each}</grid>';
+  const output = html(source);
+  assert.match(output, /&lt;img/);
+  assert.doesNotMatch(output, /<img\b|onerror="|onerror=alert/);
+  assert.match(output, /class="rich-grid-item"/);
+});
+
+test("unsafe loop expressions remain literal instead of being evaluated", () => {
+  const source = '<grid>{#each [globalThis.alert("bad")] as signal}<grid-item>{signal}</grid-item>{/each}</grid>';
+  const output = html(source);
+  assert.doesNotMatch(output, /class="rich-grid-item"/);
+  assert.match(output, /globalThis\.alert/);
+});
+
+test("nested loops only read own data fields and support literal values", () => {
+  const source = [
+    '<grid>{#each [{label:"A",children:[{text:"One"},{text:"Two"}]}] as outer}',
+    '<grid-item>{outer.label}',
+    '{#each [{label:"inside"}] as item}<text>{item.label}</text>{/each}',
+    '</grid-item>{/each}</grid>'
+  ].join("");
+  const output = html(source);
+  assert.match(output, /inside/);
+  assert.match(output, /A/);
+  assert.equal((output.match(/class="rich-grid-item"/g) || []).length, 1);
+});
+
+test("fenced DIL examples stay code and do not expand", () => {
+  const source = ['~~~dil', '{#each [{name:"Foo"}] as signal}', '{signal.name}', '{/each}', '~~~'].join("\n");
+  const output = html(source);
+  assert.match(output, /<pre><code/);
+  assert.match(output, /#each/);
+  assert.match(output, /signal\.name/);
+});
