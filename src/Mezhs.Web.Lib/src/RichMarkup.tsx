@@ -76,10 +76,10 @@ function surface(props: RichProps): CSSProperties {
   const width = read(props, "width");
   return {
     ...layout(props),
-    padding: /^\\d+$/.test(padding) ? Math.min(12, Number(padding)) * 4 : undefined,
+    padding: /^\d+$/.test(padding) ? Math.min(12, Number(padding)) * 4 : undefined,
     borderRadius: ({ sm: 5, md: 9, lg: 14, full: 999 } as Record<string, number>)[radius],
     background: read(props, "background") === "surface-secondary" ? "#eeebe5" : undefined,
-    width: /^(?:100|[1-9]?\\d)%$/.test(width) ? width : undefined,
+    width: /^(?:100|[1-9]?\d)%$/.test(width) ? width : undefined,
   };
 }
 
@@ -102,7 +102,7 @@ export const richComponents = {
     const columns = read(props, "columns");
     return <div className="rich-grid" style={{
       ...layout(props),
-      gridTemplateColumns: `repeat(${/^\\d+$/.test(columns) ? Math.min(6, Math.max(1, Number(columns))) : 1},minmax(0,1fr))`,
+      gridTemplateColumns: `repeat(${/^\d+$/.test(columns) ? Math.min(6, Math.max(1, Number(columns))) : 1},minmax(0,1fr))`,
     }}>{children}</div>;
   },
   "mezhs-grid-item": ({ children }: RichProps) => <div className="rich-grid-item">{children}</div>,
@@ -141,21 +141,21 @@ const maxExpandedLength = 180_000;
 // and arbitrary JavaScript are never parsed or executed.
 function parseEach(source: string, index: number) {
   let start = index + "{#each".length;
-  while (/\\s/.test(source[start] || "")) start++;
+  while (/\s/.test(source[start] || "")) start++;
   if (source[start] !== "[") return null;
   let depth = 0;
   let quote = "";
   for (let i = start; i < source.length; i++) {
     const char = source[i];
     if (quote) {
-      if (char === "\\\\") { i++; continue; }
+      if (char === "\\") { i++; continue; }
       if (char === quote) quote = "";
     } else if (char === "'" || char === '"') {
       quote = char;
     } else if (char === "[") {
       depth++;
     } else if (char === "]" && --depth === 0) {
-      const after = /^\\s+as\\s+([A-Za-z_$][\\w$]*)\\s*\\}/.exec(source.slice(i + 1));
+      const after = /^\s+as\s+([A-Za-z_$][\w$]*)\s*\}/.exec(source.slice(i + 1));
       if (!after) return null;
       return { literal: source.slice(start, i + 1), name: after[1], end: i + 1 + after[0].length };
     }
@@ -183,7 +183,7 @@ function closingEach(source: string, from: number) {
 }
 
 function interpolate(source: string, scope: Record<string, unknown>) {
-  return source.replace(/\\{([A-Za-z_$][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)*)\\}/g, (match, path: string) => {
+  return source.replace(/\{([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\}/g, (match, path: string) => {
     const segments = path.split(".");
     let value: unknown = scope;
     for (const segment of segments) {
@@ -226,7 +226,7 @@ function expandEach(source: string, scope: Record<string, unknown>, level: numbe
 // not an instruction to render a new UI.
 function shieldFences(source: string) {
   const fences: string[] = [];
-  const lines = source.match(/[^\\n]*\\n|[^\\n]+$/g) ?? [];
+  const lines = source.match(/[^\n]*\n|[^\n]+$/g) ?? [];
   let output = "";
   let open = "";
   let block = "";
@@ -239,8 +239,8 @@ function shieldFences(source: string) {
     } else {
       block += line;
       if (marker && marker[0] === open[0] && marker.length >= open.length &&
-          /^\\s*$/.test(line.slice(line.indexOf(marker) + marker.length))) {
-        output += "\\uE000" + fences.length + "\\uE001";
+          /^\s*$/.test(line.slice(line.indexOf(marker) + marker.length))) {
+        output += "\uE000" + fences.length + "\uE001";
         fences.push(block);
         block = "";
         open = "";
@@ -248,7 +248,7 @@ function shieldFences(source: string) {
     }
   }
   if (open) {
-    output += "\\uE000" + fences.length + "\\uE001";
+    output += "\uE000" + fences.length + "\uE001";
     fences.push(block);
   }
   return { source: output, fences };
@@ -258,7 +258,7 @@ export function expandRichTemplates(content: string) {
   if (!content.includes("{#each")) return content;
   const { source, fences } = shieldFences(content);
   try {
-    return expandEach(source, {}, 0).replace(/\\uE000(\\d+)\\uE001/g, (_, n: string) => fences[Number(n)] ?? "");
+    return expandEach(source, {}, 0).replace(/\uE000(\d+)\uE001/g, (_, n: string) => fences[Number(n)] ?? "");
   } catch {
     return content; // Unknown or invalid syntax remains readable.
   }
