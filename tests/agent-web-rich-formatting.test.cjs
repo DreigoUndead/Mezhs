@@ -264,3 +264,40 @@ test("standalone object-valued layout properties use the restricted evaluator", 
   assert.match(output, /Standalone/);
   assert.doesNotMatch(output, /&lt;box/);
 });
+
+
+test("guest DOM escaped rich tags use the shared rich renderer", () => {
+  const source = [
+    '<badge color="success">PASS</badge>',
+    '<box border radius="lg" padding={2}><row gap={2}>Nested result</row></box>',
+  ].join("\n");
+  const escapedDom = '<div class="markdown"><p>&lt;badge color="success"&gt;PASS&lt;/badge&gt;</p><p>&lt;box border&gt;Nested result&lt;/box&gt;</p></div>';
+  const output = render(escapedDom, source);
+  assert.match(output, /class="rich-badge rich-tone-success"/);
+  assert.match(output, /class="rich-box rich-bordered"/);
+  assert.match(output, /class="rich-row"/);
+  assert.doesNotMatch(output, /&lt;badge|&lt;box/);
+});
+
+test("provider HTML remains preferred for ordinary text and code samples", () => {
+  const source = ['## Example', '', 'Use \`<badge>PASS</badge>\` as a code sample.'].join("\n");
+  const providerDom = '<div class="provider"><h3>Native heading</h3><pre><code>&lt;badge&gt;PASS&lt;/badge&gt;</code></pre></div>';
+  const output = render(providerDom, source);
+  assert.match(output, /Native heading/);
+  assert.match(output, /<pre><code>&lt;badge&gt;PASS&lt;\/badge&gt;<\/code><\/pre>/);
+  assert.match(output, /Show original text/);
+});
+
+test("inline code samples do not expand loops or JSX attribute expressions", () => {
+  const source = [
+    'Example: \`{#each [{name:"Sample"}] as s}{s.name}{/each}\`.',
+    '',
+    'Example: \`<box padding={{left:2}}>literal</box>\`.',
+    '',
+    '<badge color="success">Actual badge</badge>',
+  ].join("\n");
+  const output = html(source);
+  assert.match(output, /<code>\{#each \[\{name:&quot;Sample&quot;\}\] as s\}\{s\.name\}\{\/each\}<\/code>/);
+  assert.match(output, /<code>&lt;box padding=\{\{left:2\}\}&gt;literal&lt;\/box&gt;<\/code>/);
+  assert.match(output, /class="rich-badge rich-tone-success"/);
+});
