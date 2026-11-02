@@ -29,7 +29,6 @@ compiled.filename = file;
 compiled.paths = Module._nodeModulePaths(frontend);
 compiled._compile(output, file);
 const html = (value) => renderToStaticMarkup(React.createElement(compiled.exports.MarkdownContent, { content: value }));
-const render = (renderedHtml, content = "Fallback") => renderToStaticMarkup(React.createElement(compiled.exports.MarkdownContent, { content, renderedHtml }));
 
 test("GFM tables, cell alignment, and escaped pipes", () => {
   const output = html("| Name | Result |\n| :--- | ---: |\n| A \\| B | **PASS** |");
@@ -95,31 +94,13 @@ test("incomplete custom markup is displayed without crashing", () => {
   assert.doesNotMatch(output, /class="rich-/);
 });
 
-test("rendered provider HTML preserves semantic structure", () => {
-  const output = render("<section><h3>Rich result</h3><table><tr><th>Key</th><th>Value</th></tr><tr><td>A</td><td>12</td></tr></table><blockquote>Explanation</blockquote></section>");
-  assert.match(output, /<h3>Rich result<\/h3>/);
-  assert.match(output, /<table>/);
-  assert.match(output, /<th>Key<\/th>/);
-  assert.match(output, /<blockquote>Explanation<\/blockquote>/);
-});
 
-test("provider HTML is sanitized, not executable", () => {
-  const output = render('<div onclick="alert(1)"><b>Safe</b><script>alert(2)</script><a href="javascript:alert(3)">Unsafe</a><img src="https://example.com/icon.png" onerror="alert(4)"></div>');
-  assert.match(output, /<b>Safe<\/b>/);
-  assert.doesNotMatch(output, /onclick=|onerror=|<script>|javascript:alert/i);
-  assert.match(output, /<img/);
-});
 
-test("plain Markdown is used when no provider HTML exists", () => {
-  const output = render(undefined, "## **Markdown fallback**");
-  assert.match(output, /<h2><strong>Markdown fallback<\/strong><\/h2>/);
-});
 
-test("rendered HTML keeps the provider text accessible as a fallback", () => {
-  const output = render("<svg><text>Unsupported chart</text></svg>", "Chart value: 42");
-  assert.match(output, /Show original text/);
-  assert.match(output, /Chart value: 42/);
-});
+
+
+
+
 
 
 test("DIL telemetry example expands three entries into a styled grid", () => {
@@ -266,27 +247,9 @@ test("standalone object-valued layout properties use the restricted evaluator", 
 });
 
 
-test("guest DOM escaped rich tags use the shared rich renderer", () => {
-  const source = [
-    '<badge color="success">PASS</badge>',
-    '<box border radius="lg" padding={2}><row gap={2}>Nested result</row></box>',
-  ].join("\n");
-  const escapedDom = '<div class="markdown"><p>&lt;badge color="success"&gt;PASS&lt;/badge&gt;</p><p>&lt;box border&gt;Nested result&lt;/box&gt;</p></div>';
-  const output = render(escapedDom, source);
-  assert.match(output, /class="rich-badge rich-tone-success"/);
-  assert.match(output, /class="rich-box rich-bordered"/);
-  assert.match(output, /class="rich-row"/);
-  assert.doesNotMatch(output, /&lt;badge|&lt;box/);
-});
 
-test("provider HTML remains preferred for ordinary text and code samples", () => {
-  const source = ['## Example', '', 'Use \`<badge>PASS</badge>\` as a code sample.'].join("\n");
-  const providerDom = '<div class="provider"><h3>Native heading</h3><pre><code>&lt;badge&gt;PASS&lt;/badge&gt;</code></pre></div>';
-  const output = render(providerDom, source);
-  assert.match(output, /Native heading/);
-  assert.match(output, /<pre><code>&lt;badge&gt;PASS&lt;\/badge&gt;<\/code><\/pre>/);
-  assert.match(output, /Show original text/);
-});
+
+
 
 test("inline code samples do not expand loops or JSX attribute expressions", () => {
   const source = [

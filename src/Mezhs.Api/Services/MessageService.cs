@@ -280,7 +280,6 @@ public sealed class MessageService(
                 Role = "assistant",
                 Origin = "assistant",
                 Content = result.Text,
-                RenderedHtml = result.RenderedHtml,
                 Model = NormalizeModel(result.Model),
                 FileIds = replyFileIds,
                 ParentMessageId = message.MessageId,
@@ -476,8 +475,7 @@ public sealed class MessageService(
             message.ActivityDetail,
             message.Analysis,
             message.ActivityAt,
-            message.ActivityHistory,
-            message.RenderedHtml);
+            message.ActivityHistory);
     }
 
     private static string NormalizeStoredOrigin(StoredMessage message)

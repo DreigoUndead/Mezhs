@@ -46,7 +46,6 @@ export type ChatMessage = {
   role: "user" | "assistant";
   origin: string;
   content: string;
-  renderedHtml?: string | null;
   model?: string | null;
   files: ApiFile[];
   status: "Queued" | "Running" | "Completed" | "Failed" | "Cancelled";

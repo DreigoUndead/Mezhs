@@ -60,7 +60,7 @@ public abstract class BrowserIntegrationBase(
                 cancellationToken);
             if (!response.Ok)
                 throw new InvalidOperationException(response.Error ?? "Anonymous browser request failed.");
-            return new IntegrationSendResult(response.Text, RenderedHtml: response.Html);
+            return new IntegrationSendResult(response.Text);
         }
         finally
         {
@@ -167,6 +167,5 @@ public abstract class BrowserIntegrationBase(
     private sealed record BrowserSendResult(
         bool Ok,
         string Text = "",
-        string? Error = null,
-        string? Html = null);
+        string? Error = null);
 }

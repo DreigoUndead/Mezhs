@@ -135,7 +135,7 @@ module.exports = {
         if (octaneMessages.length > octaneBefore && octane?.hasAttribute('data-message-complete')) {
           // Octane may mark completion before the rendered reply text is available.
           const content = octane.children[1]?.innerText?.trim() || '';
-          if (content) return { ok: true, text: content, html: octane.children[1]?.innerHTML, submissionAttempted: true };
+          if (content) return { ok: true, text: content, submissionAttempted: true };
           if (++blankCompleted >= 10)
             return fail('empty_guest_reply', 'ChatGPT completed the guest reply without readable text.', true);
         }
@@ -144,7 +144,7 @@ module.exports = {
         stable = text && text === lastText ? stable + 1 : 0;
         lastText = text;
         if (legacyMessages.length > legacyBefore && text && !stop && stable >= 6)
-          return { ok: true, text, html: legacy?.querySelector?.('.markdown, .prose, [data-message-content]')?.innerHTML, submissionAttempted: true };
+          return { ok: true, text, submissionAttempted: true };
 
         if (!submissionObserved && ++unsubmitted >= 60)
           return fail('guest_submission_timeout',

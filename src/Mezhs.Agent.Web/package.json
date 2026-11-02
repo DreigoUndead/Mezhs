@@ -10,15 +10,7 @@
   "dependencies": {
     "@mezhs/web-lib": "file:../Mezhs.Web.Lib",
     "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "react-markdown": "8.0.7",
-    "remark-gfm": "3.0.1",
-    "rehype-raw": "6.1.1",
-    "rehype-sanitize": "5.0.1",
-    "remark-mdx": "2.3.0",
-    "lucide-react": "0.456.0",
-    "json5": "2.2.3",
-    "acorn": "8.14.1"
+    "react-dom": "18.2.0"
   },
   "devDependencies": {
     "@types/react": "18.2.79",

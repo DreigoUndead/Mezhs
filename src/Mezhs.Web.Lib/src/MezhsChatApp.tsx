@@ -1,7 +1,6 @@
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
 import { modelActivityLabel } from "./ChatSurface";
-import { MarkdownContent } from "./MarkdownContent";
 import { ConnectionModelPicker } from "./ConnectionModelPicker";
 import { ChatProviderRegistry } from "./providers/registry";
 import { useAutoResizeTextArea } from "./useAutoResizeTextArea";
@@ -691,7 +690,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                     )}
                     {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
                   </div>
-                  {(message.content || message.renderedHtml) && <div className="message-content"><MarkdownContent content={message.content} renderedHtml={message.renderedHtml} /></div>}
+                  {message.content && <div className="message-content">{message.content}</div>}
                   {message.files?.length > 0 && (
                     <div className="message-files">
                       {message.files.map((file) => file.contentType.startsWith("image/") ? (

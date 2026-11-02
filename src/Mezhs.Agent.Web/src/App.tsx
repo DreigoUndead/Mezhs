@@ -42,7 +42,6 @@ type AgentChatMessage = {
   origin: string;
   content: string;
   displayContent: string;
-  renderedHtml?: string | null;
   commands: ProtocolCommand[];
   completionClaimed: boolean;
   fileIds: string[];
@@ -220,7 +219,6 @@ function toSharedMessage(message: AgentChatMessage, executions: Execution[]): Ch
     role: message.role,
     origin: message.origin,
     content,
-    renderedHtml: message.role === "assistant" ? message.renderedHtml : undefined,
     status: message.status,
     createdAt: message.createdAt,
     error: message.error,

@@ -309,9 +309,7 @@ test("Grok reply extraction prefers the specific response over its surrounding c
   const send = element();
   send._click = () => { sent = true; };
   const reply = element("GROK_OK");
-  reply.innerHTML = "<h3>Grok answer</h3>";
   const container = element("promptGROK_OKSuggestion oneSuggestion two");
-  container.innerHTML = "<button>Suggestion one</button>";
 
   global.window = {};
   global.location = { href: "https://grok.com/c/test" };
@@ -341,7 +339,6 @@ test("Grok reply extraction prefers the specific response over its surrounding c
       sleep: async () => {}
     });
     assert.equal(result.text, "GROK_OK");
-    assert.equal(result.html, "<h3>Grok answer</h3>");
     assert.equal(result.chatUrl, "https://grok.com/c/test");
   } finally {
     for (const [name, value] of originals) {
