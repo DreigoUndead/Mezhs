@@ -14,7 +14,11 @@ const richTag = /<(?:row|col|box|grid|grid-item|text|badge|icon|Link)(?=[\s/>])/
 const escapedRichTag = /&lt;\s*(?:row|col|box|grid|grid-item|text|badge|icon|link)(?=\s|\/|&gt;)/i;
 
 function useRichSource(content: string, renderedHtml?: string | null) {
-  return !!renderedHtml && richTag.test(content) && escapedRichTag.test(renderedHtml);
+  if (!renderedHtml || !richTag.test(content)) return false;
+  // Literal markup in a provider's code examples is not a rendered DIL reply.
+  const prose = renderedHtml.replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/gi, "")
+    .replace(/<code\b[^>]*>[\s\S]*?<\/code>/gi, "");
+  return escapedRichTag.test(prose);
 }
 
 // Provider DOM markup is parsed and sanitized as data; it is never executed.
