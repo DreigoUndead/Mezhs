@@ -307,3 +307,60 @@ test("verbatim prompt text retains exact numbering and line breaks", () => {
   assert.ok(output.includes(prompt));
   assert.doesNotMatch(output, /<ol|<li|<p>/);
 });
+
+test("performance panel renders inline titles and a declarative bar chart", () => {
+  const input = [
+    "## Performance results",
+    "",
+    "Memory allocated by 20,000 disabled Debug calls",
+    "",
+    '<row gap={3}>',
+    '  <col><text color="secondary">Before</text><title size="xl" color="default" tabularNums>955,224 B</title></col>',
+    '  <col><text color="secondary">After</text><title size="xl" color="success" tabularNums>3,440 B</title></col>',
+    '</row>',
+    "",
+    '<Chart content={{"chartType":"bar","meta":{"footer":"Measured allocations; lower is better."},',
+    ' "xKey":"method","series":[{"dataKey":"bytes","label":"Allocated bytes","valueFormat":"integer"}],',
+    ' "yAxisMin":0,"data":[{"method":"Before","bytes":955224},{"method":"After","bytes":3440},',
+    ' {"method":"Typed template","bytes":3224}]}}/>',
+    "",
+    "That's roughly **99.6% fewer allocations**.",
+  ].join("\n");
+  const output = html(input);
+  assert.equal((output.match(/class="rich-title/g) || []).length, 2);
+  assert.match(output, /class="rich-title rich-tone-success"/);
+  assert.match(output, /font-variant-numeric:tabular-nums/);
+  assert.match(output, /class="rich-chart"/);
+  assert.match(output, /class="rich-chart-bar rich-chart-series-0"/);
+  assert.match(output, /Before/);
+  assert.match(output, /After/);
+  assert.match(output, /Typed template/);
+  assert.match(output, /955,224/);
+  assert.match(output, /3,440/);
+  assert.match(output, /Measured allocations; lower is better/);
+  assert.doesNotMatch(output, /&lt;title|&lt;Chart|&lt;\/title|chartType|dataKey/);
+});
+
+test("mixed inline text and titles remain supported", () => {
+  const output = html('Before <title size="xl" color="default" tabularNums>955,224 B</title> After');
+  assert.match(output, /class="rich-title"/);
+  assert.match(output, /Before/);
+  assert.match(output, /After/);
+  assert.doesNotMatch(output, /&lt;title/);
+});
+
+test("chart expressions cannot execute functions or inject HTML", () => {
+  const input = '<Chart content={{chartType:"bar",xKey:"method",series:[{dataKey:"bytes",label:"Allocated"}],data:[{method:"A",bytes:globalThis.alert(1)}]}}/>';
+  const output = html(input);
+  assert.doesNotMatch(output, /class="rich-chart"/);
+  assert.match(output, /globalThis.alert/);
+  assert.doesNotMatch(output, /<script|onerror=|<iframe/);
+});
+
+test("valid chart labels are React-escaped", () => {
+  const input = '<Chart content={{chartType:"bar",xKey:"method",series:[{dataKey:"bytes",label:"Allocated"}],data:[{method:"<img src=x onerror=alert(1)>",bytes:40}]}}/>';
+  const output = html(input);
+  assert.match(output, /class="rich-chart"/);
+  assert.match(output, /&lt;img/);
+  assert.doesNotMatch(output, /<img\b|onerror="/);
+});
