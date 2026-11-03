@@ -161,6 +161,19 @@ try {
         } finally { $loopbackResponse.Dispose(); $loopbackRequest.Dispose() }
     } finally { $originClient.Dispose() }
 
+    # Requests must retain their exact whitespace and numbering through the Agent API.
+    $preservedInput = "2. First step`n4. Second step`n`n  Indented note  `n"
+    $preserved = Start-AgentExecution "low" $preservedInput
+    $preservedResult = Wait-AgentExecution $preserved.executionId
+    if ($preservedResult.status -ne "Completed" -or -not $preservedResult.chatId) {
+        throw "Whitespace regression execution did not finish."
+    }
+    $preservedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($preservedResult.chatId)/messages"
+    $preservedUser = @($preservedMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($preservedUser.content -cne $preservedInput) {
+        throw "Agent API changed prompt numbering or whitespace."
+    }
+
     $created = Start-AgentExecution "low" "hello agent"
     $completed = Wait-AgentExecution $created.executionId
     if ($completed.status -ne "Completed" -or -not $completed.chatId) {
