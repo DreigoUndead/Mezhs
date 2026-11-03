@@ -51,3 +51,26 @@
 @media (max-width: 680px) {
   .markdown-content .rich-grid { grid-template-columns: minmax(0,1fr) !important; }
 }
+
+/* Declarative charts use text labels and CSS bars so values remain selectable and accessible. */
+.markdown-content .rich-chart { margin: .8em 0; padding: 12px 14px; border: 1px solid #e0dcd2; border-radius: 11px; background: #faf9f5; }
+.markdown-content .rich-chart-rows { display: grid; gap: 12px; }
+.markdown-content .rich-chart-row { display: grid; grid-template-columns: minmax(82px, 1fr) minmax(0, 3fr); align-items: center; gap: 12px; }
+.markdown-content .rich-chart-category { color: #655f56; font-size: .88em; overflow-wrap: anywhere; }
+.markdown-content .rich-chart-measures { display: grid; gap: 5px; min-width: 0; }
+.markdown-content .rich-chart-measure { display: flex; align-items: center; gap: 9px; }
+.markdown-content .rich-chart-track { flex: 1; height: 15px; overflow: hidden; border-radius: 4px; background: #eae7df; }
+.markdown-content .rich-chart-bar { height: 100%; min-width: 0; border-radius: inherit; }
+.markdown-content .rich-chart-series-0 { background: #718b38; }
+.markdown-content .rich-chart-series-1 { background: #6c83a0; }
+.markdown-content .rich-chart-series-2 { background: #be9564; }
+.markdown-content .rich-chart-series-3 { background: #967c9f; }
+.markdown-content .rich-chart-value { min-width: 70px; text-align: right; font-variant-numeric: tabular-nums; font-size: .86em; font-weight: 650; }
+.markdown-content .rich-chart-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; font-size: .82em; }
+.markdown-content .rich-chart-legend > span { display: inline-flex; gap: 6px; align-items: center; }
+.markdown-content .rich-chart-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
+.markdown-content .rich-chart figcaption { margin-top: 12px; color: #817b72; font-size: .8em; }
+.markdown-content .rich-chart-unsupported { margin: .5em 0; color: #817b72; font-size: .87em; }
+@media (max-width: 480px) {
+  .markdown-content .rich-chart-row { grid-template-columns: 1fr; gap: 4px; }
+}
