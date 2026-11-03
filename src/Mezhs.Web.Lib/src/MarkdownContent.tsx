@@ -23,7 +23,8 @@ function renderChunk(content: string) {
   }
 }
 
-export function MarkdownContent({ content }: { content: string }) {
+export function MarkdownContent({ content, verbatim = false }: { content: string; verbatim?: boolean }) {
+  if (verbatim) return <div className="prompt-text">{content}</div>;
   try {
     return <div className="markdown-content">{renderRich(content)}</div>;
   } catch {
