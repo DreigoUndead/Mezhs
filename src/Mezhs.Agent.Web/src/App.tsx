@@ -7,6 +7,7 @@ import {
   ConnectionModelPicker,
   modelActivityLabel,
   useApiAvailability,
+  useConversationDrafts,
   type ChatSurfaceMessage,
   type Connection,
   type ConnectionModel,
@@ -414,7 +415,7 @@ export default function App() {
   const [creating, setCreating] = useState(false);
   const [policyId, setPolicyId] = useState("");
   const [policyDetailsOpen, setPolicyDetailsOpen] = useState(true);
-  const [draft, setDraft] = useState("");
+  const [newChatSequence, setNewChatSequence] = useState(0);
   const [sending, setSending] = useState(false);
   const [togglingPause, setTogglingPause] = useState(false);
   const [stoppingExecutionId, setStoppingExecutionId] = useState<string | null>(null);
@@ -426,6 +427,8 @@ export default function App() {
   const selectedLoadChatRef = useRef<string | null>(null);
 
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
+  const draftKey = selectedChatId && !creating ? `chat:${selectedChatId}` : `new:${newChatSequence}`;
+  const { draft, setDraft, clearDraft } = useConversationDrafts(draftKey);
   const selectedPolicy = policies.find((policy) =>
     policy.id === (selectedChat?.policyId ?? policyId));
   const selectedConnection = connections.find((connection) => connection.id === connectionId);
@@ -776,11 +779,11 @@ useEffect(() => {
   function beginNewChat() {
     setCreating(true);
     setSelectedChatId(null);
+    setNewChatSequence((current) => current + 1);
     messagesRef.current = [];
     executionsRef.current = [];
     setMessages([]);
     setExecutions([]);
-    setDraft("");
     setNotice(null);
     setPolicyDetailsOpen(true);
     const preferred = policies.find((policy) => policy.id.toLocaleLowerCase() === "high") ??
@@ -790,10 +793,11 @@ useEffect(() => {
   }
 
   async function submit() {
-    const input = draft.trim();
+    const input = draft;
     const effectivePolicyId = selectedChat?.policyId ?? policyId;
-    if (!input || !effectivePolicyId || !connectionId || sending || activeExecution || selectedChat?.paused)
+    if (!input.trim() || !effectivePolicyId || !connectionId || sending || activeExecution || selectedChat?.paused)
       return;
+    const submittedKey = draftKey;
 
     setSending(true);
     setNotice(null);
@@ -809,7 +813,7 @@ useEffect(() => {
           ...(modelSpecified ? { model: modelId } : {}),
         }),
       });
-      setDraft("");
+      clearDraft(submittedKey, input);
 
       if (selectedChat) {
         const next = [execution, ...executionsRef.current];
@@ -904,6 +908,10 @@ useEffect(() => {
   function selectChat(chatId: string) {
     setCreating(false);
     setSelectedChatId(chatId);
+    messagesRef.current = [];
+    executionsRef.current = [];
+    setMessages([]);
+    setExecutions([]);
     setNotice(null);
   }
 
