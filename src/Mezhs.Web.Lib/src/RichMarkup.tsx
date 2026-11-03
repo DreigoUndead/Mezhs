@@ -12,7 +12,7 @@ type MarkupNode = {
   value?: string;
 };
 
-const components = new Set(["row", "col", "box", "grid", "grid-item", "text", "badge", "icon", "Link"]);
+const components = new Set(["row", "col", "box", "grid", "grid-item", "text", "title", "divider", "badge", "icon", "Link"]);
 const attributes = new Set(["gap", "align", "justify", "color", "name", "size", "border", "strong", "url", "title", "columns", "padding", "radius", "background", "width", "weight", "textAlign", "key", "flex", "tabularNums"]);
 
 // Parse supported JSX-like markup as DATA. Unknown constructs and executable
@@ -142,6 +142,16 @@ export const richComponents = {
       fontVariantNumeric: read(props, "tabularNums") === "true" ? "tabular-nums" : undefined,
     }}>{children}</span>;
   },
+
+  "mezhs-title": ({ children, ...props }: RichProps) => {
+    const size = read(props, "size");
+    return <span className={"rich-title" + tone(props)} style={{
+      fontSize: ({ xs: ".9em", sm: "1em", md: "1.12em", lg: "1.3em", xl: "1.55em" } as Record<string, string>)[size],
+      fontVariantNumeric: read(props, "tabularNums") === "true" ? "tabular-nums" : undefined,
+      textAlign: read(props, "textAlign") === "center" ? "center" : undefined,
+    }}>{children}</span>;
+  },
+  "mezhs-divider": (props: RichProps) => <hr className={"rich-divider" + (read(props, "color") === "strong" ? " rich-divider-strong" : "")} />,
   "mezhs-badge": ({ children, ...props }: RichProps) => <span className={"rich-badge" + tone(props)}>{children}</span>,
   "mezhs-icon": (props: RichProps) => {
     const name = read(props, "name");

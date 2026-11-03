@@ -103,6 +103,34 @@ test("incomplete custom markup is displayed without crashing", () => {
 
 
 
+test("APUS trace card renders titles, divider, and compact nested layout structure", () => {
+  const input = [
+    '<box border radius="lg" padding={3} gap={2}>',
+    '  <row justify="between" align="center"><text weight="bold">APUS.Web — GET /</text><badge color="success">18 spans</badge></row>',
+    '  <grid columns={3} gap={2}>',
+    '    <grid-item><col gap={1}><text size="xs">Request duration</text><title size="xl" tabularNums>120 ms</title></col></grid-item>',
+    '    <grid-item><col gap={1}><text size="xs">Trace depth</text><title size="xl" tabularNums>6</title></col></grid-item>',
+    '    <grid-item><col gap={1}><text size="xs">Resources</text><title size="xl" tabularNums>1</title></col></grid-item>',
+    '  </grid>',
+    '  <divider color="subtle"/>',
+    '  <text>Selected operations in this request</text>',
+    '  <col gap={2}>',
+    '    {#each [{name:"GET /",time:"120 ms"},{name:"LoggingMiddleware.InvokeAsync",time:"120 ms"},',
+    '     {name:"MVC Home.Index",time:"110 ms"}] as s,i}',
+    '      <row key={i} align="center" gap={2}><text>{s.name}</text><text color="secondary" size="xs">{s.time}</text></row>',
+    '    {/each}',
+    '  </col>',
+    '</box>',
+  ].join("\n");
+  const output = html(input);
+  assert.equal((output.match(/class="rich-title"/g) || []).length, 3);
+  assert.match(output, /class="rich-title"[^>]*font-size:1\.55em[^>]*font-variant-numeric:tabular-nums/);
+  assert.match(output, /<hr class="rich-divider"\/>/);
+  assert.match(output, /120 ms/);
+  assert.equal((output.match(/class="rich-row"/g) || []).length, 4);
+  assert.doesNotMatch(output, /&lt;title|&lt;divider|&lt;row|\{#each/);
+});
+
 test("DIL telemetry example expands three entries into a styled grid", () => {
   const sample = [
     '<box border radius="lg" padding={3} gap={2}>',
