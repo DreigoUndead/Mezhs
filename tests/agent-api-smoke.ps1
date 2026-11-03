@@ -170,7 +170,8 @@ try {
     }
     $preservedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($preservedResult.chatId)/messages"
     $preservedUser = @($preservedMessages | Where-Object { $_.role -eq "user" })[-1]
-    if ($preservedUser.content -cne $preservedInput) {
+    if ($preservedResult.request -cne $preservedInput -or
+        -not $preservedUser.content.Contains($preservedInput)) {
         throw "Agent API changed prompt numbering or whitespace."
     }
 
