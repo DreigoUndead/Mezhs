@@ -1,4 +1,4 @@
-.markdown-content { white-space: normal; }
+.markdown-content { white-space: normal; overflow-x: auto; }
 .markdown-content > :first-child { margin-top: 0; }
 .markdown-content > :last-child { margin-bottom: 0; }
 .markdown-content p { margin: 0 0 .8em; }
@@ -14,3 +14,38 @@
 .markdown-content code { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
 .markdown-content :not(pre) > code { padding: .12em .35em; border-radius: 5px; background: #ece9e2; font-size: .92em; }
 .markdown-content a { color: #55672c; text-decoration: underline; text-underline-offset: 2px; }
+
+/* GFM tables. */
+.markdown-content table { width: 100%; border-collapse: collapse; font-size: .95em; }
+.markdown-content th, .markdown-content td { padding: 8px 11px; border: 1px solid #ded9cf; vertical-align: top; }
+.markdown-content th { background: #ebe8df; font-weight: 700; }
+.markdown-content tbody tr:nth-child(even) { background: #f2efe7; }
+.markdown-content img { max-width: 100%; height: auto; }
+.markdown-content figure { margin: .75em 0; }
+
+/* Small, inert layouts parsed from provider text. Ordinary Markdown remains library-owned. */
+/* Nested rich layouts are spaced by their parent's gap, not margins on every box and row. */
+.markdown-content .rich-row { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; margin: 0; }
+.markdown-content .rich-col, .markdown-content .rich-box { display: flex; flex-direction: column; min-width: 0; }
+.markdown-content .rich-box { margin: 0; }
+.markdown-content > .rich-row { margin: .25em 0; }
+.markdown-content > .rich-box { margin: .3em 0 .75em; }
+.markdown-content .rich-bordered { border: 1px solid #ded9cf; border-radius: 10px; padding: 10px; }
+.markdown-content .rich-row > *, .markdown-content .rich-col > *, .markdown-content .rich-box > * { min-width: 0; }
+.markdown-content .rich-row p, .markdown-content .rich-col p, .markdown-content .rich-box p { margin: 0; }
+.markdown-content .rich-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; }
+.markdown-content .rich-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; background: #e9e6df; font-size: .85em; font-weight: 650; }
+.markdown-content .rich-title { display: block; min-width: 0; font-weight: 700; line-height: 1.25; }
+.markdown-content .rich-divider { width: 100%; height: 0; margin: .55em 0; border: 0; border-top: 1px solid #ded9cf; }
+.markdown-content .rich-divider-strong { border-top-color: #777169; }
+.markdown-content .rich-tone-success { color: #477829; }
+.markdown-content .rich-tone-danger { color: #b13e35; }
+.markdown-content .rich-tone-warning { color: #956417; }
+.markdown-content .rich-tone-secondary, .markdown-content .rich-tone-muted { color: #746f66; }
+
+.markdown-content .rich-grid { display: grid; min-width: 0; margin: .35em 0 .8em; }
+.markdown-content .rich-grid-item { min-width: 0; }
+.markdown-content .rich-grid .rich-col { width: 100%; }
+@media (max-width: 680px) {
+  .markdown-content .rich-grid { grid-template-columns: minmax(0,1fr) !important; }
+}
