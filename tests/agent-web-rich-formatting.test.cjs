@@ -28,7 +28,7 @@ const compiled = new Module(file);
 compiled.filename = file;
 compiled.paths = Module._nodeModulePaths(frontend);
 compiled._compile(output, file);
-const html = (value) => renderToStaticMarkup(React.createElement(compiled.exports.MarkdownContent, { content: value }));
+const html = (value, props = {}) => renderToStaticMarkup(React.createElement(compiled.exports.MarkdownContent, { content: value, ...props }));
 
 test("GFM tables, cell alignment, and escaped pipes", () => {
   const output = html("| Name | Result |\n| :--- | ---: |\n| A \\| B | **PASS** |");
@@ -291,4 +291,19 @@ test("inline code samples do not expand loops or JSX attribute expressions", () 
   assert.match(output, /<code>\{#each \[\{name:&quot;Sample&quot;\}\] as s\}\{s\.name\}\{\/each\}<\/code>/);
   assert.match(output, /<code>&lt;box padding=\{\{left:2\}\}&gt;literal&lt;\/box&gt;<\/code>/);
   assert.match(output, /class="rich-badge rich-tone-success"/);
+});
+
+test("caption markup renders as styled caption instead of literal tags", () => {
+  const output = html('<box border><text>Measured example</text><caption>Isolated test, not the original request.</caption></box>');
+  assert.match(output, /class="rich-caption"/);
+  assert.match(output, /Isolated test, not the original request/);
+  assert.doesNotMatch(output, /&lt;caption|&lt;\/caption/);
+});
+
+test("verbatim prompt text retains exact numbering and line breaks", () => {
+  const prompt = "2. First line\n4. Second line\n\n  Indented note  ";
+  const output = html(prompt, { verbatim: true });
+  assert.match(output, /class="prompt-text"/);
+  assert.ok(output.includes(prompt));
+  assert.doesNotMatch(output, /<ol|<li|<p>/);
 });
