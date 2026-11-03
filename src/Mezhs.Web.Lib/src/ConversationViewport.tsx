@@ -1,4 +1,4 @@
-import { ReactNode, UIEvent, useLayoutEffect, useRef, useState } from "react";
+import { ReactNode, UIEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 
 type MessageVersion = {
@@ -25,6 +25,16 @@ type ConversationViewportProps = {
 
 const threshold = 96;
 
+function messageVersion(messages: MessageVersion[]) {
+  let hash = 2166136261;
+  for (const message of messages) {
+    const value = [message.messageId, message.status, message.content, message.activityAt ?? ""].join(":");
+    for (let i = 0; i < value.length; i++)
+      hash = Math.imul(hash ^ value.charCodeAt(i), 16777619);
+  }
+  return messages.length + ":" + (hash >>> 0);
+}
+
 export function ConversationViewport({
   conversationKey, messages, busy = false, empty = false, enabled = true, children,
 }: ConversationViewportProps) {
@@ -33,10 +43,10 @@ export function ConversationViewport({
   const activeKey = useRef(conversationKey);
   const pendingRestore = useRef(true);
   const followingBottom = useRef(true);
+  const lastScrollTop = useRef(0);
   const [navigation, setNavigation] = useState({ top: false, bottom: false });
   // A changed message invalidates a manually saved position for that chat.
-  const version = messages.map((message) =>
-    `${message.messageId}:${message.status}:${message.content.length}:${message.activityAt ?? ""}`).join("|");
+  const version = useMemo(() => messageVersion(messages), [messages]);
 
   function updateNavigation(element: HTMLElement) {
     const remaining = Math.max(0, element.scrollHeight - element.clientHeight);
@@ -68,10 +78,12 @@ export function ConversationViewport({
       const previous = positions.current.get(conversationKey);
       const restore = previous?.version === version && !previous.followingBottom;
       element.scrollTop = restore ? previous.top : element.scrollHeight;
+      lastScrollTop.current = element.scrollTop;
       followingBottom.current = !restore;
       pendingRestore.current = false;
     } else if (followingBottom.current) {
       element.scrollTop = element.scrollHeight;
+      lastScrollTop.current = element.scrollTop;
     }
     updateNavigation(element);
   }, [conversationKey, version, busy, children, enabled]);
@@ -79,6 +91,8 @@ export function ConversationViewport({
   function onScroll(event: UIEvent<HTMLElement>) {
     if (!enabled || pendingRestore.current) return;
     const element = event.currentTarget;
+    if (Math.abs(element.scrollTop - lastScrollTop.current) < 1) return;
+    lastScrollTop.current = element.scrollTop;
     const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
     followingBottom.current = remaining <= threshold;
     positions.current.set(conversationKey, {
@@ -96,7 +110,9 @@ export function ConversationViewport({
       version,
       followingBottom: toBottom,
     });
-    element.scrollTo({ top: toBottom ? element.scrollHeight : 0, behavior: "smooth" });
+    element.scrollTo({ top: toBottom ? element.scrollHeight : 0, behavior: "auto" });
+    lastScrollTop.current = element.scrollTop;
+    updateNavigation(element);
   }
 
   return (

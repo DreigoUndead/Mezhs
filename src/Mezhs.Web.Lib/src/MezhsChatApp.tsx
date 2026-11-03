@@ -216,6 +216,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
   }
 
   function changeConnection(id: string) {
+    if (!chatId && id !== connectionId) ++selectionEpoch.current;
     setConnectionId(id);
   }
 

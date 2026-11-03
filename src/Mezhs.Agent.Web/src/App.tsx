@@ -425,9 +425,10 @@ export default function App() {
   const messagesRef = useRef<AgentChatMessage[]>([]);
   const executionsRef = useRef<Execution[]>([]);
   const selectedLoadChatRef = useRef<string | null>(null);
+  const selectionEpoch = useRef(0);
 
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
-  const draftKey = selectedChatId && !creating ? `chat:${selectedChatId}` : `new:${newChatSequence}`;
+  const draftKey = selectedChatId && !creating ? `chat:${selectedChatId}` : `new:${newChatSequence}:${policyId}:${connectionId}`;
   const { draft, setDraft, clearDraft } = useConversationDrafts(draftKey);
   const selectedPolicy = policies.find((policy) =>
     policy.id === (selectedChat?.policyId ?? policyId));
@@ -741,6 +742,7 @@ useEffect(() => {
   }
 
   function selectTargetConnection(targetConnectionId: string) {
+    if (!selectedChat && targetConnectionId !== connectionId) ++selectionEpoch.current;
     setConnectionId(targetConnectionId);
     if (selectedChat) {
       const previous = [...messages].reverse().find((message) =>
@@ -758,6 +760,7 @@ useEffect(() => {
   }
 
   function selectPolicy(nextPolicyId: string) {
+    if (!selectedChat && nextPolicyId !== policyId) ++selectionEpoch.current;
     const policy = policies.find((candidate) => candidate.id === nextPolicyId);
     setPolicyId(nextPolicyId);
     if (policy) {
@@ -772,11 +775,13 @@ useEffect(() => {
   }
 
   function selectModel(value: string) {
+    if (!selectedChat && value !== modelId) ++selectionEpoch.current;
     setModelId(value);
     setModelSpecified(true);
   }
 
   function beginNewChat() {
+    ++selectionEpoch.current;
     setCreating(true);
     setSelectedChatId(null);
     setNewChatSequence((current) => current + 1);
@@ -798,6 +803,7 @@ useEffect(() => {
     if (!input.trim() || !effectivePolicyId || !connectionId || sending || activeExecution || selectedChat?.paused)
       return;
     const submittedKey = draftKey;
+    const epoch = selectionEpoch.current;
 
     setSending(true);
     setNotice(null);
@@ -816,6 +822,7 @@ useEffect(() => {
       clearDraft(submittedKey, input);
 
       if (selectedChat) {
+        if (selectionEpoch.current !== epoch) return;
         const next = [execution, ...executionsRef.current];
         executionsRef.current = next;
         setExecutions(next);
@@ -823,12 +830,12 @@ useEffect(() => {
       }
 
       const attachedChatId = await waitForAttachedChat(execution.executionId);
+      await refreshChats();
+      if (selectionEpoch.current !== epoch) return;
       setCreating(false);
       setSelectedChatId(attachedChatId);
-      await refreshChats();
-      await loadSelected(attachedChatId, true, true);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Agent execution could not be started.");
+      if (selectionEpoch.current === epoch) setNotice(error instanceof Error ? error.message : "Agent execution could not be started.");
     } finally {
       setSending(false);
     }
@@ -906,6 +913,7 @@ useEffect(() => {
   }
 
   function selectChat(chatId: string) {
+    ++selectionEpoch.current;
     setCreating(false);
     setSelectedChatId(chatId);
     messagesRef.current = [];

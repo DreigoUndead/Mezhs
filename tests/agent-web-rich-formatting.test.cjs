@@ -83,7 +83,8 @@ test("unsupported and executable MDX remains visible, not executable", () => {
 test("unsafe links and HTML event handlers are not activated", () => {
   const output = html('[Unsafe](javascript:alert(1))\n\n<img src="x" onerror="alert(1)">');
   assert.doesNotMatch(output, /javascript:alert\(1\)/i);
-  assert.match(output, /href="javascript:void\(0\)"/);
+  assert.match(output, /href=""/);
+  assert.doesNotMatch(output, /javascript:/i);
   assert.doesNotMatch(output, /<img\b/i);
   assert.match(output, /&lt;img/);
 });
