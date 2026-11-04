@@ -3,7 +3,7 @@
 - ID: `standardize-development-workflow`
 - Type: maintenance / documentation / governance
 - Date: 2026-11-04
-- Status: implemented on review branch; independent testing, review and Monkey merge approval pending
+- Status: implementation prepared for independent verification; see verification.md for stage evidence
 - Bootstrap: Monkey requested implementation while the new plan-first process did not yet exist. This migration alone permits plan and implementation in one PR.
 
 ## Desired result

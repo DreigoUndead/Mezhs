@@ -2,7 +2,7 @@
 
 MEŽS release changes follow [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning](https://semver.org/).
 
-## [0.1.1] — 2026-11-04 (proposed; release on Monkey-approved merge)
+## [0.1.1] — 2026-11-04
 
 ### Changed
 - Standardized plan-first development with separate coding, independent testing, independent review and Monkey-controlled release approval.

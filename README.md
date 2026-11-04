@@ -2,7 +2,7 @@
 
 MEŽS exposes ChatGPT, Gemini, Grok, and other AI integrations through one asynchronous HTTP API and a shared React frontend. Integrations may use browser sessions, local runtimes or direct APIs. Agent functionality adds policy-controlled orchestration and durable shell execution without being required by the generic chat application.
 
-**Current release candidate:** `0.1.1` (2026-11-04; not released until Monkey approves and it merges into `main`). Latest governed change: standardized development workflow; see [changelog](CHANGELOG.md). Earlier app development is recorded in Git history.
+**Version:** `0.1.1`. Latest governed change: standardized development workflow; see [changelog](CHANGELOG.md). Earlier app development is recorded in Git history.
 
 ## Documentation
 
