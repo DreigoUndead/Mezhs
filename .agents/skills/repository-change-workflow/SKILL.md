@@ -1,12 +1,10 @@
 ---
 name: repository-change-workflow
-description: Mandatory single authoritative MEŽS planning, development, independent testing, review and Monkey-controlled release gates for every repository change.
+description: Follow the repository's plan, code, test, review and owner-approved release process.
 ---
 
 # Repository Change Workflow
 
-**Read and follow [the authoritative workflow](../../workflow.md).** Do not maintain different rules in this skill.
+Follow [workflow.md](../../workflow.md). That file is the single source of workflow rules.
 
-All repository changes need a plan. Plan PRs are approved and merged first; implementation work stays in one branch, is independently tested and reviewed, and **must not merge into main without Monkey's explicit approval of the completed candidate**. This applies to code, tests, configuration, tooling and agent instructions.
-
-The `standardize-development-workflow` bootstrap exception is defined in the workflow itself.
+Create a plan and commit it to `main`. Review and update the plan until no further changes are needed. Then create a development branch. Repeat coding and independent testing until tests pass. Repeat independent code review and fixes until review passes. Ask the project owner to review. **Never merge implementation code before the owner explicitly approves the finished change.**

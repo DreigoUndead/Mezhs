@@ -1,3 +1,3 @@
-# Approved, not yet released changes
+# Planned changes
 
-Each approved change has `<id>/plan.md` here after Monkey approves its planning PR. Implementation happens in a separate `<id>` branch from `main`. The implementation PR moves the final plan to `../implemented/<id>/` and updates `../current/`. See [workflow](../../.agents/workflow.md). No active approved plans exist at workflow adoption.
+Each change gets `<id>/plan.md` here. Commit the plan to `main`, then have an independent agent review and update it. Repeat until there are no changes. The reviewer then gives a development prompt. Implementation happens on a separate `<id>` branch. When complete, move the final plan to `../implemented/<id>/` and update `../current/`. See [workflow](../../.agents/workflow.md).

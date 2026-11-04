@@ -1,11 +1,9 @@
-# MEŽS — Contributor and Agent Entry Point
+# Contributor and Agent Instructions
 
-Before editing, read [the workflow](.agents/workflow.md) and the guidance for your **current stage**.
+Read [the workflow](.agents/workflow.md) before making changes.
 
-- [Specification](.agents/specification.md) · [Coding](.agents/coding.md) · [Testing](.agents/testing.md) · [Code review](.agents/review.md) · [Release](.agents/release.md)
-- [Current system specifications](specifications/current/) · [Approved plans](specifications/planned/README.md) · [Completed changes](specifications/implemented/)
-- [Repository-local skills](.agents/skills/) · [Architecture](docs/architecture.md)
+Use the guide for your current step: [planning](.agents/specification.md), [coding](.agents/coding.md), [testing](.agents/testing.md), [review](.agents/review.md), or [release](.agents/release.md).
 
-**Mandatory:** One approved plan per change; planning PR first, implementation branch from the main containing that plan. Independent testing and independent code review before Monkey's **explicit post-review approval** to merge implementation. `main` is always releasable. Never push or merge an implementation into `main` without that approval.
+Every change needs a plan in [specifications](specifications/). Only implementation work goes on a new development branch. After coding, use independent testing and review. **Never merge an implementation into `main` without the project owner's explicit approval of the finished work.**
 
-For the initial adoption, `standardize-development-workflow` is the one-time bootstrap exception: its plan and implementation may enter the same review PR. This exception does not waive independent validation or Monkey's merge approval.
+The current system behavior is documented in [specifications/current](specifications/current/).

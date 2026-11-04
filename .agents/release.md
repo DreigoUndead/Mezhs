@@ -1,9 +1,15 @@
-# Versioning and release
+# Releases
 
-**Every completed implementation merge into `main` is a release.** Planning-only documentation merges do not advance the product version.
+`main` is always releasable. Every completed **implementation** merge is a new release. Planning documents committed to `main` do not change the product version.
 
-- `VERSION` is the **MEŽS repository release version**. Existing npm package versions and API/config schema versions are separate technical identifiers; do not conflate them with this release number until unified deliberately.
-- Semantic format `MAJOR.MINOR.PATCH`. While pre-1.0, compatible features normally bump MINOR; bug fixes/maintenance normally bump PATCH. Flag breaking behavior explicitly. Resolve competing branch version bumps against latest `main` before final review.
-- Implementation PR includes updated `VERSION`, `CHANGELOG.md`, root `README.md`, `specifications/current/` and archived plan, with release date and expected version. Testing and review cover this release candidate.
-- After Monkey approves the **completed candidate**, merge, verify `main` and create tag `v<version>` on the merge commit. Never tag/claim an unmerged PR as released.
-- `CHANGELOG.md` records user-visible additions, changes, fixes, removals and source PR/plan links. `README.md` provides only the current overview and a concise latest-release summary.
+Before requesting owner approval, prepare these files on the development branch:
+
+- `VERSION` — project release version in `MAJOR.MINOR.PATCH` format (not necessarily the same as API or package schema versions).
+- `CHANGELOG.md` — date and user-visible additions, changes and fixes.
+- `README.md` — current project description and version.
+- `specifications/current/` — the resulting behavior.
+- `specifications/implemented/<id>/` — final plan and verification results.
+
+Use MINOR for compatible features and PATCH for fixes while developing toward 1.0. Review breaking changes carefully.
+
+After testing and code review pass, **wait for the project owner's explicit approval**. Then merge, confirm `main`, and tag `v<version>`. If `main` changed, reconcile the version and rerun affected checks before approval/merge.

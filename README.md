@@ -1,12 +1,13 @@
 # MEŽS
 
-MEŽS exposes ChatGPT, Gemini, Grok, and other AI integrations through one asynchronous HTTP API and a shared React frontend. Integrations may use browser sessions, local runtimes or direct APIs. Agent functionality adds policy-controlled orchestration and durable shell execution without being required by the generic chat application.
+MEŽS exposes ChatGPT, Gemini, Grok and other AI integrations through one asynchronous HTTP API and a shared React frontend. Integrations may use browser sessions, local runtimes or direct APIs. Agent functionality adds policy-controlled orchestration and durable shell execution without being required by the generic chat application.
 
-**Version:** `0.1.1`. Latest governed change: standardized development workflow; see [changelog](CHANGELOG.md). Earlier app development is recorded in Git history.
+**Version:** `0.1.1`. Latest change: standardized development workflow; see [changelog](CHANGELOG.md).
 
 ## Documentation
 
-- [Architecture and security boundaries](docs/architecture.md)
+- [Architecture and security boundaries](specifications/current/architecture.md)
+- [Engineering constraints](specifications/current/engineering.md)
 - [Development instructions](AGENTS.md)
 - [Current behavior specifications](specifications/current/)
 - [Changelog](CHANGELOG.md)
@@ -19,5 +20,3 @@ MEŽS exposes ChatGPT, Gemini, Grok, and other AI integrations through one async
 - `Mezhs.Agent.Api`: same core composition with Agent orchestration and policy.
 - `Mezhs.Executor`: independent durable shell/process owner.
 - `Mezhs.Web.Lib`: shared React chat UI for normal Web and Agent Web.
-
-Setup and integration details remain in the component sources and manifests.

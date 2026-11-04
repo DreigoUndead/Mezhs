@@ -1,17 +1,13 @@
 ## Change
 
-Plan ID: `<id>`
-Type: planning / implementation
-Plan: `specifications/planned/<id>/plan.md` or `specifications/implemented/<id>/plan.md`
+Plan: `specifications/implemented/<id>/plan.md`
+Summary: <what changed>
 
-## Delivered / proposed
-<Short functional summary>
+## Checks
 
-## Validation
-- [ ] Coding checks
-- [ ] Independent testing PASS (implementation)
-- [ ] Independent code review PASS (implementation)
-- [ ] Final specifications and release documentation match implementation
+- [ ] Independent tests passed
+- [ ] Independent review passed
+- [ ] Final plan, current specifications, version, changelog and README updated
+- [ ] Owner has reviewed this exact implementation and explicitly approved merge
 
-## Monkey approval
-**Do not merge an implementation until Monkey explicitly approves this final candidate.**
+**Do not merge an implementation without the owner's approval.**

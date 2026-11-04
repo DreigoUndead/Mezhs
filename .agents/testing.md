@@ -1,14 +1,14 @@
-# Independent testing
+# Testing
 
-A fresh testing MEŽS agent (not the coding agent) must:
+Use a separate agent from the developer.
 
-1. Record target branch and commit SHA; read the **final** `specifications/implemented/<id>/` plan and relevant `specifications/current/`.
-2. Execute acceptance tests, relevant unit/integration/runtime checks, regressions, security and compatibility checks. Do not rely on the implementer's claims. Record actual commands, outputs, coverage and limitations.
-3. Run the established `.github/workflows/mezhs-core.yml` checks where appropriate. If local .NET/PowerShell tooling is unavailable, use GitHub Actions on the **same branch**, with temporary validation artifacts removed before final review. Never report an unrun test as PASS.
-4. Report **PASS / FAIL / BLOCKED**, linked to tested commit and requirement evidence. On failure return reproducible findings to coding without silently editing production behavior. On PASS, produce a ready-to-run independent review prompt.
+1. Read the final plan, acceptance criteria and changed code on the development branch.
+2. Run relevant tests and reproduce important workflows. Include regressions and failure cases.
+3. Record the commit, commands, results and anything not tested. Never call a test PASS if it was not run.
+4. Report **PASS**, **FAIL** or **BLOCKED**.
 
-### Handoff prompt
+If something fails, give the developer a clear fix prompt. After fixes, **test again**.
 
-"Independently review MEŽS branch `<id>` at `<tested-sha>` against `main`. Read `.agents/review.md`, `specifications/implemented/<id>/`, `verification.md` and the full diff. Testing result: <status, commands, evidence>. Check behavior, architecture, security, regressions and release metadata. Return PASS/FAIL/BLOCKED and actionable findings. Do not merge or silently fix production code. On PASS, prepare Monkey's approval package."
+If everything passes, give the next agent this prompt:
 
-Notes: compile-only or mock tests do not establish live upstream browser protocol behavior; avoid claiming untested coverage. Do not kill running developer applications to obtain a passing build.
+> Review branch `<id>` at commit `<sha>` against `main`. Follow `.agents/review.md`. Read the final plan, full diff and testing evidence. Look for bugs, unnecessary complexity and missed requirements. Report PASS, FAIL or BLOCKED. If issues exist, send them to the developer. If not, prepare a short approval summary for the project owner.

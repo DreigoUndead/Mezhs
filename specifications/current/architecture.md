@@ -1,6 +1,6 @@
-# MEŽS — Architecture and runtime constraints
+# Architecture and runtime constraints
 
-Migrated from the previous root README without changing the underlying architecture statements. Confirm against source when implementing changes.
+These are repository-specific implementation facts. Confirm them against source when making changes.
 
 ## Agent runtime
 

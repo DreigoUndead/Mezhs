@@ -1,12 +1,14 @@
-# Coding guidance
+# Coding
 
-Follow [the workflow](workflow.md) and the existing [software-change skill](skills/software-change/SKILL.md); use [systematic-debugging](skills/systematic-debugging/SKILL.md) for faults.
+Follow the [workflow](workflow.md), [software-change skill](skills/software-change/SKILL.md), and [systematic-debugging skill](skills/systematic-debugging/SKILL.md) for bugs.
 
-- Establish the existing owner, call chain, source of truth, lifetime and real constraints first; use semantic APIs instead of DOM where available. Prefer one coherent owner to duplicated state or mechanisms.
-- Choose Reuse / Repair / Refactor / Redesign deliberately. Avoid speculative abstraction, unnecessary async, hidden fallbacks and unrelated cleanup.
-- Inspect the local checkout when coding locally; use the GitHub connector for remote state. Prefer dedicated edit/patch tools over shell-generated source rewriting.
-- Use **Codegraph** before broad source searching. For local agents use live `codegraph`; GitHub-only agents may consult `.agents/codegraph/graph.json` as a *navigation hint*, not compiler truth. `.codegraph/` is local cache, never commit it.
-- `.agents/codegraph/graph.json` is generated, not hand-edited. When source dependency relationships change, regenerate via `node .agents/codegraph/export.cjs` (Codegraph 3.0.0 + Node.js); report when unavailable or out-of-date.
-- `src/Mezhs.Common` owns genuinely generic primitives: `Cast`, `TypeExtensions`, `Registry<TKey..., TValue>`. Reuse them where appropriate; keep feature/domain rules outside Common.
-- Preserve MEŽS's trust boundaries, agent shell policy and independent Executor ownership; see [architecture](../docs/architecture.md).
-- Include tests with changes, verify the resulting diff, update final specification and release candidate, and **hand off a populated independent testing prompt**. Coding is not approval.
+- Read the approved plan from `main`.
+- Create a new branch named after the plan ID.
+- Find the existing owner of the behavior before adding code. Reuse existing mechanisms. Avoid unrelated changes.
+- Update the plan as the implementation changes. Only the **final behavior** needs to be specified.
+- Add appropriate automated tests and verify the change.
+- Prepare the release candidate: final plan under `specifications/implemented/<id>/`, updated `specifications/current/`, `VERSION`, `CHANGELOG.md`, and root `README.md`.
+- Commit and push the development branch. Do not merge.
+- Give the next agent a testing prompt:
+
+> Test branch `<id>` at commit `<sha>`. Follow `.agents/testing.md` and the final plan in `specifications/implemented/<id>/`. Run relevant automated and practical checks. Return PASS, FAIL or BLOCKED with evidence. If problems exist, give the developer a fix prompt. If everything passes, give the next agent a code-review prompt.

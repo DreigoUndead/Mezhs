@@ -1,27 +1,41 @@
-# MEŽS change workflow
+# Development workflow
 
-**Authoritative process.** Applies to code, tests, configuration, documentation and agent instructions. The [repository-change-workflow skill](skills/repository-change-workflow/SKILL.md) invokes this process; it is not a second source of rules.
+Use this process for every change. Keep it simple.
 
-## Identity and branches
+## 1. Plan
 
-Every change receives a lowercase kebab-case ID, e.g. `sandbox-executor-routing`.
+- Create `specifications/planned/<id>/plan.md`. Use [Grill Me](skills/grill-me/SKILL.md) when requirements are unclear.
+- Commit the plan to `main`. Plans contain documentation only. Use a planning PR if required by repository rules.
+- Give another agent a prompt to **review and update the plan**.
+- If changes are needed, update the plan on `main` and repeat the review.
+- When no changes are needed, the plan reviewer gives a **development prompt**.
 
-1. **Plan:** `plan/<id>` adds `specifications/planned/<id>/plan.md` (and optional `spec.md` / `tasks.md`). Monkey explicitly approves the plan PR; merge it into `main` before coding. No product-version bump for plan-only merges.
-2. **Coding:** branch `<id>` from the latest `main` containing that plan. Keep all fixes and review revisions on this one implementation branch. Update plans as the design evolves; the final plan reflects actual functionality.
-3. **Prepare release candidate:** in the implementation PR, move the plan to `specifications/implemented/<id>/`, update affected `specifications/current/`, add `verification.md`, update `VERSION`, `CHANGELOG.md` and root `README.md`. Review/test this content before merge.
-4. **Independent testing:** a fresh MEŽS testing agent follows [testing](testing.md), validates the exact candidate against the *final* spec and returns PASS/FAIL/BLOCKED and a populated review prompt on PASS.
-5. **Independent code review:** a fresh MEŽS reviewer follows [review](review.md), examines the complete diff and evidence, returns PASS/FAIL/BLOCKED and a Monkey approval package on PASS.
-6. **Monkey review:** Monkey explicitly approves or rejects the **completed, identified PR/candidate**. No green checks, agent PASS, original task, or silence imply approval.
-7. **Release:** after approval, verify PR head/checks, merge to `main`, verify release state and tag `v<version>`. `main` remains releasable.
+## 2. Code
 
-## Failed checks and changing requirements
+- Create a branch named `<id>` from the latest `main`.
+- Implement the plan. Update it as the design evolves. The final plan should describe the result.
+- Prepare tests and release files on this branch.
+- When coding is done, give a **testing prompt**.
 
-- FAIL/BLOCKED means **stop**. Return findings to coding on the same branch; re-test/re-review what changed. No reviewer silently repairs production code.
-- Architecture, approach, and implementation details may evolve freely; keep the final specification current. Raise a change of core product purpose, security boundary or unrelated feature to Monkey.
-- Evidence references a commit SHA. An evidence-only update to `verification.md` may advance the SHA without invalidating tests of unchanged code; revalidate substantive behavior/config/release changes.
-- Separate unrelated changes into separate plans. Never edit `main` directly.
-- A plan-only approval is not implementation merge authorization.
+## 3. Test
 
-## One-time bootstrap
+- A separate agent tests the branch against the final plan.
+- If tests fail, send findings back to the developer. Fix them and test again.
+- When tests pass, give a **code-review prompt**.
 
-The change `standardize-development-workflow` is explicitly allowed to combine its initial plan and implementation in one review PR because the two-branch process did not exist before adoption. **Monkey still must approve this implementation merge.**
+## 4. Review
+
+- A separate agent reviews the code, tests and final plan.
+- If issues are found, send them back to the developer. Then repeat testing and review.
+- When the review passes, declare the work ready. Ask the **project owner** to review the completed change.
+
+## 5. Release
+
+- **Wait for explicit owner permission** to merge the completed implementation into `main`.
+- On approval, merge. `main` is a release: update the version, changelog, README, and current specifications as part of the reviewed branch, not afterward.
+- Move the final plan to `specifications/implemented/<id>/` in that same branch.
+- Tag the merged release.
+
+See [specification](specification.md), [coding](coding.md), [testing](testing.md), [review](review.md), and [release](release.md) for each step.
+
+**Rules:** Fix problems on the same development branch. Failed checks never approve a merge. A plan commit is not permission to merge code.

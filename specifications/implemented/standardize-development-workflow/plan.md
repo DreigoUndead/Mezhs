@@ -1,34 +1,38 @@
-# Standardize MEŽS development workflow
+# Standardize the development workflow
 
 - ID: `standardize-development-workflow`
-- Type: maintenance / documentation / governance
+- Type: documentation and workflow
 - Date: 2026-11-04
-- Status: implementation prepared for independent verification; see verification.md for stage evidence
-- Bootstrap: Monkey requested implementation while the new plan-first process did not yet exist. This migration alone permits plan and implementation in one PR.
+- Status: implementation ready for independent testing and review
 
-## Desired result
+## Goal
 
-Multiple contributors and MEŽS agents use the repository, not private chat history, to plan, code, test, review and release changes.
+Make planning, implementation, testing, review and releases clear to developers and AI agents. Keep instructions short and reusable across projects.
 
-## Scope and approach
+## Final behavior
 
-- Replace duplicate `.agents/README.md` with one root `AGENTS.md`.
-- Split instructions into specification, coding, testing, review, workflow and release; preserve existing engineering/debugging skills, Codegraph rules, and historical references.
-- Require approved plan PR before separate implementation branch, with evolving final specification.
-- Produce independent testing and code-review handoff prompts; Monkey explicitly approves **every completed implementation merge**.
-- Keep planned/implemented/current specification states and minimal templates.
-- `main` is releasable; each implementation merge advances `VERSION`, `CHANGELOG.md`, and README; plan-only merges do not.
-- Clean up existing documentation references; move architecture detail out of root README. No runtime behavior refactors.
+1. Make a plan. Use Grill Me when needed.
+2. Commit the plan to `main`. Another agent reviews and updates the plan until no changes remain. It then provides a development prompt.
+3. A developer creates branch `<id>`, implements the plan, keeps it current, and provides a testing prompt.
+4. An independent agent tests. Any failures return to development. Once tests pass, it provides a code-review prompt.
+5. An independent agent reviews. Issues return to development and testing.
+6. With tests and review passing, request Monkey's review. **Wait for explicit merge permission.**
+7. Each approved implementation merge into `main` creates a new release; update the changelog, README, version and current specifications.
 
-## Acceptance
+## Delivered
 
-- [x] Single concise entrypoint and separate stage-specific guidance
-- [x] Workflow, skill, templates and current-specification baseline
-- [x] Release documentation prepared on implementation branch
-- [x] Old entrypoint and obsolete references cleaned up
-- [ ] Independent testing and review of candidate
-- [ ] Monkey approves complete PR; merge and tag release
+- Single root `AGENTS.md`; removed old duplicate agent README.
+- Split and shortened reusable instructions and prompts.
+- Retained existing engineering skills; moved project-specific coding facts to current specifications.
+- Added living/current specifications, historical plan, templates, release files and PR guidance.
+- Preserved the existing runtime architecture documentation.
 
-## Verification plan
+## Remaining
 
-Inspect all new links, reference consistency, PR diff, Python governance check, main-branch CI and full code regression suite. No app/runtime changes are intended.
+- Independent testing and review of the branch.
+- Monkey's final review and explicit merge approval.
+- Refresh the generated Codegraph index where tooling is available.
+
+## Scope
+
+Documentation and workflow changes only. No runtime refactors.

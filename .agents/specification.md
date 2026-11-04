@@ -1,8 +1,12 @@
-# Specification and planning
+# Planning
 
-1. Inspect existing behavior, current specs, architecture and owners before designing a change. Use [Grill Me](skills/grill-me/SKILL.md) for new features or nontrivial architectural changes; one consequential question at a time.
-2. Every change gets a `specifications/planned/<id>/plan.md` using [the small template](../specifications/templates/change.md), including purpose, scope, acceptance, affected components, approach and verification. Expand to separate `spec.md` and `tasks.md` only when useful.
-3. Submit `plan/<id>` to Monkey. Merge the approved plan into `main` before starting `<id>` implementation.
-4. Plans are working designs, **not frozen history**: refine as implementation reveals better solutions. The completed spec documents what was actually delivered; Git records the earlier drafts.
-5. Keep `specifications/current/` as the authoritative behavior contract. An implemented change updates current behavior specifications and archives its historical plan.
-6. Do not ask the user for facts available in the repository. Do not pretend guesses are requirements. Escalate materially changed feature purpose or trust boundary.
+- Read the existing code and [current specifications](../specifications/current/) first.
+- Every change starts with `specifications/planned/<id>/plan.md`. Use [the template](../specifications/templates/change.md).
+- For complex features, use [Grill Me](skills/grill-me/SKILL.md) to resolve important decisions one question at a time.
+- Write the goal, scope, approach and testable acceptance criteria. Keep small changes short.
+- Commit the plan to `main` (through a PR when required). This is a documentation change, not a release.
+- Give an independent agent this prompt:
+
+> Review `specifications/planned/<id>/plan.md` against the existing code and current specifications. Fix unclear or incorrect parts. Commit any plan changes to `main`. Repeat until there are no changes. Then give a developer a prompt with the plan path, required behavior and acceptance criteria. Do not implement code.
+
+Plans may change during development. Keep the final document aligned with actual behavior. Git history already records earlier ideas.

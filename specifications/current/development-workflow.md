@@ -1,3 +1,7 @@
-# MEŽS development process — current contract
+# Development workflow — current behavior
 
-The normative process is [the MEŽS workflow](../../.agents/workflow.md). Every change has a plan approved on `main`; it is implemented on a separate change-ID branch; the final behavior specification, tests, and release docs are prepared before independent testing, independent code review and Monkey's explicit merge approval. A completed implementation merge to `main` creates a new release; a planning-only merge does not. This file is a *living current-specification pointer*, not a duplicate workflow definition.
+See [the development workflow](../../.agents/workflow.md).
+
+A plan is committed to `main`, then reviewed and updated until no changes remain. The plan reviewer produces a development prompt. Implementation runs on a new branch named after the plan. A developer generates a testing prompt. Failed tests return to coding. Passed tests generate an independent review prompt. Review issues return to coding and testing. When tests and review pass, Monkey reviews the final candidate and explicitly approves or rejects merging. Every implementation merge into `main` creates a release; planning documentation does not.
+
+The final plan moves to `specifications/implemented/` and the resulting behavior is maintained in `specifications/current/`.

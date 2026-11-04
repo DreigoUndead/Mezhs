@@ -1,15 +1,14 @@
 ---
 name: grill-me
-description: Question-driven clarification of requirements and design for new features or significant architectural changes before plan approval.
+description: Ask focused questions to resolve requirements and design decisions before writing a development plan.
 ---
 
-# Grill Me — design questioning
+# Grill Me
 
-Use during [specification](../../specification.md), not on every tiny fix.
+1. Read existing code and specifications before asking the user things the repository can answer.
+2. Ask one important unanswered question at a time. Give reasonable options and a recommendation.
+3. Challenge unclear requirements, unnecessary complexity, security gaps and conflicting responsibilities.
+4. Stop when the goal, constraints and acceptance criteria are clear.
+5. Write the answers into the plan. Do not preserve long discussion transcripts.
 
-1. Read the relevant source, existing specifications and architecture. Discover facts before asking questions.
-2. Identify the largest unresolved decision, provide tradeoffs and a recommended option, and ask **one question at a time**. Challenge ambiguous goals, ownership, API contracts, security, failure recovery and compatibility.
-3. Don't blindly agree or invent complexity; iterate until blocking decisions are settled. Record accepted outcomes in the plan, not a lengthy dialogue transcript.
-4. Stop when the outcome, acceptance criteria, non-goals and major constraints are clear; pass the final proposal through Monkey's planning approval.
-
-This repository-local skill is an original adaptation of the Grill Me questioning pattern; see [sources](../../SOURCES.md).
+Use during [planning](../../specification.md). For a simple change, skip the interview.

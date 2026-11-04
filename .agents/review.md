@@ -1,24 +1,25 @@
-# Independent code review
+# Code review
 
-A fresh reviewing MEŽS agent, distinct from the coding agent, reviews the complete implementation diff against `main`, the **final specification**, and independent test evidence.
+Use a separate agent from the developer and tester.
 
-- Use [software-change](skills/software-change/SKILL.md) and its adversarial review reference.
-- Check requirements, regressions, ownership and sources of truth, security and trust boundaries, concurrency/lifecycle, failure handling, test strength, maintainability, unrelated edits and unnecessary complexity.
-- Verify `specifications/current/`, archived plan, `VERSION`, `CHANGELOG.md`, root `README.md` and PR match the candidate.
-- Report severity-ranked, reproducible findings; distinguish observed defects from hypotheses. Return PASS/FAIL/BLOCKED with concrete evidence. Do not modify implementation as part of approval; failed reviews return to coding.
-- On PASS prepare this **Monkey package**, with real values:
+- Read the final plan, entire diff against `main`, and testing results.
+- Check correctness, regressions, simplicity, architecture, security and maintainability. Use [software-change](skills/software-change/SKILL.md) for deeper analysis.
+- Check that the final specifications, version, changelog and README match the implemented change.
+- Report **PASS**, **FAIL** or **BLOCKED**. Give clear reasons and evidence.
+
+If there are issues, give the developer a fix prompt. After changes, run **testing and review again**. Do not silently edit the implementation as the reviewer.
+
+If everything passes, declare the change ready and request **project owner review**. Include:
 
 ```text
-Change: <id>
-PR: <url>
-Candidate SHA: <sha>
-Release: <old> -> <new>
-Delivered behavior: <short summary>
-Independent testing: PASS (<evidence>)
-Independent review: PASS (<evidence>)
-Outstanding risks: <none or details>
-Documentation: <spec/current/version/changelog/README status>
-Monkey: explicitly approve or reject merging this candidate into main?
+Branch / PR: <link>
+Commit: <sha>
+What changed: <short summary>
+Tests: PASS <evidence>
+Review: PASS <evidence>
+Known limitations: <details or none>
+Proposed version: <version>
+Please review. May this exact implementation be merged into main?
 ```
 
-Monkey's explicit **post-review** approval is the only implementation merge authorization.
+**Wait for explicit approval.** A successful review does not authorize merging.
