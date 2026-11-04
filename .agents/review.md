@@ -1,27 +1,20 @@
 # Code review
 
-**Start a fresh chat/agent.** The reviewer must be different from the developer and tester.
+Review comes **before final testing**. Read [the workflow](workflow.md) for the level selected.
 
-- Read the final plan, diff against `main`, and independent test evidence.
-- Check behavior, regressions, simplicity, architecture, security and maintainability. Use [software-change](skills/software-change/SKILL.md) for detailed review.
-- If `specifications/current/` changed, verify each change describes the **real resulting behavior**. Do not require unnecessary or duplicate specifications.
-- Verify relevant release documentation and the final plan match the implementation.
-- Return **PASS**, **FAIL** or **BLOCKED** with clear evidence.
+- **Small:** the development agent can review its own small diff and then verify it. Use an independent reviewer if a concern appears or the owner requests one.
+- **Standard:** use a separate reviewer.
+- **High-risk:** separate, independent review is mandatory. Involve a relevant specialist when useful.
 
-On failure, give a **new development chat** a fix prompt. All subsequent testing and review use **new chats**. Do not fix implementation code as the reviewer.
+Review the changed code against `main`, the final plan (or Small-change description), and the developer's checks.
 
-On PASS, request owner review with:
+- Check functional correctness, architecture, security, regressions, simplicity and maintainability. Use [software-change](skills/software-change/SKILL.md) for detailed judgment.
+- Check that the **planned tests** cover requirements, errors, edge cases and changed dependencies. The reviewer does not claim tests passed without executing them.
+- Verify changes to `specifications/current/` match real behavior. Check plan archiving and relevant release metadata.
+- Return **PASS / FAIL / BLOCKED**, with affected files, severity and actionable evidence.
 
-```text
-Branch / PR: <link>
-Commit: <sha>
-What changed: <short summary>
-Testing: PASS (<evidence>)
-Review: PASS (<evidence>)
-Known limitations: <details or none>
-Current specifications: <updated and reviewed, or not needed>
-Proposed version: <version>
-Please review. May this exact implementation be merged into main?
-```
+On failure, return to development on the **same branch**. Retest and re-review changed areas. Handoff to a new chat when independence is required or context quality deteriorates.
 
-**Wait for explicit owner permission.** Reviewer approval never authorizes a merge.
+On PASS, give testing/verification instructions:
+
+> Role: final tester or verifier. Task: `<id>`; level: `<level>`; PR/branch: `<link>`; reviewed SHA: `<sha>`; final plan: `<path or PR summary>`; review evidence: `<link>`. Follow `.agents/testing.md`. Execute the required checks and assess any changed current specs. On failures return to development and affected review. On PASS, present the result for owner approval. **Do not merge without that approval.**

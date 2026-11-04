@@ -1,16 +1,31 @@
-# Independent testing
+# Final testing and verification
 
-Use a **fresh chat/agent** for each testing attempt, separate from the developer.
+Testing follows **code review** (or a Small-change self-review). Read [the workflow](workflow.md) for the required level.
 
-1. Read the branch, final plan, acceptance criteria and actual code. Check relevant `specifications/current/` changes.
-2. Execute real acceptance and regression tests. Distinguish mock/compilation evidence from live system behavior.
-3. Record commit SHA, commands, exit codes, outcomes, limitations and untested areas.
-4. Report **PASS / FAIL / BLOCKED**.
+- **Small:** the same development chat can run checks and pause for the owner's review.
+- **Standard:** run appropriate automated and practical tests. Choose a separate tester when independence gives meaningful confidence; state why if skipped.
+- **High-risk:** use a separate tester from the developer and reviewer. Independent testing is mandatory.
 
-On failure, give a self-contained fix prompt to a **new developer agent**. After the fix, another fresh tester repeats the tests.
+1. Check the branch/PR, **exact SHA**, final plan or Small-change summary, review outcome and changed `specifications/current/` entries.
+2. Run acceptance, regression, failure-path and integration checks appropriate to the change. Record commands, exit codes, outcomes and limitations. CI, developer checks and independent testing are different kinds of evidence.
+3. Record **PASS / FAIL / BLOCKED** with the tested SHA and base branch revision. Keep evidence in `verification.md` or the PR, so the next agent can check it.
 
-If local tooling is unavailable, use CI on the same review branch where possible rather than claiming tests passed. If workflow logs are inaccessible, a **temporary** GitHub Actions workflow can run the checks and commit a sanitized PASS/FAIL result file with `[skip ci]`. Remove the temporary workflow and result file before final review; never commit secrets. Do not treat an unavailable CI listing as proof no job ran.
+On FAIL/BLOCKED, send findings to development on the same branch. Re-run affected review and tests after fixes. A fresh tester is mandatory only when the level requires independent testing; start a fresh chat if context quality deteriorates.
 
-On PASS, give this prompt to a **new reviewing agent**:
+If local tooling is unavailable, prefer existing CI. When needed, a temporary validation workflow on the review branch may self-report a sanitized PASS/FAIL file. Remove the temporary workflow/result before owner review; do not include secrets. Never claim an unrun test passed.
 
-> Review branch `<id>` at `<sha>` against `main`. Follow `.agents/review.md`. Read the final plan, full diff, test evidence and changed current specifications. Check correctness, design, security, regressions and release files. Return PASS, FAIL or BLOCKED. On failure, write a fix prompt for a new developer agent. On success, prepare an owner-review summary.
+On PASS, ask the **owner** to review the finished change, using:
+
+```text
+Task / level: <id> / <level>
+PR and exact tested SHA: <link> / <sha>
+Base revision: <sha>
+Delivered behavior: <short summary>
+Review: <PASS evidence or Small-change self-review>
+Tests: <PASS evidence and untested areas>
+Risks: <none or explanation>
+Release preparation: <version/changelog/plan/current specs>
+May this exact implementation be merged into main?
+```
+
+**Pause for explicit permission.** The same chat may execute the release after approval. A new release chat is not mandatory. Before merging, recheck the PR head, `main`, conflicts and validity of prior checks. If implementation changes materially, repeat checks and obtain renewed owner approval.

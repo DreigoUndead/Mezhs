@@ -1,33 +1,36 @@
-# Planning
+# Planning and task classification
 
-- Inspect existing code and relevant `specifications/current/` documents.
-- Use [Grill Me](skills/grill-me/SKILL.md) for unclear or complex design decisions.
-- Create `specifications/planned/<id>/plan.md` using this outline. Keep it short for small changes:
+Start by checking the existing code and relevant `specifications/current/` documents.
+
+## Choose a level
+
+- **Small:** limited scope and low regression risk (e.g. a typo or isolated CSS). One chat may do the change, self-review, run checks and pause for owner approval. Record a brief goal and verification note in the PR description or branch.
+- **Standard:** normal feature or bug fix. Put the plan in `specifications/planned/<id>/plan.md` and commit it to `main` before starting the implementation branch. Independent review is the default; independent testing depends on risk.
+- **High-risk:** architecture, security, concurrency, sensitive data or migrations. Put the plan on `main`; have a **separate agent** review the plan before implementation. Independent code review and testing are mandatory.
+
+State the chosen level, why it fits, and intended checks before coding. Escalate if new risks appear. The owner can explicitly override the process, except that implementation merging always needs their **separate explicit approval**.
+
+Use [Grill Me](skills/grill-me/SKILL.md) when requirements are unclear. Keep the plan proportional to the task:
 
 ```markdown
 # <Change title>
 ID: <kebab-case-id>
 
-## Goal
-What problem are we solving? What should users observe?
+## Goal and scope
+What changes and why? What is out of scope?
 
-## Scope and approach
-What changes, what stays unchanged, and which components own it?
+## Approach
+Which component owns the behavior?
 
 ## Acceptance criteria
 - [ ] Observable result
 
 ## Verification
-How will the result be tested?
-
-## Risks or open questions
-Only meaningful unresolved concerns.
+How do we prove it works?
 ```
 
-- For major features, add sections for behavior, constraints, alternatives and tasks **inside the plan**, as needed. Do not create separate template or instructions files for each variation.
-- Commit the plan to `main` (through a PR if required).
-- Hand this to a **new agent**:
+For complex work, add constraints, risks, alternatives or tasks **inside the plan**.
 
-> Review `specifications/planned/<id>/plan.md` against existing code and current specifications. Correct unclear or incorrect parts, then commit any plan changes to `main` following repository rules. If anything changes, write a self-contained plan-review prompt for a fresh agent. If nothing needs changing, write a development prompt with the plan path, goal and acceptance criteria. Do not implement code.
+A plan reviewer checks the plan against the code, edits as needed, and repeats review until stable. Then provide a development prompt referring to the final plan. A fresh agent is required for the **High-risk independent plan review**, not each minor plan edit.
 
-Plans can evolve during development. The final version describes the delivered behavior; Git already holds the earlier revisions.
+Plans are allowed to evolve in development. The final plan describes the result; Git contains the earlier drafts. Move it from `planned/` to `implemented/` on the development branch **before final review/testing**.

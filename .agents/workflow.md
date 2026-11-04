@@ -1,39 +1,62 @@
 # Development workflow
 
-Use this process for every change. **Every step, retry and handoff uses a new chat/agent.** Give the next agent a self-contained prompt with the branch, plan, findings and next action. Fixes stay on the same development branch.
+Use the smallest safe process. **The project owner approves every implementation merge into `main`.**
 
-## 1. [Plan](specification.md)
+## 1. [Choose the level](specification.md)
 
-- Write `specifications/planned/<id>/plan.md`. Use Grill Me if needed.
-- Commit the plan to `main` (through a PR if required).
-- Start a new agent to review and update the plan.
-- If it changes, start a new review agent. Repeat until no changes are needed.
-- The final plan reviewer provides a development prompt for a new agent.
+State the level and reason **before work starts**. Tell the owner; they may override the process. Reassess if the change grows.
 
-## 2. [Code](coding.md)
+| Level | Examples | Default process |
+| --- | --- | --- |
+| **Small** | Typo, isolated CSS, minor documentation | One chat can plan, change, check and pause for owner review. No mandatory extra agents or plan-only commit. |
+| **Standard** | Most features and bug fixes | Plan on `main`, development branch, independent code review, and targeted verification. Use a separate tester when independence adds value. |
+| **High-risk** | Security, architecture, concurrency, migrations, sensitive data | Plan on `main` with independent plan review; independent code review **and** independent testing. |
 
-- Start a new agent. Create branch `<id>` from `main`. For later fixes, reuse that branch.
-- Implement the plan. Update the plan as the design evolves.
-- Update `specifications/current/` **when documented behavior changes**. These edits are tested and reviewed with the implementation.
-- Use Codegraph for code navigation when available. Refresh generated Codegraph data after coding, before testing/review.
-- Prepare the release files on the branch and give a new agent a testing prompt.
+Do not downgrade high-risk work simply to save time. Record a reason for skipped checks or an owner override. The owner may explicitly change the process; **merge permission is always separate**.
 
-## 3. [Test](testing.md)
+**Context quality:** A new agent is useful when the current one loses track of decisions, repeats investigation, confuses versions or produces weaker reasoning. This is a judgment call, **not a fixed token threshold**. For a Small change, staying in the same chat is fine if the work remains clear.
 
-- A new testing agent tests the final behavior.
-- If tests fail, give a **new development agent** a fix prompt. Then start a **new testing agent**.
-- When tests pass, give a new agent a code-review prompt.
+## 2. [Plan](specification.md)
+
+- **Small:** a brief plan in the change branch or PR description is enough.
+- **Standard / High-risk:** create `specifications/planned/<id>/plan.md`, then commit the plan to `main` (using a PR if required).
+- Use Grill Me when needed. Review and refine the plan; independent plan review is required for High-risk changes, optional for Standard.
+- When ready, give the developer a prompt with the plan, scope and acceptance criteria. A new chat is used **when an independent stage or context reset is needed**.
+
+## 3. [Code](coding.md)
+
+- Use a branch named `<id>`. Reuse it for fixes.
+- Implement and run developer checks. Plans may change as code evolves.
+- **Before independent verification**, move any completed plan from `planned/` to `implemented/` **on the development branch**. The original plan in `main` stays until merge.
+- Update `specifications/current/` only if behavior changed. Review these updates with the implementation.
+- Use Codegraph where helpful; refresh the generated graph after relevant code changes, before review.
+- Prepare release information, then check the branch diff.
 
 ## 4. [Review](review.md)
 
-- A new review agent reviews the code, test evidence, final plan and any current-spec updates.
-- If issues are found, give a **new development agent** a fix prompt. Then repeat testing and review with fresh agents.
-- When review passes, declare the change ready and request the **project owner's review**.
+- Review the implementation **before final testing**. The reviewer also checks planned test coverage.
+- **Small:** a careful same-chat self-review may be enough.
+- **Standard:** use an independent reviewer.
+- **High-risk:** independent review is mandatory.
+- On issues, return to development. Fix them on the same branch, then review again as needed.
 
-## 5. [Release](release.md)
+## 5. [Test](testing.md)
 
-- **Wait for explicit owner approval** of the completed implementation.
-- Only after approval, merge to `main`, verify the release, tag its version and **delete the merged development branch**.
-- `main` is always releasable. The reviewed development branch must already contain version, changelog, README, final plan and any necessary current-spec updates.
+- Run the checks appropriate to the level and risks. Developer checks and CI are not the same as independent testing.
+- **Small:** same-chat checks and relevant CI can be sufficient.
+- **Standard:** targeted tests; an independent tester when meaningful.
+- **High-risk:** independent testing is mandatory.
+- On failure, return to development, then repeat **affected review and tests**. No unnecessary fresh chat for each minor operation.
 
-Passing tests, reviewing code or committing a plan does **not** authorize an implementation merge.
+## 6. [Owner approval and release](release.md)
+
+- Report what changed, test/review evidence, remaining risks, branch/PR and exact commit.
+- **Pause for the project owner's explicit approval**. Small changes may stay in one chat through this pause. The final tester can perform release after approval; a separate release agent is optional.
+- Before merging, recheck the candidate commit and current `main`. Changed implementation or conflicts may require new review, tests and **renewed owner approval**.
+- After approval, merge to `main`, tag the version and **delete the merged branch**.
+
+### Handoffs and evidence
+
+Use short, role-aware prompts. Include: **role/stage, task ID, branch or PR, plan path (if any), exact SHA, prior outcome/evidence location, and next action**. Link repository guidance; do not paste it repeatedly. Keep test/review evidence in the PR or `verification.md`, tied to the inspected SHA.
+
+A new chat is required for independent checks, not for every edit. Request a fresh chat if context quality becomes doubtful. **No agent PASS or plan approval grants merge permission.**

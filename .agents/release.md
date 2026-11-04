@@ -1,21 +1,24 @@
 # Releases
 
-`main` is always releasable. Each completed **implementation** merge is a release. Planning documentation committed to `main` does not bump the version.
+`main` is always releasable. Every approved implementation merge creates a release. Plan-only commits do not change the version.
 
-Prepare these **on the development branch before testing/review**:
+Before final review/testing, prepare on the development branch:
 
-- `VERSION`: `MAJOR.MINOR.PATCH` repository release version (separate from API/schema or package versions).
-- `CHANGELOG.md`: release date and user-visible additions/changes/fixes.
-- `README.md`: accurate project front page and usage instructions.
-- `specifications/current/`: update behavior contracts only when relevant.
-- `specifications/implemented/<id>/`: final plan and verification information.
+- `VERSION`: repository release version (`MAJOR.MINOR.PATCH`), separate from API/schema/package versions.
+- `CHANGELOG.md`: relevant user-visible changes.
+- `README.md`: update **only if** usage, features, setup or other front-page information changed.
+- `specifications/current/`: update **only when** documented behavior changes.
+- `specifications/implemented/<id>/`: final plan moved here from `planned/`; not required as a file for Small changes documented only in the PR.
+- Test/review evidence: record inspected SHA and results in `verification.md` or the PR.
 
-Normally bump MINOR for compatible features or PATCH for fixes before 1.0. Resolve competing version bumps against the latest `main`.
+While pre-1.0, normally bump MINOR for compatible features and PATCH for fixes; treat breaking changes deliberately. Reconcile competing version numbers with current `main`.
 
-## Merge and cleanup
+## Owner approval and merge
 
-1. **Wait for the owner's explicit approval** of the tested and reviewed PR. Never infer it from a plan approval, a green check or a reviewer PASS.
-2. Reconfirm the PR head and checks. Merge to `main` and verify the resulting release, then tag the merge commit `v<version>`.
-3. **Delete the merged development branch** and verify it is gone. Do not delete unmerged branches or another contributor's work.
-4. If the available GitHub connector cannot delete branches, use a temporary GitHub Actions workflow **only on the merged branch** with `contents: write`. The workflow first removes and commits its own workflow file using `[skip ci]`, then deletes `git/refs/heads/<branch>` through GitHub REST using `GITHUB_TOKEN`. Treat HTTP 404 as already deleted. Verify the branch is absent afterward. Never merge this temporary workflow into `main`.
-5. Prefer regenerating Codegraph on the implementation branch before review. If it remains stale after merge, fix it through a separate reviewed update, not an unapproved direct change to `main`.
+1. Present the complete PR, tested SHA, review and test evidence to the owner. **Wait for explicit approval of this candidate.** A PASS or earlier plan approval is not permission to merge.
+2. Before merging, recheck the exact PR head, `main` head, checks and potential conflicts. If code, requirements, dependencies or conflict resolution changed since verification, redo affected review and testing. If the owner's reviewed candidate changed materially, seek **renewed approval**. Even a conflict-free update to `main` may require integration tests if components overlap.
+3. Merge only when still approved and valid. Verify `main` and tag its merge commit `v<version>`.
+4. **Delete the merged development branch** and verify it is absent. Never delete another contributor's unmerged work.
+5. If tooling cannot directly delete branches, use a temporary GitHub Actions workflow **only on the merged branch** with `contents: write`. It must first remove/commit its own workflow file with `[skip ci]`, then delete `git/refs/heads/<branch>` using GitHub REST and `GITHUB_TOKEN`. Treat HTTP 404 as already deleted, verify absence, and never merge that workflow into `main`.
+
+The agent presenting the finished work may execute the release in the **same chat after explicit owner permission**. Use a separate agent only when needed for expertise or context quality. Prefer refreshing generated Codegraph data on the implementation branch before review; if stale after merge, repair it through a separately approved update.

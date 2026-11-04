@@ -4,11 +4,13 @@ Read [the workflow](workflow.md). Use [software-change](skills/software-change/S
 
 ## Coding process
 
-- Start a new agent for each development task or fix. For a new change, branch from `main` using the plan ID. For fixes, stay on the same development branch.
-- Read the approved plan, affected current specifications and source. Find the existing owner before adding a second mechanism.
+- Follow the task level from [the workflow](workflow.md). A **Small** change can stay in one chat through coding, checks and owner approval. Standard and High-risk changes use independent reviewers.
+- State the classification and verification plan. Escalate if an initially simple change grows risky. For a new change, branch from `main` using the task ID; reuse the same branch for fixes.
+- Read the plan (or Small-change summary), affected current specifications and source. Find the existing owner before adding a second mechanism.
 - Prefer semantic APIs/protocols to DOM automation. Choose **Reuse / Repair / Refactor / Redesign** based on real responsibility, not minimum diff size.
-- Keep code, tests, final plan and current specifications aligned. Update current specs only when actual behavior changes; review those edits with the implementation.
-- Prepare the complete release candidate on the development branch. Commit/push, then give a self-contained testing prompt to a **new agent**. Do not merge.
+- Keep code, tests, final plan and current specifications aligned. Update current specs only when actual behavior changes.
+- **Move the final plan from `specifications/planned/<id>/` to `specifications/implemented/<id>/` on the development branch before independent review/testing.** A Small change may have only a PR description instead of a plan file.
+- Prepare release metadata and verify the diff. Run developer tests. Commit/push, then request **code review before final testing**. For Small changes, self-review and verification in the same chat can suffice. Do not merge without owner approval.
 
 ## Engineering sanity questions
 
@@ -35,6 +37,6 @@ Prefer a coherent mechanism over duplicated decisions. Do not abstract a first o
 - **Runtime boundaries:** preserve Agent API policy/queue ownership, Executor shell/process ownership and loopback security. Read [architecture](../docs/architecture.md) before touching them.
 - **Working tree:** use local shell inspection/build/tests for a checked-out repository; GitHub tools for remote PRs and branches. Prefer dedicated patch/edit operations over shell one-liners. Confirm changes with a diff. Do not kill running applications just to get a build.
 
-## Testing handoff
+## Review handoff
 
-> Test branch `<id>` at commit `<sha>`. Read `.agents/testing.md` and the final plan in `specifications/implemented/<id>/`. Run relevant tests and verify changed current specifications. Return PASS/FAIL/BLOCKED with evidence. On failure, write a fix prompt for a **new developer agent**. On PASS, write a review prompt for a **new review agent**.
+> Role: independent code reviewer (if required by task level). Task: `<id>`; level: `<level>`; PR/branch: `<link>`; commit: `<sha>`; final plan or Small-change summary: `<path/link>`; developer checks: `<evidence>`. Follow `.agents/review.md`. Review code, risk, final specification and test coverage. Return PASS/FAIL/BLOCKED. On failure, give a focused developer fix prompt; on PASS, give the next testing/verification prompt.

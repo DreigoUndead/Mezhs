@@ -1,18 +1,19 @@
 # Verification — standardize-development-workflow
 
-**Candidate:** `standardize-development-workflow` (record exact SHA during independent validation)
-**Status:** pending independent testing, independent code review and Monkey approval.
+**Branch:** `standardize-development-workflow`
+**Status:** review candidate; final checks and owner approval pending.
 
-## Coding-level checks
-- Confirm all added docs and internal links resolve.
-- Check old `.agents/README.md` references are migrated.
-- Confirm application runtime source remains unchanged.
+## Checks to run
 
-## Independent testing — PENDING
-Tester records commit, commands, output, coverage and PASS/FAIL/BLOCKED.
+- Compare all documentation changes against `main`; no application runtime source changes expected.
+- Check internal relative links and references to removed files.
+- Verify the three task levels, conditional independent agent usage and **Review → Test** order are consistent across guides.
+- Verify Small changes can use one chat, with mandatory **pause for owner approval**.
+- Verify plan movement, handoff metadata, evidence SHA and revalidation after base changes.
+- Check planning and implementation PR sections separately.
 
-## Independent review — PENDING
-Reviewer records commit, substantive findings and PASS/FAIL/BLOCKED.
+## Evidence
 
-## Monkey review — PENDING
-Implementation PR must remain unmerged until Monkey explicitly approves the final reviewed candidate.
+Record exact inspected SHA, checks/CI results and limitations in the PR or here. Do not claim independent validation without it.
+
+**Owner approval:** pending. Do not merge automatically.
