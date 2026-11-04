@@ -1,12 +1,12 @@
 # Planning
 
-- Read the existing code and [current specifications](../specifications/current/) first.
-- Every change starts with `specifications/planned/<id>/plan.md`. Use [the template](../specifications/templates/change.md).
-- For complex features, use [Grill Me](skills/grill-me/SKILL.md) to resolve important decisions one question at a time.
-- Write the goal, scope, approach and testable acceptance criteria. Keep small changes short.
-- Commit the plan to `main` (through a PR when required). This is a documentation change, not a release.
-- Give an independent agent this prompt:
+- Inspect existing behavior and relevant [current specifications](../specifications/current/) before proposing a change.
+- Create `specifications/planned/<id>/plan.md` using [the template](../specifications/templates/change.md).
+- Use [Grill Me](skills/grill-me/SKILL.md) for unclear or complex decisions.
+- Write the purpose, scope, approach and testable acceptance criteria. Keep small changes short.
+- Commit the plan to `main` (through a PR if required).
+- Give this prompt to a **new chat/agent**:
 
-> Review `specifications/planned/<id>/plan.md` against the existing code and current specifications. Fix unclear or incorrect parts. Commit any plan changes to `main`. Repeat until there are no changes. Then give a developer a prompt with the plan path, required behavior and acceptance criteria. Do not implement code.
+> Review `specifications/planned/<id>/plan.md` against the current code and specifications. Fix unclear or incorrect parts. Commit plan changes to `main` as allowed by repository rules. If anything changed, give a new plan-review prompt for another chat. If no changes are needed, give a development prompt with the plan path and acceptance criteria. Do not implement code.
 
-Plans may change during development. Keep the final document aligned with actual behavior. Git history already records earlier ideas.
+A plan can change during development. The final plan describes the implemented behavior. Git holds the older versions.

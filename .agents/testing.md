@@ -1,14 +1,16 @@
 # Testing
 
-Use a separate agent from the developer.
+**Start a fresh chat/agent for each testing attempt.** Do not reuse the developer's chat or the previous tester's chat.
 
-1. Read the final plan, acceptance criteria and changed code on the development branch.
-2. Run relevant tests and reproduce important workflows. Include regressions and failure cases.
-3. Record the commit, commands, results and anything not tested. Never call a test PASS if it was not run.
-4. Report **PASS**, **FAIL** or **BLOCKED**.
+1. Read the final plan, acceptance criteria, current behavior specs (if relevant) and the actual changed code.
+2. Test the implementation and regressions. Use the strongest practical evidence, not developer claims.
+3. Record the branch, commit SHA, commands, results and untested areas.
+4. Return **PASS**, **FAIL** or **BLOCKED**.
 
-If something fails, give the developer a clear fix prompt. After fixes, **test again**.
+On FAIL/BLOCKED, produce a **self-contained fix prompt for a new development chat**. Include how to reproduce the problem. After fixes, a **different new testing chat** must test again.
 
-If everything passes, give the next agent this prompt:
+On PASS, give this prompt to a **new review chat**:
 
-> Review branch `<id>` at commit `<sha>` against `main`. Follow `.agents/review.md`. Read the final plan, full diff and testing evidence. Look for bugs, unnecessary complexity and missed requirements. Report PASS, FAIL or BLOCKED. If issues exist, send them to the developer. If not, prepare a short approval summary for the project owner.
+> Review branch `<id>` at `<sha>` against `main`. Follow `.agents/review.md`. Read the final plan, full diff, test evidence, and any changes to `specifications/current/`. Check correctness, design, security, regressions and release documentation. Return PASS, FAIL or BLOCKED. On failure, give a fix prompt for a new development chat; on success, prepare a short owner-review summary.
+
+Never describe tests you did not run as passed.

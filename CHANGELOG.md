@@ -5,10 +5,11 @@ Release changes follow [Keep a Changelog](https://keepachangelog.com/) and [Sema
 ## [0.1.1] — 2026-11-04
 
 ### Changed
-- Simplified development to plan → plan review → code → independent testing → independent review → owner approval → release.
-- Made the reusable agent instructions project-neutral and separated them by stage.
-- Added current specifications, release metadata and a single agent entrypoint.
+- Established a plan → plan review → development → independent testing → independent review → owner-approved release workflow, with a new chat/agent at every step.
+- Consolidated project-neutral agent instructions into `AGENTS.md` and `.agents/` stage guides.
+- Distinguished living behavior specifications from plans and architecture notes.
+- Added Codegraph refresh guidance and restored a project-focused README with setup instructions.
 
 ## [0.1.0] — Pre-governance baseline
 
-Previous work is recorded in Git history and pull requests.
+Earlier work predates this changelog. Refer to Git history and past pull requests.

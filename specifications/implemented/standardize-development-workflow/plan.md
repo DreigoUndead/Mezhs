@@ -3,36 +3,38 @@
 - ID: `standardize-development-workflow`
 - Type: documentation and workflow
 - Date: 2026-11-04
-- Status: implementation ready for independent testing and review
+- Status: implementation on review branch; awaiting independent testing and review
 
 ## Goal
 
-Make planning, implementation, testing, review and releases clear to developers and AI agents. Keep instructions short and reusable across projects.
+Make planning, coding, testing, review and release easy to understand. Keep instructions reusable for other projects.
 
 ## Final behavior
 
-1. Make a plan. Use Grill Me when needed.
-2. Commit the plan to `main`. Another agent reviews and updates the plan until no changes remain. It then provides a development prompt.
-3. A developer creates branch `<id>`, implements the plan, keeps it current, and provides a testing prompt.
-4. An independent agent tests. Any failures return to development. Once tests pass, it provides a code-review prompt.
-5. An independent agent reviews. Issues return to development and testing.
-6. With tests and review passing, request Monkey's review. **Wait for explicit merge permission.**
-7. Each approved implementation merge into `main` creates a new release; update the changelog, README, version and current specifications.
+1. Create a plan, using Grill Me where needed, and commit it to `main`.
+2. Have a **new agent** review/update the plan. Repeat with fresh agents until there are no changes. The last reviewer gives a development prompt.
+3. A **new developer agent** creates the plan-named branch and implements. Each fix is another new development chat on the same branch. The developer gives a testing prompt.
+4. A **new tester agent** validates. Failure returns to a new development chat. Success provides the code-review prompt.
+5. A **new reviewing agent** reviews. Problems return to a new developer and repeat testing/review.
+6. Once tests and review pass, request Monkey's final review. Do not merge without explicit permission.
+7. On approval, merge into `main`, release with updated version/changelog/README and tag.
 
-## Delivered
+When available, use Codegraph during source navigation. Refresh its generated dependency graph when code changes are complete and before testing/review. If it is stale after merge, fix that through a reviewed update.
 
-- Single root `AGENTS.md`; removed old duplicate agent README.
-- Split and shortened reusable instructions and prompts.
-- Retained existing engineering skills; moved project-specific coding facts to current specifications.
-- Added living/current specifications, historical plan, templates, release files and PR guidance.
-- Preserved the existing runtime architecture documentation.
+Update and review `specifications/current/` when behavior changes. Do not store duplicate workflow or architecture documentation there.
+
+## Documentation cleanup
+
+- A concise root `AGENTS.md` is the entrypoint.
+- Stage instructions and reusable skills stay in `.agents/`.
+- Current specifications describe actual behavior. Plans and archived changes are separate.
+- MEŽS-specific architecture and engineering notes are in `docs/`.
+- Root README describes the application, its features, prerequisites and how to use it.
 
 ## Remaining
 
-- Independent testing and review of the branch.
-- Monkey's final review and explicit merge approval.
-- Refresh the generated Codegraph index where tooling is available.
+- Independent testing/review.
+- Monkey's approval to merge.
+- Regenerate the committed Codegraph index if available.
 
-## Scope
-
-Documentation and workflow changes only. No runtime refactors.
+No application runtime code was changed.

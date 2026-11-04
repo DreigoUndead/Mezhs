@@ -1,6 +1,6 @@
 # Architecture and runtime constraints
 
-These are repository-specific implementation facts. Confirm them against source when making changes.
+These are implementation details and architectural boundaries. Confirm them against source when changing the system.
 
 ## Agent runtime
 

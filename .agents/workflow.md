@@ -1,41 +1,46 @@
 # Development workflow
 
-Use this process for every change. Keep it simple.
+Use this process for every change.
+
+**Every step uses a new chat/agent.** This includes repeated steps after fixes. End each step with a self-contained prompt for the next agent. Include the branch, plan path, results and what to do next. Keep fixing the **same development branch**.
 
 ## 1. Plan
 
-- Create `specifications/planned/<id>/plan.md`. Use [Grill Me](skills/grill-me/SKILL.md) when requirements are unclear.
-- Commit the plan to `main`. Plans contain documentation only. Use a planning PR if required by repository rules.
-- Give another agent a prompt to **review and update the plan**.
-- If changes are needed, update the plan on `main` and repeat the review.
-- When no changes are needed, the plan reviewer gives a **development prompt**.
+- Write `specifications/planned/<id>/plan.md`. Use [Grill Me](skills/grill-me/SKILL.md) if needed.
+- Commit the plan to `main` (via a PR if required).
+- Give a **new agent** a plan-review prompt.
+- If the plan changes, start another new agent to review it again.
+- When no changes are needed, give a **new agent** a development prompt.
 
 ## 2. Code
 
-- Create a branch named `<id>` from the latest `main`.
-- Implement the plan. Update it as the design evolves. The final plan should describe the result.
-- Prepare tests and release files on this branch.
-- When coding is done, give a **testing prompt**.
+- Start a new chat/agent.
+- Create branch `<id>` from `main`. For later fixes, use the existing branch.
+- Implement the plan. Update the final plan when the design changes.
+- Update `specifications/current/` **if the change affects documented behavior**.
+- Run relevant developer checks. If Codegraph is available, use it to navigate code. Refresh its generated graph after code changes are complete, before testing/review.
+- Give a **new agent** a testing prompt.
 
 ## 3. Test
 
-- A separate agent tests the branch against the final plan.
-- If tests fail, send findings back to the developer. Fix them and test again.
-- When tests pass, give a **code-review prompt**.
+- Start a new chat/agent to test the branch against the final plan.
+- If tests fail, give a **new development agent** a fix prompt. After the fix, start a **new testing agent**.
+- If tests pass, give a **new agent** a code-review prompt.
 
 ## 4. Review
 
-- A separate agent reviews the code, tests and final plan.
-- If issues are found, send them back to the developer. Then repeat testing and review.
-- When the review passes, declare the work ready. Ask the **project owner** to review the completed change.
+- Start a new chat/agent to review code, tests and the final plan.
+- Review updates to `specifications/current/` when relevant. Check that they match the resulting behavior.
+- If issues are found, give a **new development agent** a fix prompt. Then repeat testing and review in new chats.
+- If review passes, declare the work ready. Ask the **project owner** to review it.
 
 ## 5. Release
 
 - **Wait for explicit owner permission** to merge the completed implementation into `main`.
-- On approval, merge. `main` is a release: update the version, changelog, README, and current specifications as part of the reviewed branch, not afterward.
-- Move the final plan to `specifications/implemented/<id>/` in that same branch.
-- Tag the merged release.
+- Before approval, prepare version, changelog, README, final plan and any needed current-spec updates **on the development branch**. They are part of the reviewed change.
+- After approval, merge into `main` and tag the version. `main` is a release.
+- If the generated Codegraph is stale after merge, refresh it through a separate reviewed update. Do not hand-edit generated files.
 
-See [specification](specification.md), [coding](coding.md), [testing](testing.md), [review](review.md), and [release](release.md) for each step.
+See [planning](specification.md), [coding](coding.md), [testing](testing.md), [review](review.md) and [release](release.md) for details.
 
-**Rules:** Fix problems on the same development branch. Failed checks never approve a merge. A plan commit is not permission to merge code.
+**Rules:** Plans can evolve. Failures always return to development. Every handoff uses a new chat. Passing checks never authorize a merge.
