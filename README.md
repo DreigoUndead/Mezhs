@@ -90,4 +90,4 @@ The Agent host extends the same API composition as the ordinary host. The Agent 
 - [Change history](CHANGELOG.md) and [current version](VERSION)
 - [Agent design manifesto](AGENT_MANIFESTO.md) and [Executor design manifesto](EXECUTOR_MANIFESTO.md)
 
-A change is planned, implemented on its own branch, independently tested, independently reviewed, and merged only with the project owner's explicit approval.
+Changes use a risk-based workflow: small edits can be handled in one chat, while more complex work receives independent review and testing. Every implementation merge requires the project owner's explicit approval.
