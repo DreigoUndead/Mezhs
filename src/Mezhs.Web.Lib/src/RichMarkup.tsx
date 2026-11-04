@@ -1,6 +1,7 @@
 import { ReactNode, CSSProperties } from "react";
 import type { Components } from "react-markdown";
 import { Check, CircleCheck, CircleAlert, CircleX, Info, ArrowDown, GitBranch, GitPullRequest } from "lucide-react";
+import { RichChart } from "./RichChart";
 
 type MarkupNode = {
   type: string;
@@ -12,8 +13,8 @@ type MarkupNode = {
   value?: string;
 };
 
-const components = new Set(["row", "col", "box", "grid", "grid-item", "text", "title", "divider", "badge", "icon", "Link"]);
-const attributes = new Set(["gap", "align", "justify", "color", "name", "size", "border", "strong", "url", "title", "columns", "padding", "radius", "background", "width", "weight", "textAlign", "key", "flex", "tabularNums"]);
+const components = new Set(["row", "col", "box", "grid", "grid-item", "text", "title", "divider", "badge", "icon", "caption", "Link", "Chart"]);
+const attributes = new Set(["gap", "align", "justify", "color", "name", "size", "border", "strong", "url", "title", "columns", "padding", "radius", "background", "width", "weight", "textAlign", "key", "flex", "tabularNums", "content"]);
 
 // Parse supported JSX-like markup as DATA. Unknown constructs and executable
 // expressions remain escaped text. MDX is never compiled or evaluated.
@@ -121,6 +122,7 @@ const icons = {
 };
 
 export const richComponents = {
+  "mezhs-chart": (props: RichProps) => <RichChart content={structured(props, "content")} />,
   "mezhs-row": ({ children, ...props }: RichProps) => <div className="rich-row" style={layout(props)}>{children}</div>,
   "mezhs-col": ({ children, ...props }: RichProps) => <div className="rich-col" style={layout(props)}>{children}</div>,
   "mezhs-box": ({ children, ...props }: RichProps) => <div className={"rich-box" + (read(props, "border") === "true" ? " rich-bordered" : "")} style={surface(props)}>{children}</div>,
@@ -151,6 +153,7 @@ export const richComponents = {
       textAlign: read(props, "textAlign") === "center" ? "center" : undefined,
     }}>{children}</span>;
   },
+  "mezhs-caption": ({ children }: RichProps) => <span className="rich-caption">{children}</span>,
   "mezhs-divider": (props: RichProps) => <hr className={"rich-divider" + (read(props, "color") === "strong" ? " rich-divider-strong" : "")} />,
   "mezhs-badge": ({ children, ...props }: RichProps) => <span className={"rich-badge" + tone(props)}>{children}</span>,
   "mezhs-icon": (props: RichProps) => {

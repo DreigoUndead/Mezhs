@@ -1,6 +1,7 @@
 export { default as MezhsChatApp } from "./MezhsChatApp";
 export type { MezhsChatAppProps } from "./MezhsChatApp";
 export { ChatComposer, ChatTranscript, modelActivityLabel } from "./ChatSurface";
+export { useConversationDrafts } from "./useConversationDrafts";
 export { ConnectionModelPicker } from "./ConnectionModelPicker";
 export type { ConnectionModelPickerProps } from "./ConnectionModelPicker";
 export type {
@@ -21,3 +22,5 @@ export type { ApiAvailability } from "./api";
 export { ApiChatProvider } from "./providers/apiChatProvider";
 export { ChatProviderRegistry } from "./providers/registry";
 export * from "./providers/contracts";
+
+export { useConversationPending } from './useConversationPending';

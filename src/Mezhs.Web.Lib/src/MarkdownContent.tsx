@@ -1,9 +1,15 @@
-import Markdown from "react-markdown";
+import Markdown, { uriTransformer } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMdx from "remark-mdx";
 import { remarkRichMarkup, richComponents } from "./RichMarkup";
 import { expandRichTemplates } from "./RichExpression";
 import "./markdown.css";
+
+// Keep react-markdown protocol validation without emitting a javascript: placeholder.
+const safeUri = (value: string) => {
+  const validated = uriTransformer(value);
+  return validated === "javascript:void(0)" ? "" : validated;
+}
 
 // One renderer for every integration. Provider content is parsed as data;
 // model-supplied markup and expressions are never compiled or executed.
@@ -12,6 +18,8 @@ function renderRich(content: string) {
     children: expandRichTemplates(content),
     remarkPlugins: [remarkGfm, remarkMdx as unknown as typeof remarkGfm, remarkRichMarkup],
     components: richComponents,
+    transformLinkUri: safeUri,
+    transformImageUri: safeUri,
   });
 }
 
@@ -19,11 +27,12 @@ function renderChunk(content: string) {
   try {
     return renderRich(content);
   } catch {
-    return <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>;
+    return <Markdown remarkPlugins={[remarkGfm]} transformLinkUri={safeUri} transformImageUri={safeUri}>{content}</Markdown>;
   }
 }
 
-export function MarkdownContent({ content }: { content: string }) {
+export function MarkdownContent({ content, verbatim = false }: { content: string; verbatim?: boolean }) {
+  if (verbatim) return <div className="prompt-text">{content}</div>;
   try {
     return <div className="markdown-content">{renderRich(content)}</div>;
   } catch {

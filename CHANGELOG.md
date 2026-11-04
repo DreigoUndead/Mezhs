@@ -2,6 +2,19 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.1.2] — 2026-11-05
+
+### Fixed
+- Isolated drafts across chats and agents; retained edits made during pending requests and restored prompts after failed submissions.
+- Preserved user prompt numbering, whitespace and line breaks.
+- Corrected scroll restoration, bottom-follow behavior and asynchronous conversation-history loading.
+- Prevented stale chat requests from overwriting a different selected conversation.
+
+### Added
+- Conditional scroll-to-top and scroll-to-bottom controls.
+- Safe rich-response rendering improvements for captions, inline titles and supported chart data.
+- Chromium regression tests for drafts, scrolling, resizing, attachments and agent execution history.
+
 ## [0.1.1] — 2026-11-05
 
 ### Added

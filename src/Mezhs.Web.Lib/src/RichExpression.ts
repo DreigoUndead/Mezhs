@@ -96,7 +96,12 @@ function evaluate(node: Expr, scope: Record<string, unknown>, depth = 0): unknow
       if (result.length <= 2048) return result;
       break;
     }
+    case "ArrayExpression":
+      if (!node.elements || node.elements.length > 48 || node.elements.some(item => item === null))
+        break;
+      return node.elements.map(item => next(item || undefined));
     case "ObjectExpression": {
+      if ((node.properties || []).length > 48) throw Error("Object too large");
       const obj: Record<string, unknown> = Object.create(null);
       for (const property of node.properties || []) {
         if (property.type !== "Property" || property.kind !== "init" || property.computed)
@@ -111,8 +116,8 @@ function evaluate(node: Expr, scope: Record<string, unknown>, depth = 0): unknow
   throw Error("Unsupported expression: " + node.type);
 }
 
-function parseValue(source: string, scope: Record<string, unknown>) {
-  if (source.length > 512) throw Error("Expression too long");
+function parseValue(source: string, scope: Record<string, unknown>, maxLength = 512) {
+  if (source.length > maxLength) throw Error("Expression too long");
   const node = parseExpressionAt(source, 0, { ecmaVersion: "latest" }) as unknown as Expr;
   if (source.slice(node.end).trim()) throw Error("Extra expression tokens");
   return evaluate(node, scope);
@@ -146,7 +151,8 @@ function interpolateSegment(source: string, scope: Record<string, unknown>) {
       while (/\s/.test(source[close] || "") && close < source.length) close++;
       if (source[close] !== "}") continue;
       const expression = source.slice(open + 1, node.end);
-      const value = parseValue(expression, scope);
+      const attributeName = match[0].slice(0, match[0].indexOf("=")).trim();
+      const value = parseValue(expression, scope, attributeName === "content" ? 8192 : 512);
       const encoded = value !== null && typeof value === "object"
         ? "json:" + encodeURIComponent(JSON.stringify(value))
         : String(value);
@@ -300,7 +306,7 @@ function shieldInlineCode(source: string, protectedBlocks: string[]) {
 }
 
 export function expandRichTemplates(content: string) {
-  if (!content.includes("{#each") && !/\b(?:border|padding|width)\s*=\s*\{/.test(content)) return content;
+  if (!content.includes("{#each") && !/\b(?:border|padding|width|content)\s*=\s*\{/.test(content)) return content;
   const { result, fences } = shieldFences(content);
   const shielded = shieldInlineCode(result, fences);
   try {

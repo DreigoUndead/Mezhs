@@ -1,6 +1,9 @@
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
 import { modelActivityLabel } from "./ChatSurface";
+import { ConversationViewport } from "./ConversationViewport";
+import { useConversationPending } from './useConversationPending';
+import { useConversationDrafts } from "./useConversationDrafts";
 import { MarkdownContent } from "./MarkdownContent";
 import { ConnectionModelPicker } from "./ConnectionModelPicker";
 import { ChatProviderRegistry } from "./providers/registry";
@@ -70,10 +73,10 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [chats, setChats] = useState<Chat[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [draft, setDraft] = useState("");
+  const [newChatSequence, setNewChatSequence] = useState(0);
+  const [historyLoadedChatId, setHistoryLoadedChatId] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showConversationManager, setShowConversationManager] = useState(false);
@@ -81,7 +84,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
   const [deletingChats, setDeletingChats] = useState(false);
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
-  const endRef = useRef<HTMLDivElement>(null);
+  const selectionEpoch = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const providerRegistry = useRef(new ChatProviderRegistry());
@@ -92,6 +95,9 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   );
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
+  const draftKey = chatId ? `chat:${chatId}` : `new:${newChatSequence}:${connectionId}`;
+  const { draft, setDraft, clearDraft, moveDraft, restoreDraft } = useConversationDrafts(draftKey);
+  const { pending: sending, start: startSend, transfer: transferSend, finish: finishSend } = useConversationPending(draftKey);
   const activeMessage = [...messages].reverse().find((message) =>
     message.role === "user" && !terminalStatuses.has(message.status));
   const busyLabel = modelActivityLabel(activeMessage?.activity, activeMessage?.activityDetail);
@@ -171,10 +177,6 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     return () => { cancelled = true; };
   }, [selectedConnection]);
 
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, sending]);
-
   async function loadChats(base = apiBase) {
     try {
       setChats(await apiJson<Chat[]>(base, "/v1/chats"));
@@ -188,41 +190,52 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
   }
 
   async function openChat(chat: Chat) {
+    const epoch = ++selectionEpoch.current;
+    setHistoryLoadedChatId(null);
     clearPendingFiles();
     setChatMenuId(null);
     setChatId(chat.chatId);
+    setMessages([]);
     setConnectionId(chat.connectionId);
     setSidebarOpen(false);
     try {
       const loaded = await providerRegistry.current.get(chat.connectionId).getChat(chat.chatId);
-      setMessages(loaded.messages || []);
+      if (selectionEpoch.current === epoch) setMessages(loaded.messages || []);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not open this conversation.");
+      if (selectionEpoch.current === epoch)
+        setNotice(error instanceof Error ? error.message : "Could not open this conversation.");
+    } finally {
+      if (selectionEpoch.current === epoch) setHistoryLoadedChatId(chat.chatId);
     }
   }
 
   function newChat(categoryId = "") {
+    ++selectionEpoch.current;
     clearPendingFiles();
     setChatMenuId(null);
     setChatId(null);
     setMessages([]);
+    setNewChatSequence((current) => current + 1);
     setNewChatCategoryId(categoryId);
     setSidebarOpen(false);
-    setDraft("");
   }
 
   function changeConnection(id: string) {
+    if (!chatId && id !== connectionId) ++selectionEpoch.current;
     setConnectionId(id);
   }
 
   async function submit(event?: FormEvent) {
     event?.preventDefault();
-    const content = draft.trim();
+    const content = draft;
     const uploadedFiles = pendingFiles.flatMap((item) => item.uploaded ? [item.uploaded] : []);
-    if ((!content && uploadedFiles.length === 0) || !connectionId || sending || pendingFiles.some((item) => item.uploading)) return;
-
-    setDraft("");
-    setSending(true);
+    if ((!content.trim() && uploadedFiles.length === 0) || !connectionId || sending || pendingFiles.some((item) => item.uploading)) return;
+    const epoch = selectionEpoch.current;
+    const submittedKey = draftKey;
+    let pendingKey = submittedKey;
+    if (!startSend(pendingKey)) return;
+    clearDraft(submittedKey, content);
+    let accepted = false;
     setNotice(null);
     try {
       const request = await providerRegistry.current.get(connectionId).sendMessage(
@@ -230,55 +243,71 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
         { content, files: uploadedFiles, model: modelId || undefined },
         { categoryId: newChatCategoryId || null },
       );
-      setChatId(request.chatId);
-      setMessages((current) => [...current, request]);
-      clearPendingFiles();
-      await poll(request.messageId, request.chatId);
+      accepted = true;
+      if (!chatId) {
+        moveDraft(submittedKey, `chat:${request.chatId}`, "");
+        transferSend(pendingKey, `chat:${request.chatId}`);
+        pendingKey = `chat:${request.chatId}`;
+      }
+      if (selectionEpoch.current === epoch) {
+        setChatId(request.chatId);
+        setHistoryLoadedChatId(request.chatId);
+        setMessages((current) => [...current, request]);
+        clearPendingFiles();
+      }
+      await poll(request.messageId, request.chatId, epoch);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Message could not be sent.");
+      if (!accepted) restoreDraft(submittedKey, content);
+      if (selectionEpoch.current === epoch)
+        setNotice(error instanceof Error ? error.message : "Message could not be sent.");
     } finally {
-      setSending(false);
+      finishSend(pendingKey);
     }
   }
 
-  async function poll(messageId: string, targetChatId: string) {
+  async function poll(messageId: string, targetChatId: string, epoch: number) {
     while (true) {
       await new Promise((resolve) => window.setTimeout(resolve, 650));
       const request = await apiJson<Message>(apiBase, `/v1/messages/${messageId}`);
-      setMessages((current) => current.map((message) =>
-        message.messageId === messageId ? request : message,
-      ));
-      if (!terminalStatuses.has(request.status)) continue;
-      if (request.status === "Completed" && request.reply) {
-        setMessages((current) => {
-          const withoutNestedReply = current.map((message) =>
-            message.messageId === messageId ? { ...request, reply: undefined } : message,
-          );
-          return withoutNestedReply.some((message) => message.messageId === request.reply?.messageId)
-            ? withoutNestedReply
-            : [...withoutNestedReply, request.reply as Message];
-        });
+      if (selectionEpoch.current === epoch) {
+        setMessages((current) => current.map((message) =>
+          message.messageId === messageId ? request : message,
+        ));
+        if (request.status === "Completed" && request.reply) {
+          setMessages((current) => {
+            const withoutNestedReply = current.map((message) =>
+              message.messageId === messageId ? { ...request, reply: undefined } : message,
+            );
+            return withoutNestedReply.some((message) => message.messageId === request.reply?.messageId)
+              ? withoutNestedReply
+              : [...withoutNestedReply, request.reply as Message];
+          });
+        }
       }
+      if (!terminalStatuses.has(request.status)) continue;
       await loadChats();
-      setChatId(targetChatId);
+      if (selectionEpoch.current === epoch) setChatId(targetChatId);
       break;
     }
   }
 
   async function replay(messageId: string) {
-    if (sending) return;
-    setSending(true);
+    const epoch = selectionEpoch.current;
+    const pendingKey = draftKey;
+    if (!startSend(pendingKey)) return;
     setNotice(null);
     try {
       const request = await apiJson<Message>(apiBase, `/v1/messages/${messageId}/replay`, {
         method: "POST",
       });
-      setMessages((current) => [...current, request]);
-      await poll(request.messageId, request.chatId);
+      if (selectionEpoch.current === epoch)
+        setMessages((current) => [...current, request]);
+      await poll(request.messageId, request.chatId, epoch);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Message could not be replayed.");
+      if (selectionEpoch.current === epoch)
+        setNotice(error instanceof Error ? error.message : "Message could not be replayed.");
     } finally {
-      setSending(false);
+      finishSend(pendingKey);
     }
   }
 
@@ -655,7 +684,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
           </div>
         </header>
 
-        <section className={`conversation ${messages.length === 0 ? "conversation-empty" : ""}`} aria-live="polite">
+        <ConversationViewport conversationKey={draftKey} messages={messages} historyReady={!chatId || historyLoadedChatId === chatId} busy={sending} empty={messages.length === 0}>
           {messages.length === 0 ? (
             <div className="welcome">
               <div className="welcome-orbit"><span>M</span></div>
@@ -691,7 +720,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                     )}
                     {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
                   </div>
-                  {message.content && <div className="message-content"><MarkdownContent content={message.content} /></div>}
+                  {message.content && <div className="message-content"><MarkdownContent content={message.content} verbatim={message.role === "user"} /></div>}
                   {message.files?.length > 0 && (
                     <div className="message-files">
                       {message.files.map((file) => file.contentType.startsWith("image/") ? (
@@ -721,8 +750,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
             );
           })}
           {sending && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>{busyLabel}</span></div>}
-          <div ref={endRef} />
-        </section>
+        </ConversationViewport>
 
         <footer className="composer-wrap">
           {notice && <div className="notice"><span>{notice}</span><button onClick={() => setNotice(null)} aria-label="Dismiss">x</button></div>}

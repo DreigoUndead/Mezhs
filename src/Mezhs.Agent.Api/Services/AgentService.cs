@@ -59,7 +59,7 @@ public sealed class AgentService(
             chatId,
             source: "manual",
             sourceReference: null,
-            request.Input.Trim(),
+            request.Input,
             environment,
             policies.Snapshot(policyId),
             model);
