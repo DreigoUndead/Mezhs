@@ -10,7 +10,7 @@ Review the changed code against `main`, the final plan (or Small-change descript
 
 - Check functional correctness, architecture, security, regressions, simplicity and maintainability. Use [software-change](skills/software-change/SKILL.md) for detailed judgment.
 - Check that the **planned tests** cover requirements, errors, edge cases and changed dependencies. The reviewer does not claim tests passed without executing them.
-- Verify changes to `specifications/current/` match real behavior. Check plan archiving and relevant release metadata.
+- Verify changes to `specifications/current/` match real behavior. Check plan archiving and the proposed release summary. **Version and changelog edits must be absent until the merge into `main`.**
 - Return **PASS / FAIL / BLOCKED**, with affected files, severity and actionable evidence.
 
 On failure, return to development on the **same branch**. Retest and re-review changed areas. Handoff to a new chat when independence is required or context quality deteriorates.

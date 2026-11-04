@@ -1,24 +1,23 @@
 # Releases
 
-`main` is always releasable. Every approved implementation merge creates a release. Plan-only commits do not change the version.
+`main` is always the release branch. **One completed task creates one release version, only when it is merged into `main`.** Planning-only changes do not create a release.
 
-Before final review/testing, prepare on the development branch:
+## Before owner approval
 
-- `VERSION`: repository release version (`MAJOR.MINOR.PATCH`), separate from API/schema/package versions.
-- `CHANGELOG.md`: relevant user-visible changes.
-- `README.md`: update **only if** usage, features, setup or other front-page information changed.
-- `specifications/current/`: update **only when** documented behavior changes.
-- `specifications/implemented/<id>/`: final plan moved here from `planned/`; not required as a file for Small changes documented only in the PR.
-- Test/review evidence: record inspected SHA and results in `verification.md` or the PR.
+The development branch contains the code, final plan, tests and required `specifications/current/` updates. Update the project `README.md` only if its features, setup or usage changed.
 
-While pre-1.0, normally bump MINOR for compatible features and PATCH for fixes; treat breaking changes deliberately. Reconcile competing version numbers with current `main`.
+**Do not edit, bump, pre-allocate or generate `VERSION` or `CHANGELOG.md` on a plan or development branch.** Revisions, fixes, plan reviews and repeated testing are still part of the same task, not new versions.
 
-## Owner approval and merge
+Provide the owner with the PR, exact revision, evidence, release summary and **suggested bump type** (MAJOR, MINOR or PATCH). Do not claim a final version number until the current `main` version is checked at release time.
 
-1. Present the complete PR, tested SHA, review and test evidence to the owner. **Wait for explicit approval of this candidate.** A PASS or earlier plan approval is not permission to merge.
-2. Before merging, recheck the exact PR head, `main` head, checks and potential conflicts. If code, requirements, dependencies or conflict resolution changed since verification, redo affected review and testing. If the owner's reviewed candidate changed materially, seek **renewed approval**. Even a conflict-free update to `main` may require integration tests if components overlap.
-3. Merge only when still approved and valid. Verify `main` and tag its merge commit `v<version>`.
-4. **Delete the merged development branch** and verify it is absent. Never delete another contributor's unmerged work.
-5. If tooling cannot directly delete branches, use a temporary GitHub Actions workflow **only on the merged branch** with `contents: write`. It must first remove/commit its own workflow file with `[skip ci]`, then delete `git/refs/heads/<branch>` using GitHub REST and `GITHUB_TOKEN`. Treat HTTP 404 as already deleted, verify absence, and never merge that workflow into `main`.
+## Merge and release
 
-The agent presenting the finished work may execute the release in the **same chat after explicit owner permission**. Use a separate agent only when needed for expertise or context quality. Prefer refreshing generated Codegraph data on the implementation branch before review; if stale after merge, repair it through a separately approved update.
+1. **Wait for explicit owner approval** of the completed change. Plan approval, CI and agent PASS are not merge permission.
+2. Recheck the PR revision, current `main`, conflicts and verification. Re-run affected review/tests if changes invalidate earlier evidence. If the owner's approved candidate materially changes, get renewed approval.
+3. Merge the approved implementation into `main` and **finalize release metadata as part of that merge operation**: determine the next version from the latest `main`, then write `VERSION` and one `CHANGELOG.md` entry covering the **entire merged task**. Do this **once**, not per commit, fix, iteration or review. Where Git allows, include the metadata in the merge commit; otherwise make one immediate release-finalization commit on `main`. Do not tag or announce a release before finalization succeeds.
+4. Verify the release metadata and tag the **final release commit** `v<version>`. If finalization is retried, detect an existing completed release first; **never bump twice for the same task**.
+5. Delete the merged development branch and verify it is absent. Do not delete unmerged work. If tools cannot delete directly, use a temporary workflow on the merged branch with `contents: write`. It must first remove and commit its own workflow with `[skip ci]`, then delete the branch using the GitHub REST API and `GITHUB_TOKEN`. Treat HTTP 404 as already deleted and verify absence. Never merge the temporary workflow into `main`.
+
+Use a sensible semantic bump: normally MINOR for compatible features and PATCH for fixes during pre-1.0 development; explicitly address breaking changes. Product version is separate from package/API/config schema numbers.
+
+The agent presenting the completed change can also finalize its release after approval. A separate release agent is not mandatory.

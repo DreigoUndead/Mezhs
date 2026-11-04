@@ -24,7 +24,7 @@ Delivered behavior: <short summary>
 Review: <PASS evidence or Small-change self-review>
 Tests: <PASS evidence and untested areas>
 Risks: <none or explanation>
-Release preparation: <version/changelog/plan/current specs>
+Release proposal: <change summary and bump type; no pre-merge version/changelog edits>
 May this exact implementation be merged into main?
 ```
 

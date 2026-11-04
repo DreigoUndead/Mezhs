@@ -11,6 +11,7 @@
 - Verify Small changes can use one chat, with mandatory **pause for owner approval**.
 - Verify plan movement, handoff metadata, evidence SHA and revalidation after base changes.
 - Check planning and implementation PR sections separately.
+- Check that `VERSION` and `CHANGELOG.md` are not pre-generated on the development branch, and that release instructions update them once on `main` at merge time.
 
 ## Evidence
 

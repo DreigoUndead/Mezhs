@@ -17,7 +17,7 @@ Make agent-driven development safe without requiring multiple agents for trivial
 5. **Fix loop:** defects return to development, followed by affected review and tests. Don't open a new chat for every trivial operation. Use independent agents when required.
 6. **Context:** hand off when reasoning quality drops, context becomes confused or complexity warrants independence. There is **no invented token threshold**.
 7. **Owner approval:** present exact candidate, risks and evidence. Pause until Monkey explicitly approves. The same final agent may merge afterward if authorized.
-8. **Release:** recheck PR SHA and current `main`; revalidate changed/conflicting work, merge, tag and delete branch. Update version/changelog for every implementation release; edit README/current specs only when affected.
+8. **Release:** recheck PR SHA and current `main`; revalidate changed/conflicting work, then merge. **Write the version and one changelog entry only during merge finalization on `main`**, for the entire task. Tag the finalized release and delete the branch. Update README/current specs only when affected.
 
 ## Cleanup and retained guidelines
 

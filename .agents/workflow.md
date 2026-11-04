@@ -30,7 +30,7 @@ Do not downgrade high-risk work simply to save time. Record a reason for skipped
 - **Before independent verification**, move any completed plan from `planned/` to `implemented/` **on the development branch**. The original plan in `main` stays until merge.
 - Update `specifications/current/` only if behavior changed. Review these updates with the implementation.
 - Use Codegraph where helpful; refresh the generated graph after relevant code changes, before review.
-- Prepare release information, then check the branch diff.
+- Prepare a short release summary and proposed change type (major/minor/patch), then check the branch diff. **Do not edit the version or changelog in the development branch.**
 
 ## 4. [Review](review.md)
 
@@ -53,7 +53,7 @@ Do not downgrade high-risk work simply to save time. Record a reason for skipped
 - Report what changed, test/review evidence, remaining risks, branch/PR and exact commit.
 - **Pause for the project owner's explicit approval**. Small changes may stay in one chat through this pause. The final tester can perform release after approval; a separate release agent is optional.
 - Before merging, recheck the candidate commit and current `main`. Changed implementation or conflicts may require new review, tests and **renewed owner approval**.
-- After approval, merge to `main`, tag the version and **delete the merged branch**.
+- After approval, merge into `main`. **At merge finalization, update the version and changelog exactly once for the whole task**, then tag the resulting release commit and delete the merged branch. No version/changelog edits during planning, development, review or testing.
 
 ### Handoffs and evidence
 

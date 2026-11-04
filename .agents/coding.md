@@ -10,7 +10,7 @@ Read [the workflow](workflow.md). Use [software-change](skills/software-change/S
 - Prefer semantic APIs/protocols to DOM automation. Choose **Reuse / Repair / Refactor / Redesign** based on real responsibility, not minimum diff size.
 - Keep code, tests, final plan and current specifications aligned. Update current specs only when actual behavior changes.
 - **Move the final plan from `specifications/planned/<id>/` to `specifications/implemented/<id>/` on the development branch before independent review/testing.** A Small change may have only a PR description instead of a plan file.
-- Prepare release metadata and verify the diff. Run developer tests. Commit/push, then request **code review before final testing**. For Small changes, self-review and verification in the same chat can suffice. Do not merge without owner approval.
+- Prepare a **release summary and suggested bump type**, but leave `VERSION` and `CHANGELOG.md` untouched until the approved merge into `main`. Verify the diff and run developer tests. Commit/push, then request **code review before final testing**. For Small changes, self-review and verification in the same chat can suffice. Do not merge without owner approval.
 
 ## Engineering sanity questions
 

@@ -19,7 +19,8 @@ Summary:
 - [ ] Final tests/checks completed at the selected level
 - [ ] Evidence links record exact commit and known limitations
 - [ ] Plan moved to implemented (Standard/High-risk)
-- [ ] Version and changelog prepared; current spec/README updated **if needed**
+- [ ] Release summary and suggested bump type documented; current spec/README updated **if needed**
+- [ ] `VERSION` and `CHANGELOG.md` unchanged on this branch (updated once when merging into `main`)
 
 ## Approval
 
