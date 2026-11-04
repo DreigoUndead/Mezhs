@@ -17,7 +17,7 @@ Make planning, coding, testing, review and release easy to understand. Keep inst
 4. A **new tester agent** validates. Failure returns to a new development chat. Success provides the code-review prompt.
 5. A **new reviewing agent** reviews. Problems return to a new developer and repeat testing/review.
 6. Once tests and review pass, request Monkey's final review. Do not merge without explicit permission.
-7. On approval, merge into `main`, release with updated version/changelog/README and tag.
+7. On approval, merge into `main`, release with updated version/changelog/README, tag and delete the merged branch.
 
 When available, use Codegraph during source navigation. Refresh its generated dependency graph when code changes are complete and before testing/review. If it is stale after merge, fix that through a reviewed update.
 
@@ -25,10 +25,14 @@ Update and review `specifications/current/` when behavior changes. Do not store 
 
 ## Documentation cleanup
 
+- Original sanity questions, Codegraph instructions and coding guidelines remain in `.agents/coding.md`.
+- Existing `.agents` TODO notes move to `docs/backlog/`; they are not agent instructions.
+- The unused `CODEOWNERS` file and redundant planned-folder README and templates are removed. Planning outline lives in `.agents/specification.md`.
+
 - A concise root `AGENTS.md` is the entrypoint.
 - Stage instructions and reusable skills stay in `.agents/`.
 - Current specifications describe actual behavior. Plans and archived changes are separate.
-- MEŽS-specific architecture and engineering notes are in `docs/`.
+- MEŽS-specific architecture is in `docs/`; coding guidance is in `.agents/coding.md`.
 - Root README describes the application, its features, prerequisites and how to use it.
 
 ## Remaining

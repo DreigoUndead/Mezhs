@@ -1,12 +1,33 @@
 # Planning
 
-- Inspect existing behavior and relevant [current specifications](../specifications/current/) before proposing a change.
-- Create `specifications/planned/<id>/plan.md` using [the template](../specifications/templates/change.md).
-- Use [Grill Me](skills/grill-me/SKILL.md) for unclear or complex decisions.
-- Write the purpose, scope, approach and testable acceptance criteria. Keep small changes short.
+- Inspect existing code and relevant `specifications/current/` documents.
+- Use [Grill Me](skills/grill-me/SKILL.md) for unclear or complex design decisions.
+- Create `specifications/planned/<id>/plan.md` using this outline. Keep it short for small changes:
+
+```markdown
+# <Change title>
+ID: <kebab-case-id>
+
+## Goal
+What problem are we solving? What should users observe?
+
+## Scope and approach
+What changes, what stays unchanged, and which components own it?
+
+## Acceptance criteria
+- [ ] Observable result
+
+## Verification
+How will the result be tested?
+
+## Risks or open questions
+Only meaningful unresolved concerns.
+```
+
+- For major features, add sections for behavior, constraints, alternatives and tasks **inside the plan**, as needed. Do not create separate template or instructions files for each variation.
 - Commit the plan to `main` (through a PR if required).
-- Give this prompt to a **new chat/agent**:
+- Hand this to a **new agent**:
 
-> Review `specifications/planned/<id>/plan.md` against the current code and specifications. Fix unclear or incorrect parts. Commit plan changes to `main` as allowed by repository rules. If anything changed, give a new plan-review prompt for another chat. If no changes are needed, give a development prompt with the plan path and acceptance criteria. Do not implement code.
+> Review `specifications/planned/<id>/plan.md` against existing code and current specifications. Correct unclear or incorrect parts, then commit any plan changes to `main` following repository rules. If anything changes, write a self-contained plan-review prompt for a fresh agent. If nothing needs changing, write a development prompt with the plan path, goal and acceptance criteria. Do not implement code.
 
-A plan can change during development. The final plan describes the implemented behavior. Git holds the older versions.
+Plans can evolve during development. The final version describes the delivered behavior; Git already holds the earlier revisions.

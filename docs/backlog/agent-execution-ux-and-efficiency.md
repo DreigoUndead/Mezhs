@@ -1,9 +1,9 @@
-# TODO: MEŽS agent execution UX, reliability, and efficiency
+# MEŽS agent execution UX and efficiency — historical assessment and backlog
 
-**Handoff date:** 2026-10-14
+**Assessment date:** 2026-10-14
 **Status:** historical observations and open improvement candidates. The presentation-tag parser issue (B) was addressed in the completed T5 work on `agent-model-presets`; verify the remaining items against current source before acting.
 **Basis:** one unusually long MEŽS agent session involving anonymous ChatGPT debugging, local browser probes, TypeScript changes, Node tests, .NET build, Git commits/pushes, and `.agents` documentation. It is a qualitative case study, **not** an instrumented performance benchmark.
-**Related:** ChatGPT Account and guest incident handoff at .agents/chatgpt-private-api-debugging.md on agent-model-presets; review branch `agent-model-presets`, PR #21.
+**Related:** ChatGPT Account and guest incident handoff at [the integration incident notes](../../.agents/chatgpt-private-api-debugging.md) on agent-model-presets; review branch `agent-model-presets`, PR #21.
 
 ## Summary
 
@@ -75,14 +75,10 @@ The `<box ...>` / escaped-completion parsing issue was addressed in the architec
 
 MEŽS already exposes useful durable command execution evidence. Keep side effects distinct from subsequent model-response failures. Never blindly resubmit an uncertain accepted prompt or rerun a successful shell command.
 
-The guest `empty_guest_reply` (conversation started but response unreadable), `guest_login_required` (`force_login: true`, no retry), and `guest_submission_timeout` (no detected conversation) are different states. See `chatgpt-private-api-debugging.md`. The tests validate the implementation paths but do **not** prove the original upstream empty-response cause or restore guest access.
+The guest `empty_guest_reply` (conversation started but response unreadable), `guest_login_required` (`force_login: true`, no retry), and `guest_submission_timeout` (no detected conversation) are different states. See [the integration incident notes](../../.agents/chatgpt-private-api-debugging.md). The tests validate the implementation paths but do **not** prove the original upstream empty-response cause or restore guest access.
 
-## Next-chat starting instructions
+## How to use this record
 
-1. Read `AGENTS.md`, this TODO, and the `repository-change-workflow`, `software-change`, and `systematic-debugging` skills. Inspect the current branch and working tree first. Do not touch unrelated `.codegraph/`.
-2. **Measure and reproduce** an actual failure before editing. Do the two P1 issues first; treat them as separable tasks if they require independent design/review. Confirm existing primitives before implementing any file-edit abstraction.
-3. Implement the smallest coherent fix with deterministic regression tests, not speculative fallback chains. Verify the exact failed-edit/green-test sequence and markup rejection.
-4. Run targeted Node tests, appropriate .NET validation, `git diff --check`, and a harmless live Agent command/result continuation. Record what each check *does and does not prove*.
-5. Follow the repository review workflow: commit and present a focused PR for review; **do not merge without explicit post-review approval**.
+This is a historical investigation and list of possible improvements, **not an active task, approved plan or agent instruction file**. Some entries were resolved after the assessment. Verify current source and tests before acting.
 
-**Definition of done for this handoff:** The next agent can investigate and implement one of these priorities without reconstructing the long conversation. This is a backlog and assessment, **not authorization to implement every item at once**.
+To work on an unresolved item, create a separate change plan under `specifications/planned/` and follow [the development workflow](../../.agents/workflow.md). Do not implement the whole backlog as one task.

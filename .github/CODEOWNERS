@@ -1,6 +1,0 @@
-# Routing only; branch protection and Monkey's explicit approval are separate.
-/AGENTS.md @DreigoUndead
-/.agents/ @DreigoUndead
-/specifications/ @DreigoUndead
-/CHANGELOG.md @DreigoUndead
-/VERSION @DreigoUndead

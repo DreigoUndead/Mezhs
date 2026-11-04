@@ -1,16 +1,16 @@
-# Testing
+# Independent testing
 
-**Start a fresh chat/agent for each testing attempt.** Do not reuse the developer's chat or the previous tester's chat.
+Use a **fresh chat/agent** for each testing attempt, separate from the developer.
 
-1. Read the final plan, acceptance criteria, current behavior specs (if relevant) and the actual changed code.
-2. Test the implementation and regressions. Use the strongest practical evidence, not developer claims.
-3. Record the branch, commit SHA, commands, results and untested areas.
-4. Return **PASS**, **FAIL** or **BLOCKED**.
+1. Read the branch, final plan, acceptance criteria and actual code. Check relevant `specifications/current/` changes.
+2. Execute real acceptance and regression tests. Distinguish mock/compilation evidence from live system behavior.
+3. Record commit SHA, commands, exit codes, outcomes, limitations and untested areas.
+4. Report **PASS / FAIL / BLOCKED**.
 
-On FAIL/BLOCKED, produce a **self-contained fix prompt for a new development chat**. Include how to reproduce the problem. After fixes, a **different new testing chat** must test again.
+On failure, give a self-contained fix prompt to a **new developer agent**. After the fix, another fresh tester repeats the tests.
 
-On PASS, give this prompt to a **new review chat**:
+If local tooling is unavailable, use CI on the same review branch where possible rather than claiming tests passed. If workflow logs are inaccessible, a **temporary** GitHub Actions workflow can run the checks and commit a sanitized PASS/FAIL result file with `[skip ci]`. Remove the temporary workflow and result file before final review; never commit secrets. Do not treat an unavailable CI listing as proof no job ran.
 
-> Review branch `<id>` at `<sha>` against `main`. Follow `.agents/review.md`. Read the final plan, full diff, test evidence, and any changes to `specifications/current/`. Check correctness, design, security, regressions and release documentation. Return PASS, FAIL or BLOCKED. On failure, give a fix prompt for a new development chat; on success, prepare a short owner-review summary.
+On PASS, give this prompt to a **new reviewing agent**:
 
-Never describe tests you did not run as passed.
+> Review branch `<id>` at `<sha>` against `main`. Follow `.agents/review.md`. Read the final plan, full diff, test evidence and changed current specifications. Check correctness, design, security, regressions and release files. Return PASS, FAIL or BLOCKED. On failure, write a fix prompt for a new developer agent. On success, prepare an owner-review summary.

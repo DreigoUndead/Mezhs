@@ -1,9 +1,5 @@
-# Contributor and Agent Instructions
+# Repository instructions
 
-Start with the [development workflow](.agents/workflow.md).
+Read [the development workflow](.agents/workflow.md) before modifying this repository. It links to the instructions for each step.
 
-Read the instructions for your step: [planning](.agents/specification.md), [coding](.agents/coding.md), [testing](.agents/testing.md), [review](.agents/review.md) or [release](.agents/release.md).
-
-**Every step and retry runs in a new chat/agent.** Hand off with a complete prompt. Plan changes go to `main`; implementation and fixes stay on their development branch.
-
-Only update [current specifications](specifications/current/) when behavior changes. **Never merge implementation into `main` without the project owner's explicit approval.**
+**Never merge implementation into `main` without the project owner's explicit approval of the completed change.**

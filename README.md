@@ -84,7 +84,7 @@ The Agent host extends the same API composition as the ordinary host. The Agent 
 
 ## Documentation and development
 
-- [Architecture](docs/architecture.md) and [project engineering notes](docs/engineering.md)
+- [Architecture](docs/architecture.md) and [engineering guidelines](.agents/coding.md)
 - [Development workflow and agent instructions](AGENTS.md)
 - [Current behavior specifications](specifications/current/)
 - [Change history](CHANGELOG.md) and [current version](VERSION)

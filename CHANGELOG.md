@@ -10,6 +10,8 @@ Release changes follow [Keep a Changelog](https://keepachangelog.com/) and [Sema
 - Distinguished living behavior specifications from plans and architecture notes.
 - Added Codegraph refresh guidance and restored a project-focused README with setup instructions.
 
+- Preserved engineering sanity questions, consolidated planning templates, removed redundant folder instructions and added merged-branch cleanup.
+
 ## [0.1.0] — Pre-governance baseline
 
 Earlier work predates this changelog. Refer to Git history and past pull requests.

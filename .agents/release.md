@@ -1,17 +1,21 @@
 # Releases
 
-`main` is always releasable. Each completed **implementation** merge creates a release. Plan-only documentation commits do not bump the version.
+`main` is always releasable. Each completed **implementation** merge is a release. Planning documentation committed to `main` does not bump the version.
 
-Prepare the release files **on the development branch, before independent testing and review**:
+Prepare these **on the development branch before testing/review**:
 
-- `VERSION`: project release version, in `MAJOR.MINOR.PATCH` format. It is separate from package and API/config schema versions.
-- `CHANGELOG.md`: date and user-visible changes.
-- `README.md`: accurate front page, usage instructions and current project description.
-- `specifications/current/`: update affected behavior specifications **only if needed**; review those edits with the code.
+- `VERSION`: `MAJOR.MINOR.PATCH` repository release version (separate from API/schema or package versions).
+- `CHANGELOG.md`: release date and user-visible additions/changes/fixes.
+- `README.md`: accurate project front page and usage instructions.
+- `specifications/current/`: update behavior contracts only when relevant.
 - `specifications/implemented/<id>/`: final plan and verification information.
 
-While pre-1.0, normally bump MINOR for compatible features and PATCH for fixes. Recheck the next version against current `main`.
+Normally bump MINOR for compatible features or PATCH for fixes before 1.0. Resolve competing version bumps against the latest `main`.
 
-After independent testing and review, **wait for explicit owner approval**. Then merge and tag `v<version>`.
+## Merge and cleanup
 
-If generated Codegraph data is missing or stale after the merge, refresh it via a separate reviewed update. Prefer refreshing it on the implementation branch before review.
+1. **Wait for the owner's explicit approval** of the tested and reviewed PR. Never infer it from a plan approval, a green check or a reviewer PASS.
+2. Reconfirm the PR head and checks. Merge to `main` and verify the resulting release, then tag the merge commit `v<version>`.
+3. **Delete the merged development branch** and verify it is gone. Do not delete unmerged branches or another contributor's work.
+4. If the available GitHub connector cannot delete branches, use a temporary GitHub Actions workflow **only on the merged branch** with `contents: write`. The workflow first removes and commits its own workflow file using `[skip ci]`, then deletes `git/refs/heads/<branch>` through GitHub REST using `GITHUB_TOKEN`. Treat HTTP 404 as already deleted. Verify the branch is absent afterward. Never merge this temporary workflow into `main`.
+5. Prefer regenerating Codegraph on the implementation branch before review. If it remains stale after merge, fix it through a separate reviewed update, not an unapproved direct change to `main`.
