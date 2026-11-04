@@ -1,31 +1,93 @@
 # MEŽS
 
-MEŽS exposes multiple AI integrations through one asynchronous HTTP API and one React frontend. Integrations may use a browser session, a native/local runtime, or a direct service API; the MEŽS core does not assume which transport an integration needs.
+**One interface for several AI services, with optional policy-controlled AI agents.**
 
-Current built-in integrations are ChatGPT Web, ChatGPT Account, Gemini Web, Grok, and deterministic Mock integrations used by the test suite.
+MEŽS is a self-hosted application for using multiple AI providers through one API and a shared web interface. Its integration layer handles the different ways providers work: browser sessions, account sessions and other transports. You can use MEŽS as an ordinary chat application or run the separate Agent host when you want AI-assisted tasks with controlled command execution.
 
-## Agent runtime
+## What can it do?
 
-`Mezhs.Agent.Api` can execute policy-approved commands on the host operating system. That is an intentional capability boundary, not a sandbox.
+- **Chat across providers:** ChatGPT, Gemini and Grok integrations are included, with account and guest modes where supported.
+- **Unified conversations:** shared chat UI, conversation history, model selection where supported, and file handling.
+- **Run AI agents:** agent chats, configurable policies, command execution, progress and execution history.
+- **Recover ongoing work:** durable queued tasks and shell execution records help Agent recover from restarts.
+- **Integrate with tools:** HTTP endpoints expose chats, messages, connections, files, diagnostics and, in Agent mode, agent-specific operations.
 
-The current Agent API trust boundary is the local machine. Both `Mezhs.Agent.Api` and `Mezhs.Agent.Web` must bind only to loopback addresses, and Agent Web may proxy only to a loopback Agent API. There is deliberately no bearer-token layer between these cooperating local processes; if MEŽS later gains a remotely reachable Agent entry point, authentication belongs at that external boundary.
+Provider availability and authentication depend on the selected integration. Some browser integrations depend on third-party interfaces that can change without notice.
 
-Loopback does not make external event content trusted. A future WhatsApp/Jira/reminder listener may feed untrusted text into a local Agent. Policies for those sources must therefore expose only the capabilities they are intended to have; unrestricted `SH` still means the privileges of the account running MEŽS Agent. Prefer narrow structured tools or real OS isolation where an external source must not have host-shell authority.
+## Getting started
 
-Agent shell commands always run from the configured `workspace`. Caller-provided environment variables are denied unless the selected policy explicitly allows their names; `MEZHS_*` variables are reserved for runtime execution context.
+### Requirements
 
-## Architecture
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- [Node.js and npm](https://nodejs.org/) (Node.js 22 is used by the CI workflow)
+- A desktop environment for the Electron browser integrations
 
-`Mezhs.Api` is the reusable core HTTP/API composition. It owns the standard MEŽS services, initialization, exception pipeline and endpoint definitions. `Mezhs.Api.exe` is a thin host over that composition.
+Clone the repository and run these commands from its root:
 
-`Mezhs.Agent.Api` is a strict superset of the normal API: it hosts the same core composition in-process and then adds Agent policy, reasoning, execution and diagnostic behavior. It does not call a second `Mezhs.Api` process through HTTP. The standard MEŽS Web UI can therefore target either API host, while Agent Web requires `Mezhs.Agent.Api` because only that host exposes the Agent endpoints. Agent configuration extends the normal MEŽS configuration with Agent storage, workspace, runtime, message and policy settings.
+```sh
+npm install --prefix electron
+dotnet build Mezhs.sln -c Release
+```
 
-`Mezhs.Api` and `Mezhs.Agent.Api` are alternative API hosts, not cooperating services that should normally run over the same storage. When Agent capability is needed, run the Agent host instead of a second normal API host. Because the core message runtime is in-process, restarting the Agent host also interrupts in-flight model requests; those messages are failed on restart rather than blindly replayed. Detached `Mezhs.Executor` shell work remains independently durable and is reconnected during Agent recovery.
+The .NET Web projects build their React frontends during `dotnet build`. The Electron sidecar is installed separately.
 
-Agent responsibilities are split by semantic owner. `Mezhs.Agent.Api` owns policy, durable root reasoning/admission state, same-chat serialization and root cancellation. `Mezhs.Executor` owns host shell/process lifetime and durable shell execution history. Agent policy validates the concrete `SH` body before Executor receives it; Executor itself does not interpret Agent policy. Agent depends on Executor for shell execution, while Executor remains independent of Agent business logic.
+### Option 1 — ordinary chat
 
-Executor makes each host execution independently observable through one durable SQLite row, one runtime owner process and one owned shell/process. It supports detached execution, heartbeat, timeout, kill, restart lineage, self-restart handoff and lazy reconciliation of stale active owners. Agent API and Agent Web project shell state from Executor instead of maintaining a second shell lifecycle copy.
+In **two terminals**, from the repository root:
 
-`Mezhs.Sqlite` owns the generic SQLite connection foundation: path handling, WAL, busy timeout, foreign-key setup and schema helpers. `Mezhs.Log.Sql` builds reusable SQL operations on that foundation. `ExecutorStore` goes through `LogSql` for SQLite access while retaining only execution-specific schema, queries and atomic state transitions; `AgentStore` uses the same `Mezhs.Sqlite` foundation directly for Agent-specific durable state. `Mezhs.Log.Shared` keeps the separate Notes/log-root semantics used by the log CLI rather than imposing them on Executor storage.
+```sh
+dotnet run --project src/Mezhs.Api -c Release --no-build
+```
 
-SQLite is the source of truth for queued root Agent executions and admission capacity. Workers keep only a small in-memory wake signal, atomically claim eligible work, and enforce same-chat serialization before an execution becomes `Running`. Queued work survives Agent API restart. Work that had already started is requeued for reasoning recovery; previously launched `SH` blocks reconnect to their existing Executor rows using durable command identity rather than executing the host action again.
+```sh
+dotnet run --project src/Mezhs.Web -c Release --no-build
+```
+
+Open **http://127.0.0.1:5173**. The API listens at **http://127.0.0.1:5050** with the checked-in `mezhs.yaml`.
+
+### Option 2 — Agent mode
+
+Instead of the ordinary API host, start the Agent API and Agent Web in **two terminals**:
+
+```sh
+dotnet run --project src/Mezhs.Agent.Api -c Release --no-build
+```
+
+```sh
+dotnet run --project src/Mezhs.Agent.Web -c Release --no-build
+```
+
+Open **http://127.0.0.1:5174**. The Agent API listens at **http://127.0.0.1:5060** with the checked-in `agent.yaml`.
+
+The Agent API includes the ordinary API, so you usually run **either** the ordinary API or Agent API, not both against the same storage.
+
+### Configuration
+
+- [`mezhs.yaml`](mezhs.yaml): standard API, integrations, Electron transport and storage.
+- [`agent.yaml`](agent.yaml): Agent host, policies, workspace and execution settings.
+
+Change the configured connections for the providers you use. Account integrations may require a browser login. The APIs support a custom config path using `--config <path>`.
+
+**Security:** Agent mode can execute policy-approved shell commands with the host user's privileges. This is **not a sandbox**. Agent API and Agent Web are intended to run on loopback only. Review policies before allowing agents to act, especially on untrusted input.
+
+## How it's organized
+
+| Component | Role |
+|---|---|
+| `Mezhs.Api` | Core HTTP API for providers, chats, messages and files |
+| `Mezhs.Web` / `Mezhs.Web.Lib` | Web host and reusable React chat interface |
+| `Mezhs.Agent.Api` / `Mezhs.Agent.Web` | Agent orchestration, policies, command results and dashboard |
+| `Mezhs.Executor` | Durable command/process execution |
+| `electron/` and integrations | Browser transport and provider-specific integrations |
+
+The Agent host extends the same API composition as the ordinary host. The Agent owns policy and task reasoning; Executor owns process execution and history.
+
+## Documentation and development
+
+- [Architecture](docs/architecture.md) and [engineering guidelines](.agents/coding.md)
+- [Development workflow and agent instructions](AGENTS.md)
+- [Current behavior specifications](specifications/current/)
+- Release version and changelog are finalized on `main` when a change is merged
+- [Agent design manifesto](AGENT_MANIFESTO.md) and [Executor design manifesto](EXECUTOR_MANIFESTO.md)
+
+Changes use a risk-based workflow: small edits can be handled in one chat, while more complex work receives independent review and testing. Every implementation merge requires the project owner's explicit approval.
