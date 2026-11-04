@@ -79,7 +79,7 @@ The guest `empty_guest_reply` (conversation started but response unreadable), `g
 
 ## Next-chat starting instructions
 
-1. Read `.agents/README.md`, this TODO, and the `repository-change-workflow`, `software-change`, and `systematic-debugging` skills. Inspect the current branch and working tree first. Do not touch unrelated `.codegraph/`.
+1. Read `AGENTS.md`, this TODO, and the `repository-change-workflow`, `software-change`, and `systematic-debugging` skills. Inspect the current branch and working tree first. Do not touch unrelated `.codegraph/`.
 2. **Measure and reproduce** an actual failure before editing. Do the two P1 issues first; treat them as separable tasks if they require independent design/review. Confirm existing primitives before implementing any file-edit abstraction.
 3. Implement the smallest coherent fix with deterministic regression tests, not speculative fallback chains. Verify the exact failed-edit/green-test sequence and markup rejection.
 4. Run targeted Node tests, appropriate .NET validation, `git diff --check`, and a harmless live Agent command/result continuation. Record what each check *does and does not prove*.

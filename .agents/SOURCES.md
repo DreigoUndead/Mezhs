@@ -8,3 +8,5 @@ The repository-local skills are original project guidance synthesized from:
 - Addy Osmani's public agent engineering skills, especially code review, incremental implementation, and doubt-driven development ideas.
 
 The external skills are influences, not vendored copies. The local wording is intentionally adapted to the project's own engineering philosophy and avoids dependencies on other external skill packs.
+
+- Question-driven *Grill Me* workflow patterns (repository-local adaptation; not a verbatim third-party skill).
