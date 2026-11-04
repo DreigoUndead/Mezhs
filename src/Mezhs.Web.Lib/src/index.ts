@@ -22,3 +22,5 @@ export type { ApiAvailability } from "./api";
 export { ApiChatProvider } from "./providers/apiChatProvider";
 export { ChatProviderRegistry } from "./providers/registry";
 export * from "./providers/contracts";
+
+export { useConversationPending } from './useConversationPending';

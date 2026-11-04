@@ -25,6 +25,8 @@ export type ChatTranscriptProps = {
   replayDisabled?: boolean;
   autoScroll?: boolean;
   autoScrollResetKey?: string;
+  revisionItems?: readonly unknown[];
+  historyReady?: boolean;
 };
 
 const terminalStatuses = new Set(["Completed", "Failed", "Cancelled"]);
@@ -73,6 +75,8 @@ export function ChatTranscript({
   replayDisabled = false,
   autoScroll = false,
   autoScrollResetKey,
+  revisionItems,
+  historyReady = true,
 }: ChatTranscriptProps) {
   const apiBase = apiBaseUrl.replace(/\/$/, "");
   const activeMessage = [...messages].reverse().find((message) =>
@@ -80,7 +84,7 @@ export function ChatTranscript({
   const resolvedBusyLabel = busyLabel ??
     modelActivityLabel(activeMessage?.activity, activeMessage?.activityDetail);
   return (
-    <ConversationViewport conversationKey={autoScrollResetKey ?? "transcript"} messages={messages} busy={busy} empty={messages.length === 0} enabled={autoScroll}>
+    <ConversationViewport conversationKey={autoScrollResetKey ?? "transcript"} messages={messages} revisionItems={revisionItems} historyReady={historyReady} busy={busy} empty={messages.length === 0} enabled={autoScroll}>
       {messages.length === 0 ? (emptyState ?? <div className="shared-chat-empty">No messages yet.</div>) : messages.map((message) => (
         <article key={message.messageId} className={`message ${message.role}`}>
           <div className="message-avatar">{getAvatarLabel(message)}</div>

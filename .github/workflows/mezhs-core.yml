@@ -43,6 +43,12 @@ jobs:
       - name: Build .NET solution
         run: dotnet build Mezhs.sln -c Release --nologo
 
+      - name: Rich formatting and real Chromium regression
+        shell: pwsh
+        run: |
+          node --test tests/agent-web-rich-formatting.test.cjs tests/chat-ui-browser.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Agent command protocol and real Executor smoke
         shell: pwsh
         run: |

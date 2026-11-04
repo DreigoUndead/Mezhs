@@ -2,6 +2,7 @@ import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
 import { modelActivityLabel } from "./ChatSurface";
 import { ConversationViewport } from "./ConversationViewport";
+import { useConversationPending } from './useConversationPending';
 import { useConversationDrafts } from "./useConversationDrafts";
 import { MarkdownContent } from "./MarkdownContent";
 import { ConnectionModelPicker } from "./ConnectionModelPicker";
@@ -73,9 +74,9 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [chatId, setChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newChatSequence, setNewChatSequence] = useState(0);
+  const [historyLoadedChatId, setHistoryLoadedChatId] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showConversationManager, setShowConversationManager] = useState(false);
@@ -95,7 +96,8 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
   const draftKey = chatId ? `chat:${chatId}` : `new:${newChatSequence}:${connectionId}`;
-  const { draft, setDraft, clearDraft } = useConversationDrafts(draftKey);
+  const { draft, setDraft, clearDraft, moveDraft, restoreDraft } = useConversationDrafts(draftKey);
+  const { pending: sending, start: startSend, transfer: transferSend, finish: finishSend } = useConversationPending(draftKey);
   const activeMessage = [...messages].reverse().find((message) =>
     message.role === "user" && !terminalStatuses.has(message.status));
   const busyLabel = modelActivityLabel(activeMessage?.activity, activeMessage?.activityDetail);
@@ -189,6 +191,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
 
   async function openChat(chat: Chat) {
     const epoch = ++selectionEpoch.current;
+    setHistoryLoadedChatId(null);
     clearPendingFiles();
     setChatMenuId(null);
     setChatId(chat.chatId);
@@ -201,6 +204,8 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     } catch (error) {
       if (selectionEpoch.current === epoch)
         setNotice(error instanceof Error ? error.message : "Could not open this conversation.");
+    } finally {
+      if (selectionEpoch.current === epoch) setHistoryLoadedChatId(chat.chatId);
     }
   }
 
@@ -227,8 +232,10 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     if ((!content.trim() && uploadedFiles.length === 0) || !connectionId || sending || pendingFiles.some((item) => item.uploading)) return;
     const epoch = selectionEpoch.current;
     const submittedKey = draftKey;
-
-    setSending(true);
+    let pendingKey = submittedKey;
+    if (!startSend(pendingKey)) return;
+    clearDraft(submittedKey, content);
+    let accepted = false;
     setNotice(null);
     try {
       const request = await providerRegistry.current.get(connectionId).sendMessage(
@@ -236,17 +243,25 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
         { content, files: uploadedFiles, model: modelId || undefined },
         { categoryId: newChatCategoryId || null },
       );
-      clearDraft(submittedKey, content);
+      accepted = true;
+      if (!chatId) {
+        moveDraft(submittedKey, `chat:${request.chatId}`, "");
+        transferSend(pendingKey, `chat:${request.chatId}`);
+        pendingKey = `chat:${request.chatId}`;
+      }
       if (selectionEpoch.current === epoch) {
         setChatId(request.chatId);
+        setHistoryLoadedChatId(request.chatId);
         setMessages((current) => [...current, request]);
         clearPendingFiles();
       }
       await poll(request.messageId, request.chatId, epoch);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Message could not be sent.");
+      if (!accepted) restoreDraft(submittedKey, content);
+      if (selectionEpoch.current === epoch)
+        setNotice(error instanceof Error ? error.message : "Message could not be sent.");
     } finally {
-      setSending(false);
+      finishSend(pendingKey);
     }
   }
 
@@ -277,9 +292,9 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
   }
 
   async function replay(messageId: string) {
-    if (sending) return;
     const epoch = selectionEpoch.current;
-    setSending(true);
+    const pendingKey = draftKey;
+    if (!startSend(pendingKey)) return;
     setNotice(null);
     try {
       const request = await apiJson<Message>(apiBase, `/v1/messages/${messageId}/replay`, {
@@ -289,9 +304,10 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
         setMessages((current) => [...current, request]);
       await poll(request.messageId, request.chatId, epoch);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Message could not be replayed.");
+      if (selectionEpoch.current === epoch)
+        setNotice(error instanceof Error ? error.message : "Message could not be replayed.");
     } finally {
-      setSending(false);
+      finishSend(pendingKey);
     }
   }
 
@@ -668,7 +684,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
           </div>
         </header>
 
-        <ConversationViewport conversationKey={draftKey} messages={messages} busy={sending} empty={messages.length === 0}>
+        <ConversationViewport conversationKey={draftKey} messages={messages} historyReady={!chatId || historyLoadedChatId === chatId} busy={sending} empty={messages.length === 0}>
           {messages.length === 0 ? (
             <div className="welcome">
               <div className="welcome-orbit"><span>M</span></div>

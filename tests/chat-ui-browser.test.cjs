@@ -11,9 +11,10 @@ const requireFrontend = createRequire(path.join(frontend, "package.json"));
 const esbuild = requireFrontend("esbuild");
 
 const appSource = String.raw`
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ConversationViewport } from "./node_modules/@mezhs/web-lib/src/ConversationViewport";
+import { useConversationPending } from './node_modules/@mezhs/web-lib/src/useConversationPending';
 import { useConversationDrafts } from "./node_modules/@mezhs/web-lib/src/useConversationDrafts";
 import { MarkdownContent } from "./node_modules/@mezhs/web-lib/src/MarkdownContent";
 import "./node_modules/@mezhs/web-lib/src/styles.css";
@@ -27,7 +28,20 @@ function App() {
   const [selected, setSelected] = useState("A");
   const [newSequence, setNewSequence] = useState(0);
   const [messages, setMessages] = useState({ A: initial("alpha", 45), B: initial("beta", 30) });
-  const { draft, setDraft } = useConversationDrafts(selected);
+  const [tall, setTall] = useState(false);
+  const [historyReady, setHistoryReady] = useState(true);
+  const [footerRevisions, setFooterRevisions] = useState({ A: [{ state: 'queued' }], B: [] });
+  const pendingRequest = useRef({ key: '', text: '' });
+  const { draft, setDraft, clearDraft, moveDraft, restoreDraft } = useConversationDrafts(selected);
+  const { pending, start, transfer, finish } = useConversationPending(selected);
+  (window as any).draftTest = {
+    pending,
+    begin: () => { if (start(selected)) { pendingRequest.current = { key: selected, text: draft }; clearDraft(selected, draft); } },
+    accept: () => { const key = pendingRequest.current.key; moveDraft(key, 'chat:migrated', ''); transfer(key, 'chat:migrated'); pendingRequest.current.key = 'chat:migrated'; setSelected('chat:migrated'); },
+    fail: () => { restoreDraft(pendingRequest.current.key, pendingRequest.current.text); finish(pendingRequest.current.key); },
+    done: () => finish(pendingRequest.current.key),
+    grow: () => setTall(value => !value),
+  };
   return (
     <div id="test-app" style={{ width: 550, height: 520, display: "flex", flexDirection: "column" }}>
       <div style={{ flexShrink: 0 }}>
@@ -41,11 +55,15 @@ function App() {
           ...current, A: current.A.map((item, index) => index === 0
             ? { ...item, content: item.content.replace("alpha", "bravo") } : item),
         }))}>Mutate equal length</button>
+        <button id="open-a-partial" onClick={() => { setHistoryReady(false); setFooterRevisions(current => ({ ...current, A: [] })); setSelected("A"); }}>Open A while executions load</button>
+        <button id="complete-a-history" onClick={() => { setFooterRevisions(current => ({ ...current, A: [{ state: "queued" }] })); setHistoryReady(true); }}>Finish A history</button>
+        <button id="change-attachment-a" onClick={() => setMessages(current => ({ ...current, A: current.A.map((item, i) => i === 0 ? { ...item, files: [{ fileId: 'f-1', name: 'updated.png' }] } : item) }))}>Attachment</button>
+        <button id="change-footer-a" onClick={() => setFooterRevisions(current => ({ ...current, A: [{ state: 'finished' }] }))}>Footer</button>
         <textarea id="draft" value={draft} onChange={e => setDraft(e.target.value)} />
       </div>
-      <ConversationViewport conversationKey={selected} messages={messages[selected] || []} empty={!(messages[selected]?.length)}>
+      <ConversationViewport conversationKey={selected} messages={messages[selected] || []} revisionItems={footerRevisions[selected] || []} historyReady={historyReady} empty={!(messages[selected]?.length)}>
         {(messages[selected] || []).map(m => (
-          <div key={m.messageId} className="browser-message" style={{ height: 69, padding: 4, boxSizing: "border-box" }}>
+          <div key={m.messageId} className="browser-message" style={{ height: tall ? 115 : 69, padding: 4, boxSizing: "border-box" }}>
             {m.content}
           </div>
         ))}
@@ -96,6 +114,12 @@ async function run() {
     click("chat-a"); await settle();
     check(near(current().scrollTop, savedTop), "unchanged A scroll position was not restored");
     results.push("scroll-restoration");
+    click("chat-b"); await settle();
+    click("open-a-partial"); await settle();
+    check(!atBottom(), "partial execution history incorrectly triggered bottom restoration");
+    click("complete-a-history"); await settle();
+    check(near(current().scrollTop, savedTop), "saved scroll position not restored when execution history completed");
+    results.push("delayed-history-restores-only-after-ready");
     click("append-a"); await settle();
     check(near(current().scrollTop, savedTop), "appending messages snapped a manually scrolled conversation to bottom");
     results.push("manual-scroll-not-followed");
@@ -132,6 +156,49 @@ async function run() {
       "inline <title> is laid out as a block");
     check(getComputedStyle(title).fontVariantNumeric === "tabular-nums", "tabular numeric title formatting lost");
     results.push("inline-rich-title");
+    click('new-chat'); await settle();
+    await typeText('sent prompt');
+    (window as any).draftTest.begin(); await settle();
+    check((window as any).draftTest.pending, 'submitted context was not pending');
+    check(document.getElementById('draft').value === '', 'submitted text stayed in composer');
+    await typeText('new text typed while request pending');
+    (window as any).draftTest.accept(); await settle();
+    check(document.getElementById('draft').value === 'new text typed while request pending', 'unsent text did not move into the real chat');
+    check((window as any).draftTest.pending, 'pending request did not move to permanent chat');
+    click('chat-b'); await settle();
+    check(!(window as any).draftTest.pending, 'request for one chat blocked another');
+    (window as any).draftTest.done(); await settle();
+    click('chat-a'); await settle();
+    results.push('pending-ownership-and-draft-handoff');
+    await typeText('failed request');
+    (window as any).draftTest.begin(); await settle();
+    await typeText('added after submission');
+    (window as any).draftTest.fail(); await settle();
+    check(document.getElementById('draft').value === 'failed request\n\nadded after submission', 'failed submit lost newer draft or original prompt');
+    results.push('failed-send-preserves-edits');
+    current().scrollTop = 200; current().dispatchEvent(new Event('scroll')); await settle();
+    const manualBeforeResize = current().scrollTop;
+    (window as any).draftTest.grow(); await settle(150);
+    check(near(current().scrollTop, manualBeforeResize), 'content resize changed manual position');
+    const bottom = document.querySelector('button[aria-label="Scroll to bottom"]');
+    check(bottom, 'bottom navigation unavailable during resize check');
+    bottom.click(); await settle(150);
+    (window as any).draftTest.grow(); await settle(150);
+    check(atBottom(), 'content resize did not preserve bottom-follow');
+    results.push('resize-preserves-manual-and-bottom-follow');
+    current().scrollTop = 190; current().dispatchEvent(new Event('scroll')); await settle();
+    check(!atBottom(), 'attachment revision test needs manually scrolled conversation');
+    click('chat-b'); await settle();
+    click('change-attachment-a'); await settle();
+    click('chat-a'); await settle();
+    check(atBottom(), 'attachment-only change did not invalidate saved position');
+    results.push('attachment-revision-invalidates');
+    current().scrollTop = 190; current().dispatchEvent(new Event('scroll')); await settle();
+    click('chat-b'); await settle();
+    click('change-footer-a'); await settle();
+    click('chat-a'); await settle();
+    check(atBottom(), 'agent execution footer change did not invalidate saved position');
+    results.push('execution-revision-invalidates');
     report("pass", results.join(", "));
   } catch (error) {
     report("fail", String(error?.stack || error));
@@ -158,7 +225,8 @@ const chromeCandidates = [
 ];
 const chrome = chromeCandidates.find(candidate => candidate && fs.existsSync(candidate));
 
-test("real Chromium rendering: drafts, scroll transitions, controls and title layout", { timeout: 70000, skip: !chrome && "Chrome or Edge is not installed" }, () => {
+test("real Chromium rendering: drafts, scroll transitions, controls and title layout", { timeout: 70000 }, () => {
+  assert.ok(chrome, 'A real Chromium browser is required for this regression test');
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "mezhs-chat-ui-"));
   try {
     const result = esbuild.buildSync({
@@ -185,6 +253,14 @@ test("real Chromium rendering: drafts, scroll transitions, controls and title la
     assert.ok(report, `Browser result was malformed: ${dom.slice(-2000)}`);
     assert.equal(report[1], "pass", report[2]);
     assert.match(report[2], /equal-length-content-invalidates/);
+    for (const scenario of [
+      "pending-ownership-and-draft-handoff",
+      "failed-send-preserves-edits",
+      "resize-preserves-manual-and-bottom-follow",
+      "attachment-revision-invalidates",
+      "execution-revision-invalidates",
+      "delayed-history-restores-only-after-ready",
+    ]) assert.ok(report[2].includes(scenario), "Missing Chromium scenario: " + scenario);
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }

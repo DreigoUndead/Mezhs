@@ -8,6 +8,7 @@ import {
   modelActivityLabel,
   useApiAvailability,
   useConversationDrafts,
+  useConversationPending,
   type ChatSurfaceMessage,
   type Connection,
   type ConnectionModel,
@@ -410,13 +411,13 @@ export default function App() {
   const [modelSpecified, setModelSpecified] = useState(false);
   const [chats, setChats] = useState<AgentChat[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [historyLoadedChatId, setHistoryLoadedChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [creating, setCreating] = useState(false);
   const [policyId, setPolicyId] = useState("");
   const [policyDetailsOpen, setPolicyDetailsOpen] = useState(true);
   const [newChatSequence, setNewChatSequence] = useState(0);
-  const [sending, setSending] = useState(false);
   const [togglingPause, setTogglingPause] = useState(false);
   const [stoppingExecutionId, setStoppingExecutionId] = useState<string | null>(null);
   const [shellActionExecutionId, setShellActionExecutionId] = useState<string | null>(null);
@@ -429,7 +430,8 @@ export default function App() {
 
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
   const draftKey = selectedChatId && !creating ? `chat:${selectedChatId}` : `new:${newChatSequence}:${policyId}:${connectionId}`;
-  const { draft, setDraft, clearDraft } = useConversationDrafts(draftKey);
+  const { draft, setDraft, clearDraft, moveDraft, restoreDraft } = useConversationDrafts(draftKey);
+  const { pending: sending, start: startSend, transfer: transferSend, finish: finishSend } = useConversationPending(draftKey);
   const selectedPolicy = policies.find((policy) =>
     policy.id === (selectedChat?.policyId ?? policyId));
   const selectedConnection = connections.find((connection) => connection.id === connectionId);
@@ -542,6 +544,7 @@ useEffect(() => {
     selectedLoadChatRef.current = chatId;
     void loadSelected(chatId, true, true, controller.signal)
       .finally(() => {
+        if (!controller.signal.aborted) setHistoryLoadedChatId(chatId);
         if (selectedLoadChatRef.current === chatId)
           selectedLoadChatRef.current = null;
       });
@@ -782,6 +785,7 @@ useEffect(() => {
 
   function beginNewChat() {
     ++selectionEpoch.current;
+    setHistoryLoadedChatId(null);
     setCreating(true);
     setSelectedChatId(null);
     setNewChatSequence((current) => current + 1);
@@ -804,8 +808,10 @@ useEffect(() => {
       return;
     const submittedKey = draftKey;
     const epoch = selectionEpoch.current;
-
-    setSending(true);
+    let pendingKey = submittedKey;
+    if (!startSend(pendingKey)) return;
+    clearDraft(submittedKey, input);
+    let accepted = false;
     setNotice(null);
     try {
       const execution = await apiJson<Execution>("", "/v1/executions", {
@@ -819,8 +825,7 @@ useEffect(() => {
           ...(modelSpecified ? { model: modelId } : {}),
         }),
       });
-      clearDraft(submittedKey, input);
-
+      accepted = true;
       if (selectedChat) {
         if (selectionEpoch.current !== epoch) return;
         const next = [execution, ...executionsRef.current];
@@ -830,14 +835,18 @@ useEffect(() => {
       }
 
       const attachedChatId = await waitForAttachedChat(execution.executionId);
+      moveDraft(submittedKey, `chat:${attachedChatId}`, "");
+      transferSend(pendingKey, `chat:${attachedChatId}`);
+      pendingKey = `chat:${attachedChatId}`;
       await refreshChats();
       if (selectionEpoch.current !== epoch) return;
       setCreating(false);
       setSelectedChatId(attachedChatId);
     } catch (error) {
+      if (!accepted) restoreDraft(submittedKey, input);
       if (selectionEpoch.current === epoch) setNotice(error instanceof Error ? error.message : "Agent execution could not be started.");
     } finally {
-      setSending(false);
+      finishSend(pendingKey);
     }
   }
 
@@ -914,6 +923,7 @@ useEffect(() => {
 
   function selectChat(chatId: string) {
     ++selectionEpoch.current;
+    setHistoryLoadedChatId(null);
     setCreating(false);
     setSelectedChatId(chatId);
     messagesRef.current = [];
@@ -1091,6 +1101,8 @@ useEffect(() => {
 
             <ChatTranscript
               messages={sharedMessages}
+              revisionItems={executions}
+              historyReady={historyLoadedChatId === selectedChat.chatId}
               busy={!!activeExecution}
               busyLabel={agentBusyLabel}
               autoScroll
