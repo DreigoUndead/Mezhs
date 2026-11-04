@@ -87,7 +87,7 @@ The Agent host extends the same API composition as the ordinary host. The Agent 
 - [Architecture](docs/architecture.md) and [engineering guidelines](.agents/coding.md)
 - [Development workflow and agent instructions](AGENTS.md)
 - [Current behavior specifications](specifications/current/)
-- Release version and changelog are finalized on `main` when a change is merged
+- [Current release version](VERSION) and [release history](CHANGELOG.md)
 - [Agent design manifesto](AGENT_MANIFESTO.md) and [Executor design manifesto](EXECUTOR_MANIFESTO.md)
 
 Changes use a risk-based workflow: small edits can be handled in one chat, while more complex work receives independent review and testing. Every implementation merge requires the project owner's explicit approval.
