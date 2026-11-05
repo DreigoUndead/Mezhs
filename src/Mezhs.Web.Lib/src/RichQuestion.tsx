@@ -127,15 +127,35 @@ type MarkdownNode = {
 // separate hand-written Markdown scanner. No model code is ever evaluated.
 function protectedPositions(source: string): Uint8Array | null {
   try {
+    // Model content can mix LF and CRLF (notably after Windows fixture or
+    // transport transformations). Normalize only the syntax prepass and map
+    // offsets back to the exact original source without rewriting its text.
+    let syntax = source;
+    let originalOffsets: number[] | undefined;
+    if (source.includes("\r")) {
+      const chars: string[] = [];
+      originalOffsets = [];
+      for (let i = 0; i < source.length;) {
+        originalOffsets.push(i);
+        if (source[i] === "\r") {
+          chars.push("\n");
+          i += source[i + 1] === "\n" ? 2 : 1;
+        } else chars.push(source[i++]);
+      }
+      originalOffsets.push(source.length);
+      syntax = chars.join("");
+    }
     const mask = new Uint8Array(source.length);
-    const nodes: MarkdownNode[] = [fromMarkdown(source) as unknown as MarkdownNode];
+    const nodes: MarkdownNode[] = [fromMarkdown(syntax) as unknown as MarkdownNode];
     while (nodes.length) {
       const node = nodes.pop()!;
       if (node.type === "code" || node.type === "inlineCode") {
-        const start = node.position?.start.offset;
-        const end = node.position?.end.offset;
-        if (start === undefined || end === undefined || start < 0 ||
-            end > source.length || end <= start) return null;
+        const from = node.position?.start.offset;
+        const to = node.position?.end.offset;
+        if (from === undefined || to === undefined || from < 0 ||
+            to > syntax.length || to <= from) return null;
+        const start = originalOffsets ? originalOffsets[from] : from;
+        const end = originalOffsets ? originalOffsets[to] : to;
         mask.fill(1, start, end);
       } else if (node.children) {
         for (let i = node.children.length - 1; i >= 0; i--) nodes.push(node.children[i]);
