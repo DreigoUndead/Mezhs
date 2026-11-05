@@ -22,7 +22,7 @@ compiled.paths = Module._nodeModulePaths(frontend);
 compiled._compile(bundle, moduleFile);
 const html = (content, props = {}) => renderToStaticMarkup(React.createElement(compiled.exports.MarkdownContent, { content, ...props }));
 const svg = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/representative-svg.md"), "utf8");
-const question = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/representative-question.md"), "utf8");
+const question = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/representative-question.md"), "utf8").replace(/\r\n?/g, "\n");
 // Exercise the production extractor directly: a full Markdown render would hide
 // scanner regressions behind unrelated Markdown/React parsing work.
 const extractorBundle = esbuild.buildSync({
@@ -45,21 +45,8 @@ for (const [name, example] of [
   ["blockquote fence", "> ~~~mdx\n> " + question.trim().replace(/\n/g, "\n> ") + "\n> ~~~"],
   ["list-nested fence", "- Example:\n\n  ~~~mdx\n" + question.trim().replace(/\n/g, "\n  ") + "\n  ~~~"],
 ]) {
-  test("full Markdown code sample stays literal: " + name, async () => {
+  test("full Markdown code sample stays literal: " + name, () => {
     const parsed = extractRichQuestions(example);
-    if (name === "list-nested fence" && Object.keys(parsed.questions).length) {
-      const { pathToFileURL } = require("node:url");
-      const { fromMarkdown } = await import(pathToFileURL(requireFrontend.resolve("mdast-util-from-markdown")).href);
-      const stack = [fromMarkdown(example)];
-      const spans = [];
-      while (stack.length) {
-        const node = stack.pop();
-        if (node.type === "code" || node.type === "inlineCode") spans.push({ type: node.type, position: node.position });
-        if (node.children) stack.push(...node.children);
-      }
-      const at = example.indexOf("{@body");
-      console.log("DEBUG_NESTED", JSON.stringify({ at, chars: example.slice(at - 60, at + 60), spans, extracted: Object.keys(parsed.questions) }));
-    }
     assert.deepEqual(Object.keys(parsed.questions), []);
     assert.equal(parsed.content, example);
     const rendered = html(example, { onIssueNewTurn() { throw Error("Code example must remain inert"); } });
@@ -85,6 +72,21 @@ for (const [name, example] of [
     assert.match(rendered, /radio-group/);
   });
 }
+
+
+test("CRLF Markdown code blocks remain literal", () => {
+  for (const source of [
+    "    " + codeDirective + "\n\n" + questionControls,
+    "> ~~~mdx\n> " + question.trim().replace(/\n/g, "\n> ") + "\n> ~~~",
+    "- Example:\n\n  ~~~mdx\n" + question.trim().replace(/\n/g, "\n  ") + "\n  ~~~",
+  ]) {
+    const windowsText = source.replace(/\n/g, "\r\n");
+    const parsed = extractRichQuestions(windowsText);
+    assert.equal(Object.keys(parsed.questions).length, 0);
+    assert.equal(parsed.content, windowsText);
+    assert.doesNotMatch(html(windowsText, { onIssueNewTurn() {} }), /<fieldset class="rich-question"/);
+  }
+});
 
 test("a valid DIL question following indented example still works", () => {
   const source = "    " + codeDirective + "\n\n" + question;
