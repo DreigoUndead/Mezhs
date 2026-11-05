@@ -4,7 +4,7 @@ Use the smallest safe process. **The project owner approves every implementation
 
 ## 1. [Choose the level](specification.md)
 
-State the level and reason **before work starts**. Tell the owner; they may override the process. Reassess if the change grows.
+The first planner evaluates the request before drafting a plan: feasibility, complexity, risks, and conflicts with existing requirements or architecture. Report the assessment to the owner, distinguishing known constraints from uncertainties, and resolve material blockers before proceeding. State the level and reason **before work starts**; the owner may override the process. Reassess if the change grows.
 
 | Level | Examples | Default process |
 | --- | --- | --- |
@@ -19,9 +19,10 @@ Do not downgrade high-risk work simply to save time. Record a reason for skipped
 ## 2. [Plan](specification.md)
 
 - **Small:** a brief plan in the change branch or PR description is enough.
-- **Standard / High-risk:** create `specifications/planned/<id>/plan.md`, then commit the plan to `main` (using a PR if required).
-- Use Grill Me when needed. Review and refine the plan; independent plan review is required for High-risk changes, optional for Standard.
-- When ready, give the developer a prompt with the plan, scope and acceptance criteria. A new chat is used **when an independent stage or context reset is needed**.
+- **Standard / High-risk:** prepare `specifications/planned/<id>/plan.md`, present the owner with a summary of the proposed plan **before committing**, and commit it to `main` only after owner approval (using a PR if required).
+- Plan reviewers must disclose proposed plan changes to the owner and receive approval **before editing**, regardless of whether a prior Grill Me session occurred.
+- Use Grill Me when needed. Independent plan review is required for High-risk changes, optional for Standard.
+- When ready, hand off to development with the generic prompt and a reference to the plan; do not restate its scope or acceptance criteria in the prompt. A new chat is used **when an independent stage or context reset is needed**.
 
 ## 3. [Code](coding.md)
 
@@ -38,7 +39,7 @@ Do not downgrade high-risk work simply to save time. Record a reason for skipped
 - **Small:** a careful same-chat self-review may be enough.
 - **Standard:** use an independent reviewer.
 - **High-risk:** independent review is mandatory.
-- On issues, return to development. Fix them on the same branch, then review again as needed.
+- When an independent reviewer finds issues, **that reviewer fixes them** on the same branch, verifies and commits the corrections, then hands the result to a **new independent reviewer**. Repeat reviewer → corrections → new reviewer until the latest reviewed SHA receives PASS. Escalate a blocker to the owner instead of silently bypassing it.
 
 ## 5. [Test](testing.md)
 
@@ -46,7 +47,7 @@ Do not downgrade high-risk work simply to save time. Record a reason for skipped
 - **Small:** same-chat checks and relevant CI can be sufficient.
 - **Standard:** targeted tests; an independent tester when meaningful.
 - **High-risk:** independent testing is mandatory.
-- On failure, return to development, then repeat **affected review and tests**. No unnecessary fresh chat for each minor operation.
+- On testing failure, return to development, then repeat **affected independent review and tests** after changes. The reviewer-to-reviewer fresh-chat rule applies when a reviewer has made corrections; other minor operations do not require a new chat.
 
 ## 6. [Owner approval and release](release.md)
 
@@ -57,6 +58,18 @@ Do not downgrade high-risk work simply to save time. Record a reason for skipped
 
 ### Handoffs and evidence
 
-Use short, role-aware prompts. Include: **role/stage, task ID, branch or PR, plan path (if any), exact SHA, prior outcome/evidence location, and next action**. Link repository guidance; do not paste it repeatedly. Keep test/review evidence in the PR or `verification.md`, tied to the inspected SHA.
+Every prompt handed to another role must **start on its first line** with `<Task name> — <Role>` (no preamble or Markdown heading), because MEŽS uses that line as the chat title. Use this generic template, omitting fields already provided by the runtime or not applicable:
 
-A new chat is required for independent checks, not for every edit. Request a fresh chat if context quality becomes doubtful. **No agent PASS or plan approval grants merge permission.**
+```text
+<Task name> — <Role>
+Task ID: <id>
+Repository: <owner/repo>
+Branch/PR: <ref>
+Commit: <sha>
+Plan: <path, if applicable>
+Follow AGENTS.md.
+```
+
+Keep handoffs **generic and minimal**, unless the owner explicitly requests a tailored prompt: give only the identifiers needed to locate the work, not procedures already defined in `AGENTS.md` and `.agents/`. In particular, a prompt to an **independent code reviewer** must not reveal earlier findings, fixes, suspected issues, or review focus, even when handed off by a reviewer who just fixed problems. Store findings and verification evidence in the PR or `verification.md`, tied to the relevant SHA, for auditability rather than steering the new reviewer through the prompt.
+
+A fresh chat is required for independent checks and after **each code-review correction round**, not for every minor edit outside that loop. Request a fresh chat if context quality becomes doubtful. **No agent PASS or plan approval grants merge permission.**
