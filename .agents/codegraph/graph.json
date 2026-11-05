@@ -3897,6 +3897,14 @@
       "from": 171,
       "to": {
         "type": "external",
+        "name": "mdast-util-from-markdown"
+      },
+      "raw": "mdast-util-from-markdown"
+    },
+    {
+      "from": 171,
+      "to": {
+        "type": "external",
         "name": "react"
       },
       "raw": "react"
@@ -5385,6 +5393,14 @@
         "name": "node:path"
       },
       "raw": "node:path"
+    },
+    {
+      "from": 240,
+      "to": {
+        "type": "external",
+        "name": "node:perf_hooks"
+      },
+      "raw": "node:perf_hooks"
     },
     {
       "from": 240,
