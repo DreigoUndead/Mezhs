@@ -51,7 +51,7 @@ function valid(name: string, value: string, tag: string) {
   if (name === "viewBox") return validNumbers(value, -10000, 10000, 4) &&
     value.trim().split(/[\s,]+/).slice(2).every(n => Number(n) > 0);
   if (name === "preserveAspectRatio") return /^(?:none|x(?:Min|Mid|Max)Y(?:Min|Mid|Max) (?:meet|slice))$/.test(value);
-  if (name === "d") return tag === "path" && paths.test(value) &&
+  if (name === "d") return tag === "path" && value.length <= 1024 && paths.test(value) &&
     [...value.matchAll(numbers)].every(m => Math.abs(Number(m[0])) <= 10000);
   if (name === "points") return ["polygon", "polyline"].includes(tag) &&
     coordinates.test(value) && validNumbers(value, -10000, 10000);
@@ -87,6 +87,11 @@ export function prepareSvg(root: SvgMarkupNode): boolean {
       length += node.value?.length || 0;
       return length <= 24000;
     }
+    // remark-mdx can wrap a block of SVG children in a Markdown paragraph.
+    // Paragraphs are transparent containers here, never real HTML <p> in SVG.
+    if (node.type === "paragraph") {
+      return (node.children || []).every(child => inspect(child, depth + 1));
+    }
     if ((node.type !== "mdxJsxFlowElement" && node.type !== "mdxJsxTextElement") ||
         !node.name || !tags.has(node.name)) return false;
     const tag = node.name as SvgTag;
@@ -109,6 +114,15 @@ export function prepareSvg(root: SvgMarkupNode): boolean {
     return (node.children || []).every(child => inspect(child, depth + 1));
   }
   if (root.name !== "svg" || !inspect(root, 0)) return false;
+  // Flatten only validated Markdown paragraph wrappers, keeping the resulting
+  // SVG tree namespace-pure and preserving its selectable text nodes.
+  function flatten(node: SvgMarkupNode): void {
+    if (!node.children) return;
+    node.children = node.children.flatMap(child =>
+      child.type === "paragraph" ? child.children || [] : [child]);
+    node.children.forEach(flatten);
+  }
+  flatten(root);
   for (const change of changes) {
     const attrs: Record<string, string> = {};
     for (const [key, value] of Object.entries(change.props))

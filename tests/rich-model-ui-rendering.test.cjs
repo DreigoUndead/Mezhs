@@ -68,7 +68,7 @@ for (const [name, sample] of [
 test("question defaults to B, read-only without host callback", () => {
   const output = html(question);
   assert.match(output, /<fieldset class="rich-question"/);
-  assert.match(output, /value="B" checked=""/);
+  assert.match(output, /checked="" value="B"/);
   assert.match(output, /Two configured exporters/);
   assert.match(output, /<button type="button" disabled=""/);
   assert.match(output, /Submission unavailable in this view/);
