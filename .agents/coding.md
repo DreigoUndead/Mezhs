@@ -39,4 +39,4 @@ Prefer a coherent mechanism over duplicated decisions. Do not abstract a first o
 
 ## Review handoff
 
-> Role: independent code reviewer (if required by task level). Task: `<id>`; level: `<level>`; PR/branch: `<link>`; commit: `<sha>`; final plan or Small-change summary: `<path/link>`; developer checks: `<evidence>`. Follow `.agents/review.md`. Review code, risk, final specification and test coverage. Return PASS/FAIL/BLOCKED. On failure, give a focused developer fix prompt; on PASS, give the next testing/verification prompt.
+After developer checks, commit/push and hand off to an independent reviewer when required by the task level. Use the **generic handoff format** in [the workflow](workflow.md), identifying the branch/PR, exact SHA and plan (when applicable); do not embed stage instructions or steer the review. Subsequent correction rounds follow [the code-review process](review.md).
