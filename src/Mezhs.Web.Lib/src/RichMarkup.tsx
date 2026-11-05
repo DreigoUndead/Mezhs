@@ -2,6 +2,7 @@ import { ReactNode, CSSProperties } from "react";
 import type { Components } from "react-markdown";
 import { Check, CircleCheck, CircleAlert, CircleX, Info, ArrowDown, GitBranch, GitPullRequest } from "lucide-react";
 import { RichChart } from "./RichChart";
+import { prepareSvg, svgComponents } from "./RichSvg";
 
 type MarkupNode = {
   type: string;
@@ -18,7 +19,7 @@ const attributes = new Set(["gap", "align", "justify", "color", "name", "size", 
 
 // Parse supported JSX-like markup as DATA. Unknown constructs and executable
 // expressions remain escaped text. MDX is never compiled or evaluated.
-export function remarkRichMarkup() {
+export function remarkRichMarkup(slotOffsets: Record<string, number> = Object.create(null)) {
   return (tree: MarkupNode, file: { value: unknown }) => {
     const source = String(file.value);
     const original = (node: MarkupNode) => {
@@ -30,6 +31,20 @@ export function remarkRichMarkup() {
       if (!parent.children) return;
       parent.children = parent.children.map(node => {
         if (node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") {
+          if (node.name === "svg") {
+            // The entire subtree passes one atomic validator before React gets any nodes.
+            return prepareSvg(node) ? node : original(node);
+          }
+          if (node.name === "mezhs-question-slot") {
+            const attrs = node.attributes || [];
+            const id = attrs.length === 1 && attrs[0].type === "mdxJsxAttribute" &&
+              attrs[0].name === "id" && typeof attrs[0].value === "string" ? attrs[0].value : "";
+            if (!Object.prototype.hasOwnProperty.call(slotOffsets, id) ||
+                node.position?.start.offset !== slotOffsets[id] ||
+                (node.children || []).length) return original(node);
+            node.data = { hName: "mezhs-question", hProperties: { "data-mezhs-question-id": id } };
+            return node;
+          }
           if (!node.name || !components.has(node.name)) return original(node);
           const props: Record<string, string> = {};
           for (const attr of node.attributes ?? []) {
@@ -122,6 +137,7 @@ const icons = {
 };
 
 export const richComponents = {
+  ...svgComponents(),
   "mezhs-chart": (props: RichProps) => <RichChart content={structured(props, "content")} />,
   "mezhs-row": ({ children, ...props }: RichProps) => <div className="rich-row" style={layout(props)}>{children}</div>,
   "mezhs-col": ({ children, ...props }: RichProps) => <div className="rich-col" style={layout(props)}>{children}</div>,
