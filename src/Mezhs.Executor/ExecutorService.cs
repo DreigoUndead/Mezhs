@@ -10,6 +10,10 @@ public sealed class ExecutorService
 
     public string StoragePath => _store.Path;
 
+    public void BlockChats(IReadOnlyList<string> ids) => _store.BlockChats(ids);
+    public void UnblockChats(IReadOnlyList<string> ids) => _store.UnblockChats(ids);
+    public bool HasActiveChatWork(string id) => _store.HasActiveChatWork(id);
+
     public int Execute(
         string command,
         string? directory = null,

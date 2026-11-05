@@ -19,6 +19,10 @@ internal sealed class ExecutorStore
     {
         _file = System.IO.Path.GetFullPath(path);
         _log.Execute(_file, """
+            CREATE TABLE IF NOT EXISTS BlockedChats (
+                ChatId TEXT PRIMARY KEY COLLATE NOCASE
+            );
+
             CREATE TABLE IF NOT EXISTS ExecutorExecutions (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 Status TEXT NOT NULL,
@@ -63,6 +67,66 @@ internal sealed class ExecutorStore
 
     public string Path => _file;
 
+    public void BlockChats(IReadOnlyList<string> ids)
+    {
+        using var connection = _log.Open(_file);
+        using var transaction = connection.BeginTransaction();
+        foreach (var id in ids)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "INSERT OR IGNORE INTO BlockedChats (ChatId) VALUES ($id);";
+            command.Parameters.AddWithValue("$id", id);
+            command.ExecuteNonQuery();
+        }
+        transaction.Commit();
+    }
+
+    public void UnblockChats(IReadOnlyList<string> ids)
+    {
+        using var connection = _log.Open(_file);
+        using var transaction = connection.BeginTransaction();
+        foreach (var id in ids)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "DELETE FROM BlockedChats WHERE ChatId = $id;";
+            command.Parameters.AddWithValue("$id", id);
+            command.ExecuteNonQuery();
+        }
+        transaction.Commit();
+    }
+
+    public bool HasActiveChatWork(string id)
+    {
+        using var connection = _log.Open(_file);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT EXISTS (
+                SELECT 1 FROM ExecutorExecutions
+                WHERE ChatId = $id COLLATE NOCASE
+                  AND Status IN ($created, $running, $killRequested));
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$created", ExecutionStatus.Created.ToString());
+        command.Parameters.AddWithValue("$running", ExecutionStatus.Running.ToString());
+        command.Parameters.AddWithValue("$killRequested", ExecutionStatus.KillRequested.ToString());
+        return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0;
+    }
+
+    private static void EnsureChatAvailable(SqliteConnection connection, SqliteTransaction? transaction, string? id)
+    {
+        if (id is null) return;
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT EXISTS (SELECT 1 FROM BlockedChats WHERE ChatId = $id);";
+        command.Parameters.AddWithValue("$id", id);
+        if (Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
+            throw new InvalidOperationException($"Shell work for deleted chat '{id}' cannot be started or restarted.");
+    }
+
+
+
     public CreateExecutionResult Create(
         string commandText,
         string directory,
@@ -80,10 +144,12 @@ internal sealed class ExecutorStore
                 Status, Command, Directory, TimeoutSeconds, CreatedAt,
                 ChatId, ParentExecutionId, CorrelationId, Source, Workspace,
                 TriggerMessageId, CommandIndex, EnvironmentJson)
-            VALUES (
+            SELECT
                 $status, $command, $directory, $timeoutSeconds, $createdAt,
                 $chatId, $parentExecutionId, $correlationId, $source, $workspace,
-                $triggerMessageId, $commandIndex, $environmentJson)
+                $triggerMessageId, $commandIndex, $environmentJson
+            WHERE $chatId IS NULL OR NOT EXISTS (
+                SELECT 1 FROM BlockedChats WHERE ChatId = $chatId)
             ON CONFLICT DO NOTHING
             RETURNING Id;
             """;
@@ -101,6 +167,7 @@ internal sealed class ExecutorStore
             return new CreateExecutionResult(Get(id)!.Execution, true);
         }
 
+        EnsureChatAvailable(connection, null, context.ChatId);
         if (context.ChatId is null || context.TriggerMessageId is null || context.CommandIndex is null)
             throw new InvalidOperationException("Executor execution could not be inserted.");
 
@@ -193,6 +260,8 @@ internal sealed class ExecutorStore
                 HeartbeatAt = $now
             WHERE Id = $id
               AND Status = $created
+              AND (ChatId IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM BlockedChats WHERE ChatId = ExecutorExecutions.ChatId))
             RETURNING *;
             """;
         command.Parameters.AddWithValue("$running", ExecutionStatus.Running.ToString());
@@ -364,6 +433,7 @@ internal sealed class ExecutorStore
     {
         using var connection = _log.Open(_file);
         using var transaction = connection.BeginTransaction();
+        EnsureChatAvailable(connection, transaction, Get(connection, transaction, id)?.Execution.ChatId);
         var now = DateTimeOffset.UtcNow;
         StoredExecution? old;
         using (var reserve = connection.CreateCommand())
