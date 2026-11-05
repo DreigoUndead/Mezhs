@@ -221,13 +221,27 @@ The new services/tools are **not yet implemented on `main`**. Inspect these agai
 
 Do not silently incorporate the separately proposed `plan/multi-agent-orchestration` lifecycle/status changes.
 
-## 9. Implementation sequence and acceptance tests
+## 9. Nine independently deliverable implementation tasks
 
-1. **Independent High-risk plan review**, using a separate reviewer, with findings presented to the owner before any edits. No implementation until the plan review has been resolved and the owner authorizes coding.
-2. **ContainerTool feasibility:** configured local engine, requested image/OS, workspace mount, creation/cleanup, host-managed per-sandbox NGINX and job-scoped HTTP/query/TCP rules. Test separate supported Linux/Windows installations and report limitations of developer-chosen privileged settings.
-3. **Executor and Agent API:** shared/derived executor refactor, persistent immutable sandbox assignment, file-path policy loaded/snapshotted once, normal pause/recovery behavior, required successful SH exact/prefix matching, `<ABORT>`, shell output/exit/timeout behavior.
-4. **Jobs API:** `jobs.yaml` lazy Git token resolution, GitHub and GitLab adapters, exact SHA clone, mandatory project YAML, protected-code placeholder handling, queue/capacity, container CRUD, Agent API status monitoring, one-comment operation, cleanup and job status queries.
-5. **Full Jobs/Containers UI** and end-to-end runs for both Git providers, concurrent requests, error paths and status-based deletion, followed by independent code review and independent testing under `.agents/workflow.md`.
+The architecture above is the approved parent decision record. Implement the feature in the following dependency order, **one task at a time**, rather than as one long-lived implementation branch. Each task begins from the latest owner-approved `main` and must build, have focused regression evidence, pass the applicable independent review/testing, and receive **separate owner approval before merge**. Do not start the next code task until its predecessor is merged (unless the owner explicitly authorizes an exception). Create a small child plan under `specifications/planned/<task-id>/plan.md` before that task; the child plan links here and may not silently revise previously grilled architecture decisions. Classification and independent checks follow `.agents/workflow.md`.
+
+| # | Task / implementation branch | Scope and independent completion gate | Depends on |
+| --- | --- | --- | --- |
+| 1 | **agent-policy-foundation** | Extend Agent API file-path policy loading; use persisted effective policy snapshot for queued, running and recovered executions; add `<ABORT>` and exact/prefix SH successful-command matching. Preserve existing host agents. Unit/integration tests verify each behavior without Docker or Jobs API. | Existing Agent API |
+| 2 | **container-tool-docker** | Standalone `Mezhs.ContainerTool` CLI to create/start/inspect/stop/destroy containers on the configured local Docker engine, mount a supplied workspace and handle errors/cleanup. No proxy or scheduler yet. Prove the lifecycle on supported available engine configurations. | 1 (sequential merge; technically independent) |
+| 3 | **container-tool-proxy** | Extend ContainerTool with host-managed per-sandbox NGINX, exact HTTP method/path/query permissions, TCP destinations, connectivity and cleanup. Test permitted/denied proxy requests and the relevant Linux/Windows deployment paths; **DevOps**, not MEŽS, enforces network isolation/egress. | 2 |
+| 4 | **executor-sandbox-routing** | Reuse existing durable Executor history and runner; add backend selection, immutable persisted sandbox assignment in Agent API and detached Executor state, Docker SH launch, recovery/kill/timeout behavior and no host fallback. **Reject `ATTACH` for sandboxed executions here**, when `SandboxId` exists. Preserve trusted host execution. | 2–3 |
+| 5 | **jobs-git-preparation** | Prepare Jobs API-owned Git services: `jobs.yaml` credential lookup, exact-SHA checkout, trusted-ref sandbox config pinning, required project YAML validation, protected-code marker replacement and sanitized workspace. No Docker allocation or job scheduler yet. | 4 (sequential merge; component independent) |
+| 6 | **jobs-api-lifecycle** | Add `Mezhs.Jobs.Api` service, SQLite FIFO queue/capacity, status endpoints, ContainerTool allocation and cleanup, Agent API creation/status integration, failure paths. Test the full job-to-terminal lifecycle with controlled local/test policy **without** real provider comment publishing. | 2–5 |
+| 7 | **jobs-github-review** | GitHub PR identity/revision validation, job-scoped comment endpoint and real provider summary submission; failures including ambiguous responses are ordinary errors without special retry logic. End-to-end GitHub review and comment tests. | 6 |
+| 8 | **jobs-gitlab-review** | GitLab MR adapter using the same Jobs API workflow, token rules and job-scoped comment behavior. End-to-end GitLab review tests without provider-specific orchestration duplication. | 7 |
+| 9 | **jobs-management-ui** | Jobs/Containers Existing and Pending lists, status/progress, inspection, cancellation and permitted deletion via the Jobs API. Full cross-component and regression verification for both providers, concurrency, failures and cleanup. | 6–8 |
+
+**Task boundaries:** Tasks 1–4 establish behavior and infrastructure but do not introduce a parallel Jobs API scheduler. Task 1 does **not** implement sandbox `ATTACH` blocking before a persisted sandbox identity exists: Task 4 owns that requirement. Tasks 2–3 do not implement DevOps' firewall/network admission policy. Task 5 does not secretly start jobs. Task 6 may use a controlled test-only agent completion path while Git provider publishing is not yet integrated; production review completion remains subject to the parent comment requirement. Tasks 7–8 must reuse the same job record and lifecycle. Task 9 completes the agreed V1 UI, not a new UI state store.
+
+**Review gates:** The approved overall architecture has undergone owner Grill Me and an independent high-risk review. Each task must honor `.agents/workflow.md`; any substantive new high-risk design must undergo independent plan review before coding. No child task may amend a grilled owner decision without the owner's explicit approval. Review/test evidence is attached to the exact implementation SHA. Only task 9 closes the complete parent feature.
+
+**First child plan:** [agent-policy-foundation](../agent-policy-foundation/plan.md). Create subsequent child plans when their task starts; do not pre-design all nine implementations or expand their scope.
 
 ### Observable acceptance criteria
 
