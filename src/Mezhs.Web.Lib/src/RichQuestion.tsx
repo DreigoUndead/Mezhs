@@ -1,5 +1,5 @@
 import { parse, parseExpressionAt } from "acorn";
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useId, useState } from "react";
 import Markdown, { uriTransformer } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { RichActionContext } from "./RichActionContext";
@@ -218,16 +218,17 @@ export function extractRichQuestions(source: string): { content: string; questio
 
 export function RichQuestion({ data }: { data: RichQuestionData }) {
   const onIssueNewTurn = useContext(RichActionContext);
+  const groupName = useId();
   const [choice, setChoice] = useState(data.initial);
   const active = data.options.some(option => option.value === choice);
   const enabled = !!onIssueNewTurn && active;
   return <fieldset className="rich-question">
     <legend className="rich-question-caption">Choose one option</legend>
     {data.options.map(option => <label key={option.value} className="rich-question-option">
-      <input type="radio" name={undefined} value={option.value}
+      <input type="radio" name={groupName} value={option.value}
         checked={choice === option.value} onChange={() => setChoice(option.value)} />
-      <span><Markdown remarkPlugins={[remarkGfm]}
-        transformLinkUri={uriTransformer} transformImageUri={() => ""}>{option.label}</Markdown></span>
+      <div><Markdown remarkPlugins={[remarkGfm]}
+        transformLinkUri={uriTransformer} transformImageUri={() => ""}>{option.label}</Markdown></div>
     </label>)}
     <button type="button" disabled={!enabled} onClick={() => {
       if (enabled) onIssueNewTurn?.(data.prefix + choice + data.suffix);
