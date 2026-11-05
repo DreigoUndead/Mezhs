@@ -29,6 +29,8 @@ builder.Services.AddExceptionHandler<AgentApiExceptionHandler>();
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(_ => new ExecutorService(executorStorage));
 builder.Services.AddSingleton<AgentStore>();
+builder.Services.AddSingleton<AgentChatDeletionHandler>();
+builder.Services.AddSingleton<IChatDeletionHandler>(services => services.GetRequiredService<AgentChatDeletionHandler>());
 builder.Services.AddSingleton<AgentRecoveryState>();
 builder.Services.AddSingleton<PolicyRegistry>();
 builder.Services.AddSingleton<PolicyEvaluationService>();
@@ -49,6 +51,7 @@ app.UseCors();
 
 var store = app.Services.GetRequiredService<AgentStore>();
 store.Initialize();
+app.Services.GetRequiredService<AgentChatDeletionHandler>().Reconcile();
 app.Services.GetRequiredService<AgentRecoveryState>().Prepare();
 
 app.MapGet("/", () => Results.Ok(new
@@ -272,6 +275,8 @@ static AgentChatView ToView(
     ChatStore chats)
 {
     var chat = chats.TryGetListState(record.ChatId);
+    var core = chats.GetChat(record.ChatId);
+    var lastActivity = core?.UpdatedAt > record.UpdatedAt ? core.UpdatedAt : record.UpdatedAt;
     var firstTask = store.GetFirstRootExecutionRequest(record.ChatId);
     return new AgentChatView(
         record.ChatId,
@@ -282,7 +287,8 @@ static AgentChatView ToView(
         string.IsNullOrWhiteSpace(firstTask) ? chat?.Title : firstTask,
         chat?.ConnectionId,
         record.CreatedAt,
-        record.UpdatedAt);
+        lastActivity,
+        core?.CategoryId);
 }
 
 static string SafeFilePart(string value)
