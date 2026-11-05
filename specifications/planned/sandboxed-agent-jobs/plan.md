@@ -94,12 +94,12 @@ The agent still emits plain `<SH>`, never `docker exec`. SandboxExecutor transla
 
 ### Existing status behavior; new completion marker
 
-**Do not implement a new resumable Pause/Resume lifecycle.** Use the existing Agent API pause/cancellation and normal recovery semantics for sandboxed agents. Jobs API uses the existing Agent API status/enum classification: **stopped/terminal ⇒ kill remaining sandbox processes and destroy all job-owned sandbox resources; non-stopped ⇒ keep the sandbox**. No duplicate status enum, force-delete lifecycle or multi-agent `Stopped` terminology change. The future multi-agent plan retains its own decisions.
+**Do not implement a new resumable Pause/Resume lifecycle.** Use the existing Agent API pause/cancellation and normal recovery semantics for sandboxed agents. Jobs API uses the **current terminal predicate** (`Completed`, `Failed`, `Cancelled`), not an imagined `Stopped` status: terminal ⇒ kill remaining sandbox processes and destroy job-owned resources after safe shutdown; `Queued`/`Running`/`CancelRequested` or unavailable status ⇒ retain the sandbox. No duplicate status enum, force-delete lifecycle or multi-agent `Stopped` terminology change. The future multi-agent plan retains its own decisions.
 
 - `<DONE>`: policy requirements must be fulfilled.
 - `<ABORT>`: new standalone immediate unsuccessful termination, ignoring `requiredSuccessfulCommands`. If present with pending executable blocks, do not execute those blocks.
 - Extend existing `requiredSuccessfulCommands` minimally beyond command names to **exact SH text or a prefix ending in `*`**, retaining backward compatibility with command-name rules. A matching successful SH is an **Agent-level workflow requirement, not trusted proof of HTTP delivery**: shell text can return zero without making the intended call, and a repository policy can omit the rule. Jobs API uses its own existing job record of a confirmed comment before reporting job success. Do not add `<JOB_COMMENT>` or a second Agent outcome state machine.
-- HTTP errors must yield a nonzero SH exit code (e.g. `curl --fail-with-body`). Failed calls cannot satisfy the successful-command requirement. Rejected `<DONE>` explains missing commands; `<ABORT>` remains an escape.
+- Jobs API constructs the job-scoped proxy/comment URL from its own job record and passes that concrete endpoint in the agent's submitted task/context; a repository policy cannot predict a runtime `jobId`, and user-provided text must not redefine the target. The project policy may use a documented command prefix rule to demand a successful attempt; do not invent job-scoped placeholders without specifying where they are expanded. HTTP errors must yield a nonzero SH exit code (e.g. `curl --fail-with-body`). Rejected `<DONE>` explains missing commands; `<ABORT>` remains an escape. Confirmed Jobs API delivery remains independently required for job success.
 - A command timeout during a still-active agent follows the existing Executor behavior; it is **not** automatically a terminal job unless Agent API's status says so. Test Docker-specific cancellation behavior, then stop the entire container on terminal cleanup.
 
 ## 4. Configuration and credential ownership
@@ -145,7 +145,7 @@ git:
       tokenEnv: GITLAB_TOKEN
 ~~~
 
-Jobs API accepts **arbitrary repository URLs**, not just names in `jobs.yaml`. The token resolver must only use matching host/repository credentials; never send a credential to an unrelated server. An anonymous clone/comment may fail if authorization is required.
+Jobs API accepts **arbitrary supported GitHub/GitLab HTTPS repository URLs** (not only repositories named in `jobs.yaml`); it does **not** accept arbitrary local paths, `file://`, shell/SSH URL forms or unsupported Git protocols. The token resolver must only use matching canonical host/repository credentials; never send a credential to an unrelated or redirected server. An anonymous clone/comment may fail if authorization is required.
 
 **Caller admission is distinct from Git credentials.** Jobs API has **no V1 caller authentication**: any entity that can reach its endpoints can submit/manage jobs and potentially invoke actions backed by configured Git credentials. Network-level access restrictions and appropriate deployment topology are DevOps responsibilities and must be explicitly documented. Do not silently add API keys/OAuth or a repository allowlist.
 
@@ -167,7 +167,7 @@ Project policy dictates review scope and method. Do not force a Git diff workflo
 
 The sandbox's comment call is restricted by its generated NGINX rules to the owning job. Jobs API resolves repository/PR/MR target from the **job record**, not from arbitrary destination fields in the agent's comment body. Jobs API owns a job-scoped, **single-comment** operation: atomically claim a submission attempt, post only to the PR/MR stored in that job, and persist confirmed result (or `unknown` if delivery may have happened but the response was lost). Repeated concurrent SH requests cannot generate multiple comments; an unknown outcome requires inspection, not automatic repost. The Agent policy encourages and checks the intended command; **only the Jobs API provider result** establishes comment delivery for job-success classification. This is job reporting, not review-content adjudication.
 
-Cleanup sequence: finish any outstanding Git/comment operation that requires job state; stop and destroy container/proxy and release mounts; then delete the Jobs API job directory and free capacity. No separate container file export pipeline.
+Cleanup sequence: finish or classify as unknown any outstanding Git/comment operation that requires job state; stop and destroy container/proxy and release mounts; then delete the Jobs API job directory **only after preserving job/result/comment records in SQLite**, and free capacity only after confirmed destruction. No separate container file export pipeline.
 
 ## 6. NGINX and deployment trust boundary
 
@@ -232,7 +232,7 @@ Do not silently incorporate the separately proposed `plan/multi-agent-orchestrat
 - [ ] Agent API reads a path policy once, persists and actually **executes** the compiled snapshot and immutable sandbox assignment during normal execution/recovery; reused chats cannot switch targets. Host execution remains optional under trusted host settings. Sandbox `ATTACH` is denied (no host-file import).
 - [ ] Sandbox agent emits ordinary `<SH>`; shared Executor records output/exit/timeout, durable backend/target and restart lineage using specialized Docker launch with no second store. Docker process behavior and no-host-fallback/terminated-container restart are tested.
 - [ ] The policy requires a successful Jobs API comment command before `<DONE>`; failed HTTP exit does not satisfy it and `<ABORT>` fails execution. A forged zero-exit SH or omitted project rule cannot cause a successful **job** without a confirmed provider comment. Concurrent/repeated/ambiguous comment calls do not silently duplicate posts.
-- [ ] Jobs API status classification controls cleanup: **stopped/terminal => stop/destroy remaining container processes and release resources; non-stopped => retain**. No resumable Pause/Resume implementation is introduced.
+- [ ] Jobs API status classification controls cleanup: **current terminal Agent statuses => stop/destroy and release after confirmed destruction; nonterminal/unavailable => retain**. No resumable Pause/Resume implementation is introduced.
 - [ ] NGINX exact job-specific method/path/query and TCP rules work; **default Docker bridge direct egress is denied by a demonstrated deployment boundary**, direct Jobs API and cross-proxy bypass attempts fail in a supported normal configuration. Privileged developer-configured bypass is openly documented as trusted-code execution.
 - [ ] One FIFO capacity rule governs all managed containers; concurrent submissions do not overbook; only confirmed terminal destruction frees a slot; startup reconciles reservations and retains uncertain allocations rather than admitting excess containers.
 - [ ] Existing/Pending UI, inspection, cancellation, deletion and status queries work. The UI does not store another authoritative job state.
