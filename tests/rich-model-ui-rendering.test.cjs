@@ -36,6 +36,54 @@ extractorModule.paths = Module._nodeModulePaths(frontend);
 extractorModule._compile(extractorBundle, extractorModule.filename);
 const { extractRichQuestions } = extractorModule.exports;
 
+const codeDirective = '{@body const [choice,setChoice] = DIL.useState("B")}';
+const questionControls = question.slice(question.indexOf("<radio-group"));
+
+for (const [name, example] of [
+  ["four-space indentation", "    " + question.trim().replace(/\n/g, "\n    ")],
+  ["tab indentation", "\t" + question.trim().replace(/\n/g, "\n\t")],
+  ["blockquote fence", "> ~~~mdx\n> " + question.trim().replace(/\n/g, "\n> ") + "\n> ~~~"],
+  ["list-nested fence", "- Example:\n\n  ~~~mdx\n" + question.trim().replace(/\n/g, "\n  ") + "\n  ~~~"],
+]) {
+  test("full Markdown code sample stays literal: " + name, () => {
+    const parsed = extractRichQuestions(example);
+    assert.deepEqual(Object.keys(parsed.questions), []);
+    assert.equal(parsed.content, example);
+    const rendered = html(example, { onIssueNewTurn() { throw Error("Code example must remain inert"); } });
+    assert.doesNotMatch(rendered, /<fieldset class="rich-question"/);
+    assert.match(rendered, /DIL\.useState/);
+    assert.match(rendered, /<code\b/);
+  });
+}
+
+for (const [name, example] of [
+  ["indented declaration", "Example:\n\n    " + codeDirective + "\n\n" + questionControls],
+  ["tab-indented declaration", "Example:\n\n\t" + codeDirective + "\n\n" + questionControls],
+  ["blockquote fenced declaration", "Example:\n\n> ~~~mdx\n> " + codeDirective + "\n> ~~~\n\n" + questionControls],
+  ["list-nested fenced declaration", "- Example:\n\n  ~~~mdx\n  " + codeDirective + "\n  ~~~\n\n" + questionControls],
+]) {
+  test("code-only declaration cannot authorize external controls: " + name, () => {
+    const parsed = extractRichQuestions(example);
+    assert.deepEqual(Object.keys(parsed.questions), []);
+    assert.equal(parsed.content, example);
+    const rendered = html(example, { onIssueNewTurn() { throw Error("Code example must remain inert"); } });
+    assert.doesNotMatch(rendered, /<fieldset class="rich-question"/);
+    assert.match(rendered, /DIL\.useState/);
+    assert.match(rendered, /radio-group/);
+  });
+}
+
+test("a valid DIL question following indented example still works", () => {
+  const source = "    " + codeDirective + "\n\n" + question;
+  const parsed = extractRichQuestions(source);
+  assert.equal(Object.keys(parsed.questions).length, 1);
+  assert.ok(parsed.content.startsWith("    " + codeDirective));
+  const rendered = html(source, { onIssueNewTurn() {} });
+  assert.equal((rendered.match(/<fieldset class="rich-question"/g) || []).length, 1);
+  assert.match(rendered, /<code\b/);
+});
+
+
 test("thousands of inline code spans do not slow question extraction quadratically", { timeout: 10000 }, () => {
   const manySpans = "`x` ".repeat(25_000);
   const started = performance.now();
