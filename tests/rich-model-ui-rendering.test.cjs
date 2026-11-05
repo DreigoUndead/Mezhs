@@ -101,9 +101,9 @@ for (const [name, changes] of [
 
 test("Markdown-escaped DIL syntax cannot activate controls", () => {
   const escaped = [
-    question.replace("{@body", "\\\\{@body"),
-    question.replace("<radio-group", "\\\\<radio-group"),
-    question.replace("<button", "\\\\<button"),
+    question.replace("{@body", "\\{@body"),
+    question.replace("<radio-group", "\\<radio-group"),
+    question.replace("<button", "\\<button"),
   ];
   for (const source of escaped) {
     const output = html(source, { onIssueNewTurn() { throw Error("Escaped syntax must never send"); } });
