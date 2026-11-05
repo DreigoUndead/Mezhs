@@ -1,6 +1,6 @@
 # Planning and task classification
 
-Start by checking the user's request, existing code, relevant `specifications/current/` documents, and recorded owner decisions. **The initial planner must assess and tell the owner** whether the request is feasible, its likely complexity, material risks, and any contradictions with existing behavior, architecture, scope, or prior decisions. Distinguish evidence from assumptions, identify blockers or dependencies, and resolve material conflicts with the owner instead of silently proposing an infeasible or incompatible plan.
+Start by checking the existing code and relevant `specifications/current/` documents.
 
 ## Choose a level
 
@@ -31,8 +31,6 @@ How do we prove it works?
 
 For complex work, add constraints, risks, alternatives or tasks **inside the plan**.
 
-**Before committing a proposed plan to `main`**, the planner must present the owner with a concise summary of the goal/scope, intended approach, significant decisions or tradeoffs, risks, acceptance/verification strategy, and unresolved questions. Invite corrections and wait for **explicit owner approval** before the plan commit. If the plan materially changes before committing, present the updated summary first.
-
-A plan reviewer checks the plan against the code and reports findings. **Before modifying any plan**, regardless of its Grill Me history, the reviewer must inform the owner of the concrete issue, intended change and reason, and obtain **explicit approval for that change**. For previously owner-agreed decisions or plans that went through Grill Me, first discuss each meaningful issue using [Grill Me](skills/grill-me/SKILL.md), one decision at a time, with evidence, options and a recommendation. Keep undecided findings outside the plan; never silently overwrite a decision. After approved corrections, repeat the necessary review and provide a generic next-role prompt as defined in [the workflow](workflow.md). A fresh agent is required for the **High-risk independent plan review**, not for each authorized plan edit.
+A plan reviewer checks the plan against the code and reports findings. **If the plan has already gone through a Grill Me session or records owner-agreed decisions, the reviewer must not change the plan on their own, even to correct apparent errors or omissions.** First present each meaningful issue to the owner through [Grill Me](skills/grill-me/SKILL.md), one decision at a time, with evidence, options and a recommendation. Change the plan **only after explicit owner approval of the specific correction**; keep undecided findings outside the plan. This applies to independent High-risk plan reviews as well as other reviews. For plans without prior Grill Me/owner decisions, the reviewer may edit the plan and repeat review until stable. Then provide a development prompt referring to the final plan. A fresh agent is required for the **High-risk independent plan review**, not each minor plan edit.
 
 Plans are allowed to evolve in development. The final plan describes the result; Git contains the earlier drafts. Move it from `planned/` to `implemented/` on the development branch **before final review/testing**.

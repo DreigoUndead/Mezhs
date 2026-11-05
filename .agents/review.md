@@ -13,8 +13,8 @@ Review the changed code against `main`, the final plan (or Small-change descript
 - Verify changes to `specifications/current/` match real behavior. Check plan archiving and the proposed release summary. **Version and changelog edits must be absent until the merge into `main`.**
 - Return **PASS / FAIL / BLOCKED**, with affected files, severity and actionable evidence.
 
-On **FAIL**, the reviewer is responsible for correcting the issues on the **same branch**, running relevant checks, and committing/pushing the changes. Record the findings, changes and evidence in the PR or `verification.md`, tied to the corrected SHA. Then hand off to a **different, fresh independent reviewer**. The reviewer who made corrections cannot certify their own commit as an independent PASS. Repeat until the new reviewer finds no further issues and reports **PASS** on the exact reviewed SHA.
+On failure, return to development on the **same branch**. Retest and re-review changed areas. Handoff to a new chat when independence is required or context quality deteriorates.
 
-The next reviewer's prompt must use [the generic handoff format](workflow.md#handoffs-and-evidence) and must **not** mention prior findings, fixes, problem areas, hypotheses, or suggested focus. Historical evidence stays in the repository/PR for audit, not in the handoff prompt. If corrections require an unresolved owner decision, permission, or unavailable resource, report **BLOCKED** with evidence rather than guessing or passing.
+On PASS, give testing/verification instructions:
 
-On **PASS**, hand off to the tester/verifier (when required) using the same generic prompt format; the stage requirements remain in [testing.md](testing.md). **No reviewer PASS grants merge permission.**
+> Role: final tester or verifier. Task: `<id>`; level: `<level>`; PR/branch: `<link>`; reviewed SHA: `<sha>`; final plan: `<path or PR summary>`; review evidence: `<link>`. Follow `.agents/testing.md`. Execute the required checks and assess any changed current specs. On failures return to development and affected review. On PASS, present the result for owner approval. **Do not merge without that approval.**
