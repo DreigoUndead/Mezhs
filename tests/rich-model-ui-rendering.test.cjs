@@ -74,6 +74,18 @@ for (const [name, example] of [
 }
 
 
+
+test("mixed LF/CRLF list-fenced code cannot authorize a DIL question", () => {
+  const sample = "- Example:\n\n  ~~~mdx\n  " +
+    question.trim().replace(/\n/g, "\r\n  ") + "\n  ~~~";
+  const parsed = extractRichQuestions(sample);
+  assert.deepEqual(Object.keys(parsed.questions), []);
+  assert.equal(parsed.content, sample);
+  const rendered = html(sample, { onIssueNewTurn() { throw Error("Mixed-newline code cannot dispatch"); } });
+  assert.doesNotMatch(rendered, /<fieldset class="rich-question"/);
+  assert.match(rendered, /DIL\.useState/);
+});
+
 test("CRLF Markdown code blocks remain literal", () => {
   for (const source of [
     "    " + codeDirective + "\n\n" + questionControls,
