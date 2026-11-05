@@ -392,6 +392,15 @@ echo %TEST_AGENT_VALUE%
         throw "Deleting a shared group did not unassign both Agent and ordinary chats."
     }
 
+    # A malformed bulk request must not delete the otherwise valid chat.
+    $invalidBatch = Invoke-WebRequest -Method Delete -Uri "http://127.0.0.1:5199/v1/chats" `
+        -ContentType "application/json" -Body (ConvertTo-Json @{ chatIds = @($webCompleted.chatId, " ") }) `
+        -SkipHttpErrorCheck
+    if ([int]$invalidBatch.StatusCode -ne 400 -or
+        (Get-Status "http://127.0.0.1:5199/v1/chats/$($webCompleted.chatId)") -ne 200) {
+        throw "Malformed Agent chat deletion batch was not rejected atomically."
+    }
+
     # The existing single and bulk routes must be Agent-aware on the Agent host.
     Invoke-RestMethod -Method Delete -Uri "http://127.0.0.1:5199/v1/chats/$($webCompleted.chatId)" | Out-Null
     if ((Get-Status "http://127.0.0.1:5199/v1/chats/$($webCompleted.chatId)") -ne 404 -or
