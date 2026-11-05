@@ -53,7 +53,7 @@ Do not duplicate job state in Agent API, container CRUD in Agent API, or command
 
 1. Caller submits repository URL, exact SHA, PR/MR identifier and review task to Jobs API. It returns `jobId`. **Jobs API V1 has no API key, OAuth or repository allowlist**: caller access is governed by the deployment network. GitHub Actions/GitLab CI decide when to invoke it.
 2. Jobs API resolves any Git token from the current host `jobs.yaml` when cloning and checks out the **exact requested revision**. A repository with no configured token may be cloned anonymously; fail clearly if access requires credentials.
-3. Jobs API requires valid `.mezhs/agent.yaml` and `.mezhs/sandbox.yaml` from that revision. It retains the original checkout, prepares a separate writable workspace without `.git`, and replaces `SecurityCritical` regions with unique placeholders before creating any container. Bad markers fail the job.
+3. Jobs API requires `.mezhs/agent.yaml` from the requested revision and `.mezhs/sandbox.yaml` from the source selected by host `jobs.yaml` (requested revision by default, or a configured trusted repository ref). Missing/invalid selected files fail the job; a failed trusted-ref lookup must never fall back to the PR version. It retains the original checkout, prepares a separate writable workspace without `.git`, and replaces `SecurityCritical` regions with unique placeholders before creating any container. Bad markers fail the job.
 4. Jobs API enqueues the sandbox allocation under one shared FIFO capacity limit. When space is available, it calls ContainerTool with project Docker/network settings and the sanitized workspace. ContainerTool uses the configured **local** Docker engine and manages an associated **host-side** NGINX proxy.
 5. Jobs API starts the agent through the **normal Agent API creation endpoint**, passing task, immutable `SandboxId` and the **absolute host path** to the cloned project's `.mezhs/agent.yaml` as the existing `policyId` parameter. Agent API resolves a registered policy name or a file path, loads policy once and persists the effective policy snapshot for the execution.
 6. SandboxExecutor runs normal `<SH>` commands in the container. The agent inspects the prepared checkout as its project policy instructs. The agent does not receive Docker/Git credentials or the original checkout via the standard workspace preparation.
@@ -106,20 +106,22 @@ The agent still emits plain `<SH>`, never `docker exec`. SandboxExecutor transla
 
 ### Required project configuration
 
-Both files are **mandatory in the requested Git revision**; missing or malformed files fail job preparation, with no project defaults:
+Both files are **mandatory in their selected Git revision**; missing or malformed files fail job preparation, with no project defaults. The agent policy comes from the requested review SHA; the sandbox configuration comes from the source selected by host `jobs.yaml`:
 
 | File | Meaning |
 | --- | --- |
 | `.mezhs/agent.yaml` | Instructions, model/policy, review scope, allowed commands, required successful Jobs comment call |
 | `.mezhs/sandbox.yaml` | OS/image, resources, Docker options/mounts, HTTP endpoint/method/query permissions and TCP destinations |
 
-Developers may modify either file in the reviewed branch itself. Project YAML may configure Docker privileges, networking, mounts and destinations; **MEŽS must not add approval layers or arbitrary developer-facing restrictions**. DevOps governs host, Docker daemon permissions and wider network reachability. This is an accepted trust model, not a guarantee that all developer-supplied Docker settings preserve sandbox isolation.
+Developers may modify either file in the reviewed branch itself. For a repository using a trusted sandbox-config ref in `jobs.yaml`, a proposed change to `.mezhs/sandbox.yaml` in the reviewed PR/MR does **not** affect that job; Jobs API reads the sandbox config from the trusted ref instead. Outside this configured source-selection rule, project YAML may configure Docker privileges, networking, mounts and destinations; **MEŽS must not add approval layers or arbitrary developer-facing restrictions**. DevOps governs host, Docker daemon permissions and wider network reachability. This remains an accepted trust model, not a guarantee that Docker settings preserve sandbox isolation.
 
 **Host versus sandbox is the one separate trusted routing choice:** whether Agent API may execute host commands is decided by host-owned Agent API settings, not project YAML.
 
 ### Host-owned `jobs.yaml`
 
-Use one Jobs API server-side `jobs.yaml` for Git credentials and Jobs API/container/proxy/queue settings as applicable. Do not introduce a separate `containertool.yaml` in V1 without an actual need. It is outside cloned repositories and **not part of the normal container mount**.
+Use one Jobs API server-side `jobs.yaml` for Git credentials, trusted sandbox-config source selection, and Jobs API/container/proxy/queue settings as applicable. Do not introduce a separate `containertool.yaml` in V1 without an actual need. It is outside cloned repositories and **not part of the normal container mount**.
+
+**Trusted sandbox-config selection (approved Grill Me decision):** `jobs.yaml` can opt a repository into reading `.mezhs/sandbox.yaml` from a host-configured trusted ref of the **target repository**, rather than from the reviewed PR/MR SHA. The configured ref must be protected by repository administration. Jobs API resolves that ref to an exact SHA **when accepting the job** and persists it for that job; branch movement while queued cannot change the selected config. Do not take the ref, repository identity or source mode from PR content or caller-supplied overrides. Apply the repository setting to all its jobs rather than trying to infer author trust from PR metadata. If a configured ref or its sandbox file cannot be read, fail the job; **do not fall back to the PR's config**. Repositories without this opt-in retain the prior requested-revision behavior and are suitable only for trusted-source jobs. This is source selection, not a new approval service or general Git push restriction. External-contributor jobs should use the trusted-ref mode. A trusted sandbox config that deliberately enables privileged access still does **not** make execution of untrusted code safe; DevOps must select appropriate sandbox privileges for such repositories.
 
 GitHub and GitLab use **configured access tokens** in V1, not GitHub App installations or provider-native token renewal. Support both Git-server/host defaults and repository overrides; resolution priority:
 
@@ -143,6 +145,13 @@ git:
   gitlab:
     - host: gitlab.example.org
       tokenEnv: GITLAB_TOKEN
+projectConfiguration:
+  repositories:
+    - repository: company/private-project
+      sandbox:
+        source: trustedRef
+        ref: refs/heads/main
+# Other repositories: sandbox config from requested revision (trusted sources only).
 ~~~
 
 Jobs API accepts **arbitrary repository URLs**, not just names in `jobs.yaml`. The token resolver must only use matching host/repository credentials; never send a credential to an unrelated server. An anonymous clone/comment may fail if authorization is required.
@@ -223,7 +232,8 @@ Do not silently incorporate the separately proposed `plan/multi-agent-orchestrat
 
 - [ ] GitHub/GitLab requests run the **exact SHA** when submitted; later branch pushes do not alter the review. There is no automatic scheduling or callback.
 - [ ] An unconfigured repository is attempted anonymously. `jobs.yaml` exact-repo override beats host default; editing YAML affects the **next** clone/comment credential lookup without restarting Jobs API.
-- [ ] Missing project YAML, malformed YAML or malformed `SecurityCritical` markers fails before sandbox creation. Valid protected regions become unique placeholders, and no compilation repair is performed.
+- [ ] Missing selected project YAML, malformed YAML or malformed `SecurityCritical` markers fails before sandbox creation. Valid protected regions become unique placeholders, and no compilation repair is performed.
+- [ ] For repositories configured with `projectConfiguration.repositories[].sandbox.source: trustedRef` in host `jobs.yaml`, modifying `.mezhs/sandbox.yaml` in an external PR/MR has no effect on the sandbox. The configured trusted ref is pinned to a commit per job; missing/unreadable trusted config fails closed without PR fallback. Non-opted-in repositories retain requested-revision configuration for trusted sources only.
 - [ ] Agent API reads a path policy once, persists effective policy and immutable sandbox assignment, and uses them during normal execution/recovery. Host execution remains optional under trusted host settings.
 - [ ] Sandbox agent emits ordinary `<SH>`; shared Executor records output/exit/timeout using specialized Docker launch and no duplicate execution store. Docker process behavior is tested.
 - [ ] The policy requires a **successful** Jobs API comment command before `<DONE>`; unsuccessful HTTP calls do not satisfy it; `<ABORT>` fails the execution. Jobs API posts one summary or no-findings comment to the correct existing PR/MR.
