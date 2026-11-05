@@ -1,6 +1,6 @@
 # Planning and task classification
 
-Start by checking the existing code and relevant `specifications/current/` documents.
+Start by checking the request, existing code and relevant `specifications/current/` documents. The first planner must assess feasibility, complexity, risks and conflicts with existing decisions or architecture, and report that assessment to the owner before planning.
 
 ## Choose a level
 
@@ -31,6 +31,8 @@ How do we prove it works?
 
 For complex work, add constraints, risks, alternatives or tasks **inside the plan**.
 
-A plan reviewer checks the plan against the code and reports findings. **If the plan has already gone through a Grill Me session or records owner-agreed decisions, the reviewer must not change the plan on their own, even to correct apparent errors or omissions.** First present each meaningful issue to the owner through [Grill Me](skills/grill-me/SKILL.md), one decision at a time, with evidence, options and a recommendation. Change the plan **only after explicit owner approval of the specific correction**; keep undecided findings outside the plan. This applies to independent High-risk plan reviews as well as other reviews. For plans without prior Grill Me/owner decisions, the reviewer may edit the plan and repeat review until stable. Then provide a development prompt referring to the final plan. A fresh agent is required for the **High-risk independent plan review**, not each minor plan edit.
+Before committing a plan, the planner must show the owner a summary of the proposed scope and approach, including significant risks or decisions.
+
+A plan reviewer checks the plan against the code and reports findings. **Inform the owner of proposed changes before editing the plan.** If the plan has already gone through a Grill Me session or records owner-agreed decisions, discuss each meaningful issue through [Grill Me](skills/grill-me/SKILL.md) and change the plan **only after explicit owner approval of that correction**. Keep undecided findings outside the plan. Otherwise, the reviewer may edit after informing the owner and repeat review until stable. Then hand off development using the final plan. A fresh agent is required for the **High-risk independent plan review**, not each minor edit.
 
 Plans are allowed to evolve in development. The final plan describes the result; Git contains the earlier drafts. Move it from `planned/` to `implemented/` on the development branch **before final review/testing**.

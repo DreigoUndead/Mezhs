@@ -36,7 +36,3 @@ Prefer a coherent mechanism over duplicated decisions. Do not abstract a first o
 - **Shared foundation:** `src/Mezhs.Common` owns generic primitives such as `Cast`, `TypeExtensions` and `Registry<TKey..., TValue>`. Reuse these where appropriate; keep domain rules in their actual owner.
 - **Runtime boundaries:** preserve Agent API policy/queue ownership, Executor shell/process ownership and loopback security. Read [architecture](../docs/architecture.md) before touching them.
 - **Working tree:** use local shell inspection/build/tests for a checked-out repository; GitHub tools for remote PRs and branches. Prefer dedicated patch/edit operations over shell one-liners. Confirm changes with a diff. Do not kill running applications just to get a build.
-
-## Review handoff
-
-> Role: independent code reviewer (if required by task level). Task: `<id>`; level: `<level>`; PR/branch: `<link>`; commit: `<sha>`; final plan or Small-change summary: `<path/link>`; developer checks: `<evidence>`. Follow `.agents/review.md`. Review code, risk, final specification and test coverage. Return PASS/FAIL/BLOCKED. On failure, give a focused developer fix prompt; on PASS, give the next testing/verification prompt.

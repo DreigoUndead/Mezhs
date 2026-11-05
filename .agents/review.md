@@ -13,8 +13,6 @@ Review the changed code against `main`, the final plan (or Small-change descript
 - Verify changes to `specifications/current/` match real behavior. Check plan archiving and the proposed release summary. **Version and changelog edits must be absent until the merge into `main`.**
 - Return **PASS / FAIL / BLOCKED**, with affected files, severity and actionable evidence.
 
-On failure, return to development on the **same branch**. Retest and re-review changed areas. Handoff to a new chat when independence is required or context quality deteriorates.
+On FAIL, fix the issues on the **same branch**, run relevant checks, and commit/push. Hand off to a **new independent reviewer** using the [generic handoff rules](workflow.md#handoffs-and-evidence). Repeat until a reviewer finds no further issues and returns PASS.
 
-On PASS, give testing/verification instructions:
-
-> Role: final tester or verifier. Task: `<id>`; level: `<level>`; PR/branch: `<link>`; reviewed SHA: `<sha>`; final plan: `<path or PR summary>`; review evidence: `<link>`. Follow `.agents/testing.md`. Execute the required checks and assess any changed current specs. On failures return to development and affected review. On PASS, present the result for owner approval. **Do not merge without that approval.**
+On PASS, hand off to testing/verification as required by [testing.md](testing.md).
