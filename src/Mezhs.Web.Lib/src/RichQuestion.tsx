@@ -152,13 +152,18 @@ export function extractRichQuestions(source: string): { content: string; questio
   if (!source.includes("{@body") || source.length > 180000) return { content: source, questions };
   const protectedSpans = protectedRanges(source);
   const protectedAt = (position: number) => protectedSpans.some(([start, end]) => position >= start && position < end);
+  const escapedAt = (position: number) => {
+    let slashes = 0;
+    for (let i = position - 1; i >= 0 && source[i] === "\\"; i--) slashes++;
+    return slashes % 2 === 1;
+  };
   const replacements: Array<{ from: number; to: number; text: string }> = [];
   let cursor = 0;
   while (Object.keys(questions).length < 16) {
     const start = source.indexOf("{@body", cursor);
     if (start < 0) break;
     cursor = start + 6;
-    if (protectedAt(start)) continue;
+    if (protectedAt(start) || escapedAt(start)) continue;
     const bodyEnd = source.indexOf("}", cursor);
     if (bodyEnd < 0 || bodyEnd - start > 320) continue;
     const state = declaration(source.slice(start + 6, bodyEnd).trim());
@@ -166,7 +171,7 @@ export function extractRichQuestions(source: string): { content: string; questio
     const maxEnd = Math.min(source.length, bodyEnd + maxQuestionLength);
     const groupStart = source.indexOf("<radio-group", bodyEnd + 1);
     if (groupStart < 0 || groupStart >= maxEnd ||
-        source.slice(bodyEnd + 1, groupStart).includes("{@body") || protectedAt(groupStart)) continue;
+        source.slice(bodyEnd + 1, groupStart).includes("{@body") || protectedAt(groupStart) || escapedAt(groupStart)) continue;
     const groupOpenEnd = tagEnd(source, groupStart);
     if (groupOpenEnd < 0 || groupOpenEnd >= maxEnd ||
         !bindings(source.slice(groupStart + "<radio-group".length, groupOpenEnd), state.state, state.setter)) continue;
@@ -176,7 +181,7 @@ export function extractRichQuestions(source: string): { content: string; questio
     if (!choices) continue;
     const buttonStart = source.indexOf("<button", groupClose + "</radio-group>".length);
     if (buttonStart < 0 || buttonStart >= maxEnd ||
-        source.slice(groupClose, buttonStart).includes("{@body") || protectedAt(buttonStart)) continue;
+        source.slice(groupClose, buttonStart).includes("{@body") || protectedAt(buttonStart) || escapedAt(buttonStart)) continue;
     const buttonOpenEnd = tagEnd(source, buttonStart);
     if (buttonOpenEnd < 0 || buttonOpenEnd >= maxEnd) continue;
     const attrs = source.slice(buttonStart + "<button".length, buttonOpenEnd);

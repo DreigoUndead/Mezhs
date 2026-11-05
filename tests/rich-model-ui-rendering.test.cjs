@@ -99,6 +99,18 @@ for (const [name, changes] of [
   assert.match(output, /radio-group|GenUI|globalThis|useState/);
 });
 
+test("Markdown-escaped DIL syntax cannot activate controls", () => {
+  const escaped = [
+    question.replace("{@body", "\\\\{@body"),
+    question.replace("<radio-group", "\\\\<radio-group"),
+    question.replace("<button", "\\\\<button"),
+  ];
+  for (const source of escaped) {
+    const output = html(source, { onIssueNewTurn() { throw Error("Escaped syntax must never send"); } });
+    assert.doesNotMatch(output, /<fieldset class="rich-question"/);
+  }
+});
+
 test("fenced and inline code never become active DIL", () => {
   const source = "~~~mdx\n" + question + "\n~~~\n\n" +
     String.fromCharCode(96) + '{@body const [choice,setChoice] = DIL.useState("B")}' + String.fromCharCode(96);
