@@ -22,7 +22,7 @@ Do not downgrade high-risk work simply to save time. Record a reason for skipped
 - **Standard / High-risk:** prepare `specifications/planned/<id>/plan.md`, present the owner with a summary of the proposed plan **before committing**, and commit it to `main` only after owner approval (using a PR if required).
 - Plan reviewers must disclose proposed plan changes to the owner and receive approval **before editing**, regardless of whether a prior Grill Me session occurred.
 - Use Grill Me when needed. Independent plan review is required for High-risk changes, optional for Standard.
-- When ready, give the developer a prompt with the plan, scope and acceptance criteria. A new chat is used **when an independent stage or context reset is needed**.
+- When ready, hand off to development with the generic prompt and a reference to the plan; do not restate its scope or acceptance criteria in the prompt. A new chat is used **when an independent stage or context reset is needed**.
 
 ## 3. [Code](coding.md)
 
