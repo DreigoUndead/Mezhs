@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   apiJson,
+  apiJsonOrEmpty,
   ChatComposer,
   ChatProviderRegistry,
   ChatTranscript,
@@ -33,6 +34,13 @@ type AgentChat = {
   connectionId?: string;
   createdAt: string;
   updatedAt: string;
+  categoryId?: string | null;
+};
+
+type AgentCategory = {
+  categoryId: string;
+  name: string;
+  color: string;
 };
 
 type AgentChatMessage = {
@@ -171,6 +179,20 @@ function shortId(value: string) {
 
 function displayTitle(chat: AgentChat) {
   return chat.title?.trim() || `Agent chat ${shortId(chat.chatId)}`;
+}
+
+function matchesAgentChat(chat: AgentChat, query: string, category?: AgentCategory, policyName?: string) {
+  const normalized = query.trim().toLocaleLowerCase();
+  return !normalized || [
+    chat.title, chat.policyId, policyName, chat.connectionId,
+    chat.originSource, chat.originReference, category?.name,
+  ].some((value) => value?.toLocaleLowerCase().includes(normalized));
+}
+
+function activityLabel(date: string) {
+  const parsed = new Date(date);
+  return Number.isNaN(parsed.getTime()) ? "Unknown activity" :
+    parsed.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 function statusTone(execution: Execution) {
@@ -410,6 +432,17 @@ export default function App() {
   const [modelId, setModelId] = useState("");
   const [modelSpecified, setModelSpecified] = useState(false);
   const [chats, setChats] = useState<AgentChat[]>([]);
+  const [categories, setCategories] = useState<AgentCategory[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [newChatCategoryId, setNewChatCategoryId] = useState("");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [showCategoryForm, setShowCategoryForm] = useState(false);
+  const [search, setSearch] = useState("");
+  const [showConversationManager, setShowConversationManager] = useState(false);
+  const [managerSearch, setManagerSearch] = useState("");
+  const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
+  const [deletingChats, setDeletingChats] = useState(false);
+  const [chatMenuId, setChatMenuId] = useState<string | null>(null);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [historyLoadedChatId, setHistoryLoadedChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
@@ -427,6 +460,9 @@ export default function App() {
   const executionsRef = useRef<Execution[]>([]);
   const selectedLoadChatRef = useRef<string | null>(null);
   const selectionEpoch = useRef(0);
+  const selectedChatIdRef = useRef<string | null>(null);
+  const deletedChatIdsRef = useRef(new Set<string>());
+  const chatRefreshEpoch = useRef(0);
 
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
   const draftKey = selectedChatId && !creating ? `chat:${selectedChatId}` : `new:${newChatSequence}:${policyId}:${connectionId}`;
@@ -444,6 +480,28 @@ export default function App() {
     () => new Map(policies.map((policy) => [policy.id, policy.name])),
     [policies],
   );
+  const categoryById = useMemo(
+    () => new Map(categories.map((category) => [category.categoryId, category])),
+    [categories],
+  );
+  const filteredChats = useMemo(() => chats
+    .filter((chat) => {
+      if (categoryFilter === "uncategorized" && chat.categoryId) return false;
+      if (categoryFilter !== "all" && categoryFilter !== "uncategorized" &&
+        chat.categoryId !== categoryFilter) return false;
+      return matchesAgentChat(chat, search, categoryById.get(chat.categoryId ?? ""),
+        policyNames.get(chat.policyId));
+    })
+    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)),
+    [chats, categoryFilter, search, categoryById, policyNames],
+  );
+  const managedChats = useMemo(() => filteredChats.filter((chat) =>
+    matchesAgentChat(chat, managerSearch, categoryById.get(chat.categoryId ?? ""),
+      policyNames.get(chat.policyId))),
+    [filteredChats, managerSearch, categoryById, policyNames],
+  );
+  const allManagedSelected = managedChats.length > 0 &&
+    managedChats.every((chat) => selectedChatIds.has(chat.chatId));
   const activeExecution = executions.find((execution) =>
     execution.kind === "Agent" && !execution.isTerminal);
   const activeShellExecution = executions.find((execution) =>
@@ -499,13 +557,15 @@ export default function App() {
       apiJson<AgentPolicy[]>("", "/v1/policies"),
       apiJson<Connection[]>("", "/v1/connections"),
       apiJson<AgentChat[]>("", "/v1/agent-chats"),
+      apiJson<AgentCategory[]>("", "/v1/categories"),
     ])
-      .then(([policyValues, connectionValues, chatValues]) => {
+      .then(([policyValues, connectionValues, chatValues, categoryValues]) => {
         if (cancelled) return;
         providerRegistry.current.configure("", connectionValues);
         setPolicies(policyValues);
         setConnections(connectionValues);
         setChats(chatValues);
+        setCategories(categoryValues);
         const preferredPolicy = policyValues.find((policy) => policy.id.toLocaleLowerCase() === "high") ??
           policyValues[0];
         const preferredConnectionId = preferredPolicy?.connectionId ??
@@ -517,8 +577,10 @@ export default function App() {
         setModelId(preferredPolicy?.defaultModel ?? preferredConnection?.defaultModel ?? "");
         setModelSpecified(preferredPolicy?.defaultModel != null);
         setNotice(null);
-        if (chatValues.length > 0)
+        if (chatValues.length > 0) {
+          selectedChatIdRef.current = chatValues[0].chatId;
           setSelectedChatId(chatValues[0].chatId);
+        }
       })
       .catch((error) => {
         if (!cancelled)
@@ -620,8 +682,24 @@ useEffect(() => {
   }, [apiReady, selectedChatId, creating]);
 
   async function refreshChats(signal?: AbortSignal) {
+    const epoch = ++chatRefreshEpoch.current;
     try {
-      setChats(await apiJson<AgentChat[]>("", "/v1/agent-chats", { signal }));
+      const values = await apiJson<AgentChat[]>("", "/v1/agent-chats", { signal });
+      if (signal?.aborted || epoch !== chatRefreshEpoch.current) return;
+      const visible = values.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId));
+      setChats(visible);
+      const currentId = selectedChatIdRef.current;
+      if (currentId && !visible.some((chat) => chat.chatId === currentId)) {
+        deletedChatIdsRef.current.add(currentId);
+        ++selectionEpoch.current;
+        selectedChatIdRef.current = visible[0]?.chatId ?? null;
+        setSelectedChatId(selectedChatIdRef.current);
+        setCreating(visible.length === 0);
+        messagesRef.current = [];
+        executionsRef.current = [];
+        setMessages([]);
+        setExecutions([]);
+      }
     } catch (error) {
       if (signal?.aborted)
         return;
@@ -635,7 +713,8 @@ useEffect(() => {
       `/v1/agent-chats/${encodeURIComponent(chatId)}/messages`,
       { signal },
     );
-    if (signal?.aborted)
+    if (signal?.aborted || deletedChatIdsRef.current.has(chatId) ||
+        selectedChatIdRef.current !== chatId)
       return;
     if (syncModel) {
       const lastUser = [...values].reverse().find((message) => message.role === "user");
@@ -655,7 +734,8 @@ useEffect(() => {
       `/v1/agent-chats/${encodeURIComponent(chatId)}/executions`,
       { signal },
     );
-    if (signal?.aborted)
+    if (signal?.aborted || deletedChatIdsRef.current.has(chatId) ||
+        selectedChatIdRef.current !== chatId)
       return;
     executionsRef.current = values;
     setExecutions(values);
@@ -685,7 +765,8 @@ useEffect(() => {
       `/v1/agent-chats/${encodeURIComponent(chatId)}/runtime`,
       { signal },
     );
-    if (signal?.aborted)
+    if (signal?.aborted || deletedChatIdsRef.current.has(chatId) ||
+        selectedChatIdRef.current !== chatId)
       return;
 
     const currentMessages = messagesRef.current;
@@ -787,7 +868,9 @@ useEffect(() => {
     ++selectionEpoch.current;
     setHistoryLoadedChatId(null);
     setCreating(true);
+    selectedChatIdRef.current = null;
     setSelectedChatId(null);
+    setChatMenuId(null);
     setNewChatSequence((current) => current + 1);
     messagesRef.current = [];
     executionsRef.current = [];
@@ -807,6 +890,7 @@ useEffect(() => {
     if (!input.trim() || !effectivePolicyId || !connectionId || sending || activeExecution || selectedChat?.paused)
       return;
     const submittedKey = draftKey;
+    const requestedCategoryId = selectedChat ? "" : newChatCategoryId;
     const epoch = selectionEpoch.current;
     let pendingKey = submittedKey;
     if (!startSend(pendingKey)) return;
@@ -841,7 +925,16 @@ useEffect(() => {
       await refreshChats();
       if (selectionEpoch.current !== epoch) return;
       setCreating(false);
+      selectedChatIdRef.current = attachedChatId;
       setSelectedChatId(attachedChatId);
+      if (requestedCategoryId) {
+        try {
+          await setChatCategory(attachedChatId, requestedCategoryId);
+        } catch (error) {
+          setNotice(error instanceof Error ? `Chat created, but group assignment failed: ${error.message}` :
+            "Chat created, but group assignment failed.");
+        }
+      }
     } catch (error) {
       if (!accepted) restoreDraft(submittedKey, input);
       if (selectionEpoch.current === epoch) setNotice(error instanceof Error ? error.message : "Agent execution could not be started.");
@@ -923,6 +1016,8 @@ useEffect(() => {
 
   function selectChat(chatId: string) {
     ++selectionEpoch.current;
+    selectedChatIdRef.current = chatId;
+    setChatMenuId(null);
     setHistoryLoadedChatId(null);
     setCreating(false);
     setSelectedChatId(chatId);
