@@ -116,38 +116,49 @@ function options(source: string, initial: string) {
 
 // Only code fences and actual inline Markdown code are shielded. A real body
 // directive never gains authority merely because it resembles a code example.
-function protectedRanges(source: string) {
-  const ranges: Array<[number, number]> = [];
+function protectedPositions(source: string) {
+  // Each byte indicates whether a character belongs to fenced or inline code.
+  // Membership checks and marking disjoint ranges are linear in source length.
+  const mask = new Uint8Array(source.length);
   let offset = 0;
   let fence: { start: number; char: string; length: number } | null = null;
   for (const line of source.match(/[^\n]*(?:\n|$)/g) || []) {
     if (!line) continue;
     const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
     if (fence) {
-      // A closing fence must contain nothing except its marker and whitespace.
-      // Markdown treats e.g. ```not-a-closer as fenced code, not a close.
+      // A valid closing fence occupies the whole line, except whitespace.
       const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*(?:\r?\n)?$/.exec(line)?.[1];
-      if (closing?.[0] === fence.char && closing.length >= fence.length)
-        { ranges.push([fence.start, offset + line.length]); fence = null; }
+      if (closing?.[0] === fence.char && closing.length >= fence.length) {
+        mask.fill(1, fence.start, offset + line.length);
+        fence = null;
+      }
     } else if (marker) fence = { start: offset, char: marker[0], length: marker.length };
     offset += line.length;
   }
-  if (fence) ranges.push([fence.start, source.length]);
-  const ticks = /`+/g;
-  let match: RegExpExecArray | null;
-  while ((match = ticks.exec(source))) {
-    const start = match.index;
-    if (ranges.some(([a, b]) => start >= a && start < b)) continue;
-    const count = match[0].length;
-    const next = source.indexOf("`".repeat(count), ticks.lastIndex);
-    if (next < 0) continue;
+  if (fence) mask.fill(1, fence.start);
+
+  // Find exact closing backtick runs with one reverse pass. Repeated searches
+  // for a missing closer can also become quadratic on malformed model text.
+  const ticks = [...source.matchAll(/`+/g)].filter(match => !mask[match.index!]);
+  const following = new Array<number>(ticks.length).fill(-1);
+  const nextByLength = new Map<number, number>();
+  for (let i = ticks.length - 1; i >= 0; i--) {
+    const length = ticks[i][0].length;
+    following[i] = nextByLength.get(length) ?? -1;
+    nextByLength.set(length, i);
+  }
+  for (let i = 0; i < ticks.length; i++) {
+    const start = ticks[i].index!;
+    if (mask[start]) continue;
     // A backtick inside an onClick JSX expression is not Markdown inline code.
     const preceding = source.slice(Math.max(0, start - 150), start);
     if (/onClick\s*=\s*\{[\s\S]*$/.test(preceding)) continue;
-    ranges.push([start, next + count]);
-    ticks.lastIndex = next + count;
+    const close = following[i];
+    if (close < 0) continue;
+    mask.fill(1, start, ticks[close].index! + ticks[i][0].length);
+    i = close;
   }
-  return ranges;
+  return mask;
 }
 
 export function extractRichQuestions(source: string): {
@@ -158,8 +169,8 @@ export function extractRichQuestions(source: string): {
   const questions: Record<string, RichQuestionData> = Object.create(null);
   if (!source.includes("{@body") || source.length > 180000)
     return { content: source, questions, slotOffsets: Object.create(null) as Record<string, number> };
-  const protectedSpans = protectedRanges(source);
-  const protectedAt = (position: number) => protectedSpans.some(([start, end]) => position >= start && position < end);
+  const protectedMask = protectedPositions(source);
+  const protectedAt = (position: number) => protectedMask[position] === 1;
   const escapedAt = (position: number) => {
     let slashes = 0;
     for (let i = position - 1; i >= 0 && source[i] === "\\"; i--) slashes++;
@@ -225,10 +236,10 @@ export function extractRichQuestions(source: string): {
     pos = replacement.to;
   }
   output += source.slice(pos);
-  const escapedSpans = protectedRanges(output);
+  const escapedMask = protectedPositions(output);
   const escapeInsertions: number[] = [];
   output = output.replace(/\{@body/g, (match, index: number) => {
-    if (escapedSpans.some(([a, b]) => index >= a && index < b)) return match;
+    if (escapedMask[index]) return match;
     escapeInsertions.push(index);
     return "\\{" + match.slice(1);
   });
