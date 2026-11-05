@@ -17,6 +17,9 @@ public enum ExecutionStatus
 public sealed class ExecutionNotFoundException(int id)
     : Exception($"Execution '{id}' was not found.");
 
+public sealed class ExecutionChatBlockedException(string chatId)
+    : Exception($"Shell work for deleted chat '{chatId}' cannot be started or restarted.");
+
 public static class ExecutionStatusExtensions
 {
     public static bool IsTerminal(this ExecutionStatus status) =>

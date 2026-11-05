@@ -122,7 +122,7 @@ internal sealed class ExecutorStore
         command.CommandText = "SELECT EXISTS (SELECT 1 FROM BlockedChats WHERE ChatId = $id);";
         command.Parameters.AddWithValue("$id", id);
         if (Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
-            throw new InvalidOperationException($"Shell work for deleted chat '{id}' cannot be started or restarted.");
+            throw new ExecutionChatBlockedException(id);
     }
 
 
