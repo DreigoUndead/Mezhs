@@ -161,6 +161,28 @@ function protectedPositions(source: string): Uint8Array | null {
         for (let i = node.children.length - 1; i >= 0; i--) nodes.push(node.children[i]);
       }
     }
+    // Conservative backup for source fences when container/list parsing
+    // yields only separate marker-line code nodes. Never grant authority to
+    // something bracketed by a Markdown-style fence, even if AST contexts
+    // disagree. The strict closer rule preserves fenced examples with faux
+    // closing markers; runtime and allocations remain bounded by source size.
+    let offset = 0;
+    let fence: { from: number; marker: string } | null = null;
+    for (const line of source.match(/[^\n]*(?:\n|$)/g) || []) {
+      if (!line) continue;
+      if (fence) {
+        const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*(?:\r?\n)?$/.exec(line)?.[1];
+        if (closing?.[0] === fence.marker[0] && closing.length >= fence.marker.length) {
+          mask.fill(1, fence.from, offset + line.length);
+          fence = null;
+        }
+      } else {
+        const opening = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+        if (opening) fence = { from: offset, marker: opening };
+      }
+      offset += line.length;
+    }
+    if (fence) mask.fill(1, fence.from);
     return mask;
   } catch {
     // A failed syntax prepass cannot grant action authority.
