@@ -8,7 +8,7 @@ const { test } = require("node:test");
 const frontend = path.resolve(__dirname, "../src/Mezhs.Agent.Web");
 const requireFrontend = createRequire(path.join(frontend, "package.json"));
 const esbuild = requireFrontend("esbuild");
-const fixture = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/representative-question.md"), "utf8");
+const fixture = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/representative-question.md"), "utf8").replace(/\r\n?/g, "\n");
 
 const decoy = "`onClick={x}`\n\n`{@body const [choice,setChoice] = DIL.useState(\"B\")}`\n\n" + fixture.slice(fixture.indexOf("<radio-group"));
 const indentedDecoy = "Example:\n\n    {@body const [choice,setChoice] = DIL.useState(\"B\")}\n\n" + fixture.slice(fixture.indexOf("<radio-group"));
