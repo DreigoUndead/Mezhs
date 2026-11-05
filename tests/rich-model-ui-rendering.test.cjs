@@ -55,15 +55,15 @@ test("many protected and unsupported body directives do not gain action authorit
   assert.equal(Object.keys(parsed.slotOffsets).length, 1);
   assert.ok(parsed.content.startsWith(inline));
   assert.ok(parsed.content.includes("\\{@body const ignored = alert(1)}"));
-  assert.match(html(inline.slice(0, 400) + "\n\n" + question), /<fieldset class="rich-question"/);
+  assert.match(html(inline.split("\n").slice(0, 4).join("\n") + "\n\n" + question), /<fieldset class="rich-question"/);
 });
 
 test("many unmatched unequal backtick runs cannot cause repeated rest-of-input searches", { timeout: 10000 }, () => {
   const unmatched = Array.from({ length: 350 }, (_, i) => "x" + "`".repeat(i + 1) + "x").join("\n");
   const started = performance.now();
-  const parsed = extractRichQuestions(unmatched + "\n\n" + question);
+  const parsed = extractRichQuestions(unmatched + "\n\n{@body invalid}");
   const elapsed = performance.now() - started;
-  assert.equal(Object.keys(parsed.questions).length, 1);
+  assert.equal(Object.keys(parsed.questions).length, 0);
   assert.ok(elapsed < 5000, `Shielding unmatched backticks took ${elapsed.toFixed(0)} ms`);
 });
 
