@@ -1,59 +1,55 @@
 # Agent UI chat management
 ID: agent-chat-management
-Level: High-risk — conversation deletion spans core chat persistence, Agent SQLite state and Executor-owned runtime evidence.
+Level: High-risk — deletion crosses core chat files, Agent SQLite state and Executor processes.
 
-## Goal and scope
+## Scope
 
-Bring Agent Web chat navigation and management closer to the standard MEŽS Web UI, limited to the owner-approved features:
+Bring these standard MEŽS chat-management features to Agent Web:
 
-1. Individual agent chat deletion via the sidebar `⋯` menu.
-2. Bulk management: select individual/all currently shown agent chats, delete selected and delete all shown with clear confirmation.
-3. Client-side agent chat search.
-4. Create/delete groups, assign existing agent chats to groups and filter by group (including All and Uncategorized).
-5. Activity dates, total and filtered conversation counts in the sidebar.
+1. Delete one chat from its `⋯` menu.
+2. Bulk select/delete chats, including all chats currently shown by the manager.
+3. Search Agent chats.
+4. Create/delete groups, assign chats to groups and filter by All, group or Uncategorized.
+5. Show activity dates and total/filtered conversation counts.
 
-Preserve Agent-specific policy/connection/model controls, pause/resume, execution history, debug logs, and command handling. **Out of scope:** pinning, replay, attachments, changing policy or execution semantics, category renaming, and any version/changelog change until approved release.
+Keep existing Agent policy, connection, model, pause/resume, execution-history, debug-log, draft and polling behavior. **Out of scope:** pinning, replay, new attachment features, category renaming and changes to Agent execution policy.
 
-## Existing owners and design
+## Approach
 
-- `src/Mezhs.Web.Lib/src/MezhsChatApp.tsx` contains the reference sidebar, conversation manager and category interactions; `src/Mezhs.Agent.Web/src/App.tsx` owns Agent Web selection/polling/agent-specific controls. Extract and reuse stable presentational or selection behavior where it reduces duplicated concepts without forcing Agent policies into the normal UI. Keep host-specific API operations in their hosts.
-- `ChatStore` already owns categories and the persisted `ChatRecord.CategoryId`. Reuse the shared `/v1/categories` and `PATCH /v1/chats/{chatId}` APIs. No second category storage or Agent-only category endpoint. The groups therefore are shared with normal chats on the same API host; Agent Web counts/filtering include **only Agent chats**.
-- Expose `CategoryId` in `AgentChatView` using the current normal chat record. Search locally across title, policy, connection, origin and group labels. Continue server-side last-activity ordering based on the existing Agent chat `UpdatedAt`; show a formatted date without changing how activity is recorded. Keep the sidebar's selected chat stable through search/refresh and handle a selected chat disappearing.
-- For a new Agent chat started while a group is selected, assign the selected category after the chat ID is attached using the existing core category endpoint. If assignment fails, preserve the created chat, report the failure and refresh; do not extend the queued Agent execution schema just to carry an optional UI grouping preference.
+- Follow the existing chat-management UI in `Mezhs.Web.Lib/MezhsChatApp.tsx`; reuse simple shared pieces only when useful. Agent Web retains its own controls and polls only Agent chats.
+- Reuse `/v1/categories` and `PATCH /v1/chats/{chatId}`. Expose `CategoryId` in `AgentChatView`. Groups are shared across normal and Agent chats on the same API host, but Agent Web search, filters and counts show **Agent chats only**. Deleting a group unassigns **all** chats in that group, including normal chats; explicitly say so in the confirmation. Chats themselves are kept.
+- Search locally by title, policy, connection, origin and group. Order and display activity using the later of core `ChatRecord.UpdatedAt` and Agent `AgentChatRecord.UpdatedAt`, so new messages and Agent state changes are reflected without adding another stored timestamp.
+- If a new Agent chat is started with a group selected, assign its group through the existing API once its chat ID is known. Failure to assign must not lose the newly created chat.
 
-## Deletion architecture and invariants
+## Safe deletion
 
-The existing `DELETE /v1/chats` and `DELETE /v1/chats/{chatId}` delete only `ChatStore` data. Because Agent API hosts `MapMezhsApi()` too, a normal Web client can delete an Agent chat through these routes. A UI-only `DELETE /v1/agent-chats` would leave this bypass.
+The Agent host also exposes the normal `DELETE /v1/chats` and `DELETE /v1/chats/{chatId}` routes. These must not bypass Agent safety checks.
 
-- Use **one** deletion entry point for existing core DELETE endpoints: a host-specific deletion service/strategy registered by the normal API with its standard `ChatStore.DeleteChats` behavior, and replaced in Agent API with an Agent-aware implementation. Keep the core project independent of Agent/Executor types. Agent Web should call the existing DELETE routes, not duplicate a second deletion API.
-- Validate the complete bulk selection before mutating anything: nonempty distinct IDs, existing chats; no queued/running/cancel-requested root Agent execution, active attached message, or nonterminal Executor shell associated with any selected Agent chat. A busy chat causes a visible conflict/error; do not implicitly cancel/kill work. Ordinary chats retain their normal deletion behavior.
-- Coordinate deletion with Agent admission/recovery, not just a non-atomic "check then delete". Provide a durable per-chat deletion guard/tombstone in Agent state (or an equally strong serialized invariant): once deletion begins, new root submissions, queued claims, chat attachment/recovery and shell launches cannot revive that chat. Ensure the guard is checked at the actual transactional admission boundary, not only before enqueueing. Complete or reconcile interrupted deletion after restart; handle persistence failure without reporting success or silently orphaning data.
-- Delete the selected chat transcripts and associated Agent-owned rows (AgentChats, Agent Executions, staged attachment references) coherently, while preserving unrelated chats. Treat an already-missing or inconsistent cross-store record explicitly; do not silently report a complete delete when cleanup failed. Keep SQL operations parameterized.
-- **Retention policy for review:** completed Executor-owned shell execution records remain durable audit evidence (the Executor store owns them and may be referenced independently); no nonterminal shell may survive a successful chat delete. The UI confirmation must not claim that historical Executor evidence is removed. Do not introduce a new Executor deletion API solely for this feature.
-- Respect the normal API's existing 404 and bulk error semantics as far as possible. Guard deletion through the normal API too, so the standard Web UI cannot sidestep Agent safety rules on an Agent host.
+- Keep **one deletion mechanism** behind those existing routes. The normal API uses its current `ChatStore` behavior; the Agent host supplies Agent-aware handling. Do not add a parallel Agent deletion endpoint or couple the core API to Agent/Executor types.
+- Validate the **entire** single/bulk request before deleting: distinct, existing chat IDs, with no queued/running core messages, no nonterminal Agent execution (including work not yet claimed into `AgentChats`), and no nonterminal Executor shell. Query all relevant execution states, not a capped history list. If any chat is busy, reject the whole request without cancelling or killing work.
+- Make validation and deletion race-safe with a **single coordinated deletion guard** for affected chats, persisted in Agent state for restart recovery. Enforce it at core message admission/replay, Agent enqueue/claim/attachment/recovery, and Executor shell creation/restart. A retained historical shell execution must never be restartable after its chat is deleted. Do not rely on a check-then-delete sequence.
+- Remove the core transcript and associated Agent rows (`AgentChats`, Agent executions and staged attachment references). If multi-store cleanup is interrupted, keep deletion blocked and reconcile on restart rather than reviving a chat or claiming complete success. Preserve unrelated chats and ordinary API deletion behavior.
+- Retain completed **Executor execution records** as audit history, and retain existing shared `FileStore` files; physical orphan-file cleanup is not part of this task. Deletion confirmation must state that conversation/Agent data is removed but historical Executor records and stored files may remain.
 
-## UI behavior
+## Agent Web behavior
 
-- Adapt the standard `⋯` row menu and conversation manager to Agent Web, preserving accessibility, error states and confirmation. A bulk manager searches within the currently filtered Agent chat subset; counts and select-all clearly reflect what is shown. Never target ordinary non-Agent chats.
-- Display group selection and create/delete/assignment controls like the normal UI, with Agent-only per-group counts. Deleting a group leaves chats intact (uncategorized) through the existing core API.
-- Preserve selected chat state, per-chat draft isolation, new-chat workflow, polling, active runtime display and scroll position. Protect against a stale refresh restoring deleted rows; reset selected chat to another existing Agent chat or new-chat state after deletion. Maintain the selected group filter when appropriate.
-- Use a concise destructive confirmation for individual and bulk deletes; distinguish completed chat/Agent data deletion from retained historical Executor audit evidence. Show server errors verbatim enough for users to understand a busy/failed deletion.
+- Use the standard row menu and bulk manager patterns with keyboard-accessible controls, clear confirmation and visible server errors. Search/select-all/delete-all operate on the manager's **currently displayed Agent chats**, never ordinary chats or hidden rows.
+- Preserve the active chat, drafts, polling, scroll and selection through filters/refreshes. After deletion, prevent stale responses from restoring removed chats or messages; switch a deleted selected chat to a valid remaining chat or new-chat state.
+- Show group-specific Agent counts, last activity and total/filtered counts. Refresh these after chat activity, grouping and deletion.
 
-## Acceptance criteria
+## Acceptance and verification
 
-- [ ] A chat can be deleted through its row menu; deleting the current chat leaves a usable view without stale messages/drafts.
-- [ ] The bulk manager selects/deselects chats, filters the eligible list, deletes selected/all shown, and never deletes chats outside its intended Agent selection.
-- [ ] Search matches relevant Agent metadata; groups create/delete/assign/filter correctly; groups are shared with the normal API but counts reflect Agent chats only.
-- [ ] Activity dates and total/filtered chat counts update correctly after new messages, edits, selection, grouping, refresh and deletion.
-- [ ] Single and bulk deletion remove normal chat and Agent-owned data, reject active or queued Agent/Executor work, and cannot be bypassed through the standard API's DELETE routes.
-- [ ] Deletion is race-safe against Agent execution admission and robust to partial failure/restart. Unrelated chat histories and completed Executor audit history remain intact.
-- [ ] Normal Web UI and normal API chat deletion/group behavior do not regress.
-- [ ] Pin, replay and attachment support are not introduced by this task.
+- [ ] Single and bulk deletion target only intended chats; busy or invalid batches fail without partial deletion.
+- [ ] Deletion through **either** core DELETE route is safe for Agent chats, even before chat claim; ordinary API behavior remains compatible.
+- [ ] Concurrent core messages, Agent submissions/claims, shell creation/restart and interrupted deletion cannot revive deleted data or start work on deleted chats.
+- [ ] Agent-owned data is removed, completed Executor history and shared files are retained, and the confirmation is accurate.
+- [ ] Search, groups, dates, counts, drafts, selection and polling behave correctly; shared group deletion warns about normal chats.
+- [ ] Normal Web and API behavior do not regress; pinning and new replay/attachment UI are not added.
 
-## Verification and workflow
+Verify with builds/type checks, normal and Agent UI tests, core/Agent API tests, focused persistence and concurrency tests, restart-recovery tests, and targeted interactive UI checks. High-risk work requires independent code review **before** independent final testing.
 
-1. Independent **High-risk plan review** against the current implementation. Report PASS/FAIL/BLOCKED and proposed corrections to the owner before changing this plan. Do not start coding until the plan review is complete; obtain owner approval for substantive revisions of decisions.
-2. Implement on branch `agent-chat-management`. Target `Mezhs.Agent.Api`, `Mezhs.Agent.Web`, the normal API deletion composition and the minimum shared Web library components. Update `specifications/current/` only for actual behavior; move this final plan to `specifications/implemented/agent-chat-management/plan.md` on the development branch.
-3. Developer verification: type/build checks, Agent Web and normal Web regression suites, core and Agent API smoke/architecture tests, targeted interactive UI verification and persistence/deletion tests.
-4. Independent code review before independent final testing. Verify API single/bulk deletes, metadata cleanup, active queued/running/shell conflicts, concurrent enqueue/claim and deletion, restart after incomplete deletion, groups/search/counts, selection/polling races, and compatibility with standard Web.
-5. Report exact reviewed commit, evidence, remaining risks and proposed MINOR release bump. **Do not merge implementation into `main` without separate explicit owner approval**; do not update `VERSION` or `CHANGELOG.md` during planning/development.
+## Workflow
+
+1. Complete the independent High-risk plan review before implementation.
+2. Implement on branch `agent-chat-management`. Update `specifications/current/` for actual behavior; move this plan to `specifications/implemented/agent-chat-management/plan.md` on the development branch.
+3. Report test/review evidence, exact commit, remaining risks and proposed MINOR bump. **Do not merge implementation into `main` without separate owner approval.** Leave `VERSION` and `CHANGELOG.md` unchanged until the approved release.
