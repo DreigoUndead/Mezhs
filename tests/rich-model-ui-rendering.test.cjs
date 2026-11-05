@@ -47,6 +47,19 @@ for (const [name, example] of [
 ]) {
   test("full Markdown code sample stays literal: " + name, () => {
     const parsed = extractRichQuestions(example);
+    if (name === "list-nested fence" && Object.keys(parsed.questions).length) {
+      const { pathToFileURL } = require("node:url");
+      const { fromMarkdown } = await import(pathToFileURL(requireFrontend.resolve("mdast-util-from-markdown")).href);
+      const stack = [fromMarkdown(example)];
+      const spans = [];
+      while (stack.length) {
+        const node = stack.pop();
+        if (node.type === "code" || node.type === "inlineCode") spans.push({ type: node.type, position: node.position });
+        if (node.children) stack.push(...node.children);
+      }
+      const at = example.indexOf("{@body");
+      console.log("DEBUG_NESTED", JSON.stringify({ at, chars: example.slice(at - 60, at + 60), spans, extracted: Object.keys(parsed.questions) }));
+    }
     assert.deepEqual(Object.keys(parsed.questions), []);
     assert.equal(parsed.content, example);
     const rendered = html(example, { onIssueNewTurn() { throw Error("Code example must remain inert"); } });
