@@ -191,3 +191,22 @@ test("unsupported body remains readable and inert", () => {
   assert.doesNotMatch(output, /<fieldset|<script|onClick=/);
   assert.match(output, /Text after unsupported syntax/);
 });
+
+test("nearby onClick text never activates an inline-code DIL declaration", () => {
+  const decoy = "`onClick={x}`\n\n`{@body const [choice,setChoice] = DIL.useState(\"B\")}`\n\n" +
+    question.slice(question.indexOf("<radio-group"));
+  const parsed = extractRichQuestions(decoy);
+  assert.equal(Object.keys(parsed.questions).length, 0);
+  assert.equal(Object.keys(parsed.slotOffsets).length, 0);
+  const output = html(decoy, { onIssueNewTurn() { throw Error("Inline code must stay inert"); } });
+  assert.doesNotMatch(output, /<fieldset class="rich-question"/);
+  assert.match(output, /<code>\{@body const \[choice,setChoice\]/);
+});
+
+test("a valid question following inline handler examples is still recognized", () => {
+  const source = "`onClick={x}`\n\n" + question;
+  const parsed = extractRichQuestions(source);
+  assert.equal(Object.keys(parsed.questions).length, 1);
+  const output = html(source, { onIssueNewTurn() {} });
+  assert.equal((output.match(/<fieldset class="rich-question"/g) || []).length, 1);
+});

@@ -150,9 +150,9 @@ function protectedPositions(source: string) {
   for (let i = 0; i < ticks.length; i++) {
     const start = ticks[i].index!;
     if (mask[start]) continue;
-    // A backtick inside an onClick JSX expression is not Markdown inline code.
-    const preceding = source.slice(Math.max(0, start - 150), start);
-    if (/onClick\s*=\s*\{[\s\S]*$/.test(preceding)) continue;
+    // Shield matching Markdown backtick spans regardless of nearby JSX-like text.
+    // Exempting a run because of an earlier "onClick={" can activate literal
+    // {@body ...} examples. A real button handler is validated separately.
     const close = following[i];
     if (close < 0) continue;
     mask.fill(1, start, ticks[close].index! + ticks[i][0].length);
