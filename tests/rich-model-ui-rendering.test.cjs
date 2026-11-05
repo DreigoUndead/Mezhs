@@ -45,7 +45,7 @@ for (const [name, example] of [
   ["blockquote fence", "> ~~~mdx\n> " + question.trim().replace(/\n/g, "\n> ") + "\n> ~~~"],
   ["list-nested fence", "- Example:\n\n  ~~~mdx\n" + question.trim().replace(/\n/g, "\n  ") + "\n  ~~~"],
 ]) {
-  test("full Markdown code sample stays literal: " + name, () => {
+  test("full Markdown code sample stays literal: " + name, async () => {
     const parsed = extractRichQuestions(example);
     if (name === "list-nested fence" && Object.keys(parsed.questions).length) {
       const { pathToFileURL } = require("node:url");
