@@ -368,6 +368,68 @@ echo %TEST_AGENT_VALUE%
         throw "Agent Web proxy did not create a normal durable execution."
     }
 
+
+    # Shared groups expose Agent chat category membership while preserving ordinary chats.
+    $group = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/categories" `
+        -ContentType "application/json" -Body (ConvertTo-Json @{ name = "Agent smoke group" })
+    $ordinaryChat = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5199/v1/chats" `
+        -ContentType "application/json" -Body (ConvertTo-Json @{
+            connectionId = "test"; categoryId = $group.categoryId
+        })
+    $null = Invoke-RestMethod -Method Patch -Uri "http://127.0.0.1:5199/v1/chats/$($webCompleted.chatId)" `
+        -ContentType "application/json" -Body (ConvertTo-Json @{ categoryId = $group.categoryId })
+    $groupedAgent = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($webCompleted.chatId)"
+    if ($groupedAgent.categoryId -ne $group.categoryId) {
+        throw "Agent chat list view did not include shared group membership."
+    }
+    Invoke-RestMethod -Method Delete -Uri "http://127.0.0.1:5199/v1/categories/$($group.categoryId)" | Out-Null
+    $ungroupedAgent = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($webCompleted.chatId)"
+    $ungroupedOrdinary = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/chats/$($ordinaryChat.chatId)"
+    if ($ungroupedAgent.categoryId -or $ungroupedOrdinary.categoryId) {
+        throw "Deleting a shared group did not unassign both Agent and ordinary chats."
+    }
+
+    # The existing single and bulk routes must be Agent-aware on the Agent host.
+    Invoke-RestMethod -Method Delete -Uri "http://127.0.0.1:5199/v1/chats/$($webCompleted.chatId)" | Out-Null
+    if ((Get-Status "http://127.0.0.1:5199/v1/chats/$($webCompleted.chatId)") -ne 404 -or
+        (Get-Status "http://127.0.0.1:5199/v1/agent-chats/$($webCompleted.chatId)") -ne 404) {
+        throw "Single deletion left the core transcript or Agent metadata visible."
+    }
+
+    $bulkTask = Start-AgentExecution "test" "second chat for Agent batch deletion"
+    $bulkCompleted = Wait-AgentExecution $bulkTask.executionId
+    if ($bulkCompleted.status -ne "Completed") { throw "Batch deletion test chat did not finish." }
+    $bulkIds = @($bulkCompleted.chatId, $environmentRoot.chatId)
+    $bulkDeleted = Invoke-RestMethod -Method Delete -Uri "http://127.0.0.1:5199/v1/chats" `
+        -ContentType "application/json" -Body (ConvertTo-Json @{ chatIds = $bulkIds })
+    if (@($bulkDeleted.deletedChatIds).Count -ne 2) {
+        throw "Bulk Agent deletion did not report exactly two deleted chats."
+    }
+    foreach ($id in $bulkIds) {
+        if ((Get-Status "http://127.0.0.1:5199/v1/chats/$id") -ne 404 -or
+            (Get-Status "http://127.0.0.1:5199/v1/agent-chats/$id") -ne 404) {
+            throw "Bulk Agent deletion left chat '$id' accessible."
+        }
+    }
+    $historicalShell = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/executions/$($environmentShell.executionId)"
+    if ($historicalShell.kind -ne "Shell" -or -not $historicalShell.isTerminal) {
+        throw "Deleting an Agent chat removed completed Executor audit history."
+    }
+    $restartClient = [Net.Http.HttpClient]::new()
+    try {
+        $restartResponse = $restartClient.PostAsync(
+            "http://127.0.0.1:5199/v1/executions/$($environmentShell.executionId)/restart", $null).GetAwaiter().GetResult()
+        try {
+            if ([int]$restartResponse.StatusCode -ne 409) {
+                throw "Deleted-chat shell restart returned HTTP $([int]$restartResponse.StatusCode) instead of conflict."
+            }
+        } finally { $restartResponse.Dispose() }
+    } finally { $restartClient.Dispose() }
+    if ((Get-Status "http://127.0.0.1:5199/v1/chats/$($ordinaryChat.chatId)") -ne 200) {
+        throw "Deleting Agent chats modified an unrelated ordinary chat."
+    }
+    Write-Host "PASS: Agent shared groups, single/bulk deletion, retained Executor audit and blocked historical restarts."
+
     Stop-Process -Id $api.Id -Force
     $api.WaitForExit()
     $offlineDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log"
