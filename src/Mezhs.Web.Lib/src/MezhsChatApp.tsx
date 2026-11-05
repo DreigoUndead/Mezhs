@@ -225,27 +225,28 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     setConnectionId(id);
   }
 
-  async function submit(event?: FormEvent) {
-    event?.preventDefault();
-    const content = draft;
-    const uploadedFiles = pendingFiles.flatMap((item) => item.uploaded ? [item.uploaded] : []);
-    if ((!content.trim() && uploadedFiles.length === 0) || !connectionId || sending || pendingFiles.some((item) => item.uploading)) return;
+  // Both composer sends and model-authored actions use exactly one provider
+  // dispatch and one synchronous conversation-scoped in-flight lock.
+  async function sendTurn(content: string, files: ApiFile[], fromComposer: boolean) {
+    if ((!content.trim() && files.length === 0) || !connectionId || sending || !online) return;
     const epoch = selectionEpoch.current;
+    const targetChatId = chatId;
+    const targetConnectionId = connectionId;
     const submittedKey = draftKey;
     let pendingKey = submittedKey;
     if (!startSend(pendingKey)) return;
-    clearDraft(submittedKey, content);
+    if (fromComposer) clearDraft(submittedKey, content);
     let accepted = false;
     setNotice(null);
     try {
-      const request = await providerRegistry.current.get(connectionId).sendMessage(
-        chatId,
-        { content, files: uploadedFiles, model: modelId || undefined },
+      const request = await providerRegistry.current.get(targetConnectionId).sendMessage(
+        targetChatId,
+        { content, files, model: modelId || undefined },
         { categoryId: newChatCategoryId || null },
       );
       accepted = true;
-      if (!chatId) {
-        moveDraft(submittedKey, `chat:${request.chatId}`, "");
+      if (!targetChatId) {
+        if (fromComposer) moveDraft(submittedKey, `chat:${request.chatId}`, "");
         transferSend(pendingKey, `chat:${request.chatId}`);
         pendingKey = `chat:${request.chatId}`;
       }
@@ -253,16 +254,34 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
         setChatId(request.chatId);
         setHistoryLoadedChatId(request.chatId);
         setMessages((current) => [...current, request]);
-        clearPendingFiles();
+        if (fromComposer) clearPendingFiles();
       }
       await poll(request.messageId, request.chatId, epoch);
     } catch (error) {
-      if (!accepted) restoreDraft(submittedKey, content);
+      if (fromComposer && !accepted) restoreDraft(submittedKey, content);
       if (selectionEpoch.current === epoch)
         setNotice(error instanceof Error ? error.message : "Message could not be sent.");
     } finally {
       finishSend(pendingKey);
     }
+  }
+
+  function submit(event?: FormEvent) {
+    event?.preventDefault();
+    if (pendingFiles.some((item) => item.uploading)) return;
+    const files = pendingFiles.flatMap((item) => item.uploaded ? [item.uploaded] : []);
+    void sendTurn(draft, files, true);
+  }
+
+  function issueNewTurn(source: Message, sourceEpoch: number, content: string) {
+    // A detached old message must never target the newly selected conversation.
+    if (sourceEpoch !== selectionEpoch.current || !chatId ||
+        source.chatId !== chatId || source.connectionId !== connectionId ||
+        !online || sending || source.role !== "assistant" || source.status !== "Completed" ||
+        ["agent-runtime", "command-result"].includes(source.origin.toLowerCase()) ||
+        !messages.some((message) => message.messageId === source.messageId &&
+          message.content === source.content && message.status === "Completed")) return;
+    void sendTurn(content, [], false);
   }
 
   async function poll(messageId: string, targetChatId: string, epoch: number) {
@@ -698,6 +717,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
               </div>
             </div>
           ) : messages.map((message) => {
+            const messageEpoch = selectionEpoch.current;
             const messageConnection = connectionFor(message.connectionId);
             const messageModelName = message.model &&
               message.connectionId === selectedConnection?.id
@@ -720,7 +740,17 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                     )}
                     {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
                   </div>
-                  {message.content && <div className="message-content"><MarkdownContent content={message.content} verbatim={message.role === "user"} /></div>}
+                  {message.content && <div className="message-content"><MarkdownContent
+                      content={message.content}
+                      verbatim={message.role === "user"}
+                      onIssueNewTurn={chatId && message.chatId === chatId &&
+                        message.connectionId === connectionId && message.role === "assistant" &&
+                        message.status === "Completed" &&
+                        !["agent-runtime", "command-result"].includes(message.origin.toLowerCase()) &&
+                        !sending && online
+                        ? (content) => issueNewTurn(message, messageEpoch, content)
+                        : undefined}
+                    /></div>}
                   {message.files?.length > 0 && (
                     <div className="message-files">
                       {message.files.map((file) => file.contentType.startsWith("image/") ? (

@@ -1,23 +1,30 @@
+import { useMemo } from "react";
 import Markdown, { uriTransformer } from "react-markdown";
+import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMdx from "remark-mdx";
 import { remarkRichMarkup, richComponents } from "./RichMarkup";
 import { expandRichTemplates } from "./RichExpression";
+import { extractRichQuestions, RichQuestionSlot, RichQuestionsContext, RichQuestionData } from "./RichQuestion";
+import { RichActionContext } from "./RichActionContext";
 import "./markdown.css";
 
 // Keep react-markdown protocol validation without emitting a javascript: placeholder.
 const safeUri = (value: string) => {
   const validated = uriTransformer(value);
   return validated === "javascript:void(0)" ? "" : validated;
-}
+};
 
-// One renderer for every integration. Provider content is parsed as data;
-// model-supplied markup and expressions are never compiled or executed.
-function renderRich(content: string) {
+// One provider-neutral renderer. All model syntax is parsed as data, never
+// compiled or evaluated. Only a real host callback grants send authority.
+const components = { ...richComponents, "mezhs-question": RichQuestionSlot } as Components;
+
+function renderRich(content: string, questions: Record<string, RichQuestionData>) {
+  const parseMarkup = () => remarkRichMarkup(Object.keys(questions));
   return Markdown({
-    children: expandRichTemplates(content),
-    remarkPlugins: [remarkGfm, remarkMdx as unknown as typeof remarkGfm, remarkRichMarkup],
-    components: richComponents,
+    children: content,
+    remarkPlugins: [remarkGfm, remarkMdx as unknown as typeof remarkGfm, parseMarkup as unknown as typeof remarkGfm],
+    components,
     transformLinkUri: safeUri,
     transformImageUri: safeUri,
   });
@@ -25,20 +32,34 @@ function renderRich(content: string) {
 
 function renderChunk(content: string) {
   try {
-    return renderRich(content);
+    const parsed = extractRichQuestions(expandRichTemplates(content));
+    return <RichQuestionsContext.Provider value={parsed.questions}>{renderRich(parsed.content, parsed.questions)}</RichQuestionsContext.Provider>;
   } catch {
     return <Markdown remarkPlugins={[remarkGfm]} transformLinkUri={safeUri} transformImageUri={safeUri}>{content}</Markdown>;
   }
 }
 
-export function MarkdownContent({ content, verbatim = false }: { content: string; verbatim?: boolean }) {
+export function MarkdownContent({ content, verbatim = false, onIssueNewTurn }: {
+  content: string;
+  verbatim?: boolean;
+  onIssueNewTurn?: (content: string) => void;
+}) {
+  const prepared = useMemo(() => verbatim ? null : extractRichQuestions(expandRichTemplates(content)),
+    [content, verbatim]);
   if (verbatim) return <div className="prompt-text">{content}</div>;
   try {
-    return <div className="markdown-content">{renderRich(content)}</div>;
+    if (!prepared) return null;
+    return <RichActionContext.Provider value={onIssueNewTurn}>
+      <RichQuestionsContext.Provider value={prepared.questions}>
+        <div className="markdown-content">{renderRich(prepared.content, prepared.questions)}</div>
+      </RichQuestionsContext.Provider>
+    </RichActionContext.Provider>;
   } catch {
     // One malformed block must not disable unrelated rich blocks.
-    return <div className="markdown-content">{content.split(/\n\s*\n/).map((chunk, i) =>
-      <div key={i}>{renderChunk(chunk)}</div>
-    )}</div>;
+    return <RichActionContext.Provider value={onIssueNewTurn}>
+      <div className="markdown-content">{content.split(/\n\s*\n/).map((chunk, i) =>
+        <div key={i}>{renderChunk(chunk)}</div>
+      )}</div>
+    </RichActionContext.Provider>;
   }
 }

@@ -1,0 +1,247 @@
+import { parse, parseExpressionAt } from "acorn";
+import { createContext, useContext, useState } from "react";
+import Markdown, { uriTransformer } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { RichActionContext } from "./RichActionContext";
+
+// This is a deliberately finite grammar, not an MDX/DIL interpreter. Acorn only
+// inspects syntax; nothing from the model is ever invoked as JavaScript.
+export type RichQuestionData = {
+  initial: string;
+  options: Array<{ value: string; label: string }>;
+  button: string;
+  prefix: string;
+  suffix: string;
+};
+
+const identifier = /^[A-Za-z_$][\w$]*$/;
+const forbidden = new Set(["constructor", "prototype", "__proto__", "globalThis"]);
+const maxQuestionLength = 8192;
+
+function identifierName(node: any): string | null {
+  return node?.type === "Identifier" && identifier.test(node.name) && !forbidden.has(node.name)
+    ? node.name : null;
+}
+
+function declaration(code: string) {
+  if (code.length > 300) return null;
+  try {
+    const statements: any = parse(code, { ecmaVersion: "latest" });
+    if (statements.body.length !== 1) return null;
+    const statement = statements.body[0];
+    const decl = statement.declarations?.[0];
+    const pair = decl?.id;
+    const call = decl?.init;
+    if (statement.type !== "VariableDeclaration" || statement.kind !== "const" ||
+        statement.declarations.length !== 1 || pair?.type !== "ArrayPattern" ||
+        pair.elements.length !== 2 || call?.type !== "CallExpression" ||
+        call.optional || call.arguments.length !== 1 ||
+        call.callee?.type !== "MemberExpression" || call.callee.computed ||
+        identifierName(call.callee.object) !== "DIL" ||
+        identifierName(call.callee.property) !== "useState") return null;
+    const state = identifierName(pair.elements[0]);
+    const setter = identifierName(pair.elements[1]);
+    const value = call.arguments[0];
+    if (!state || !setter || state === setter || value.type !== "Literal" ||
+        typeof value.value !== "string" || value.value.length > 64) return null;
+    return { state, setter, initial: value.value as string };
+  } catch { return null; }
+}
+
+function handler(code: string, state: string) {
+  if (code.length > 3000) return null;
+  try {
+    const action: any = parseExpressionAt(code, 0, { ecmaVersion: "latest" });
+    if (code.slice(action.end).trim() || action.type !== "ArrowFunctionExpression" ||
+        action.async || action.params.length !== 0) return null;
+    const expression = action.body.type === "BlockStatement"
+      ? action.body.body.length === 1 && action.body.body[0].type === "ExpressionStatement"
+        ? action.body.body[0].expression : null : action.body;
+    if (expression?.type !== "CallExpression" || expression.optional ||
+        expression.arguments.length !== 1 || expression.callee?.type !== "MemberExpression" ||
+        expression.callee.computed || identifierName(expression.callee.object) !== "GenUI" ||
+        identifierName(expression.callee.property) !== "issueNewTurn") return null;
+    const template = expression.arguments[0];
+    if (template?.type !== "TemplateLiteral" || template.expressions.length !== 1 ||
+        identifierName(template.expressions[0]) !== state || template.quasis.length !== 2) return null;
+    const prefix = template.quasis[0].value.cooked;
+    const suffix = template.quasis[1].value.cooked;
+    if (typeof prefix !== "string" || typeof suffix !== "string" ||
+        prefix.length + suffix.length > 2000) return null;
+    return { prefix, suffix };
+  } catch { return null; }
+}
+
+// An opening tag scanner is necessary because an arrow's => is not the end
+// of <button onClick={...}>. Quotes and JavaScript braces stay inert here.
+function tagEnd(source: string, start: number) {
+  let braces = 0;
+  let quote = "";
+  for (let i = start; i < source.length && i < start + 3500; i++) {
+    const char = source[i];
+    if (quote) {
+      if (char === "\\") { i++; continue; }
+      if (char === quote) quote = "";
+    } else if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+    } else if (char === "{") braces++;
+    else if (char === "}") { if (--braces < 0) return -1; }
+    else if (char === ">" && braces === 0) return i;
+  }
+  return -1;
+}
+
+function bindings(source: string, state: string, setter: string) {
+  const attribute = /([A-Za-z]+)\s*=\s*\{\s*([A-Za-z_$][\w$]*)\s*\}/g;
+  const found = [...source.matchAll(attribute)];
+  if (found.length !== 2 || source.replace(attribute, "").trim()) return false;
+  const values = new Map(found.map(item => [item[1], item[2]]));
+  return values.size === 2 && values.get("value") === state && values.get("onChange") === setter;
+}
+
+function options(source: string, initial: string) {
+  const option = /<radio\s+value\s*=\s*(["'])([A-Za-z0-9_-]{1,64})\1\s*>([\s\S]*?)<\/radio\s*>/g;
+  const matches = [...source.matchAll(option)];
+  if (matches.length < 2 || matches.length > 12 || source.replace(option, "").trim()) return null;
+  const seen = new Set<string>();
+  const values = [];
+  for (const item of matches) {
+    const label = item[3].trim();
+    if (!label || label.length > 300 || /[<>{}]/.test(label) || seen.has(item[2])) return null;
+    seen.add(item[2]);
+    values.push({ value: item[2], label });
+  }
+  return seen.has(initial) ? values : null;
+}
+
+// Only code fences and actual inline Markdown code are shielded. A real body
+// directive never gains authority merely because it resembles a code example.
+function protectedRanges(source: string) {
+  const ranges: Array<[number, number]> = [];
+  let offset = 0;
+  let fence: { start: number; char: string; length: number } | null = null;
+  for (const line of source.match(/[^\n]*(?:\n|$)/g) || []) {
+    if (!line) continue;
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      if (marker?.[0] === fence.char && marker.length >= fence.length)
+        { ranges.push([fence.start, offset + line.length]); fence = null; }
+    } else if (marker) fence = { start: offset, char: marker[0], length: marker.length };
+    offset += line.length;
+  }
+  if (fence) ranges.push([fence.start, source.length]);
+  const ticks = /`+/g;
+  let match: RegExpExecArray | null;
+  while ((match = ticks.exec(source))) {
+    const start = match.index;
+    if (ranges.some(([a, b]) => start >= a && start < b)) continue;
+    const count = match[0].length;
+    const next = source.indexOf("`".repeat(count), ticks.lastIndex);
+    if (next < 0) continue;
+    // A backtick inside an onClick JSX expression is not Markdown inline code.
+    const preceding = source.slice(Math.max(0, start - 150), start);
+    if (/onClick\s*=\s*\{[\s\S]*$/.test(preceding)) continue;
+    ranges.push([start, next + count]);
+    ticks.lastIndex = next + count;
+  }
+  return ranges;
+}
+
+export function extractRichQuestions(source: string): { content: string; questions: Record<string, RichQuestionData> } {
+  const questions: Record<string, RichQuestionData> = Object.create(null);
+  if (!source.includes("{@body") || source.length > 180000) return { content: source, questions };
+  const protectedSpans = protectedRanges(source);
+  const protectedAt = (position: number) => protectedSpans.some(([start, end]) => position >= start && position < end);
+  const replacements: Array<{ from: number; to: number; text: string }> = [];
+  let cursor = 0;
+  while (Object.keys(questions).length < 16) {
+    const start = source.indexOf("{@body", cursor);
+    if (start < 0) break;
+    cursor = start + 6;
+    if (protectedAt(start)) continue;
+    const bodyEnd = source.indexOf("}", cursor);
+    if (bodyEnd < 0 || bodyEnd - start > 320) continue;
+    const state = declaration(source.slice(start + 6, bodyEnd).trim());
+    if (!state) continue;
+    const maxEnd = Math.min(source.length, bodyEnd + maxQuestionLength);
+    const groupStart = source.indexOf("<radio-group", bodyEnd + 1);
+    if (groupStart < 0 || groupStart >= maxEnd ||
+        source.slice(bodyEnd + 1, groupStart).includes("{@body") || protectedAt(groupStart)) continue;
+    const groupOpenEnd = tagEnd(source, groupStart);
+    if (groupOpenEnd < 0 || groupOpenEnd >= maxEnd ||
+        !bindings(source.slice(groupStart + "<radio-group".length, groupOpenEnd), state.state, state.setter)) continue;
+    const groupClose = source.indexOf("</radio-group>", groupOpenEnd + 1);
+    if (groupClose < 0 || groupClose >= maxEnd) continue;
+    const choices = options(source.slice(groupOpenEnd + 1, groupClose), state.initial);
+    if (!choices) continue;
+    const buttonStart = source.indexOf("<button", groupClose + "</radio-group>".length);
+    if (buttonStart < 0 || buttonStart >= maxEnd ||
+        source.slice(groupClose, buttonStart).includes("{@body") || protectedAt(buttonStart)) continue;
+    const buttonOpenEnd = tagEnd(source, buttonStart);
+    if (buttonOpenEnd < 0 || buttonOpenEnd >= maxEnd) continue;
+    const attrs = source.slice(buttonStart + "<button".length, buttonOpenEnd);
+    const click = /^\s*onClick\s*=\s*\{([\s\S]*)\}\s*$/.exec(attrs);
+    const action = click && handler(click[1], state.state);
+    if (!action) continue;
+    const buttonClose = source.indexOf("</button>", buttonOpenEnd + 1);
+    if (buttonClose < 0 || buttonClose >= maxEnd) continue;
+    const buttonText = source.slice(buttonOpenEnd + 1, buttonClose).trim();
+    if (!buttonText || buttonText.length > 80 || /[<>{}]/.test(buttonText)) continue;
+    const id = String(Object.keys(questions).length);
+    questions[id] = { initial: state.initial, options: choices, button: buttonText, ...action };
+    replacements.push(
+      { from: start, to: bodyEnd + 1, text: "" },
+      { from: groupStart, to: groupClose + "</radio-group>".length,
+        text: '<mezhs-question-slot id="' + id + '" />' },
+      { from: buttonStart, to: buttonClose + "</button>".length, text: "" },
+    );
+    cursor = buttonClose + "</button>".length;
+  }
+  // Unsupported body directives must not poison the MDX parser. Escaping the
+  // opening brace leaves the original directive legible but always inert.
+  let output = "";
+  let pos = 0;
+  for (const replacement of replacements.sort((a, b) => a.from - b.from)) {
+    output += source.slice(pos, replacement.from);
+    output += replacement.text;
+    pos = replacement.to;
+  }
+  output += source.slice(pos);
+  const escapedSpans = protectedRanges(output);
+  let at = 0;
+  output = output.replace(/\{@body/g, (match, index: number) => {
+    if (escapedSpans.some(([a, b]) => index >= a && index < b)) return match;
+    return "\\{" + match.slice(1);
+  });
+  return { content: output, questions };
+}
+
+export function RichQuestion({ data }: { data: RichQuestionData }) {
+  const onIssueNewTurn = useContext(RichActionContext);
+  const [choice, setChoice] = useState(data.initial);
+  const active = data.options.some(option => option.value === choice);
+  const enabled = !!onIssueNewTurn && active;
+  return <fieldset className="rich-question">
+    <legend className="rich-question-caption">Choose one option</legend>
+    {data.options.map(option => <label key={option.value} className="rich-question-option">
+      <input type="radio" name={undefined} value={option.value}
+        checked={choice === option.value} onChange={() => setChoice(option.value)} />
+      <span><Markdown remarkPlugins={[remarkGfm]}
+        transformLinkUri={uriTransformer} transformImageUri={() => ""}>{option.label}</Markdown></span>
+    </label>)}
+    <button type="button" disabled={!enabled} onClick={() => {
+      if (enabled) onIssueNewTurn?.(data.prefix + choice + data.suffix);
+    }}>{data.button}</button>
+    {!onIssueNewTurn && <small className="rich-question-readonly">Submission unavailable in this view.</small>}
+  </fieldset>;
+}
+
+export const RichQuestionsContext = createContext<Record<string, RichQuestionData>>(Object.create(null));
+
+export function RichQuestionSlot(props: Record<string, unknown>) {
+  const questions = useContext(RichQuestionsContext);
+  const id = props["data-mezhs-question-id"];
+  const data = typeof id === "string" && Object.prototype.hasOwnProperty.call(questions, id)
+    ? questions[id] : undefined;
+  return data ? <RichQuestion data={data} /> : null;
+}
