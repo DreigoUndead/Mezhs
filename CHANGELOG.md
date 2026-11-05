@@ -2,6 +2,12 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.1.3] — 2026-11-05
+
+### Fixed
+- Refresh local web library dependencies before Agent Web and Web UI builds, preventing stale installed copies from causing TypeScript export and component-prop errors.
+- Preserve package lockfiles during build-time npm dependency reconciliation.
+
 ## [0.1.2] — 2026-11-05
 
 ### Fixed
