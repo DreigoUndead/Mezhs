@@ -59,6 +59,11 @@ public sealed class AgentStore(AgentOptions options)
             CREATE INDEX IF NOT EXISTS IX_Executions_Status
                 ON Executions(Status);
 
+            CREATE TABLE IF NOT EXISTS ChatDeletionGuards (
+                ChatId TEXT PRIMARY KEY COLLATE NOCASE,
+                State TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS StagedAttachments (
                 ExecutionId TEXT NOT NULL,
                 TriggerMessageId TEXT NOT NULL,
@@ -265,6 +270,7 @@ public sealed class AgentStore(AgentOptions options)
         var environmentJson = SerializeEnvironment(environment);
         using var connection = _database.Open();
         using var transaction = connection.BeginTransaction();
+        EnsureChatAvailable(connection, transaction, chatId);
 
         using (var insert = connection.CreateCommand())
         {
@@ -353,6 +359,8 @@ public sealed class AgentStore(AgentOptions options)
                 FROM Executions queued
                 WHERE queued.Kind = $agentKind
                   AND queued.Status = $queued
+                   AND (queued.ChatId IS NULL OR NOT EXISTS (
+                       SELECT 1 FROM ChatDeletionGuards guard WHERE guard.ChatId = queued.ChatId))
                   AND NOT EXISTS (
                       SELECT 1
                       FROM AgentChats chat
@@ -565,6 +573,8 @@ public sealed class AgentStore(AgentOptions options)
             WHERE ExecutionId = $executionId
               AND Kind = $kind
               AND Status = $running
+              AND (ChatId IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM ChatDeletionGuards guard WHERE guard.ChatId = Executions.ChatId))
             ON CONFLICT(ExecutionId, TriggerMessageId, CommandIndex) DO NOTHING;
             """;
         command.Parameters.AddWithValue("$executionId", executionId);
@@ -615,6 +625,115 @@ public sealed class AgentStore(AgentOptions options)
         transaction.Commit();
     }
 
+
+    public IReadOnlyList<AgentChatDeletionGuard> GetDeletionGuards()
+    {
+        using var connection = _database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT ChatId, State FROM ChatDeletionGuards ORDER BY ChatId;";
+        using var reader = command.ExecuteReader();
+        var guards = new List<AgentChatDeletionGuard>();
+        while (reader.Read())
+            guards.Add(new AgentChatDeletionGuard(reader.GetString(0), reader.GetString(1)));
+        return guards;
+    }
+
+    public void BeginChatDeletion(IReadOnlyList<string> ids)
+    {
+        using var connection = _database.Open();
+        using var transaction = connection.BeginTransaction();
+        foreach (var id in ids)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "INSERT OR IGNORE INTO ChatDeletionGuards (ChatId, State) VALUES ($id, 'Preparing');";
+            command.Parameters.AddWithValue("$id", id);
+            if (command.ExecuteNonQuery() != 1)
+                throw new RequestValidationException($"Chat '{id}' is already scheduled for deletion.");
+        }
+        transaction.Commit();
+    }
+
+    public void CommitChatDeletion(IReadOnlyList<string> ids)
+    {
+        using var connection = _database.Open();
+        using var transaction = connection.BeginTransaction();
+        foreach (var id in ids)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "UPDATE ChatDeletionGuards SET State = 'Deleting' WHERE ChatId = $id AND State = 'Preparing';";
+            command.Parameters.AddWithValue("$id", id);
+            if (command.ExecuteNonQuery() != 1)
+                throw new InvalidOperationException($"Deletion guard for chat '{id}' changed unexpectedly.");
+        }
+        transaction.Commit();
+    }
+
+    public void ReleaseChatDeletion(IReadOnlyList<string> ids)
+    {
+        using var connection = _database.Open();
+        using var transaction = connection.BeginTransaction();
+        foreach (var id in ids)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "DELETE FROM ChatDeletionGuards WHERE ChatId = $id AND State = 'Preparing';";
+            command.Parameters.AddWithValue("$id", id);
+            command.ExecuteNonQuery();
+        }
+        transaction.Commit();
+    }
+
+    public bool HasActiveChatExecutions(string id)
+    {
+        using var connection = _database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT EXISTS (
+                SELECT 1 FROM Executions
+                WHERE ChatId = $id COLLATE NOCASE
+                  AND Status NOT IN ($completed, $failed, $cancelled));
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$completed", AgentExecutionStatus.Completed.ToString());
+        command.Parameters.AddWithValue("$failed", AgentExecutionStatus.Failed.ToString());
+        command.Parameters.AddWithValue("$cancelled", AgentExecutionStatus.Cancelled.ToString());
+        return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0;
+    }
+
+    public void RemoveChatData(IReadOnlyList<string> ids)
+    {
+        using var connection = _database.Open();
+        using var transaction = connection.BeginTransaction();
+        foreach (var id in ids)
+        {
+            foreach (var sql in new[] {
+                "DELETE FROM StagedAttachments WHERE ExecutionId IN (SELECT ExecutionId FROM Executions WHERE ChatId = $id COLLATE NOCASE);",
+                "DELETE FROM Executions WHERE ChatId = $id COLLATE NOCASE;",
+                "DELETE FROM AgentChats WHERE ChatId = $id COLLATE NOCASE;"
+            })
+            {
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = sql;
+                command.Parameters.AddWithValue("$id", id);
+                command.ExecuteNonQuery();
+            }
+        }
+        transaction.Commit();
+    }
+
+    private static void EnsureChatAvailable(SqliteConnection connection, SqliteTransaction transaction, string id)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT EXISTS (SELECT 1 FROM ChatDeletionGuards WHERE ChatId = $id);";
+        command.Parameters.AddWithValue("$id", id);
+        if (Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
+            throw new RequestValidationException($"Chat '{id}' is scheduled for deletion.");
+    }
+
     private void InsertExecution(ExecutionRecord record)
     {
         using var connection = _database.Open();
@@ -625,15 +744,17 @@ public sealed class AgentStore(AgentOptions options)
                 PolicyId, ConnectionId, Model, Source, SourceReference, Status,
                 Request, EnvironmentJson, Result, Error, ExitCode, PolicySnapshot,
                 CreatedAt, StartedAt, CompletedAt)
-            VALUES (
+            SELECT
                 $executionId, $parentExecutionId, $correlationId, $kind, $chatId,
                 $policyId, $connectionId, $model, $source, $sourceReference, $status,
                 $request, $environmentJson, NULL, NULL, NULL, $policySnapshot,
-                $createdAt, NULL, NULL);
+                $createdAt, NULL, NULL
+            WHERE $chatId IS NULL OR NOT EXISTS (
+                SELECT 1 FROM ChatDeletionGuards WHERE ChatId = $chatId);
             """;
         BindExecution(command, record);
         if (command.ExecuteNonQuery() != 1)
-            throw new InvalidOperationException("Agent execution could not be persisted.");
+            throw new RequestValidationException("Agent execution could not be admitted; chat may be scheduled for deletion.");
     }
 
     private bool Finish(
@@ -785,3 +906,5 @@ public sealed record StagedAttachmentRecord(
     int CommandIndex,
     IReadOnlyList<string> FileIds,
     string? ConsumedByMessageId);
+
+public sealed record AgentChatDeletionGuard(string ChatId, string State);
