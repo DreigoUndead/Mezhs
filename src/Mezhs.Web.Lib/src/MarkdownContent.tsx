@@ -32,8 +32,10 @@ function renderRich(content: string, slotOffsets: Record<string, number>) {
 
 function renderChunk(content: string) {
   try {
-    const parsed = extractRichQuestions(expandRichTemplates(content));
-    return <RichQuestionsContext.Provider value={parsed.questions}>{renderRich(parsed.content, parsed.slotOffsets)}</RichQuestionsContext.Provider>;
+    // Recovery chunks have lost their original Markdown context. Never rerun
+    // action extraction here: a split fenced example could otherwise become
+    // a live model-authored button. Static rich markup remains available.
+    return renderRich(expandRichTemplates(content), Object.create(null));
   } catch {
     return <Markdown remarkPlugins={[remarkGfm]} transformLinkUri={safeUri} transformImageUri={safeUri}>{content}</Markdown>;
   }
@@ -56,7 +58,8 @@ export function MarkdownContent({ content, verbatim = false, onIssueNewTurn }: {
     </RichActionContext.Provider>;
   } catch {
     // One malformed block must not disable unrelated rich blocks.
-    return <RichActionContext.Provider value={onIssueNewTurn}>
+    // Fallback fragments are readable but never authorized to submit.
+    return <RichActionContext.Provider value={undefined}>
       <div className="markdown-content">{content.split(/\n\s*\n/).map((chunk, i) =>
         <div key={i}>{renderChunk(chunk)}</div>
       )}</div>
