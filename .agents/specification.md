@@ -31,6 +31,6 @@ How do we prove it works?
 
 For complex work, add constraints, risks, alternatives or tasks **inside the plan**.
 
-A plan reviewer checks the plan against the code, edits as needed, and repeats review until stable. Then provide a development prompt referring to the final plan. A fresh agent is required for the **High-risk independent plan review**, not each minor plan edit.
+A plan reviewer checks the plan against the code and reports findings. **If the plan has already gone through a Grill Me session or records owner-agreed decisions, the reviewer must not change the plan on their own, even to correct apparent errors or omissions.** First present each meaningful issue to the owner through [Grill Me](skills/grill-me/SKILL.md), one decision at a time, with evidence, options and a recommendation. Change the plan **only after explicit owner approval of the specific correction**; keep undecided findings outside the plan. This applies to independent High-risk plan reviews as well as other reviews. For plans without prior Grill Me/owner decisions, the reviewer may edit the plan and repeat review until stable. Then provide a development prompt referring to the final plan. A fresh agent is required for the **High-risk independent plan review**, not each minor plan edit.
 
 Plans are allowed to evolve in development. The final plan describes the result; Git contains the earlier drafts. Move it from `planned/` to `implemented/` on the development branch **before final review/testing**.
