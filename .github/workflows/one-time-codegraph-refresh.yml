@@ -1,0 +1,34 @@
+name: One-time Codegraph refresh
+
+on:
+  push:
+    branches: [rich-model-ui-rendering]
+    paths:
+      - .github/workflows/one-time-codegraph-refresh.yml
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned Codegraph CLI
+        run: npm install -g @lzehrung/codegraph@3.0.0
+      - name: Regenerate portable graph with repository exporter
+        run: node .agents/codegraph/export.cjs
+      - name: Commit regenerated graph
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .agents/codegraph/graph.json
+          if git diff --cached --quiet; then
+            echo "Graph already current"
+            exit 0
+          fi
+          git commit -m "chore(codegraph): regenerate rich UI dependencies"
+          git push origin HEAD:rich-model-ui-rendering
