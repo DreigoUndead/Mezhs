@@ -1168,6 +1168,61 @@ useEffect(() => {
 
   return (
     <div className="agent-shell">
+      {showConversationManager && (
+        <div className="agent-modal-backdrop" onClick={() => setShowConversationManager(false)}>
+          <section className="agent-conversation-manager" role="dialog" aria-modal="true"
+            aria-labelledby="agent-manager-title" onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => { if (event.key === "Escape") setShowConversationManager(false); }}>
+            <header>
+              <div>
+                <h2 id="agent-manager-title">Manage Agent conversations</h2>
+                <p>{managedChats.length} of {filteredChats.length} shown · {chats.length} total Agent chats</p>
+              </div>
+              <button type="button" aria-label="Close manager"
+                onClick={() => setShowConversationManager(false)}>×</button>
+            </header>
+            <label className="agent-manager-search">Filter displayed conversations
+              <input type="search" value={managerSearch}
+                onChange={(event) => setManagerSearch(event.target.value)}
+                placeholder="Title, policy, connection, origin, group" />
+            </label>
+            <div className="agent-manager-select-all">
+              <label><input type="checkbox" checked={allManagedSelected}
+                onChange={toggleAllManagedChats} disabled={managedChats.length === 0 || deletingChats} />
+                Select all shown</label>
+              <span>{managedChats.filter((chat) => selectedChatIds.has(chat.chatId)).length} selected</span>
+            </div>
+            {notice && <p className="agent-manager-notice" role="alert">{notice}</p>}
+            <div className="agent-manager-list">
+              {managedChats.map((chat) => (
+                <div className="agent-manager-row" key={chat.chatId}>
+                  <label>
+                    <input type="checkbox" disabled={deletingChats}
+                      checked={selectedChatIds.has(chat.chatId)}
+                      onChange={() => toggleManagedChat(chat.chatId)} />
+                    <span><strong>{displayTitle(chat)}</strong>
+                      <small>{activityLabel(chat.updatedAt)} · {categoryById.get(chat.categoryId ?? "")?.name ?? "Uncategorized"}</small>
+                    </span>
+                  </label>
+                  <button type="button" disabled={deletingChats}
+                    onClick={() => void deleteConversations([chat], displayTitle(chat))}>Delete</button>
+                </div>
+              ))}
+              {managedChats.length === 0 && <p>No Agent chats match the current filters.</p>}
+            </div>
+            <footer>
+              <button type="button" disabled={deletingChats ||
+                  !managedChats.some((chat) => selectedChatIds.has(chat.chatId))}
+                onClick={() => void deleteConversations(
+                  managedChats.filter((chat) => selectedChatIds.has(chat.chatId)), "selected conversations")}>
+                Delete selected</button>
+              <button type="button" disabled={deletingChats || managedChats.length === 0}
+                onClick={() => void deleteConversations(managedChats, "all shown conversations")}>Delete all shown</button>
+              <button type="button" onClick={() => setShowConversationManager(false)}>Close</button>
+            </footer>
+          </section>
+        </div>
+      )}
       <aside className="agent-sidebar">
         <div className="agent-brand-row">
           <div className="agent-brand-mark">M</div>
