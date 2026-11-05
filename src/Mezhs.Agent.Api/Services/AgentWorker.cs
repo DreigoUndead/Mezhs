@@ -14,6 +14,7 @@ public sealed class AgentWorker : BackgroundService
     private readonly AgentStore _store;
     private readonly PolicyRegistry _policies;
     private readonly ChatService _chats;
+    private readonly ChatStore _chatStore;
     private readonly MessageService _messages;
     private readonly AgentPromptBuilder _prompts;
     private readonly PolicyEvaluationService _evaluations;
@@ -33,6 +34,7 @@ public sealed class AgentWorker : BackgroundService
         AgentStore store,
         PolicyRegistry policies,
         ChatService chats,
+        ChatStore chatStore,
         MessageService messages,
         AgentPromptBuilder prompts,
         PolicyEvaluationService evaluations,
@@ -46,6 +48,7 @@ public sealed class AgentWorker : BackgroundService
         _store = store;
         _policies = policies;
         _chats = chats;
+        _chatStore = chatStore;
         _messages = messages;
         _prompts = prompts;
         _evaluations = evaluations;
@@ -180,24 +183,29 @@ public sealed class AgentWorker : BackgroundService
             var recovering = _recovery.TryTake(executionId);
 
             var chatId = execution.ChatId;
-            var previouslyOwnedAgentChat = chatId is null ? null : _store.GetAgentChat(chatId);
-            if (string.IsNullOrWhiteSpace(chatId))
+            AgentChatRecord? previouslyOwnedAgentChat;
+            // A new core chat is not visible to deletion before its Agent claim.
+            lock (_chatStore.DeletionSync)
             {
-                chatId = _chats.Create(new CreateChatRequest(execution.ConnectionId)).ChatId;
-                cancellation.Token.ThrowIfCancellationRequested();
-            }
-            else if (!_chats.Exists(chatId))
-            {
-                throw new ResourceNotFoundException($"Chat '{chatId}' was not found in MEŽS.");
-            }
+                previouslyOwnedAgentChat = chatId is null ? null : _store.GetAgentChat(chatId);
+                if (string.IsNullOrWhiteSpace(chatId))
+                {
+                    chatId = _chats.Create(new CreateChatRequest(execution.ConnectionId)).ChatId;
+                    cancellation.Token.ThrowIfCancellationRequested();
+                }
+                else if (!_chats.Exists(chatId))
+                {
+                    throw new ResourceNotFoundException($"Chat '{chatId}' was not found in MEŽS.");
+                }
 
-            _store.ClaimAgentChat(
-                executionId,
-                chatId,
-                execution.PolicyId,
-                execution.Source,
-                execution.SourceReference,
-                execution.Environment);
+                _store.ClaimAgentChat(
+                    executionId,
+                    chatId,
+                    execution.PolicyId,
+                    execution.Source,
+                    execution.SourceReference,
+                    execution.Environment);
+            }
             execution.ChatId = chatId;
             _store.ValidateAgentChatRunnable(chatId);
 

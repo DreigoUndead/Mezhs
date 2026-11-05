@@ -18,8 +18,11 @@ public sealed class MessageService(
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _chatGates =
         new(StringComparer.OrdinalIgnoreCase);
 
-    public ApiMessage Post(PostMessageRequest request) =>
-        Post(request, CancellationToken.None);
+    public ApiMessage Post(PostMessageRequest request)
+    {
+        lock (store.DeletionSync)
+            return Post(request, CancellationToken.None);
+    }
 
     private ApiMessage Post(PostMessageRequest request, CancellationToken cancellationToken)
     {
@@ -76,6 +79,12 @@ public sealed class MessageService(
 
     public ApiMessage Replay(string messageId)
     {
+        lock (store.DeletionSync)
+            return ReplayUnderDeletionLock(messageId);
+    }
+
+    private ApiMessage ReplayUnderDeletionLock(string messageId)
+    {
         var original = store.GetMessage(messageId)
             ?? throw new ResourceNotFoundException($"Message '{messageId}' was not found.");
         if (original.Role != "user")
@@ -104,7 +113,9 @@ public sealed class MessageService(
         CancellationToken cancellationToken = default,
         Action<ApiMessage>? onSubmitted = null)
     {
-        var created = Post(request, cancellationToken);
+        ApiMessage created;
+        lock (store.DeletionSync)
+            created = Post(request, cancellationToken);
         onSubmitted?.Invoke(created);
         return await WaitForReplyAsync(created.MessageId, cancellationToken);
     }

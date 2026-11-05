@@ -23,6 +23,7 @@ public static class MezhsApi
         builder.Services.AddProblemDetails();
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton<ChatStore>();
+        builder.Services.AddSingleton<IChatDeletionHandler, ChatDeletionHandler>();
         builder.Services.AddSingleton<ChatService>();
         builder.Services.AddSingleton<FileStore>();
         builder.Services.AddSingleton<IIntegrationHost, IntegrationHost>();
@@ -181,10 +182,10 @@ public static class MezhsApi
             return Results.Created($"/v1/chats/{chat.ChatId}", chat);
         });
 
-        app.MapDelete("/v1/chats", ([FromBody] DeleteChatsRequest request, ChatStore chats) =>
+        app.MapDelete("/v1/chats", ([FromBody] DeleteChatsRequest request, IChatDeletionHandler chats) =>
             Results.Ok(new { deletedChatIds = chats.DeleteChats(request.ChatIds ?? []) }));
 
-        app.MapDelete("/v1/chats/{chatId}", (string chatId, ChatStore chats) =>
+        app.MapDelete("/v1/chats/{chatId}", (string chatId, IChatDeletionHandler chats) =>
         {
             chats.DeleteChats([chatId]);
             return Results.NoContent();

@@ -22,6 +22,9 @@ public sealed class ChatStore(MezhsOptions options)
     private readonly ConcurrentDictionary<string, CategoryRecord> _categories = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _writeLock = new();
 
+    // Shared with message admission and Agent-host deletion coordination.
+    public object DeletionSync => _writeLock;
+
     public void Initialize()
     {
         Directory.CreateDirectory(_root);
