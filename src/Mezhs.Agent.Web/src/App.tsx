@@ -1232,21 +1232,75 @@ useEffect(() => {
 
         <button className="new-chat" type="button" onClick={beginNewChat}><span>+</span> New agent chat</button>
 
-        <span className="section-label">Agent chats</span>
-        <nav className="agent-chat-list" aria-label="Agent chats">
-          {chats.map((chat) => (
-            <button
-              type="button"
-              key={chat.chatId}
-              className={`agent-chat-row ${selectedChatId === chat.chatId && !creating ? "selected" : ""}`}
-              onClick={() => selectChat(chat.chatId)}
-            >
-              <span className="agent-chat-title">{displayTitle(chat)}</span>
-              <small>{policyNames.get(chat.policyId) ?? chat.policyId} · {chat.originSource}</small>
-              {chat.paused && <i>paused</i>}
-            </button>
+        <div className="agent-group-heading">
+          <span className="section-label">Groups</span>
+          <button type="button" onClick={() => setShowCategoryForm((current) => !current)}
+            aria-label="Create group">+</button>
+        </div>
+        {showCategoryForm && (
+          <form className="agent-group-create" onSubmit={(event) => void createCategory(event)}>
+            <input autoFocus value={newCategoryName}
+              onChange={(event) => setNewCategoryName(event.target.value)}
+              placeholder="Group name" aria-label="New group name" />
+            <button type="submit">Add</button>
+          </form>
+        )}
+        <nav className="agent-group-list" aria-label="Agent conversation groups">
+          <button type="button" className={categoryFilter === "all" ? "active" : ""}
+            onClick={() => selectCategoryFilter("all")}>All <small>{chats.length}</small></button>
+          {categories.map((category) => (
+            <div className="agent-group-entry" key={category.categoryId}>
+              <button type="button" className={categoryFilter === category.categoryId ? "active" : ""}
+                onClick={() => selectCategoryFilter(category.categoryId)}>
+                <span className="agent-group-dot" style={{ backgroundColor: category.color }} />
+                {category.name}
+                <small>{chats.filter((chat) => chat.categoryId === category.categoryId).length}</small>
+              </button>
+              <button type="button" className="agent-group-delete"
+                aria-label={`Delete group ${category.name}`}
+                onClick={() => void deleteCategory(category)}>×</button>
+            </div>
           ))}
-          {chats.length === 0 && <p className="agent-empty-sidebar">No agent chats yet.</p>}
+          <button type="button" className={categoryFilter === "uncategorized" ? "active" : ""}
+            onClick={() => selectCategoryFilter("uncategorized")}>
+            Uncategorized <small>{chats.filter((chat) => !chat.categoryId).length}</small>
+          </button>
+        </nav>
+
+        <div className="agent-sidebar-tools">
+          <label>Search agent chats
+            <input type="search" placeholder="Search conversations"
+              value={search} onChange={(event) => setSearch(event.target.value)} />
+          </label>
+          <button type="button" onClick={openConversationManager}>Manage</button>
+        </div>
+        <span className="section-label">Agent chats · {filteredChats.length} of {chats.length}</span>
+        <nav className="agent-chat-list" aria-label="Agent chats">
+          {filteredChats.map((chat) => (
+            <div className="agent-chat-entry" key={chat.chatId}>
+              <button type="button"
+                className={`agent-chat-row ${selectedChatId === chat.chatId && !creating ? "selected" : ""}`}
+                onClick={() => selectChat(chat.chatId)}>
+                <span className="agent-chat-title">{displayTitle(chat)}</span>
+                <small>{policyNames.get(chat.policyId) ?? chat.policyId} · {chat.originSource}</small>
+                <small title={new Date(chat.updatedAt).toLocaleString()}>{activityLabel(chat.updatedAt)}</small>
+                {chat.paused && <i>paused</i>}
+              </button>
+              <button type="button" className="agent-chat-menu-toggle"
+                aria-label={`Options for ${displayTitle(chat)}`}
+                aria-expanded={chatMenuId === chat.chatId}
+                onClick={() => setChatMenuId((current) => current === chat.chatId ? null : chat.chatId)}>⋯</button>
+              {chatMenuId === chat.chatId && (
+                <div className="agent-chat-menu" role="menu">
+                  <button type="button" role="menuitem"
+                    disabled={deletingChats}
+                    onClick={() => void deleteConversations([chat], displayTitle(chat))}>Delete chat</button>
+                </div>
+              )}
+            </div>
+          ))}
+          {filteredChats.length === 0 &&
+            <p className="agent-empty-sidebar">{chats.length === 0 ? "No agent chats yet." : "No matching agent chats."}</p>}
         </nav>
 
         <div className="agent-sidebar-footer">
@@ -1263,6 +1317,12 @@ useEffect(() => {
               <div>
                 <span className="eyebrow">Manual execution</span>
                 <h1>New agent chat</h1>
+                <label className="agent-group-picker">Group
+                  <select value={newChatCategoryId} onChange={(event) => setNewChatCategoryId(event.target.value)}>
+                    <option value="">Uncategorized</option>
+                    {categories.map((category) => <option key={category.categoryId} value={category.categoryId}>{category.name}</option>)}
+                  </select>
+                </label>
               </div>
             </header>
 
@@ -1333,6 +1393,12 @@ useEffect(() => {
               <div>
                 <span className="eyebrow">{selectedChat.originSource} · {selectedPolicy?.name ?? selectedChat.policyId}</span>
                 <h1>{displayTitle(selectedChat)}</h1>
+                <label className="agent-group-picker">Group
+                  <select value={selectedChat.categoryId ?? ""} onChange={(event) => void assignCategory(event.target.value)}>
+                    <option value="">Uncategorized</option>
+                    {categories.map((category) => <option key={category.categoryId} value={category.categoryId}>{category.name}</option>)}
+                  </select>
+                </label>
                 <div className="agent-header-meta">
                   <span>{selectedChat.connectionId || selectedPolicy?.connectionId || "connection unavailable"}</span>
                   <span>·</span>
