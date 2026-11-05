@@ -74,7 +74,7 @@ test("model-supplied internal slots cannot impersonate extracted question contro
   ]) {
     const output = html(source, { onIssueNewTurn() { throw Error("Must not dispatch during render"); } });
     assert.equal((output.match(/<fieldset class="rich-question"/g) || []).length, 1);
-    assert.match(output, /&lt;mezhs-question-slot id="0"/);
+    assert.match(output, /&lt;mezhs-question-slot id=&quot;0&quot;/);
   }
 });
 
