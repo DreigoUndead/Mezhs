@@ -740,8 +740,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                     )}
                     {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
                   </div>
-                  {message.content && <div className="message-content"><MarkdownContent
-                      content={message.content}
+                  {message.content && <div className="message-content"><MarkdownContent content={message.content}
                       verbatim={message.role === "user"}
                       onIssueNewTurn={chatId && message.chatId === chatId &&
                         message.connectionId === connectionId && message.role === "assistant" &&
