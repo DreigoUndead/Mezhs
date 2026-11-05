@@ -19,8 +19,7 @@ const attributes = new Set(["gap", "align", "justify", "color", "name", "size", 
 
 // Parse supported JSX-like markup as DATA. Unknown constructs and executable
 // expressions remain escaped text. MDX is never compiled or evaluated.
-export function remarkRichMarkup(questionIds: string[] = []) {
-  const permittedQuestions = new Set(questionIds);
+export function remarkRichMarkup(slotOffsets: Record<string, number> = Object.create(null)) {
   return (tree: MarkupNode, file: { value: unknown }) => {
     const source = String(file.value);
     const original = (node: MarkupNode) => {
@@ -40,7 +39,9 @@ export function remarkRichMarkup(questionIds: string[] = []) {
             const attrs = node.attributes || [];
             const id = attrs.length === 1 && attrs[0].type === "mdxJsxAttribute" &&
               attrs[0].name === "id" && typeof attrs[0].value === "string" ? attrs[0].value : "";
-            if (!permittedQuestions.has(id) || (node.children || []).length) return original(node);
+            if (!Object.prototype.hasOwnProperty.call(slotOffsets, id) ||
+                node.position?.start.offset !== slotOffsets[id] ||
+                (node.children || []).length) return original(node);
             node.data = { hName: "mezhs-question", hProperties: { "data-mezhs-question-id": id } };
             return node;
           }

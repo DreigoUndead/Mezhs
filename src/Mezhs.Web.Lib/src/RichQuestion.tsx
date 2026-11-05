@@ -124,7 +124,10 @@ function protectedRanges(source: string) {
     if (!line) continue;
     const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
     if (fence) {
-      if (marker?.[0] === fence.char && marker.length >= fence.length)
+      // A closing fence must contain nothing except its marker and whitespace.
+      // Markdown treats e.g. ```not-a-closer as fenced code, not a close.
+      const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*(?:\r?\n)?$/.exec(line)?.[1];
+      if (closing?.[0] === fence.char && closing.length >= fence.length)
         { ranges.push([fence.start, offset + line.length]); fence = null; }
     } else if (marker) fence = { start: offset, char: marker[0], length: marker.length };
     offset += line.length;
@@ -147,9 +150,14 @@ function protectedRanges(source: string) {
   return ranges;
 }
 
-export function extractRichQuestions(source: string): { content: string; questions: Record<string, RichQuestionData> } {
+export function extractRichQuestions(source: string): {
+  content: string;
+  questions: Record<string, RichQuestionData>;
+  slotOffsets: Record<string, number>;
+} {
   const questions: Record<string, RichQuestionData> = Object.create(null);
-  if (!source.includes("{@body") || source.length > 180000) return { content: source, questions };
+  if (!source.includes("{@body") || source.length > 180000)
+    return { content: source, questions, slotOffsets: Object.create(null) as Record<string, number> };
   const protectedSpans = protectedRanges(source);
   const protectedAt = (position: number) => protectedSpans.some(([start, end]) => position >= start && position < end);
   const escapedAt = (position: number) => {
@@ -157,7 +165,7 @@ export function extractRichQuestions(source: string): { content: string; questio
     for (let i = position - 1; i >= 0 && source[i] === "\\"; i--) slashes++;
     return slashes % 2 === 1;
   };
-  const replacements: Array<{ from: number; to: number; text: string }> = [];
+  const replacements: Array<{ from: number; to: number; text: string; questionId?: string }> = [];
   let cursor = 0;
   while (Object.keys(questions).length < 16) {
     const start = source.indexOf("{@body", cursor);
@@ -197,7 +205,7 @@ export function extractRichQuestions(source: string): { content: string; questio
     replacements.push(
       { from: start, to: bodyEnd + 1, text: "" },
       { from: groupStart, to: groupClose + "</radio-group>".length,
-        text: '<mezhs-question-slot id="' + id + '" />' },
+        text: '<mezhs-question-slot id="' + id + '" />', questionId: id },
       { from: buttonStart, to: buttonClose + "</button>".length, text: "" },
     );
     cursor = buttonClose + "</button>".length;
@@ -206,19 +214,30 @@ export function extractRichQuestions(source: string): { content: string; questio
   // opening brace leaves the original directive legible but always inert.
   let output = "";
   let pos = 0;
+  // Only positions inserted by this extractor are allowed to become actions.
+  // A model-authored <mezhs-question-slot> with the same ID is still inert.
+  const slotOffsets: Record<string, number> = Object.create(null);
   for (const replacement of replacements.sort((a, b) => a.from - b.from)) {
     output += source.slice(pos, replacement.from);
+    if (replacement.questionId !== undefined)
+      slotOffsets[replacement.questionId] = output.length;
     output += replacement.text;
     pos = replacement.to;
   }
   output += source.slice(pos);
   const escapedSpans = protectedRanges(output);
-  let at = 0;
+  const escapeInsertions: number[] = [];
   output = output.replace(/\{@body/g, (match, index: number) => {
     if (escapedSpans.some(([a, b]) => index >= a && index < b)) return match;
+    escapeInsertions.push(index);
     return "\\{" + match.slice(1);
   });
-  return { content: output, questions };
+  // The extra Markdown escapes shift downstream AST source positions.
+  for (const id of Object.keys(slotOffsets)) {
+    const original = slotOffsets[id];
+    slotOffsets[id] = original + escapeInsertions.filter(offset => offset < original).length;
+  }
+  return { content: output, questions, slotOffsets };
 }
 
 export function RichQuestion({ data }: { data: RichQuestionData }) {

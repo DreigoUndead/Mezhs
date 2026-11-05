@@ -221,7 +221,8 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
   }
 
   function changeConnection(id: string) {
-    if (!chatId && id !== connectionId) ++selectionEpoch.current;
+    // Invalidate callbacks from the old connection even when a chat is open.
+    if (id !== connectionId) ++selectionEpoch.current;
     setConnectionId(id);
   }
 

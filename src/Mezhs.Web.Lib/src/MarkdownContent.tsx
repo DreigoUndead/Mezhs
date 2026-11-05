@@ -19,8 +19,8 @@ const safeUri = (value: string) => {
 // compiled or evaluated. Only a real host callback grants send authority.
 const components = { ...richComponents, "mezhs-question": RichQuestionSlot } as Components;
 
-function renderRich(content: string, questions: Record<string, RichQuestionData>) {
-  const parseMarkup = () => remarkRichMarkup(Object.keys(questions));
+function renderRich(content: string, slotOffsets: Record<string, number>) {
+  const parseMarkup = () => remarkRichMarkup(slotOffsets);
   return Markdown({
     children: content,
     remarkPlugins: [remarkGfm, remarkMdx as unknown as typeof remarkGfm, parseMarkup as unknown as typeof remarkGfm],
@@ -33,7 +33,7 @@ function renderRich(content: string, questions: Record<string, RichQuestionData>
 function renderChunk(content: string) {
   try {
     const parsed = extractRichQuestions(expandRichTemplates(content));
-    return <RichQuestionsContext.Provider value={parsed.questions}>{renderRich(parsed.content, parsed.questions)}</RichQuestionsContext.Provider>;
+    return <RichQuestionsContext.Provider value={parsed.questions}>{renderRich(parsed.content, parsed.slotOffsets)}</RichQuestionsContext.Provider>;
   } catch {
     return <Markdown remarkPlugins={[remarkGfm]} transformLinkUri={safeUri} transformImageUri={safeUri}>{content}</Markdown>;
   }
@@ -51,7 +51,7 @@ export function MarkdownContent({ content, verbatim = false, onIssueNewTurn }: {
     if (!prepared) return null;
     return <RichActionContext.Provider value={onIssueNewTurn}>
       <RichQuestionsContext.Provider value={prepared.questions}>
-        <div className="markdown-content">{renderRich(prepared.content, prepared.questions)}</div>
+        <div className="markdown-content">{renderRich(prepared.content, prepared.slotOffsets)}</div>
       </RichQuestionsContext.Provider>
     </RichActionContext.Provider>;
   } catch {

@@ -54,6 +54,8 @@ for (const [name, sample] of [
   ["large coordinate", '<svg viewBox="0 0 10 10"><rect x="999999999" width="5" height="5"/></svg>'],
   ["large dimension", '<svg viewBox="0 0 10000 99999"><rect width="5" height="5"/></svg>'],
   ["long path", '<svg viewBox="0 0 10 10"><path d="' + "M1 1".repeat(500) + '"/></svg>'],
+  ["deeply nested", '<svg viewBox="0 0 10 10">' + "<g>".repeat(14) + "<rect width='2' height='2'/>" + "</g>".repeat(14) + '</svg>'],
+  ["too many nodes", '<svg viewBox="0 0 10 10">' + '<rect width="1" height="1"/>'.repeat(251) + '</svg>'],
 ]) {
   test("unsafe SVG rejects whole subtree: " + name, () => {
     const result = html("Before\n\n" + sample + "\n\nAfter");
@@ -64,6 +66,27 @@ for (const [name, sample] of [
     assert.doesNotMatch(result, /<script|<image|<foreignObject|onload="/i);
   });
 }
+
+test("model-supplied internal slots cannot impersonate extracted question controls", () => {
+  for (const source of [
+    '<mezhs-question-slot id="0" />\n\n' + question,
+    '{@body const bogus = alert(1)}\n\n' + question + '\n\n<mezhs-question-slot id="0" />',
+  ]) {
+    const output = html(source, { onIssueNewTurn() { throw Error("Must not dispatch during render"); } });
+    assert.equal((output.match(/<fieldset class="rich-question"/g) || []).length, 1);
+    assert.match(output, /&lt;mezhs-question-slot id="0"/);
+  }
+});
+
+test("non-closing fence lines keep DIL examples inert", () => {
+  for (const marker of ["```not-a-closer", "~~~not-a-closer"]) {
+    const fence = marker.startsWith("`") ? "```" : "~~~";
+    const source = fence + "mdx\n" + marker + "\n" + question + "\n" + fence;
+    const output = html(source, { onIssueNewTurn() { throw Error("Fenced code must not dispatch"); } });
+    assert.doesNotMatch(output, /<fieldset class="rich-question"/);
+    assert.match(output, /&lt;radio-group/);
+  }
+});
 
 test("question defaults to B, read-only without host callback", () => {
   const output = html(question);
