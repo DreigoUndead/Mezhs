@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   regenerate:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,14 +21,25 @@ jobs:
         run: npm install -g @lzehrung/codegraph@3.0.0
       - name: Regenerate portable graph with repository exporter
         run: node .agents/codegraph/export.cjs
+      - name: Reject degraded graph output
+        shell: pwsh
+        run: |
+          $graph = Get-Content .agents/codegraph/graph.json -Raw | ConvertFrom-Json
+          if ($graph.analysis.backend -ne 'native' -or $graph.analysis.nativeFilesUsed -lt 100 -or $graph.fileEdges.Count -lt 500) {
+            throw "Unexpected degraded Codegraph output; refusing to commit"
+          }
       - name: Commit regenerated graph
+        shell: pwsh
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .agents/codegraph/graph.json
-          if git diff --cached --quiet; then
-            echo "Graph already current"
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Output "Graph already current"
             exit 0
-          fi
-          git commit -m "chore(codegraph): regenerate rich UI dependencies"
+          }
+          git commit -m "chore(codegraph): restore native rich UI dependency graph"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git push origin HEAD:rich-model-ui-rendering
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
