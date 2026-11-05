@@ -2,6 +2,16 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.1.4] — 2026-11-05
+
+### Changed
+- Start each next-role prompt with the task name and role; keep handoffs generic, minimal and free of prior-review steering.
+- Have code reviewers correct issues and hand off to a fresh independent reviewer until PASS.
+- Require initial feasibility, complexity, risk and conflict assessment; summarize proposed plans before committing and notify the owner before plan-review edits.
+- Simplify development workflow instructions by removing duplicated handoff guidance.
+
+No application runtime changes were made by this release.
+
 ## [0.1.3] — 2026-11-05
 
 ### Fixed
