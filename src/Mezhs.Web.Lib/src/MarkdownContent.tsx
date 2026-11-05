@@ -30,15 +30,33 @@ function renderRich(content: string, slotOffsets: Record<string, number>) {
   });
 }
 
-function renderChunk(content: string) {
+function renderChunk(content: string, slotOffsets: Record<string, number>) {
   try {
-    // Recovery chunks have lost their original Markdown context. Never rerun
-    // action extraction here: a split fenced example could otherwise become
-    // a live model-authored button. Static rich markup remains available.
-    return renderRich(expandRichTemplates(content), Object.create(null));
+    // Only action slots provenanced from full-message parsing are eligible.
+    // Never extract new questions from a recovery fragment: the original
+    // Markdown fence/indentation context may no longer be present.
+    return renderRich(content, slotOffsets);
   } catch {
     return <Markdown remarkPlugins={[remarkGfm]} transformLinkUri={safeUri} transformImageUri={safeUri}>{content}</Markdown>;
   }
+}
+
+function recoveryChunks(content: string, slotOffsets: Record<string, number>) {
+  const chunks: Array<{ content: string; slotOffsets: Record<string, number> }> = [];
+  let start = 0;
+  const append = (end: number) => {
+    const localOffsets: Record<string, number> = Object.create(null);
+    for (const [id, offset] of Object.entries(slotOffsets)) {
+      if (offset >= start && offset < end) localOffsets[id] = offset - start;
+    }
+    chunks.push({ content: content.slice(start, end), slotOffsets: localOffsets });
+  };
+  for (const match of content.matchAll(/\n\s*\n/g)) {
+    append(match.index!);
+    start = match.index! + match[0].length;
+  }
+  append(content.length);
+  return chunks;
 }
 
 export function MarkdownContent({ content, verbatim = false, onIssueNewTurn }: {
@@ -57,12 +75,15 @@ export function MarkdownContent({ content, verbatim = false, onIssueNewTurn }: {
       </RichQuestionsContext.Provider>
     </RichActionContext.Provider>;
   } catch {
-    // One malformed block must not disable unrelated rich blocks.
-    // Fallback fragments are readable but never authorized to submit.
-    return <RichActionContext.Provider value={undefined}>
-      <div className="markdown-content">{content.split(/\n\s*\n/).map((chunk, i) =>
-        <div key={i}>{renderChunk(chunk)}</div>
-      )}</div>
+    // Recover independently renderable blocks using only the complete
+    // message's already-validated slots. No fragment can gain new authority.
+    if (!prepared) return null;
+    return <RichActionContext.Provider value={onIssueNewTurn}>
+      <RichQuestionsContext.Provider value={prepared.questions}>
+        <div className="markdown-content">{recoveryChunks(prepared.content, prepared.slotOffsets).map((chunk, i) =>
+          <div key={i}>{renderChunk(chunk.content, chunk.slotOffsets)}</div>
+        )}</div>
+      </RichQuestionsContext.Provider>
     </RichActionContext.Provider>;
   }
 }
