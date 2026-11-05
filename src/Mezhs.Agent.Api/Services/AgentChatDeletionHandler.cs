@@ -13,12 +13,15 @@ public sealed class AgentChatDeletionHandler(
 {
     public IReadOnlyList<string> DeleteChats(IEnumerable<string> chatIds)
     {
-        var requested = chatIds.Where(id => !string.IsNullOrWhiteSpace(id))
-            .Select(id => id.Trim())
+        var entries = chatIds.ToArray();
+        if (entries.Length == 0)
+            throw new RequestValidationException("At least one chatId is required.");
+        if (entries.Any(string.IsNullOrWhiteSpace))
+            throw new RequestValidationException("chatIds cannot contain empty chat IDs.");
+
+        var requested = entries.Select(id => id.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        if (requested.Length == 0)
-            throw new RequestValidationException("At least one chatId is required.");
 
         lock (chats.DeletionSync)
         {
