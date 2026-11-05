@@ -1,4 +1,5 @@
 import { parse, parseExpressionAt } from "acorn";
+import { fromMarkdown } from "mdast-util-from-markdown";
 import { createContext, useContext, useId, useState } from "react";
 import Markdown, { uriTransformer } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -114,51 +115,37 @@ function options(source: string, initial: string) {
   return seen.has(initial) ? values : null;
 }
 
-// Only code fences and actual inline Markdown code are shielded. A real body
-// directive never gains authority merely because it resembles a code example.
-function protectedPositions(source: string) {
-  // Each byte indicates whether a character belongs to fenced or inline code.
-  // Membership checks and marking disjoint ranges are linear in source length.
-  const mask = new Uint8Array(source.length);
-  let offset = 0;
-  let fence: { start: number; char: string; length: number } | null = null;
-  for (const line of source.match(/[^\n]*(?:\n|$)/g) || []) {
-    if (!line) continue;
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (fence) {
-      // A valid closing fence occupies the whole line, except whitespace.
-      const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*(?:\r?\n)?$/.exec(line)?.[1];
-      if (closing?.[0] === fence.char && closing.length >= fence.length) {
-        mask.fill(1, fence.start, offset + line.length);
-        fence = null;
-      }
-    } else if (marker) fence = { start: offset, char: marker[0], length: marker.length };
-    offset += line.length;
-  }
-  if (fence) mask.fill(1, fence.start);
 
-  // Find exact closing backtick runs with one reverse pass. Repeated searches
-  // for a missing closer can also become quadratic on malformed model text.
-  const ticks = [...source.matchAll(/`+/g)].filter(match => !mask[match.index!]);
-  const following = new Array<number>(ticks.length).fill(-1);
-  const nextByLength = new Map<number, number>();
-  for (let i = ticks.length - 1; i >= 0; i--) {
-    const length = ticks[i][0].length;
-    following[i] = nextByLength.get(length) ?? -1;
-    nextByLength.set(length, i);
+type MarkdownNode = {
+  type: string;
+  children?: MarkdownNode[];
+  position?: { start: { offset?: number }; end: { offset?: number } };
+};
+
+// CommonMark AST locations establish which source ranges are code examples.
+// This covers indented blocks and fences nested in lists/quotes without a
+// separate hand-written Markdown scanner. No model code is ever evaluated.
+function protectedPositions(source: string): Uint8Array | null {
+  try {
+    const mask = new Uint8Array(source.length);
+    const nodes: MarkdownNode[] = [fromMarkdown(source) as unknown as MarkdownNode];
+    while (nodes.length) {
+      const node = nodes.pop()!;
+      if (node.type === "code" || node.type === "inlineCode") {
+        const start = node.position?.start.offset;
+        const end = node.position?.end.offset;
+        if (start === undefined || end === undefined || start < 0 ||
+            end > source.length || end <= start) return null;
+        mask.fill(1, start, end);
+      } else if (node.children) {
+        for (let i = node.children.length - 1; i >= 0; i--) nodes.push(node.children[i]);
+      }
+    }
+    return mask;
+  } catch {
+    // A failed syntax prepass cannot grant action authority.
+    return null;
   }
-  for (let i = 0; i < ticks.length; i++) {
-    const start = ticks[i].index!;
-    if (mask[start]) continue;
-    // Shield matching Markdown backtick spans regardless of nearby JSX-like text.
-    // Exempting a run because of an earlier "onClick={" can activate literal
-    // {@body ...} examples. A real button handler is validated separately.
-    const close = following[i];
-    if (close < 0) continue;
-    mask.fill(1, start, ticks[close].index! + ticks[i][0].length);
-    i = close;
-  }
-  return mask;
 }
 
 export function extractRichQuestions(source: string): {
@@ -170,6 +157,8 @@ export function extractRichQuestions(source: string): {
   if (!source.includes("{@body") || source.length > 180000)
     return { content: source, questions, slotOffsets: Object.create(null) as Record<string, number> };
   const protectedMask = protectedPositions(source);
+  if (!protectedMask)
+    return { content: source, questions, slotOffsets: Object.create(null) as Record<string, number> };
   const protectedAt = (position: number) => protectedMask[position] === 1;
   const escapedAt = (position: number) => {
     let slashes = 0;
@@ -236,10 +225,12 @@ export function extractRichQuestions(source: string): {
     pos = replacement.to;
   }
   output += source.slice(pos);
-  const escapedMask = protectedPositions(output);
+  const escapedMask = output.includes("{@body") ? protectedPositions(output) : null;
+  if (output.includes("{@body") && !escapedMask)
+    return { content: source, questions: Object.create(null), slotOffsets: Object.create(null) };
   const escapeInsertions: number[] = [];
   output = output.replace(/\{@body/g, (match, index: number) => {
-    if (escapedMask[index]) return match;
+    if (escapedMask?.[index]) return match;
     escapeInsertions.push(index);
     return "\\{" + match.slice(1);
   });
