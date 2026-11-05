@@ -125,6 +125,15 @@ ping -n 30 127.0.0.1 >nul
     $cancelRunning = Wait-AttachedRunningExecution $cancel.executionId
     $runningShell = Wait-Shell $cancelRunning.chatId @("Running")
 
+    # Neither normal DELETE route may delete a chat with a nonterminal shell/root.
+    $busyDelete = Invoke-WebRequest -Method Delete -Uri "$agentUrl/v1/chats/$($cancelRunning.chatId)" -SkipHttpErrorCheck
+    if ([int]$busyDelete.StatusCode -ne 400) {
+        throw "Active Agent chat deletion returned $([int]$busyDelete.StatusCode), expected 400."
+    }
+    if (-not (Invoke-RestMethod -Uri "$agentUrl/v1/agent-chats/$($cancelRunning.chatId)")) {
+        throw "Busy-chat deletion removed the Agent chat."
+    }
+
     $childCancelClient = [Net.Http.HttpClient]::new()
     try {
         $childCancelResponse = $childCancelClient.PostAsync(
@@ -251,6 +260,21 @@ with sqlite3.connect(sys.argv[1]) as db:
     if ((Get-Execution $queued.executionId).status -ne "Queued") {
         throw "Same-chat execution did not stay queued while unrelated work ran."
     }
+    # The normal DELETE batch endpoint is atomic even if an idle chat appears first.
+    $busyBatch = Invoke-WebRequest -Method Delete -Uri "$agentUrl/v1/chats" `
+        -ContentType "application/json" `
+        -Body (ConvertTo-Json @{ chatIds = @($independentDone.chatId, $seedDone.chatId) }) `
+        -SkipHttpErrorCheck
+    if ([int]$busyBatch.StatusCode -ne 400) {
+        throw "Mixed idle/busy Agent chat deletion returned $([int]$busyBatch.StatusCode), expected 400."
+    }
+    foreach ($id in @($independentDone.chatId, $seedDone.chatId)) {
+        if (-not (Invoke-RestMethod -Uri "$agentUrl/v1/chats/$id")) {
+            throw "Rejected mixed batch partially removed chat '$id'."
+        }
+    }
+    Write-Host "DELETION_BUSY single=400 bulk=400 no_partial_delete=true"
+
     $state = @(Invoke-RestMethod -Uri "$agentUrl/v1/executions")
     $runningRoots = @($state | Where-Object { $_.kind -eq "Agent" -and $_.status -eq "Running" })
     $queuedRoots = @($state | Where-Object { $_.kind -eq "Agent" -and $_.status -eq "Queued" })
