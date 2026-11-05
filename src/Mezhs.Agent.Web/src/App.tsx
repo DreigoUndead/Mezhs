@@ -1028,6 +1028,135 @@ useEffect(() => {
     setNotice(null);
   }
 
+
+  function selectCategoryFilter(value: string) {
+    setCategoryFilter(value);
+    if (value === "uncategorized") setNewChatCategoryId("");
+    else if (value !== "all") setNewChatCategoryId(value);
+  }
+
+  async function createCategory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = newCategoryName.trim();
+    if (!name) return;
+    try {
+      const category = await apiJson<AgentCategory>("", "/v1/categories", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      setCategories((current) => [...current, category]);
+      setNewCategoryName("");
+      setShowCategoryForm(false);
+      selectCategoryFilter(category.categoryId);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not create group.");
+    }
+  }
+
+  async function deleteCategory(category: AgentCategory) {
+    if (!window.confirm(`Delete group '${category.name}'? All chats in this group, including normal MEŽS chats, will be unassigned. Conversations are kept.`))
+      return;
+    try {
+      await apiJsonOrEmpty("", `/v1/categories/${encodeURIComponent(category.categoryId)}`, {
+        method: "DELETE",
+      });
+      setCategories((current) => current.filter((item) => item.categoryId !== category.categoryId));
+      setChats((current) => current.map((chat) =>
+        chat.categoryId === category.categoryId ? { ...chat, categoryId: null } : chat));
+      if (categoryFilter === category.categoryId) setCategoryFilter("all");
+      if (newChatCategoryId === category.categoryId) setNewChatCategoryId("");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not delete group.");
+    }
+  }
+
+  async function setChatCategory(chatId: string, categoryId: string) {
+    const updated = await apiJson<{ categoryId?: string | null }>("",
+      `/v1/chats/${encodeURIComponent(chatId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categoryId: categoryId || null }),
+      });
+    setChats((current) => current.map((chat) =>
+      chat.chatId === chatId ? { ...chat, categoryId: updated.categoryId ?? null } : chat));
+  }
+
+  async function assignCategory(categoryId: string) {
+    if (!selectedChat) {
+      setNewChatCategoryId(categoryId);
+      return;
+    }
+    try {
+      await setChatCategory(selectedChat.chatId, categoryId);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not assign group.");
+    }
+  }
+
+  function openConversationManager() {
+    setManagerSearch("");
+    setSelectedChatIds(new Set());
+    setChatMenuId(null);
+    setShowConversationManager(true);
+  }
+
+  function toggleManagedChat(id: string) {
+    setSelectedChatIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllManagedChats() {
+    setSelectedChatIds((current) => {
+      const next = new Set(current);
+      for (const chat of managedChats) {
+        if (allManagedSelected) next.delete(chat.chatId);
+        else next.add(chat.chatId);
+      }
+      return next;
+    });
+  }
+
+  async function deleteConversations(targets: AgentChat[], description: string) {
+    const ids = [...new Set(targets.map((chat) => chat.chatId))];
+    if (ids.length === 0 || deletingChats) return;
+    if (!window.confirm(`Permanently delete ${description} (${ids.length} chat${ids.length === 1 ? "" : "s"})? Conversation transcripts and Agent state will be removed. Historical Executor records and stored files may remain.`))
+      return;
+    setDeletingChats(true);
+    setNotice(null);
+    try {
+      if (ids.length === 1)
+        await apiJsonOrEmpty("", `/v1/chats/${encodeURIComponent(ids[0])}`, { method: "DELETE" });
+      else
+        await apiJson<{ deletedChatIds: string[] }>("", "/v1/chats", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chatIds: ids }),
+        });
+      // Delayed list and transcript requests cannot restore a deleted conversation.
+      ++chatRefreshEpoch.current;
+      const deleted = new Set(ids);
+      ids.forEach((id) => deletedChatIdsRef.current.add(id));
+      const remaining = chats.filter((chat) => !deleted.has(chat.chatId));
+      setChats(remaining);
+      setSelectedChatIds((current) => new Set([...current].filter((id) => !deleted.has(id))));
+      setChatMenuId(null);
+      const activeId = selectedChatIdRef.current;
+      if (activeId && deleted.has(activeId)) {
+        if (remaining.length > 0) selectChat(remaining[0].chatId);
+        else beginNewChat();
+      }
+      setNotice(`${ids.length} conversation${ids.length === 1 ? "" : "s"} deleted.`);
+      await refreshChats();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not delete conversations.");
+    } finally {
+      setDeletingChats(false);
+    }
+  }
+
   const composerDisabled = sending || !!activeExecution || !!selectedChat?.paused;
   const composerPlaceholder = selectedChat?.paused
     ? "Resume this agent chat to continue"
