@@ -380,6 +380,11 @@ public sealed class AgentStore(AgentOptions options)
     public bool Complete(string executionId, string? result) =>
         Finish(executionId, AgentExecutionStatus.Completed, result, error: null, AgentExecutionStatus.Running);
 
+    // Do not override a concurrent cancellation with a model-initiated abort.
+    public bool Abort(string executionId, string error) =>
+        Finish(executionId, AgentExecutionStatus.Failed, result: null, error,
+            AgentExecutionStatus.Running);
+
     public bool Fail(string executionId, string error) =>
         Finish(
             executionId,

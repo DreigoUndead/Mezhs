@@ -12,7 +12,7 @@ namespace Mezhs.Agent.Services;
 public sealed class AgentWorker : BackgroundService
 {
     private readonly AgentStore _store;
-    private readonly PolicyRegistry _policies;
+    private readonly PolicyDecoder _policyDecoder = new();
     private readonly ChatService _chats;
     private readonly MessageService _messages;
     private readonly AgentPromptBuilder _prompts;
@@ -31,7 +31,6 @@ public sealed class AgentWorker : BackgroundService
 
     public AgentWorker(
         AgentStore store,
-        PolicyRegistry policies,
         ChatService chats,
         MessageService messages,
         AgentPromptBuilder prompts,
@@ -44,7 +43,6 @@ public sealed class AgentWorker : BackgroundService
         ILogger<AgentWorker> logger)
     {
         _store = store;
-        _policies = policies;
         _chats = chats;
         _messages = messages;
         _prompts = prompts;
@@ -176,7 +174,7 @@ public sealed class AgentWorker : BackgroundService
             if (_store.GetExecution(executionId)?.Status == AgentExecutionStatus.CancelRequested)
                 cancellation.Cancel();
             cancellation.Token.ThrowIfCancellationRequested();
-            var policy = _policies.Get(execution.PolicyId);
+            var policy = _policyDecoder.DecodeSnapshot(execution.PolicyId, execution.PolicySnapshot);
             var recovering = _recovery.TryTake(executionId);
 
             var chatId = execution.ChatId;
@@ -316,6 +314,8 @@ public sealed class AgentWorker : BackgroundService
             replyMessageId,
             replyContent,
             cancellationToken);
+        if (interpretation.Aborted)
+            return AbortExecution(execution);
         if (interpretation.Error is { } commandError)
         {
             if (interpretation.Results.Count == 0)
@@ -354,6 +354,18 @@ public sealed class AgentWorker : BackgroundService
             completion.State == PolicyCompletionState.Rejected
                 ? _prompts.BuildPolicyCorrection(completion.Error)
                 : _prompts.BuildContinue(policy));
+    }
+
+    private ReplyProcessing AbortExecution(ExecutionRecord execution)
+    {
+        if (_store.Abort(execution.ExecutionId, "Agent returned <ABORT>."))
+            return new ReplyProcessing(true, null);
+        if (_store.GetExecution(execution.ExecutionId)?.Status == AgentExecutionStatus.CancelRequested)
+        {
+            _store.CompleteCancellation(execution.ExecutionId);
+            return new ReplyProcessing(true, null);
+        }
+        throw new InvalidOperationException("Agent execution changed state before abort could be recorded.");
     }
 
     private ReplyProcessing CompleteExecution(ExecutionRecord execution)

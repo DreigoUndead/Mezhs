@@ -14,6 +14,24 @@ public sealed class PolicyRegistry(AgentOptions options)
         return policy;
     }
 
+    // Resolve once during admission; registered IDs remain the default public registry.
+    public PolicyContext ResolveForExecution(string policyId)
+    {
+        policyId = policyId?.Trim() ?? string.Empty;
+        if (options.Policies.TryGetValue(policyId, out var registered))
+            return registered;
+        if (!Path.IsPathFullyQualified(policyId))
+            return Get(policyId);
+        try
+        {
+            return new PolicyDecoder().DecodeProjectFile(policyId);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new RequestValidationException(ex.Message);
+        }
+    }
+
     public AgentPolicyView GetView(string policyId)
     {
         var policy = Get(policyId);

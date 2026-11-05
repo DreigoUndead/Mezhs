@@ -59,6 +59,37 @@ Assert(evidencePolicy.ModelInstructions.Contains("successful execution evidence"
 Assert(done.ModelInstructions.Contains("<DONE>", StringComparison.Ordinal), "DONE requirement was not exposed to model instructions.");
 Assert(normal.Snapshot.Contains("TEST_AGENT_VALUE", StringComparison.Ordinal), "Policy snapshot lost environment rules.");
 
+// Standalone project policies and durable effective snapshots.
+var decoder = new PolicyDecoder();
+var projectDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), ".mezhs");
+Directory.CreateDirectory(projectDirectory);
+var projectFile = Path.Combine(projectDirectory, "agent.yaml");
+try
+{
+    File.WriteAllText(projectFile, normal.Snapshot);
+    var registry = new PolicyRegistry(options);
+    var initial = registry.ResolveForExecution(projectFile);
+    Assert(initial.ConnectionId == normal.ConnectionId && initial.Settings.Limits.CommandTimeoutSeconds == normal.Settings.Limits.CommandTimeoutSeconds, "Project policy settings mismatch.");
+    var snapshot = initial.Snapshot;
+    File.WriteAllText(projectFile, done.Snapshot);
+    Assert(!decoder.DecodeSnapshot(projectFile, snapshot).Settings.Completion.RequireDone, "Persisted snapshot changed with the policy file.");
+    Assert(registry.ResolveForExecution(projectFile).Settings.Completion.RequireDone, "New execution did not read updated project policy.");
+    Assert(registry.ResolveForExecution("test").Snapshot == normal.Snapshot, "Registered policy behavior changed.");
+    var missingFile = Path.Combine(projectDirectory, "agent.yaml");
+    File.Delete(missingFile);
+    try { registry.ResolveForExecution(missingFile); throw new Exception("Missing file accepted."); }
+    catch (Mezhs.RequestValidationException) { }
+    File.WriteAllText(projectFile, "commands: {}\\ncompletion: {}\\nlimits: {}\\n");
+    try { registry.ResolveForExecution(projectFile); throw new Exception("Missing connection accepted."); }
+    catch (Mezhs.RequestValidationException) { }
+    File.WriteAllText(projectFile, "commands: [broken");
+    try { registry.ResolveForExecution(projectFile); throw new Exception("Invalid policy was accepted."); }
+    catch (Mezhs.RequestValidationException) { }
+    try { decoder.DecodeSnapshot("test", "invalid: [yaml"); throw new Exception("Corrupt snapshot was accepted."); }
+    catch (InvalidOperationException) { }
+}
+finally { Directory.Delete(Path.GetDirectoryName(projectDirectory)!, true); }
+
 var now = DateTimeOffset.UtcNow;
 var rootEvidence = new ExecutionEvidence(
     "root", null, "root", AgentExecutionKind.Agent, null, AgentExecutionStatus.Running,
@@ -91,6 +122,35 @@ Assert(evidenceFailed.State == PolicyCompletionState.Rejected, "Failed shell evi
 var evidenceAccepted = evidencePolicy.EvaluateCompletion(new PolicyCompletionContext(
     new PolicyEvaluationContext(rootEvidence, new[] { rootEvidence, successfulShell }), true));
 Assert(evidenceAccepted.State == PolicyCompletionState.Accepted, "Successful shell evidence did not satisfy completion.");
+
+PolicyContext Require(string requirement)
+{
+    var settings = evidencePolicy.Settings with
+    {
+        Completion = evidencePolicy.Settings.Completion with { RequiredSuccessfulCommands = new[] { requirement } }
+    };
+    var serializer = new YamlDotNet.Serialization.SerializerBuilder()
+        .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance).Build();
+    return decoder.DecodeSnapshot("required-test", serializer.Serialize(settings));
+}
+bool Satisfied(string requirement, params ExecutionEvidence[] records) =>
+    Require(requirement).EvaluateCompletion(new PolicyCompletionContext(
+        new PolicyEvaluationContext(rootEvidence, records), true)).State == PolicyCompletionState.Accepted;
+Assert(Satisfied("echo ok", successfulShell), "Exact SH requirement was not satisfied.");
+Assert(Satisfied("echo o*", successfulShell), "Prefix SH requirement was not satisfied.");
+Assert(!Satisfied("echo ok next", successfulShell), "Exact SH requirement matched wrong command.");
+Assert(!Satisfied("echo x*", successfulShell), "Prefix SH requirement matched wrong command.");
+Assert(!Satisfied("echo ok", failedShell), "Failed shell satisfied a requirement.");
+Assert(!Satisfied("echo ok", successfulShell with { ExitCode = 1 }), "Nonzero exit code satisfied requirement.");
+Assert(!Satisfied("echo ok", successfulShell with { CorrelationId = "unrelated" }), "Unrelated correlation satisfied requirement.");
+Assert(!Satisfied("echo ok", successfulShell with { ParentExecutionId = "unrelated" }), "Unrelated parent satisfied requirement.");
+Assert(!Satisfied("echo ok", successfulShell with { Kind = AgentExecutionKind.Agent }), "Non-shell evidence satisfied SH requirement.");
+Assert(!Satisfied("echo ok", successfulShell with { Request = "different", Result = "echo ok" }), "Shell output was treated as command text.");
+
+try { Require("*"); throw new Exception("Empty SH prefix accepted."); }
+catch (InvalidOperationException) { }
+try { Require("echo**"); throw new Exception("Multiple SH wildcards accepted."); }
+catch (InvalidOperationException) { }
 
 var shellDefinition = Registry.Get(CommandBehavior.Shell);
 var allowedAction = normal.ValidateAction(new PolicyActionContext(
@@ -196,6 +256,35 @@ try
         "Queued same-chat work was not claimable after its predecessor completed.");
     Assert(store.Complete(thirdClaim!.ExecutionId, "done"), "Final queue test execution did not complete.");
 
+    // Durable settings survive queueing, restart requeue, and a different live policy.
+    var recoveryRoot = store.TryCreateRootExecution(
+        normal.Id, normal.ConnectionId, "chat_policy_recovery", "manual", null,
+        "recovery policy test", emptyEnvironment, normal.Snapshot);
+    Assert(store.GetExecution(recoveryRoot.ExecutionId)?.PolicySnapshot == normal.Snapshot,
+        "Queued root lost its durable policy snapshot.");
+    var recoveryClaim = store.TryClaimNextQueuedExecution();
+    Assert(recoveryClaim?.ExecutionId == recoveryRoot.ExecutionId, "Recovery root was not claimed.");
+    var recovery = store.RecoverAfterRestart();
+    Assert(recovery.ExecutionIds.Contains(recoveryRoot.ExecutionId), "Running root was not requeued on recovery.");
+    var recovered = store.GetExecution(recoveryRoot.ExecutionId);
+    Assert(recovered?.Status == AgentExecutionStatus.Queued && recovered.PolicySnapshot == normal.Snapshot,
+        "Restart recovery changed the effective policy snapshot.");
+    Assert(!decoder.DecodeSnapshot(recovered!.PolicyId, recovered.PolicySnapshot).Settings.Completion.RequireDone,
+        "Recovery policy was not reconstructed from persisted settings.");
+    var reclaimed = store.TryClaimNextQueuedExecution();
+    Assert(reclaimed?.ExecutionId == recoveryRoot.ExecutionId, "Recovered root could not be reclaimed.");
+    Assert(store.Complete(reclaimed!.ExecutionId, "done"), "Recovered root did not complete.");
+    var abortRoot = store.TryCreateRootExecution(
+        normal.Id, normal.ConnectionId, "chat_policy_abort", "manual", null,
+        "abort test", emptyEnvironment, normal.Snapshot);
+    var abortClaim = store.TryClaimNextQueuedExecution();
+    Assert(abortClaim?.ExecutionId == abortRoot.ExecutionId &&
+           store.Abort(abortClaim!.ExecutionId, "Agent returned ABORT."),
+        "ABORT could not persist terminal failure.");
+    Assert(store.GetExecution(abortRoot.ExecutionId)?.Status == AgentExecutionStatus.Failed &&
+           !store.Complete(abortRoot.ExecutionId, "done"),
+        "ABORT failure was not terminal.");
+
     var root = store.TryCreateRootExecution(
         normal.Id, normal.ConnectionId, "chat_shell", "manual", null,
         "shell test", emptyEnvironment, normal.Snapshot)
@@ -214,6 +303,37 @@ try
     Assert(simpleChild.Command == "echo MEZHS_SHELL_OK", "Shell command text was rewritten before persistence/execution.");
     Assert(simpleChild.ParentExecutionId == root.ExecutionId && simpleChild.CorrelationId == root.CorrelationId,
         "Executor shell execution lost Agent causal identity.");
+
+    // Completion uses the real durable Executor record, not transient shell output.
+    var exactDurable = evaluations.EvaluateCompletion(Require("echo MEZHS_SHELL_OK"), root, true);
+    var prefixDurable = evaluations.EvaluateCompletion(Require("echo MEZHS_*"), root, true);
+    var unrelatedDurable = evaluations.EvaluateCompletion(Require("echo NOT_EXECUTED"), root, true);
+    Assert(exactDurable.State == PolicyCompletionState.Accepted &&
+           prefixDurable.State == PolicyCompletionState.Accepted &&
+           unrelatedDurable.State == PolicyCompletionState.Rejected,
+        "Persisted SH command evidence did not satisfy exact/prefix requirements correctly.");
+
+    // ABORT suppresses SH and ATTACH regardless of their position in the same reply.
+    var shellCountBeforeAbort = executor.List("chat_shell").Count;
+    foreach (var content in new[]
+    {
+        "<SH>\necho SHOULD_NOT_RUN\n</SH>\n<ABORT>",
+        "<ABORT>\n<SH>\necho SHOULD_NOT_RUN\n</SH>",
+        "<ATTACH>\nmissing-file.txt\n</ATTACH>\n<ABORT>",
+        "<SH>\necho SHOULD_NOT_RUN\n</SH>\n<DONE>\n<ABORT>"
+    })
+    {
+        var aborted = await interpreter.InterpretAsync(
+            root, done, Guid.NewGuid().ToString("N"), content, CancellationToken.None);
+        Assert(aborted.Aborted && aborted.Error is null && aborted.Results.Count == 0 &&
+               !aborted.CompletionClaimed, "ABORT did not suppress the entire command batch.");
+    }
+    Assert(executor.List("chat_shell").Count == shellCountBeforeAbort, "ABORT executed a shell command.");
+    var escapedAbort = await interpreter.InterpretAsync(
+        root, normal, "escaped-abort", "<escape><ABORT></escape>", CancellationToken.None);
+    Assert(!escapedAbort.Aborted, "Escaped ABORT incorrectly ended the execution.");
+    Assert(!parser.Parse("<SH>\necho <ABORT>\n</SH>").Commands.Any(c => c.Name == "ABORT"),
+        "ABORT inside an opaque SH body became an executable marker.");
 
     var duplicate = await interpreter.InterpretAsync(
         root, normal, "msg-duplicate",

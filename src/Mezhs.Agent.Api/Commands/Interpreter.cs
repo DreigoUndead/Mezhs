@@ -20,7 +20,8 @@ public sealed record Result(
 public sealed record Interpretation(
     bool CompletionClaimed,
     IReadOnlyList<Result> Results,
-    string? Error);
+    string? Error,
+    bool Aborted = false);
 
 public sealed class Interpreter(
     Parser parser,
@@ -44,6 +45,12 @@ public sealed class Interpreter(
         {
             return new Interpretation(false, [], ex.Message);
         }
+
+        // ABORT takes precedence over the entire parsed reply, including commands before it.
+        // A malformed ABORT block is not a valid marker and cannot cause execution.
+        if (batch.Commands.Any(command =>
+                string.Equals(command.Name, "ABORT", StringComparison.Ordinal) && command.Body is null))
+            return new Interpretation(false, [], null, Aborted: true);
 
         var executable = new List<(CommandDefinition Definition, string Body)>();
         var completionClaimed = false;

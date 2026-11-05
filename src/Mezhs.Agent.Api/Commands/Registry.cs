@@ -9,6 +9,7 @@ public enum CommandForm
 public enum CommandBehavior
 {
     Complete,
+    Abort,
     Shell,
     Attach
 }
@@ -23,6 +24,7 @@ public static class Registry
     public static readonly CommandDefinition[] All =
     [
         new("DONE", CommandForm.Marker, CommandBehavior.Complete),
+        new("ABORT", CommandForm.Marker, CommandBehavior.Abort),
         new("SH", CommandForm.Block, CommandBehavior.Shell),
         new("ATTACH", CommandForm.Block, CommandBehavior.Attach)
     ];

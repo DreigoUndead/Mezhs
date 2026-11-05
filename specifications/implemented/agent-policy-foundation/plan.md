@@ -2,8 +2,8 @@
 
 **ID:** agent-policy-foundation  
 **Level:** High-risk — agent permissions, persisted policy enforcement and execution recovery.  
-**Status:** Planning / development handoff; implementation not started.  
-**Parent:** [Sandboxed agent jobs V1 architecture](../sandboxed-agent-jobs/plan.md). This child is a bounded extraction of owner-approved requirements, not a replacement or amendment to the parent.
+**Status:** Implemented on development branch; independent code review and testing pending.
+**Parent:** [Sandboxed agent jobs V1 architecture](../../planned/sandboxed-agent-jobs/plan.md). This child is a bounded extraction of owner-approved requirements, not a replacement or amendment to the parent.
 
 ## Goal and scope
 

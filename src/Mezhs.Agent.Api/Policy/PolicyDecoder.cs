@@ -14,6 +14,49 @@ public sealed class PolicyDecoder
         .DisableAliases()
         .Build();
 
+    // Project policies are standalone policy definitions, never an Agent server configuration.
+    public PolicyContext DecodeProjectFile(string path)
+    {
+        if (!Path.IsPathFullyQualified(path) ||
+            !string.Equals(Path.GetFileName(path), "agent.yaml", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(Path.GetFileName(Path.GetDirectoryName(path)), ".mezhs", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Project policy must be an absolute path to .mezhs/agent.yaml.");
+
+        var fullPath = Path.GetFullPath(path);
+        try
+        {
+            return DecodeDefinition(fullPath, File.ReadAllText(fullPath));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException($"Could not read project policy '{fullPath}': {ex.Message}", ex);
+        }
+    }
+
+    // The stored effective settings use the same YAML shape as PolicyDefinition.
+    // Never resolve a live registry entry or reread a project file during recovery.
+    public PolicyContext DecodeSnapshot(string policyId, string snapshot) =>
+        DecodeDefinition(policyId, snapshot);
+
+    private PolicyContext DecodeDefinition(string id, string yaml)
+    {
+        if (string.IsNullOrWhiteSpace(yaml))
+            throw new InvalidOperationException($"Policy snapshot or file '{id}' is empty.");
+        try
+        {
+            var stream = new YamlStream();
+            using var reader = new StringReader(yaml);
+            stream.Load(reader);
+            if (stream.Documents.Count != 1 || stream.Documents[0].RootNode is not YamlMappingNode root)
+                throw new InvalidOperationException("Policy must contain one YAML mapping document.");
+            return Compile(id, YamlModelMapper.Map<PolicyDefinition>(root, $"policy '{id}'"));
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Invalid policy snapshot or file '{id}': {ex.Message}", ex);
+        }
+    }
+
     public IReadOnlyDictionary<string, PolicyContext> DecodePolicies(YamlMappingNode policiesNode)
     {
         var definitions = YamlModelMapper.Map<Dictionary<string, PolicyDefinition>>(
@@ -40,7 +83,9 @@ public sealed class PolicyDecoder
         var completion = definition.Completion!;
         var limits = definition.Limits!;
         var name = string.IsNullOrWhiteSpace(definition.Name) ? id : definition.Name.Trim();
-        var connectionId = definition.ConnectionId!.Trim();
+        if (string.IsNullOrWhiteSpace(definition.ConnectionId))
+            throw new InvalidOperationException($"Policy '{id}' must define a nonempty connectionId.");
+        var connectionId = definition.ConnectionId.Trim();
         var defaultModel = string.IsNullOrWhiteSpace(definition.DefaultModel)
             ? null
             : definition.DefaultModel.Trim();
@@ -58,7 +103,7 @@ public sealed class PolicyDecoder
                 NormalizeEnvironmentNames(definition.Environment.Allow, $"policies.{id}.environment.allow")),
             new PolicyCompletionSettings(
                 completion.RequireDone,
-                NormalizeCommandNames(
+                NormalizeSuccessfulRequirements(
                     completion.RequiredSuccessfulCommands,
                     $"policies.{id}.completion.requiredSuccessfulCommands")),
             new PolicyLimitsSettings(limits.CommandTimeoutSeconds));
@@ -90,15 +135,39 @@ public sealed class PolicyDecoder
         [
             context =>
             {
-                var missing = required.Where(command => !context.Execution.Evidence.Any(evidence =>
-                        string.Equals(evidence.CommandName, command, StringComparison.OrdinalIgnoreCase) &&
-                        evidence.Status == AgentExecutionStatus.Completed))
+                var missing = required.Where(requirement => !context.Execution.Evidence.Any(evidence =>
+                        MatchesSuccessfulEvidence(context.Execution.Execution, evidence, requirement)))
                     .ToArray();
                 return missing.Length == 0
                     ? null
                     : $"Completion requires successful command evidence for {string.Join(", ", missing.Select(command => $"<{command}>"))}.";
             }
         ];
+    }
+
+    private static bool MatchesSuccessfulEvidence(
+        ExecutionEvidence root,
+        ExecutionEvidence evidence,
+        string requirement)
+    {
+        if (evidence.Status != AgentExecutionStatus.Completed ||
+            !string.Equals(evidence.CorrelationId, root.CorrelationId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(evidence.ParentExecutionId, root.ExecutionId, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (Registry.TryGet(requirement, out var command))
+            return command.Behavior is CommandBehavior.Shell or CommandBehavior.Attach &&
+                string.Equals(evidence.CommandName, command.Name, StringComparison.OrdinalIgnoreCase) &&
+                (command.Behavior != CommandBehavior.Shell ||
+                 (evidence.Kind == AgentExecutionKind.Shell && evidence.ExitCode == 0));
+
+        if (evidence.Kind != AgentExecutionKind.Shell ||
+            !string.Equals(evidence.CommandName, "SH", StringComparison.OrdinalIgnoreCase) ||
+            evidence.ExitCode != 0)
+            return false;
+        return requirement.EndsWith('*')
+            ? evidence.Request.StartsWith(requirement[..^1], StringComparison.Ordinal)
+            : string.Equals(evidence.Request, requirement, StringComparison.Ordinal);
     }
 
     private static IReadOnlyList<Func<PolicyActionContext, PolicyActionRuleResult>> CompileActionRules(
@@ -145,6 +214,8 @@ public sealed class PolicyDecoder
                 $"If <{done.Name}> follows executable commands in the same reply, MEŽS may finish immediately after those commands succeed and completion policy is satisfied; omit <{done.Name}> when you need to inspect their results first.");
         }
 
+        rules.Add("To terminate the execution unsuccessfully without completing policy requirements, emit <ABORT> on its own line. Do not include other commands in that reply.");
+
         if (settings.Completion.RequiredSuccessfulCommands.Count > 0)
         {
             rules.Add(
@@ -162,8 +233,33 @@ public sealed class PolicyDecoder
         foreach (var raw in values ?? [])
         {
             var value = raw?.Trim().ToUpperInvariant() ?? string.Empty;
-            if (!Registry.TryGet(value, out var definition) || definition.Behavior == CommandBehavior.Complete)
+            if (!Registry.TryGet(value, out var definition) || definition.Behavior is CommandBehavior.Complete or CommandBehavior.Abort)
                 throw new InvalidOperationException($"{path} contains unknown executable command '{raw}'.");
+            if (seen.Add(value))
+                result.Add(value);
+        }
+        return result;
+    }
+
+    private static IReadOnlyList<string> NormalizeSuccessfulRequirements(
+        IEnumerable<string>? values,
+        string path)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in values ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                throw new InvalidOperationException($"{path} contains an empty successful command requirement.");
+            var candidate = raw.Trim();
+            var knownCommand = Registry.TryGet(candidate, out var command);
+            if (knownCommand && command.Behavior is CommandBehavior.Complete or CommandBehavior.Abort)
+                throw new InvalidOperationException($"{path} cannot require terminal command {candidate}.");
+            var value = knownCommand ? command!.Name : raw;
+            if (value == "*")
+                throw new InvalidOperationException($"{path} requires a nonempty prefix before the wildcard.");
+            if (value.EndsWith('*') && value[..^1].Contains('*'))
+                throw new InvalidOperationException($"{path} supports only a single trailing '*' prefix wildcard.");
             if (seen.Add(value))
                 result.Add(value);
         }

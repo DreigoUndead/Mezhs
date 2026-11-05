@@ -82,6 +82,9 @@ public static class AgentApiMapper
                         completionClaimed = true;
                         continue;
                     }
+                    if (Registry.TryGet(command.Name, out definition) &&
+                        definition.Behavior == CommandBehavior.Abort)
+                        continue;
 
                     int? commandIndex = null;
                     if (Registry.TryGet(command.Name, out definition))

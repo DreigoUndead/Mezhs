@@ -19,7 +19,7 @@ public sealed class AgentService(
         if (string.IsNullOrWhiteSpace(request.Input))
             throw new RequestValidationException("input is required.");
 
-        var policy = policies.Get(policyId);
+        var policy = policies.ResolveForExecution(policyId);
         var chatId = string.IsNullOrWhiteSpace(request.ChatId) ? null : request.ChatId.Trim();
         var connectionId = ResolveConnectionId(request.ConnectionId, chatId, policy.ConnectionId);
         var integration = integrations.Get(connectionId);
@@ -61,7 +61,7 @@ public sealed class AgentService(
             sourceReference: null,
             request.Input,
             environment,
-            policies.Snapshot(policyId),
+            policy.Snapshot,
             model);
 
         worker.SignalWork();
