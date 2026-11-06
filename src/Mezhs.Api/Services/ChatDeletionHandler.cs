@@ -2,10 +2,15 @@ namespace Mezhs.Services;
 
 public interface IChatDeletionHandler
 {
-    IReadOnlyList<string> DeleteChats(IEnumerable<string> chatIds);
+    Task<IReadOnlyList<string>> DeleteChatsAsync(
+        IEnumerable<string> chatIds,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class ChatDeletionHandler(ChatStore chats) : IChatDeletionHandler
 {
-    public IReadOnlyList<string> DeleteChats(IEnumerable<string> chatIds) => chats.DeleteChats(chatIds);
+    public Task<IReadOnlyList<string>> DeleteChatsAsync(
+        IEnumerable<string> chatIds,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(chats.DeleteChats(chatIds));
 }

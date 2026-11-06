@@ -182,12 +182,18 @@ public static class MezhsApi
             return Results.Created($"/v1/chats/{chat.ChatId}", chat);
         });
 
-        app.MapDelete("/v1/chats", ([FromBody] DeleteChatsRequest request, IChatDeletionHandler chats) =>
-            Results.Ok(new { deletedChatIds = chats.DeleteChats(request.ChatIds ?? []) }));
+        app.MapDelete("/v1/chats", async (
+            [FromBody] DeleteChatsRequest request,
+            IChatDeletionHandler chats,
+            CancellationToken cancellationToken) =>
+            Results.Ok(new { deletedChatIds = await chats.DeleteChatsAsync(request.ChatIds ?? [], cancellationToken) }));
 
-        app.MapDelete("/v1/chats/{chatId}", (string chatId, IChatDeletionHandler chats) =>
+        app.MapDelete("/v1/chats/{chatId}", async (
+            string chatId,
+            IChatDeletionHandler chats,
+            CancellationToken cancellationToken) =>
         {
-            chats.DeleteChats([chatId]);
+            await chats.DeleteChatsAsync([chatId], cancellationToken);
             return Results.NoContent();
         });
 

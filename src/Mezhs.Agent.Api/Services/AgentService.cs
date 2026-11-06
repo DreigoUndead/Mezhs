@@ -9,7 +9,8 @@ public sealed class AgentService(
     AgentStore store,
     PolicyRegistry policies,
     AgentWorker worker,
-    IntegrationRegistry integrations)
+    IntegrationRegistry integrations,
+    ChatStore chats)
 {
     public ExecutionRecord Start(CreateExecutionRequest request)
     {
@@ -53,16 +54,23 @@ public sealed class AgentService(
             }
         }
 
-        var execution = store.TryCreateRootExecution(
-            policyId,
-            connectionId,
-            chatId,
-            source: "manual",
-            sourceReference: null,
-            request.Input,
-            environment,
-            policies.Snapshot(policyId),
-            model);
+        ExecutionRecord execution;
+        lock (chats.DeletionSync)
+        {
+            if (chatId is not null)
+            {
+                if (worker.IsChatDeleting(chatId))
+                    throw new RequestValidationException($"Chat '{chatId}' is being deleted.");
+                if (chats.GetChat(chatId) is null)
+                    throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
+                store.ValidateAgentChatPolicy(chatId, policyId);
+                store.ValidateAgentChatRunnable(chatId);
+            }
+            execution = store.TryCreateRootExecution(
+                policyId, connectionId, chatId,
+                source: "manual", sourceReference: null, request.Input,
+                environment, policies.Snapshot(policyId), model);
+        }
 
         worker.SignalWork();
         return execution;

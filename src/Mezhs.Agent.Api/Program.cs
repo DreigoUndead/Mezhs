@@ -51,7 +51,6 @@ app.UseCors();
 
 var store = app.Services.GetRequiredService<AgentStore>();
 store.Initialize();
-app.Services.GetRequiredService<AgentChatDeletionHandler>().Reconcile();
 app.Services.GetRequiredService<AgentRecoveryState>().Prepare();
 
 app.MapGet("/", () => Results.Ok(new
