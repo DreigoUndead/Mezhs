@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Plus, Settings, Trash2 } from "lucide-react";
 import {
   apiJson,
   apiJsonOrEmpty,
@@ -178,7 +179,7 @@ function shortId(value: string) {
 }
 
 function displayTitle(chat: AgentChat) {
-  return chat.title?.trim() || `Agent chat ${shortId(chat.chatId)}`;
+  return chat.title?.trim() || `Agent ${shortId(chat.chatId)}`;
 }
 
 function matchesAgentChat(chat: AgentChat, query: string, category?: AgentCategory, policyName?: string) {
@@ -1173,8 +1174,8 @@ useEffect(() => {
             onKeyDown={(event) => { if (event.key === "Escape") setShowConversationManager(false); }}>
             <header>
               <div>
-                <h2 id="agent-manager-title">Manage Agent conversations</h2>
-                <p id="agent-manager-summary">{managedChats.length} of {filteredChats.length} shown · {chats.length} total Agent chats</p>
+                <h2 id="agent-manager-title">Manage agents</h2>
+                <p id="agent-manager-summary">{managedChats.length} of {filteredChats.length} shown · {chats.length} total agents</p>
               </div>
             </header>
             <label className="agent-manager-search">Filter displayed conversations
@@ -1207,7 +1208,7 @@ useEffect(() => {
                     onClick={() => void deleteConversations([chat], displayTitle(chat))}>Delete</button>
                 </div>
               ))}
-              {managedChats.length === 0 && <p>No Agent chats match the current filters.</p>}
+              {managedChats.length === 0 && <p>No agents match the current filters.</p>}
             </div>
             <footer>
               <button type="button" disabled={deletingChats ||
@@ -1229,13 +1230,13 @@ useEffect(() => {
           <span className={`health-dot ${apiReady ? "online" : ""}`} title={apiReady ? "MEŽS Agent API online" : "MEŽS Agent API unavailable"} />
         </div>
 
-        <button className="new-chat" type="button" onClick={beginNewChat}><span aria-hidden="true">+</span>New agent chat</button>
+        <button className="new-chat" type="button" onClick={beginNewChat}>
+          <Plus aria-hidden="true" size={18} strokeWidth={2} />
+          New agent
+        </button>
 
-        <div className="agent-group-heading">
-          <label className="section-label" htmlFor="agent-category-filter">Groups</label>
-        </div>
         <div className="agent-group-filter">
-          <select id="agent-category-filter" value={categoryFilter}
+          <select id="agent-category-filter" aria-label="Filter agents by group" value={categoryFilter}
             onChange={(event) => selectCategoryFilter(event.target.value)}>
             <option value="all">All groups ({chats.length})</option>
             {categories.map((category) => (
@@ -1252,12 +1253,15 @@ useEffect(() => {
             title={showCategoryForm ? "Close new group form" : "Create group"}
             aria-expanded={showCategoryForm}
             onClick={() => setShowCategoryForm((current) => !current)}>
-            <span aria-hidden="true">+</span>
+            <Plus aria-hidden="true" size={18} strokeWidth={2} />
           </button>
           {selectedGroup && (
             <button type="button" className="agent-group-delete"
-              aria-label={`Delete group ${selectedGroup.name}`} title="Delete selected group"
-              onClick={() => void deleteCategory(selectedGroup)}>×</button>
+              aria-label={`Delete group ${selectedGroup.name}`}
+              title={`Delete group: ${selectedGroup.name}`}
+              onClick={() => void deleteCategory(selectedGroup)}>
+              <Trash2 aria-hidden="true" size={17} strokeWidth={1.8} />
+            </button>
           )}
         </div>
         {showCategoryForm && (
@@ -1271,23 +1275,28 @@ useEffect(() => {
         )}
 
         <div className="agent-sidebar-tools">
-          <label>Search agent chats
-            <input type="search" name="agent-chat-search" autoComplete="off"
-              placeholder="Search conversations"
-              value={search} onChange={(event) => setSearch(event.target.value)} />
-          </label>
-          <button type="button" onClick={openConversationManager}>Manage</button>
+          <input type="search" name="agent-chat-search" autoComplete="off"
+            aria-label="Search agents" placeholder="Search agents"
+            value={search} onChange={(event) => setSearch(event.target.value)} />
+          <button type="button" aria-label="Manage agents" title="Manage agents"
+            onClick={openConversationManager}>
+            <Settings aria-hidden="true" size={18} strokeWidth={1.8} />
+          </button>
         </div>
-        <span className="section-label">Agent chats · {filteredChats.length} of {chats.length}</span>
-        <nav className="agent-chat-list" aria-label="Agent chats">
+        <span className="section-label">Agents · {filteredChats.length} of {chats.length}</span>
+        <nav className="agent-chat-list" aria-label="Agents">
           {filteredChats.map((chat) => (
             <div className="agent-chat-entry" key={chat.chatId}>
               <button type="button"
                 className={`agent-chat-row ${selectedChatId === chat.chatId && !creating ? "selected" : ""}`}
                 onClick={() => selectChat(chat.chatId)}>
                 <span className="agent-chat-title">{displayTitle(chat)}</span>
-                <small>{policyNames.get(chat.policyId) ?? chat.policyId} · {chat.originSource}</small>
-                <small title={new Date(chat.updatedAt).toLocaleString()}>{activityLabel(chat.updatedAt)}</small>
+                <span className="agent-chat-meta">
+                  <span className="agent-chat-context">{policyNames.get(chat.policyId) ?? chat.policyId} · {chat.originSource}</span>
+                  <time dateTime={chat.updatedAt} title={new Date(chat.updatedAt).toLocaleString()}>
+                    {activityLabel(chat.updatedAt)}
+                  </time>
+                </span>
                 {chat.paused && <i>paused</i>}
               </button>
               <button type="button" className="agent-chat-menu-toggle"
@@ -1296,26 +1305,23 @@ useEffect(() => {
                 onClick={() => setChatMenuId((current) => current === chat.chatId ? null : chat.chatId)}>⋯</button>
               {chatMenuId === chat.chatId && (
                 <div className="agent-chat-menu">
-                  <label className="agent-chat-menu-group">
-                    Group
-                    <select value={chat.categoryId ?? ""}
-                      aria-label={`Group for ${displayTitle(chat)}`}
-                      onChange={(event) => void assignCategory(chat.chatId, event.target.value)}>
-                      <option value="">Uncategorized</option>
-                      {categories.map((category) => (
-                        <option key={category.categoryId} value={category.categoryId}>{category.name}</option>
-                      ))}
-                    </select>
-                  </label>
+                  <select className="agent-chat-menu-group" value={chat.categoryId ?? ""}
+                    aria-label={`Group for ${displayTitle(chat)}`}
+                    onChange={(event) => void assignCategory(chat.chatId, event.target.value)}>
+                    <option value="">Uncategorized</option>
+                    {categories.map((category) => (
+                      <option key={category.categoryId} value={category.categoryId}>{category.name}</option>
+                    ))}
+                  </select>
                   <button type="button" className="agent-chat-menu-delete"
                     disabled={deletingChats}
-                    onClick={() => void deleteConversations([chat], displayTitle(chat))}>Delete chat</button>
+                    onClick={() => void deleteConversations([chat], displayTitle(chat))}>Delete</button>
                 </div>
               )}
             </div>
           ))}
           {filteredChats.length === 0 &&
-            <p className="agent-empty-sidebar">{chats.length === 0 ? "No agent chats yet." : "No matching agent chats."}</p>}
+            <p className="agent-empty-sidebar">{chats.length === 0 ? "No agents yet." : "No matching agents."}</p>}
         </nav>
 
         <div className="agent-sidebar-footer">
