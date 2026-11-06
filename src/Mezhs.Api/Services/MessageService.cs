@@ -300,8 +300,13 @@ public sealed class MessageService(
             };
             store.SaveMessage(reply);
 
-            UpdateRemoteState(chat, message.ConnectionId, remoteState, continueRemote, result, reply.MessageId);
-            store.SaveChat(chat);
+            // Category mutations persist the same shared ChatRecord. Keep remote-state
+            // changes and serialization under their common deletion/write guard.
+            lock (store.DeletionSync)
+            {
+                UpdateRemoteState(chat, message.ConnectionId, remoteState, continueRemote, result, reply.MessageId);
+                store.SaveChat(chat);
+            }
 
             message.ReplyMessageId = reply.MessageId;
             message.Status = MessageStatus.Completed;
