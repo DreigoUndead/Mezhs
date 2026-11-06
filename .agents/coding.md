@@ -30,6 +30,8 @@ Ask these throughout the work, especially before adding abstractions:
 
 Prefer a coherent mechanism over duplicated decisions. Do not abstract a first occurrence solely for hypothetical reuse.
 
+we shouldn't build coordination machinery merely to guarantee that every concurrent request fails gracefully.
+
 ## Repository-specific guidance
 
 - **Codegraph:** prefer live `codegraph` before broad manual source searches for dependencies, callers and impact. GitHub-only agents may use `.agents/codegraph/graph.json` as a navigation hint, **not source truth**. After code changes that affect dependencies, regenerate the committed graph before testing/review using `node .agents/codegraph/export.cjs` (Codegraph 3.0.0 and Node.js). Do not hand-edit generated graphs. `.codegraph/` is local cache: never commit it. Report missing tools or stale data.

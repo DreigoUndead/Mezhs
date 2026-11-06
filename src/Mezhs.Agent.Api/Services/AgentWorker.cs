@@ -71,9 +71,6 @@ public sealed class AgentWorker : BackgroundService
 
     public void SignalWork() => _wake.Writer.TryWrite(true);
 
-    // Callers must hold ChatStore.DeletionSync when consulting this gate.
-    public bool IsChatDeleting(string chatId) => _deletingChats.Contains(chatId);
-
     public void BeginChatDeletion(IReadOnlyList<string> ids)
     {
         lock (_chatStore.DeletionSync)
