@@ -23,7 +23,6 @@ public static class MezhsApi
         builder.Services.AddProblemDetails();
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton<ChatStore>();
-        builder.Services.AddSingleton<IChatDeletionHandler, ChatDeletionHandler>();
         builder.Services.AddSingleton<ChatService>();
         builder.Services.AddSingleton<FileStore>();
         builder.Services.AddSingleton<IIntegrationHost, IntegrationHost>();
@@ -42,8 +41,11 @@ public static class MezhsApi
         return app;
     }
 
-    public static WebApplication MapMezhsApi(this WebApplication app)
+    public static WebApplication MapMezhsApi(this WebApplication app,
+        Func<IEnumerable<string>, CancellationToken, Task<IReadOnlyList<string>>>? deleteChats = null)
     {
+        deleteChats ??= (ids, _) => Task.FromResult(app.Services.GetRequiredService<ChatStore>().DeleteChats(ids));
+
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
         app.MapGet("/v1/connections", (IntegrationRegistry integrations) =>
@@ -184,16 +186,14 @@ public static class MezhsApi
 
         app.MapDelete("/v1/chats", async (
             [FromBody] DeleteChatsRequest request,
-            IChatDeletionHandler chats,
             CancellationToken cancellationToken) =>
-            Results.Ok(new { deletedChatIds = await chats.DeleteChatsAsync(request.ChatIds ?? [], cancellationToken) }));
+            Results.Ok(new { deletedChatIds = await deleteChats(request.ChatIds ?? [], cancellationToken) }));
 
         app.MapDelete("/v1/chats/{chatId}", async (
             string chatId,
-            IChatDeletionHandler chats,
             CancellationToken cancellationToken) =>
         {
-            await chats.DeleteChatsAsync([chatId], cancellationToken);
+            await deleteChats([chatId], cancellationToken);
             return Results.NoContent();
         });
 

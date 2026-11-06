@@ -8,7 +8,7 @@ namespace Mezhs.Agent.Services;
 public sealed class AgentChatDeletionHandler(
     ChatStore chats,
     AgentStore agents,
-    AgentWorker worker) : IChatDeletionHandler
+    AgentWorker worker)
 {
     public async Task<IReadOnlyList<string>> DeleteChatsAsync(
         IEnumerable<string> chatIds,

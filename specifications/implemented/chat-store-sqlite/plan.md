@@ -38,7 +38,7 @@ Why:
 
 ### 3. Replace Agent-host chat deletion coordination
 
-Keep the existing single/bulk `DELETE /v1/chats` routes; no parallel Agent endpoint.
+Keep the existing single/bulk `DELETE /v1/chats` routes; no parallel Agent endpoint. The shared `MapMezhsApi` maps Core deletion by default and accepts an optional Agent-host deletion callback. Avoid a one-method deletion interface and Core pass-through handler; retain the Agent-specific coordination class.
 
 1. Normalize and validate the complete requested set of Core chat IDs.
 2. Under a small **in-process admission/stop gate**, prevent new Agent work from entering those chats. Stop queued/running **Agent reasoning/worker** activity and wait until those workers can no longer write Agent/Core chat data. A deletion-only stop must **not** reuse cancellation that kills Executor shells, and must not wait for those shells to finish.
