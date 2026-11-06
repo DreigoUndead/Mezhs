@@ -110,17 +110,17 @@ if ($agentApp -notmatch 'Promise\.allSettled' -or
 }
 
 # Shared chat-management semantics and compact sidebar structure on both web surfaces.
-if ($agentCss -notmatch 'agent-sidebar-tools[\\s\\S]*?gap:\\s*6px' -or
-    $baseCss -notmatch '\\.base-group-filter' -or
-    $baseCss -notmatch '\\.base-sidebar-tools' -or
+if ($agentCss -notmatch 'agent-sidebar-tools[\s\S]*?gap:\s*6px' -or
+    $baseCss -notmatch '\.base-group-filter' -or
+    $baseCss -notmatch '\.base-sidebar-tools' -or
     $sharedApp -notmatch 'className="base-group-filter"' -or
     $sharedApp -notmatch 'className="base-sidebar-tools"' -or
     $sharedApp -notmatch 'async function renameChat' -or
     $agentApp -notmatch 'async function renameChat' -or
     $sharedApp -notmatch 'method: "PUT"' -or
     $agentApp -notmatch 'method: "PUT"' -or
-    $sharedApp -match 'setCategoryFilter\\(category\\.categoryId\\)' -or
-    $agentApp -match 'selectCategoryFilter\\(category\\.categoryId\\)') {
+    $sharedApp -match 'setCategoryFilter\(category\.categoryId\)' -or
+    $agentApp -match 'selectCategoryFilter\(category\.categoryId\)') {
     throw "Base and Agent chat group controls, rename actions, or non-switching group creation have diverged."
 }
 
