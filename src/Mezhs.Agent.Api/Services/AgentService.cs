@@ -92,14 +92,18 @@ public sealed class AgentService(
         {
             ids = requested.Select(id => chats.GetChat(id)?.ChatId
                 ?? throw new ResourceNotFoundException($"Chat '{id}' was not found.")).ToArray();
-            worker.StopChatExecutions(ids);
+            foreach (var execution in ids.SelectMany(store.GetExecutions)
+                         .Where(record => record.ParentExecutionId is null &&
+                             record.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running
+                                 or AgentExecutionStatus.CancelRequested))
+                worker.Cancel(execution.ExecutionId);
         }
 
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         stop.CancelAfter(TimeSpan.FromSeconds(20));
         try
         {
-            // Agent reasoning joins, but Executor shells keep running independently.
+            // Join Agent reasoning; Cancel also requests termination of associated Executor shells.
             await worker.WaitForChatStopAsync(ids, stop.Token);
             while (true)
             {

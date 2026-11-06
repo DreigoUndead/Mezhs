@@ -69,25 +69,6 @@ public sealed class AgentWorker : BackgroundService
 
     public void SignalWork() => _wake.Writer.TryWrite(true);
 
-    public void StopChatExecutions(IReadOnlyList<string> ids)
-    {
-        // Stop Agent reasoning only; independently running Executor shells are untouched.
-        foreach (var execution in ids.SelectMany(_store.GetExecutions)
-                     .Where(item => item.ParentExecutionId is null &&
-                         item.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running
-                             or AgentExecutionStatus.CancelRequested))
-        {
-            if (execution.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running)
-                _store.RequestCancel(execution.ExecutionId);
-            lock (_cancellationSync)
-            {
-                if (_cancellations.TryGetValue(execution.ExecutionId, out var cancellation))
-                    cancellation.Cancel();
-            }
-        }
-        SignalWork();
-    }
-
     public async Task WaitForChatStopAsync(IReadOnlyList<string> ids, CancellationToken cancellationToken)
     {
         while (true)

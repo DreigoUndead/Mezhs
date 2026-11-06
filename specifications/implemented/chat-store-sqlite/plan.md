@@ -41,7 +41,7 @@ Why:
 Keep the existing single/bulk `DELETE /v1/chats` routes; no parallel Agent endpoint. The shared `MapMezhsApi` maps Core deletion by default and accepts an optional Agent-host deletion callback. Avoid a one-method deletion interface and Core pass-through handler; keep Agent-specific coordination in the existing AgentService; do not add a dedicated deletion handler.
 
 1. Normalize and validate the complete requested set of Core chat IDs.
-2. Request cancellation of existing queued/running **Agent reasoning/worker** activity and wait for it to stop before deletion. Do not maintain an in-process deletion/admission gate: concurrent submissions may fail or cause deletion to fail. The deletion-only stop must **not** kill Executor shells or wait for those shells to finish.
+2. Request cancellation of existing queued/running **Agent reasoning/worker** activity and wait for it to stop before deletion. Do not maintain an in-process deletion/admission gate: concurrent submissions may fail or cause deletion to fail. Use the existing AgentWorker.Cancel operation, which requests termination of associated active Executor shells. Wait for Agent reasoning to stop, not for Executor shell termination.
 3. Ensure ongoing core message operations cannot write into removed chats after deletion. If Agent/core processing cannot quiesce, report failure **before** destructive commits.
 4. Delete Agent chat, execution and staged-attachment **references** in **one AgentStore SQLite transaction**.
 5. Delete Core chat and messages in **one ChatStore SQLite transaction**. Successful response only after both commits. Bulk requests use one transaction per store; preserve validation semantics.
@@ -57,8 +57,8 @@ Keep the existing single/bulk `DELETE /v1/chats` routes; no parallel Agent endpo
 - [ ] Core chat, message, category and remote state operations persist correctly across restarts using only Core SQLite; no Core dependency on Agent/Executor.
 - [ ] Existing file-backed data migrates losslessly and exactly once; deleted chats never reappear from retained legacy JSON files.
 - [ ] Main API single/bulk chat deletion uses a local SQLite transaction, without Agent/Executor knowledge.
-- [ ] Agent host stops and joins Agent activity before Agent-first/Core-second deletion; it neither kills nor waits for independently running Executor work.
-- [ ] Deletion does not touch Executor storage or historical executions; detached shell completion cannot recreate a deleted Agent/chat or resume reasoning.
+- [ ] Agent host cancels and joins Agent activity before Agent-first/Core-second deletion; cancellation requests killing associated active Executor shells without waiting for shell termination.
+- [ ] Deletion requests killing associated active shells only through Executor-owned cancellation APIs; historical Executor records remain, and shell termination cannot recreate deleted Agent/chat data.
 - [ ] Concurrent Agent submissions/claims, core message updates and repeated/delete retries are handled without stale writes.
 - [ ] A forced failure/crash between commits may leave Core-only data, but restart remains usable and a later Core delete succeeds. No cross-store rollback or tombstone-recovery mechanism is added.
 - [ ] Existing APIs, UI chat-management features and unrelated shared files behave as before.
@@ -66,7 +66,7 @@ Keep the existing single/bulk `DELETE /v1/chats` routes; no parallel Agent endpo
 ## Verification and integration
 
 - Build full .NET solution and both Web UIs; run the core/Agent API, storage, concurrency, deletion and restart smoke suites.
-- Add migration and partial-failure injection tests; check JSONL status deduplication, metadata/remote-state preservation, category operations, bulk transactions, deletion/restart non-resurrection, Agent stop without shell kill, and late detached shell completion.
+- Add migration and partial-failure injection tests; check JSONL status deduplication, metadata/remote-state preservation, category operations, bulk transactions, deletion/restart non-resurrection, Agent cancellation with associated shell kill, and no chat resurrection after shell termination.
 - The owner waived further separate plan review on 6 November 2026 because the design had already been agreed through prior task history. Independent code review and independent final testing remain mandatory. Update `specifications/current/` when behavior changes, and move this plan to `specifications/implemented/` on the same task branch before code review. Planning-only commits must never target `main`.
 - **Branch and integration dependency:** This plan is being staged on the existing `agent-chat-management` branch (draft PR #47), whose deletion plan specifies the old guard/Executor behavior. This plan supersedes **that deletion behavior only**, not the UI feature. Create the dedicated `chat-store-sqlite` task branch from `agent-chat-management` **before plan review or implementation**; commit subsequent plan revisions, implementation, checks and review fixes on that task branch. Keep the PR stacked against #47 until the dependency is resolved. No plan, workflow or implementation commits may go directly to `main`. Both PRs require separate owner approval before release.
 - Report exact commits, tests, residual risks and proposed release bump. Leave `VERSION` and `CHANGELOG.md` alone until an owner-approved merge.
