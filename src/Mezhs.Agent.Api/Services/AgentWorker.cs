@@ -69,30 +69,6 @@ public sealed class AgentWorker : BackgroundService
 
     public void SignalWork() => _wake.Writer.TryWrite(true);
 
-    public async Task WaitForChatStopAsync(IReadOnlyList<string> ids, CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var roots = ids.SelectMany(_store.GetExecutions)
-                .Where(record => record.ParentExecutionId is null).ToArray();
-            var rootIds = roots.Select(record => record.ExecutionId)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            Task[] inFlight;
-            lock (_inFlightSync)
-                inFlight = _inFlight.Where(pair => rootIds.Contains(pair.Key))
-                    .Select(pair => pair.Value).ToArray();
-            var running = roots.Any(record => record.Status is AgentExecutionStatus.Queued
-                or AgentExecutionStatus.Running or AgentExecutionStatus.CancelRequested);
-            if (!running && inFlight.All(task => task.IsCompleted))
-                return;
-            if (inFlight.Length > 0)
-                await Task.WhenAll(inFlight).WaitAsync(cancellationToken);
-            else
-                await Task.Delay(50, cancellationToken);
-        }
-    }
-
     public ExecutionRecord Cancel(string executionId)
     {
         var current = _store.GetExecution(executionId)

@@ -41,15 +41,15 @@ Why:
 Keep the existing single/bulk `DELETE /v1/chats` routes; no parallel Agent endpoint. The shared `MapMezhsApi` maps Core deletion by default and accepts an optional Agent-host deletion callback. Avoid a one-method deletion interface and Core pass-through handler; keep Agent-specific coordination in the existing AgentService; do not add a dedicated deletion handler.
 
 1. Normalize and validate the complete requested set of Core chat IDs.
-2. Request cancellation of existing queued/running **Agent reasoning/worker** activity and wait for it to stop before deletion. Do not maintain an in-process deletion/admission gate: concurrent submissions may fail or cause deletion to fail. Use the existing AgentWorker.Cancel operation, which requests termination of associated active Executor shells. Wait for Agent reasoning to stop, not for Executor shell termination.
-3. Ensure ongoing core message operations cannot write into removed chats after deletion. If Agent/core processing cannot quiesce, report failure **before** destructive commits.
+2. Request cancellation of existing queued/running **Agent reasoning/worker** activity through AgentWorker.Cancel, including termination requests for associated active Executor shells. Proceed immediately to deletion without waiting for Agent tasks, Core messages, or Executor shells. Do not maintain an in-process deletion/admission gate.
+3. Rely on the existing ChatStore write lock and missing-chat checks to reject late Core message writes. Concurrent Agent work can fail or leave residual Agent-only records; deletion does not wait for quiescence.
 4. Delete Agent chat, execution and staged-attachment **references** in **one AgentStore SQLite transaction**.
 5. Delete Core chat and messages in **one ChatStore SQLite transaction**. Successful response only after both commits. Bulk requests use one transaction per store; preserve validation semantics.
 6. On failure after step 4, return an error; do **not** try to reconstruct Agent data. Repeating deletion against the remaining Core chat must be safe even when Agent data is already absent.
 
 - Remove the current deletion-specific `Preparing`/`Deleting` guard/reconciliation machinery and `Executor.BlockChats`/`UnblockChats`/active-shell checks from the Agent deletion path. Any Executor-internal compatibility cleanup belongs exclusively to Executor code; never manipulate its database from Agent/Core.
 - Keep the normal Main API deletion purely Core-owned. Continue preventing concurrently admitted messages from recreating deleted chats, without a distributed protocol.
-- Accepted concurrency trade-off: Agent execution submission may race with deletion and be accepted before failing, being canceled, or disappearing with the deleted chat. A concurrent deletion may also fail and be retried. Do not add a deletion-state admission gate solely to guarantee a graceful rejection; retain worker stop/join and Core SQLite integrity safeguards.
+- Accepted concurrency trade-off: Agent execution submission may race with deletion and be accepted before failing, being canceled, or disappearing with the deleted chat. A concurrent deletion may also fail and be retried. Do not add a deletion-state admission gate or stop/join protocol; retain Core SQLite integrity safeguards.
 - Adjust UI confirmation/error handling only where needed to reflect the new stop/detach semantics. Search/group/rename and other chat-management UI behavior is not part of this redesign.
 
 ## Acceptance criteria
@@ -57,9 +57,9 @@ Keep the existing single/bulk `DELETE /v1/chats` routes; no parallel Agent endpo
 - [ ] Core chat, message, category and remote state operations persist correctly across restarts using only Core SQLite; no Core dependency on Agent/Executor.
 - [ ] Existing file-backed data migrates losslessly and exactly once; deleted chats never reappear from retained legacy JSON files.
 - [ ] Main API single/bulk chat deletion uses a local SQLite transaction, without Agent/Executor knowledge.
-- [ ] Agent host cancels and joins Agent activity before Agent-first/Core-second deletion; cancellation requests killing associated active Executor shells without waiting for shell termination.
+- [ ] Agent host requests cancellation and immediately performs Agent-first/Core-second deletion without waiting for Agent tasks, Core messages, or Executor shells; associated active Executor shells receive kill requests.
 - [ ] Deletion requests killing associated active shells only through Executor-owned cancellation APIs; historical Executor records remain, and shell termination cannot recreate deleted Agent/chat data.
-- [ ] Concurrent Agent submissions/claims, core message updates and repeated/delete retries are handled without stale writes.
+- [ ] Late Core message writes cannot recreate removed Core chats; concurrent Agent work may fail or leave tolerated orphaned Agent records, and deletion retries remain possible when Core chat data is present.
 - [ ] A forced failure/crash between commits may leave Core-only data, but restart remains usable and a later Core delete succeeds. No cross-store rollback or tombstone-recovery mechanism is added.
 - [ ] Existing APIs, UI chat-management features and unrelated shared files behave as before.
 

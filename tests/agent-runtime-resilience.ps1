@@ -377,7 +377,7 @@ ping -n 5 127.0.0.1 >nul
             throw "Detached shell completion resurrected deleted chat '$deletedChatId'."
         }
     }
-    Write-Host "DELETION_CANCEL_JOIN single=204 mixed_bulk=2 shells=Killed no_resurrection=true"
+    Write-Host "DELETION_CANCEL_IMMEDIATE single=204 mixed_bulk=2 shells=Killed no_resurrection=true"
 
     Write-Host "PASS: Concurrent roots, independent Executor shells, cancellation isolation, queued cancellation, same-chat wake, restart/recovery and cancellation-based deletion with associated shell kills."
 }
