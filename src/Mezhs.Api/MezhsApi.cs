@@ -265,7 +265,9 @@ public static class MezhsApi
         app.MapPatch("/v1/chats/{chatId}", (
             string chatId,
             UpdateChatRequest request,
-            ChatStore chats) => Results.Ok(chats.SetChatCategory(chatId, request.CategoryId)));
+            ChatStore chats) => Results.Ok(request.Title is null
+                ? chats.SetChatCategory(chatId, request.CategoryId)
+                : chats.RenameChat(chatId, request.Title)));
 
         app.MapGet("/v1/chats/{chatId}/messages", (string chatId, ChatService chats) =>
             Results.Ok(chats.GetMessages(chatId)));
