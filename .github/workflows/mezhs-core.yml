@@ -43,6 +43,12 @@ jobs:
       - name: Build .NET solution
         run: dotnet build Mezhs.sln -c Release --nologo
 
+      - name: SQLite ChatStore migration and failure-injection regression
+        shell: pwsh
+        run: |
+          dotnet run --project tests/Mezhs.ChatStore.TestApp/Mezhs.ChatStore.TestApp.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Rich formatting and real Chromium regression
         shell: pwsh
         run: |

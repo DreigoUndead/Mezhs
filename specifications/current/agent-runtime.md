@@ -8,8 +8,9 @@ This file describes the **current behavior contract**, not the implementation pl
 - Shell commands use the configured workspace. Caller-supplied environment variables are rejected unless allowed by policy. `MEZHS_*` variables are reserved.
 - Queued Agent tasks survive Agent API restarts. Started shell actions reconnect to their durable Executor records instead of running again blindly.
 - Agent Web searches and filters Agent conversations only, supports shared groups, displays activity and counts, and offers individual and bulk chat deletion.
-- The Agent host's standard single/bulk chat DELETE routes reject an entire request if any requested chat has queued/running core messages, nonterminal Agent executions or nonterminal Executor shells. Deletion does not cancel active work.
-- Successful Agent-host deletion removes core transcripts and Agent execution/attachment state. Completed Executor execution history and shared uploaded files are retained. Durable deletion blocks prevent shell restarts and recover interrupted deletion on Agent API restart.
+- The normal Core chat, message, category and remote-conversation state is persisted in a Core-owned SQLite database. Legacy JSON/JSONL history is imported once, transactionally; original files remain untouched as backups.
+- Agent-host single/bulk DELETE routes block new Agent admission, stop and join Agent reasoning, and delete Agent chat/execution/staged-attachment references before Core chat/message records, one SQLite transaction per store.
+- Deletion never kills, blocks, inspects or waits for Executor shells. Executor retains its own records and restart behavior; shared uploaded files are retained. There is no cross-store rollback or durable deletion tombstone. An interruption after the Agent commit may leave a Core-only chat, which is safe to delete on retry.
 - Groups are shared between ordinary and Agent chats in the same API host. Deleting a group unassigns all its chats without deleting conversations.
 
 See [architecture](../../docs/architecture.md) for how these contracts are implemented.
