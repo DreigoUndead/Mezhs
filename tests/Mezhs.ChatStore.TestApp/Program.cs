@@ -223,7 +223,22 @@ try
         insert.Parameters.AddWithValue("$at", now.ToString("O"));
         insert.ExecuteNonQuery();
     }
+    // ATTACH staging must still work after dropping the obsolete persistent
+    // chat deletion guard table. An old guard reference broke normal ATTACH.
+    var stagingRoot = agents.TryCreateRootExecution(
+        "test", "mock", modern.ChatId, "manual", null, "test ATTACH",
+        new Dictionary<string, string>(), "test policy snapshot");
+    Check(agents.TryClaimNextQueuedExecution()?.ExecutionId == stagingRoot.ExecutionId,
+        "Attachment staging test execution was not claimed.");
+    agents.StageAttachments(stagingRoot.ExecutionId, "msg_trigger", 0, ["file_fixture"]);
+    Check(agents.GetStagedAttachments(stagingRoot.ExecutionId).Single().FileIds
+            .SequenceEqual(["file_fixture"]),
+        "Attachment staging did not survive the deletion-guard migration.");
+
     agents.RemoveChatData([modern.ChatId, "chat_legacy"]);
+    Check(agents.GetExecution(stagingRoot.ExecutionId) is null &&
+          agents.GetStagedAttachments(stagingRoot.ExecutionId).Count == 0,
+        "Agent deletion retained execution or staged attachment references.");
     Check(agents.GetAgentChat(modern.ChatId) is null, "Agent-first commit did not persist.");
     Check(store.GetChat(modern.ChatId) is not null, "Core should remain after first-store commit.");
 
@@ -295,7 +310,7 @@ try
             "Recovered orphaned message log was not imported after repair.");
     }
 
-    Console.WriteLine("PASS: SQLite ChatStore migration, JSONL versions, legacy remote metadata, atomic message+chat updates, metadata rollback, category transactions, failed import rollback, orphaned log recovery, Agent-first partial failure, Core bulk rollback, and no resurrection.");
+    Console.WriteLine("PASS: SQLite ChatStore migration, JSONL versions, legacy remote metadata, atomic message+chat updates, metadata rollback, category transactions, failed import rollback, orphaned log recovery, ATTACH staging after guard removal, Agent-first partial failure, Core bulk rollback, and no resurrection.");
 }
 finally
 {
