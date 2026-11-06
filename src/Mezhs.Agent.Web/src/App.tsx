@@ -445,6 +445,7 @@ export default function App() {
   const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
   const [deletingChats, setDeletingChats] = useState(false);
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
+  const [chatRenameDraft, setChatRenameDraft] = useState("");
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [historyLoadedChatId, setHistoryLoadedChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
@@ -465,6 +466,7 @@ export default function App() {
   const selectedChatIdRef = useRef<string | null>(null);
   const deletedChatIdsRef = useRef(new Set<string>());
   const chatRefreshEpoch = useRef(0);
+  const openChatMenuRef = useRef<HTMLDivElement | null>(null);
 
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
   const draftKey = selectedChatId && !creating ? `chat:${selectedChatId}` : `new:${newChatSequence}:${policyId}:${connectionId}`;
@@ -593,6 +595,19 @@ export default function App() {
   }, []);
 
   useEffect(() => () => providerRegistry.current.dispose(), []);
+
+  useEffect(() => {
+    if (!chatMenuId) return;
+    const dismiss = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || openChatMenuRef.current?.contains(target)) return;
+      // Another chat's toggle opens that menu, rather than immediately closing it.
+      if (target instanceof Element && target.closest(".agent-chat-menu-toggle")) return;
+      setChatMenuId(null);
+    };
+    document.addEventListener("click", dismiss);
+    return () => document.removeEventListener("click", dismiss);
+  }, [chatMenuId]);
 
 useEffect(() => {
   if (!selectedChatId || creating) {
@@ -1101,6 +1116,22 @@ useEffect(() => {
       chat.chatId === chatId ? { ...chat, categoryId: updated.categoryId ?? null } : chat));
   }
 
+  async function renameChat(chat: AgentChat, value: string) {
+    const title = value.trim();
+    if (!title || title === displayTitle(chat)) return;
+    try {
+      await apiJson("", `/v1/chats/${encodeURIComponent(chat.chatId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      setChats((current) => current.map((item) =>
+        item.chatId === chat.chatId ? { ...item, title } : item));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not rename agent.");
+    }
+  }
+
   async function assignCategory(chatId: string, categoryId: string) {
     try {
       await setChatCategory(chatId, categoryId);
@@ -1249,11 +1280,6 @@ useEffect(() => {
           <span className={`health-dot ${apiReady ? "online" : ""}`} title={apiReady ? "MEŽS Agent API online" : "MEŽS Agent API unavailable"} />
         </div>
 
-        <button className="new-chat" type="button" onClick={beginNewChat}>
-          <Plus aria-hidden="true" size={18} strokeWidth={2} />
-          New agent
-        </button>
-
         <div className="agent-group-filter">
           {editingCategory ? (
             <form className="agent-group-editor" onSubmit={(event) => void saveCategory(event)}>
@@ -1308,6 +1334,10 @@ useEffect(() => {
           <input type="search" name="agent-chat-search" autoComplete="off"
             aria-label="Search agents" placeholder="Search agents"
             value={search} onChange={(event) => setSearch(event.target.value)} />
+          <button type="button" className="agent-sidebar-new" aria-label="New agent"
+            title="New agent" onClick={beginNewChat}>
+            <Plus aria-hidden="true" size={18} strokeWidth={2} />
+          </button>
           <button type="button" aria-label="Manage agents" title="Manage agents"
             onClick={openConversationManager}>
             <Settings aria-hidden="true" size={18} strokeWidth={1.8} />
@@ -1316,7 +1346,18 @@ useEffect(() => {
         <span className="section-label">Agents · {filteredChats.length} of {chats.length}</span>
         <nav className="agent-chat-list" aria-label="Agents">
           {filteredChats.map((chat) => (
-            <div className="agent-chat-entry" key={chat.chatId}>
+            <div className="agent-chat-entry" key={chat.chatId}
+              ref={chatMenuId === chat.chatId ? openChatMenuRef : null}
+              onBlur={(event) => {
+                if (chatMenuId === chat.chatId && !event.currentTarget.contains(event.relatedTarget))
+                  setChatMenuId((current) => current === chat.chatId ? null : current);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape" && chatMenuId === chat.chatId) {
+                  event.stopPropagation();
+                  setChatMenuId(null);
+                }
+              }}>
               <button type="button"
                 className={`agent-chat-row ${selectedChatId === chat.chatId && !creating ? "selected" : ""}`}
                 onClick={() => selectChat(chat.chatId)}>
@@ -1332,9 +1373,26 @@ useEffect(() => {
               <button type="button" className="agent-chat-menu-toggle"
                 aria-label={`Options for ${displayTitle(chat)}`}
                 aria-expanded={chatMenuId === chat.chatId}
-                onClick={() => setChatMenuId((current) => current === chat.chatId ? null : chat.chatId)}>⋯</button>
+                onClick={() => {
+                  if (chatMenuId === chat.chatId) setChatMenuId(null);
+                  else {
+                    setChatRenameDraft(displayTitle(chat));
+                    setChatMenuId(chat.chatId);
+                  }
+                }}>⋯</button>
               {chatMenuId === chat.chatId && (
                 <div className="agent-chat-menu">
+                  <input className="agent-chat-menu-title" type="text" autoFocus
+                    aria-label={`Rename ${displayTitle(chat)}`} title="Rename agent"
+                    maxLength={200} value={chatRenameDraft}
+                    onChange={(event) => setChatRenameDraft(event.target.value)}
+                    onBlur={(event) => { void renameChat(chat, event.currentTarget.value); }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      }
+                    }} />
                   <select className="agent-chat-menu-group" value={chat.categoryId ?? ""}
                     aria-label={`Group for ${displayTitle(chat)}`}
                     onChange={(event) => void assignCategory(chat.chatId, event.target.value)}>
