@@ -148,7 +148,7 @@ public sealed class AgentStore(AgentOptions options)
         using var command = connection.CreateCommand();
         command.CommandText = string.IsNullOrWhiteSpace(chatId)
             ? "SELECT * FROM Executions WHERE Kind = $agentKind ORDER BY CreatedAt DESC;"
-            : "SELECT * FROM Executions WHERE Kind = $agentKind AND ChatId = $chatId ORDER BY CreatedAt DESC;";
+            : "SELECT * FROM Executions WHERE Kind = $agentKind AND ChatId = $chatId COLLATE NOCASE ORDER BY CreatedAt DESC;";
         command.Parameters.AddWithValue("$agentKind", AgentExecutionKind.Agent.ToString());
         if (!string.IsNullOrWhiteSpace(chatId))
             command.Parameters.AddWithValue("$chatId", chatId);
@@ -206,7 +206,7 @@ public sealed class AgentStore(AgentOptions options)
     {
         using var connection = _database.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT * FROM AgentChats WHERE ChatId = $chatId;";
+        command.CommandText = "SELECT * FROM AgentChats WHERE ChatId = $chatId COLLATE NOCASE;";
         command.Parameters.AddWithValue("$chatId", chatId);
         using var reader = command.ExecuteReader();
         return reader.Read() ? ReadAgentChat(reader) : null;
@@ -358,14 +358,14 @@ public sealed class AgentStore(AgentOptions options)
                   AND NOT EXISTS (
                       SELECT 1
                       FROM AgentChats chat
-                      WHERE chat.ChatId = queued.ChatId
+                      WHERE chat.ChatId = queued.ChatId COLLATE NOCASE
                         AND chat.Paused = 1)
                   AND NOT EXISTS (
                       SELECT 1
                       FROM Executions active
                       WHERE active.Kind = $agentKind
                         AND active.Status IN ($running, $cancelRequested)
-                        AND active.ChatId = queued.ChatId)
+                        AND active.ChatId = queued.ChatId COLLATE NOCASE)
                 ORDER BY queued.CreatedAt, queued.ExecutionId
                 LIMIT 1)
             RETURNING *;

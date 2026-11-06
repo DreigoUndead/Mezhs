@@ -285,9 +285,10 @@ public sealed class AgentWorker : BackgroundService
                     chatId = _chats.Create(new CreateChatRequest(execution.ConnectionId)).ChatId;
                     cancellation.Token.ThrowIfCancellationRequested();
                 }
-                else if (!_chats.Exists(chatId))
+                else
                 {
-                    throw new ResourceNotFoundException($"Chat '{chatId}' was not found in MEŽS.");
+                    chatId = _chatStore.GetChat(chatId)?.ChatId
+                        ?? throw new ResourceNotFoundException($"Chat '{chatId}' was not found in MEŽS.");
                 }
 
                 _store.ClaimAgentChat(

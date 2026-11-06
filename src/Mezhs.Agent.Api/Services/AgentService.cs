@@ -61,8 +61,9 @@ public sealed class AgentService(
             {
                 if (worker.IsChatDeleting(chatId))
                     throw new RequestValidationException($"Chat '{chatId}' is being deleted.");
-                if (chats.GetChat(chatId) is null)
-                    throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
+                var canonical = chats.GetChat(chatId)
+                    ?? throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
+                chatId = canonical.ChatId;
                 store.ValidateAgentChatPolicy(chatId, policyId);
                 store.ValidateAgentChatRunnable(chatId);
             }
