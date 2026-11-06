@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Plus, Settings, Trash2 } from "lucide-react";
+import { Check, Plus, Settings, X } from "lucide-react";
 import {
   apiJson,
   apiJsonOrEmpty,
@@ -437,7 +437,8 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [newChatCategoryId, setNewChatCategoryId] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
-  const [showCategoryForm, setShowCategoryForm] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<"new" | AgentCategory | null>(null);
+  const [savingCategory, setSavingCategory] = useState(false);
   const [search, setSearch] = useState("");
   const [showConversationManager, setShowConversationManager] = useState(false);
   const [managerSearch, setManagerSearch] = useState("");
@@ -1036,21 +1037,48 @@ useEffect(() => {
     setNewChatCategoryId(value === "all" || value === "uncategorized" ? "" : value);
   }
 
-  async function createCategory(event: FormEvent<HTMLFormElement>) {
+  function handleGroupSelection(value: string) {
+    if (value === "__new_group__") {
+      setNewCategoryName("");
+      setEditingCategory("new");
+    } else if (value === "__rename_group__" && selectedGroup) {
+      setNewCategoryName(selectedGroup.name);
+      setEditingCategory(selectedGroup);
+    } else if (value === "__delete_group__" && selectedGroup) {
+      void deleteCategory(selectedGroup);
+    } else {
+      selectCategoryFilter(value);
+    }
+  }
+
+  async function saveCategory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const name = newCategoryName.trim();
-    if (!name) return;
+    if (!editingCategory || !name || savingCategory) return;
+    setSavingCategory(true);
     try {
-      const category = await apiJson<AgentCategory>("", "/v1/categories", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      setCategories((current) => [...current, category]);
+      if (editingCategory === "new") {
+        const category = await apiJson<AgentCategory>("", "/v1/categories", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        setCategories((current) => [...current, category]);
+        selectCategoryFilter(category.categoryId);
+      } else {
+        const category = await apiJson<AgentCategory>("",
+          `/v1/categories/${encodeURIComponent(editingCategory.categoryId)}`, {
+            method: "PUT", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          });
+        setCategories((current) => current.map((item) =>
+          item.categoryId === category.categoryId ? category : item));
+      }
+      setEditingCategory(null);
       setNewCategoryName("");
-      setShowCategoryForm(false);
-      selectCategoryFilter(category.categoryId);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not create group.");
+      setNotice(error instanceof Error ? error.message : "Could not save group.");
+    } finally {
+      setSavingCategory(false);
     }
   }
 
@@ -1236,43 +1264,41 @@ useEffect(() => {
         </button>
 
         <div className="agent-group-filter">
-          <select id="agent-category-filter" aria-label="Filter agents by group" value={categoryFilter}
-            onChange={(event) => selectCategoryFilter(event.target.value)}>
-            <option value="all">All groups ({chats.length})</option>
-            {categories.map((category) => (
-              <option key={category.categoryId} value={category.categoryId}>
-                {category.name} ({chats.filter((chat) => chat.categoryId === category.categoryId).length})
+          {editingCategory ? (
+            <form className="agent-group-editor" onSubmit={(event) => void saveCategory(event)}>
+              <input autoFocus name="group-name" autoComplete="off" value={newCategoryName}
+                aria-label={editingCategory === "new" ? "New group name" : "Rename group"}
+                placeholder={editingCategory === "new" ? "New group name" : "Group name"}
+                onChange={(event) => setNewCategoryName(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Escape" && !savingCategory) setEditingCategory(null); }}
+                disabled={savingCategory} />
+              <button type="submit" aria-label="Save group" title="Save group"
+                disabled={!newCategoryName.trim() || savingCategory}>
+                <Check aria-hidden="true" size={17} strokeWidth={2} />
+              </button>
+              <button type="button" aria-label="Cancel editing group" title="Cancel"
+                disabled={savingCategory} onClick={() => setEditingCategory(null)}>
+                <X aria-hidden="true" size={17} strokeWidth={2} />
+              </button>
+            </form>
+          ) : (
+            <select id="agent-category-filter" aria-label="Filter and manage groups"
+              value={categoryFilter} onChange={(event) => handleGroupSelection(event.target.value)}>
+              <option value="all">All groups ({chats.length})</option>
+              {categories.map((category) => (
+                <option key={category.categoryId} value={category.categoryId}>
+                  {category.name} ({chats.filter((chat) => chat.categoryId === category.categoryId).length})
+                </option>
+              ))}
+              <option value="uncategorized">
+                Uncategorized ({chats.filter((chat) => !chat.categoryId).length})
               </option>
-            ))}
-            <option value="uncategorized">
-              Uncategorized ({chats.filter((chat) => !chat.categoryId).length})
-            </option>
-          </select>
-          <button type="button" className="agent-group-add"
-            aria-label={showCategoryForm ? "Close new group form" : "Create group"}
-            title={showCategoryForm ? "Close new group form" : "Create group"}
-            aria-expanded={showCategoryForm}
-            onClick={() => setShowCategoryForm((current) => !current)}>
-            <Plus aria-hidden="true" size={18} strokeWidth={2} />
-          </button>
-          {selectedGroup && (
-            <button type="button" className="agent-group-delete"
-              aria-label={`Delete group ${selectedGroup.name}`}
-              title={`Delete group: ${selectedGroup.name}`}
-              onClick={() => void deleteCategory(selectedGroup)}>
-              <Trash2 aria-hidden="true" size={17} strokeWidth={1.8} />
-            </button>
+              <option value="__new_group__">+ New group…</option>
+              {selectedGroup && <option value="__rename_group__">Rename group…</option>}
+              {selectedGroup && <option value="__delete_group__">Delete group…</option>}
+            </select>
           )}
         </div>
-        {showCategoryForm && (
-          <form id="agent-group-create" className="agent-group-create"
-            onSubmit={(event) => void createCategory(event)}>
-            <input autoFocus name="agent-group-name" autoComplete="off" value={newCategoryName}
-              onChange={(event) => setNewCategoryName(event.target.value)}
-              placeholder="Group name" aria-label="New group name" />
-            <button type="submit" disabled={!newCategoryName.trim()}>Add</button>
-          </form>
-        )}
 
         <div className="agent-sidebar-tools">
           <input type="search" name="agent-chat-search" autoComplete="off"
