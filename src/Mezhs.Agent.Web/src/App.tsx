@@ -758,7 +758,7 @@ useEffect(() => {
 
     const failure = results.find((result) => result.status === "rejected");
     if (failure?.status === "rejected")
-      setNotice(failure.reason instanceof Error ? failure.reason.message : "Could not fully refresh this agent chat.");
+      setNotice(failure.reason instanceof Error ? failure.reason.message : "Could not fully refresh this agent.");
   }
 
   async function refreshRuntime(chatId: string, signal?: AbortSignal) {
@@ -1010,7 +1010,7 @@ useEffect(() => {
         chat.chatId === updated.chatId ? updated : chat));
       await loadSelected(updated.chatId);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Agent chat state could not be changed.");
+      setNotice(error instanceof Error ? error.message : "Agent state could not be changed.");
     } finally {
       setTogglingPause(false);
     }
@@ -1157,12 +1157,12 @@ useEffect(() => {
 
   const composerDisabled = sending || !!activeExecution || !!selectedChat?.paused;
   const composerPlaceholder = selectedChat?.paused
-    ? "Resume this agent chat to continue"
+    ? "Resume this agent to continue"
     : activeExecution
       ? "Agent execution is running"
       : creating
         ? "Describe the task for this agent"
-        : "Continue this agent chat";
+        : "Continue this agent";
 
   return (
     <div className="agent-shell">
@@ -1337,7 +1337,7 @@ useEffect(() => {
             <header className="agent-header">
               <div>
                 <span className="eyebrow">Manual execution</span>
-                <h1>New agent chat</h1>
+                <h1>New agent</h1>
               </div>
             </header>
 
@@ -1451,7 +1451,7 @@ useEffect(() => {
               </div>
             </header>
 
-            {selectedChat.paused && <div className="agent-paused-banner">This agent chat is paused. New executions are blocked until it is resumed.</div>}
+            {selectedChat.paused && <div className="agent-paused-banner">This agent is paused. New executions are blocked until it is resumed.</div>}
 
             <ChatTranscript
               messages={sharedMessages}
