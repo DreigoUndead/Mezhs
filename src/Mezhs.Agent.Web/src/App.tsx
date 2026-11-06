@@ -1172,7 +1172,8 @@ useEffect(() => {
       {showConversationManager && (
         <div className="agent-modal-backdrop" onClick={() => setShowConversationManager(false)}>
           <section className="agent-conversation-manager" role="dialog" aria-modal="true"
-            aria-labelledby="agent-manager-title" onClick={(event) => event.stopPropagation()}
+            aria-labelledby="agent-manager-title" aria-describedby="agent-manager-summary"
+            onClick={(event) => event.stopPropagation()
             onKeyDown={(event) => { if (event.key === "Escape") setShowConversationManager(false); }}>
             <header>
               <div>
@@ -1183,7 +1184,8 @@ useEffect(() => {
                 onClick={() => setShowConversationManager(false)}>×</button>
             </header>
             <label className="agent-manager-search">Filter displayed conversations
-              <input type="search" value={managerSearch} autoFocus
+              <input type="search" name="agent-manager-search" autoComplete="off"
+                value={managerSearch} autoFocus
                 onChange={(event) => setManagerSearch(event.target.value)}
                 placeholder="Title, policy, connection, origin, group" />
             </label>
@@ -1239,7 +1241,7 @@ useEffect(() => {
           <label className="section-label" htmlFor="agent-category-filter">Groups</label>
           <button type="button" className="agent-group-add"
             onClick={() => setShowCategoryForm((current) => !current)}
-            aria-expanded={showCategoryForm} aria-controls="agent-group-create">
+            aria-expanded={showCategoryForm}>
             {showCategoryForm ? "Cancel" : "+ New"}
           </button>
         </div>
@@ -1265,7 +1267,7 @@ useEffect(() => {
         {showCategoryForm && (
           <form id="agent-group-create" className="agent-group-create"
             onSubmit={(event) => void createCategory(event)}>
-            <input autoFocus value={newCategoryName}
+            <input autoFocus name="agent-group-name" autoComplete="off" value={newCategoryName}
               onChange={(event) => setNewCategoryName(event.target.value)}
               placeholder="Group name" aria-label="New group name" />
             <button type="submit" disabled={!newCategoryName.trim()}>Add</button>
@@ -1274,7 +1276,8 @@ useEffect(() => {
 
         <div className="agent-sidebar-tools">
           <label>Search agent chats
-            <input type="search" placeholder="Search conversations"
+            <input type="search" name="agent-chat-search" autoComplete="off"
+              placeholder="Search conversations"
               value={search} onChange={(event) => setSearch(event.target.value)} />
           </label>
           <button type="button" onClick={openConversationManager}>Manage</button>
