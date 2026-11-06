@@ -370,8 +370,8 @@ ping -n 5 127.0.0.1 >nul
     if ($bulkShellAfter.status -eq "Killed") { throw "Mixed bulk deletion killed Executor shell." }
 
     # Late shell completion must leave deleted chat/Agent data absent.
-    $finishedOne = Wait-Shell $detachedRunning.chatId @("Completed") 45
-    $finishedTwo = Wait-Shell $bulkRunning.chatId @("Completed") 45
+    $finishedOne = Wait-ExecutionStatus $detachedShell.executionId @("Completed") 45
+    $finishedTwo = Wait-ExecutionStatus $bulkShell.executionId @("Completed") 45
     foreach ($deletedChatId in @($detachedRunning.chatId, $bulkRunning.chatId)) {
         $lateCore = Invoke-WebRequest -Uri "$agentUrl/v1/chats/$deletedChatId" -SkipHttpErrorCheck
         $lateAgent = Invoke-WebRequest -Uri "$agentUrl/v1/agent-chats/$deletedChatId" -SkipHttpErrorCheck
