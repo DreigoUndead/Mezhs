@@ -1082,13 +1082,10 @@ useEffect(() => {
       chat.chatId === chatId ? { ...chat, categoryId: updated.categoryId ?? null } : chat));
   }
 
-  async function assignCategory(categoryId: string) {
-    if (!selectedChat) {
-      setNewChatCategoryId(categoryId);
-      return;
-    }
+  async function assignCategory(chatId: string, categoryId: string) {
     try {
-      await setChatCategory(selectedChat.chatId, categoryId);
+      await setChatCategory(chatId, categoryId);
+      setChatMenuId(null);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not assign group.");
     }
@@ -1180,8 +1177,6 @@ useEffect(() => {
                 <h2 id="agent-manager-title">Manage Agent conversations</h2>
                 <p id="agent-manager-summary">{managedChats.length} of {filteredChats.length} shown · {chats.length} total Agent chats</p>
               </div>
-              <button type="button" className="agent-manager-close" aria-label="Close manager"
-                onClick={() => setShowConversationManager(false)}>×</button>
             </header>
             <label className="agent-manager-search">Filter displayed conversations
               <input type="search" name="agent-manager-search" autoComplete="off"
@@ -1235,15 +1230,10 @@ useEffect(() => {
           <span className={`health-dot ${apiReady ? "online" : ""}`} title={apiReady ? "MEŽS Agent API online" : "MEŽS Agent API unavailable"} />
         </div>
 
-        <button className="new-chat" type="button" onClick={beginNewChat}><span>+</span> New agent chat</button>
+        <button className="new-chat" type="button" onClick={beginNewChat}><span aria-hidden="true">+</span>New agent chat</button>
 
         <div className="agent-group-heading">
           <label className="section-label" htmlFor="agent-category-filter">Groups</label>
-          <button type="button" className="agent-group-add"
-            onClick={() => setShowCategoryForm((current) => !current)}
-            aria-expanded={showCategoryForm}>
-            {showCategoryForm ? "Cancel" : "+ New"}
-          </button>
         </div>
         <div className="agent-group-filter">
           <select id="agent-category-filter" value={categoryFilter}
@@ -1258,6 +1248,13 @@ useEffect(() => {
               Uncategorized ({chats.filter((chat) => !chat.categoryId).length})
             </option>
           </select>
+          <button type="button" className="agent-group-add"
+            aria-label={showCategoryForm ? "Close new group form" : "Create group"}
+            title={showCategoryForm ? "Close new group form" : "Create group"}
+            aria-expanded={showCategoryForm}
+            onClick={() => setShowCategoryForm((current) => !current)}>
+            <span aria-hidden="true">+</span>
+          </button>
           {selectedGroup && (
             <button type="button" className="agent-group-delete"
               aria-label={`Delete group ${selectedGroup.name}`} title="Delete selected group"
@@ -1299,8 +1296,19 @@ useEffect(() => {
                 aria-expanded={chatMenuId === chat.chatId}
                 onClick={() => setChatMenuId((current) => current === chat.chatId ? null : chat.chatId)}>⋯</button>
               {chatMenuId === chat.chatId && (
-                <div className="agent-chat-menu" role="menu">
-                  <button type="button" role="menuitem"
+                <div className="agent-chat-menu">
+                  <label className="agent-chat-menu-group">
+                    Group
+                    <select value={chat.categoryId ?? ""}
+                      aria-label={`Group for ${displayTitle(chat)}`}
+                      onChange={(event) => void assignCategory(chat.chatId, event.target.value)}>
+                      <option value="">Uncategorized</option>
+                      {categories.map((category) => (
+                        <option key={category.categoryId} value={category.categoryId}>{category.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button type="button" className="agent-chat-menu-delete"
                     disabled={deletingChats}
                     onClick={() => void deleteConversations([chat], displayTitle(chat))}>Delete chat</button>
                 </div>
@@ -1325,12 +1333,6 @@ useEffect(() => {
               <div>
                 <span className="eyebrow">Manual execution</span>
                 <h1>New agent chat</h1>
-                <label className="agent-group-picker">Group
-                  <select value={newChatCategoryId} onChange={(event) => setNewChatCategoryId(event.target.value)}>
-                    <option value="">Uncategorized</option>
-                    {categories.map((category) => <option key={category.categoryId} value={category.categoryId}>{category.name}</option>)}
-                  </select>
-                </label>
               </div>
             </header>
 
@@ -1401,12 +1403,6 @@ useEffect(() => {
               <div>
                 <span className="eyebrow">{selectedChat.originSource} · {selectedPolicy?.name ?? selectedChat.policyId}</span>
                 <h1>{displayTitle(selectedChat)}</h1>
-                <label className="agent-group-picker">Group
-                  <select value={selectedChat.categoryId ?? ""} onChange={(event) => void assignCategory(event.target.value)}>
-                    <option value="">Uncategorized</option>
-                    {categories.map((category) => <option key={category.categoryId} value={category.categoryId}>{category.name}</option>)}
-                  </select>
-                </label>
                 <div className="agent-header-meta">
                   <span>{selectedChat.connectionId || selectedPolicy?.connectionId || "connection unavailable"}</span>
                   <span>·</span>
