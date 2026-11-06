@@ -432,15 +432,15 @@ echo %TEST_AGENT_VALUE%
         $restartResponse = $restartClient.PostAsync(
             "http://127.0.0.1:5199/v1/executions/$($environmentShell.executionId)/restart", $null).GetAwaiter().GetResult()
         try {
-            if ([int]$restartResponse.StatusCode -ne 409) {
-                throw "Deleted-chat shell restart returned HTTP $([int]$restartResponse.StatusCode) instead of conflict."
+            if ([int]$restartResponse.StatusCode -ne 202) {
+                throw "Executor rejected a historical restart after chat deletion: HTTP $([int]$restartResponse.StatusCode)."
             }
         } finally { $restartResponse.Dispose() }
     } finally { $restartClient.Dispose() }
     if ((Get-Status "http://127.0.0.1:5199/v1/chats/$($ordinaryChat.chatId)") -ne 200) {
         throw "Deleting Agent chats modified an unrelated ordinary chat."
     }
-    Write-Host "PASS: Agent shared groups, single/bulk deletion, retained Executor audit and blocked historical restarts."
+    Write-Host "PASS: Agent shared groups, single/bulk deletion, retained Executor audit and independent historical restarts."
 
     Stop-Process -Id $api.Id -Force
     $api.WaitForExit()
