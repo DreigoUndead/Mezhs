@@ -1283,7 +1283,11 @@ useEffect(() => {
             </form>
           ) : (
             <select id="agent-category-filter" aria-label="Filter and manage groups"
-              value={categoryFilter} onChange={(event) => handleGroupSelection(event.target.value)}>
+              value={categoryFilter} onChange={(event) => {
+                const value = event.currentTarget.value;
+                if (value.startsWith("__")) event.currentTarget.value = categoryFilter;
+                handleGroupSelection(value);
+              }}>
               <option value="all">All groups ({chats.length})</option>
               {categories.map((category) => (
                 <option key={category.categoryId} value={category.categoryId}>
