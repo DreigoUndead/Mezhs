@@ -124,6 +124,13 @@ if ($agentCss -notmatch 'agent-sidebar-tools[\s\S]*?gap:\s*6px' -or
     throw "Base and Agent chat group controls, rename actions, or non-switching group creation have diverged."
 }
 
+# Both web surfaces can operate against the Agent host, where group removal also
+# unassigns Agent conversations and chat deletion retains Executor audit history.
+if ($sharedApp -notmatch 'including Agent conversations if present' -or
+    $sharedApp -notmatch 'Historical Executor records and stored files may remain') {
+    throw "Base chat deletion/group confirmations omit Agent-host retention or cross-host group impact."
+}
+
 node (Join-Path $root "tests/agent-web-rich-formatting.test.cjs")
 if ($LASTEXITCODE -ne 0) { throw "Shared chat rich-formatting regressions failed." }
 
