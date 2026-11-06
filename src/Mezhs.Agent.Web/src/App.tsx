@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Check, Plus, Settings, X } from "lucide-react";
+import { Check, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import {
   apiJson,
   apiJsonOrEmpty,
@@ -1037,18 +1037,9 @@ useEffect(() => {
     setNewChatCategoryId(value === "all" || value === "uncategorized" ? "" : value);
   }
 
-  function handleGroupSelection(value: string) {
-    if (value === "__new_group__") {
-      setNewCategoryName("");
-      setEditingCategory("new");
-    } else if (value === "__rename_group__" && selectedGroup) {
-      setNewCategoryName(selectedGroup.name);
-      setEditingCategory(selectedGroup);
-    } else if (value === "__delete_group__" && selectedGroup) {
-      void deleteCategory(selectedGroup);
-    } else {
-      selectCategoryFilter(value);
-    }
+  function beginCategoryEdit() {
+    setNewCategoryName(selectedGroup?.name ?? "");
+    setEditingCategory(selectedGroup ?? "new");
   }
 
   async function saveCategory(event: FormEvent<HTMLFormElement>) {
@@ -1282,25 +1273,34 @@ useEffect(() => {
               </button>
             </form>
           ) : (
-            <select id="agent-category-filter" aria-label="Filter and manage groups"
-              value={categoryFilter} onChange={(event) => {
-                const value = event.currentTarget.value;
-                if (value.startsWith("__")) event.currentTarget.value = categoryFilter;
-                handleGroupSelection(value);
-              }}>
-              <option value="all">All groups ({chats.length})</option>
-              {categories.map((category) => (
-                <option key={category.categoryId} value={category.categoryId}>
-                  {category.name} ({chats.filter((chat) => chat.categoryId === category.categoryId).length})
+            <>
+              <select id="agent-category-filter" aria-label="Filter agents by group"
+                value={categoryFilter} onChange={(event) => selectCategoryFilter(event.target.value)}>
+                <option value="all">All groups ({chats.length})</option>
+                {categories.map((category) => (
+                  <option key={category.categoryId} value={category.categoryId}>
+                    {category.name} ({chats.filter((chat) => chat.categoryId === category.categoryId).length})
+                  </option>
+                ))}
+                <option value="uncategorized">
+                  Uncategorized ({chats.filter((chat) => !chat.categoryId).length})
                 </option>
-              ))}
-              <option value="uncategorized">
-                Uncategorized ({chats.filter((chat) => !chat.categoryId).length})
-              </option>
-              <option value="__new_group__">+ New group…</option>
-              {selectedGroup && <option value="__rename_group__">Rename group…</option>}
-              {selectedGroup && <option value="__delete_group__">Delete group…</option>}
-            </select>
+              </select>
+              <button type="button"
+                aria-label={selectedGroup ? `Rename group ${selectedGroup.name}` : "Create group"}
+                title={selectedGroup ? "Rename group" : "Create group"}
+                onClick={beginCategoryEdit}>
+                {selectedGroup
+                  ? <Pencil aria-hidden="true" size={17} strokeWidth={1.8} />
+                  : <Plus aria-hidden="true" size={18} strokeWidth={2} />}
+              </button>
+              <button type="button" disabled={!selectedGroup}
+                aria-label={selectedGroup ? `Delete group ${selectedGroup.name}` : "Delete group"}
+                title={selectedGroup ? "Delete group" : "Select a group to delete"}
+                onClick={() => { if (selectedGroup) void deleteCategory(selectedGroup); }}>
+                <Trash2 aria-hidden="true" size={17} strokeWidth={1.8} />
+              </button>
+            </>
           )}
         </div>
 
