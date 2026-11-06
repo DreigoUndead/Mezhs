@@ -567,8 +567,6 @@ public sealed class AgentStore(AgentOptions options)
             WHERE ExecutionId = $executionId
               AND Kind = $kind
               AND Status = $running
-              AND (ChatId IS NULL OR NOT EXISTS (
-                  SELECT 1 FROM ChatDeletionGuards guard WHERE guard.ChatId = Executions.ChatId))
             ON CONFLICT(ExecutionId, TriggerMessageId, CommandIndex) DO NOTHING;
             """;
         command.Parameters.AddWithValue("$executionId", executionId);
