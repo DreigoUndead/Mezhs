@@ -336,9 +336,49 @@ public sealed class ChatStore(MezhsOptions options)
         {
             if (!_chats.ContainsKey(chat.ChatId))
                 throw new ResourceNotFoundException($"Chat '{chat.ChatId}' was not found.");
+            var previousUpdatedAt = chat.UpdatedAt;
             chat.UpdatedAt = DateTimeOffset.UtcNow;
-            using var connection = _database.Open();
-            UpdateChat(connection, null, chat);
+            try
+            {
+                using var connection = _database.Open();
+                UpdateChat(connection, null, chat);
+            }
+            catch
+            {
+                chat.UpdatedAt = previousUpdatedAt;
+                throw;
+            }
+        }
+    }
+
+    // The initial message and the chat's activity timestamp are one logical
+    // write. A failed chat update must never strand a newly queued message.
+    public void SaveMessageAndTouchChat(StoredMessage message, ChatRecord chat)
+    {
+        lock (_writeLock)
+        {
+            if (!_chats.TryGetValue(chat.ChatId, out var current) ||
+                !ReferenceEquals(chat, current) ||
+                !string.Equals(message.ChatId, chat.ChatId, StringComparison.OrdinalIgnoreCase))
+                throw new ResourceNotFoundException($"Chat '{message.ChatId}' was not found.");
+
+            var previousUpdatedAt = chat.UpdatedAt;
+            chat.UpdatedAt = DateTimeOffset.UtcNow;
+            try
+            {
+                using var connection = _database.Open();
+                using var transaction = connection.BeginTransaction();
+                InsertMessage(connection, transaction, message);
+                UpdateChat(connection, transaction, chat);
+                transaction.Commit();
+            }
+            catch
+            {
+                chat.UpdatedAt = previousUpdatedAt;
+                throw;
+            }
+
+            _messages[message.MessageId] = message;
         }
     }
 

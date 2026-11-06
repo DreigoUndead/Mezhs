@@ -116,6 +116,54 @@ try
     Check(legacy.RemoteStates.Single().LastLocalMessageId == legacyReply.MessageId,
         "Legacy remote state did not attach to completed assistant reply.");
 
+    // Fail the chat timestamp write and prove neither the new queued message
+    // nor its updated timestamp leaks into memory or SQLite.
+    var beforeFailedTouch = store.GetChat(modern.ChatId)!.UpdatedAt;
+    using (var connection = new SqliteDatabase(Path.Combine(mainRoot, "chats.sqlite")).Open())
+    {
+        using var trigger = connection.CreateCommand();
+        trigger.CommandText = """
+            CREATE TRIGGER RejectChatTouch BEFORE UPDATE ON Chats
+            WHEN OLD.ChatId = 'chat_modern'
+            BEGIN SELECT RAISE(ABORT, 'injected chat update failure'); END;
+            """;
+        trigger.ExecuteNonQuery();
+    }
+    try
+    {
+        store.SaveMessageAndTouchChat(new StoredMessage
+        {
+            MessageId = "msg_atomic_failure", ChatId = modern.ChatId, ConnectionId = "mock",
+            Role = "user", Content = "must roll back", Status = MessageStatus.Queued
+        }, loaded);
+        throw new InvalidOperationException("Injected message-plus-chat failure was not raised.");
+    }
+    catch (SqliteException) { }
+    Check(store.GetMessage("msg_atomic_failure") is null &&
+        loaded.UpdatedAt == beforeFailedTouch,
+        "Failed message-plus-chat write leaked into live state.");
+    using (var connection = new SqliteDatabase(Path.Combine(mainRoot, "chats.sqlite")).Open())
+    {
+        Check(Rows(connection, "SELECT COUNT(*) FROM Messages WHERE MessageId = 'msg_atomic_failure';") == 0,
+            "Failed message-plus-chat write committed the message row.");
+    }
+
+    var titleBeforeFailure = loaded.Title;
+    try
+    {
+        store.RenameChat(modern.ChatId, "Not committed");
+        throw new InvalidOperationException("Injected chat rename failure was not raised.");
+    }
+    catch (SqliteException) { }
+    Check(loaded.Title == titleBeforeFailure && loaded.UpdatedAt == beforeFailedTouch,
+        "Failed chat update leaked title or timestamp into live state.");
+    using (var connection = new SqliteDatabase(Path.Combine(mainRoot, "chats.sqlite")).Open())
+    {
+        using var drop = connection.CreateCommand();
+        drop.CommandText = "DROP TRIGGER RejectChatTouch;";
+        drop.ExecuteNonQuery();
+    }
+
     var appended = new StoredMessage
     {
         MessageId = "msg_new", ChatId = modern.ChatId, ConnectionId = "mock",
@@ -222,7 +270,7 @@ try
     Check(Open(badRoot).GetChats().Count == 0,
         "Previously failed import resurrected chat on later startup.");
 
-    Console.WriteLine("PASS: SQLite ChatStore migration, JSONL versions, legacy remote metadata, category transactions, failed import rollback, Agent-first partial failure, Core bulk rollback, and no resurrection.");
+    Console.WriteLine("PASS: SQLite ChatStore migration, JSONL versions, legacy remote metadata, atomic message+chat updates, metadata rollback, category transactions, failed import rollback, Agent-first partial failure, Core bulk rollback, and no resurrection.");
 }
 finally
 {
