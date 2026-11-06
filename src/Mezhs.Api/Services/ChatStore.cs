@@ -22,7 +22,7 @@ public sealed class ChatStore(MezhsOptions options)
     private readonly ConcurrentDictionary<string, CategoryRecord> _categories = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _writeLock = new();
 
-    // Shared with message admission and Agent-host deletion coordination.
+    // Shared with message admission, Agent-host deletion, and category mutations.
     public object DeletionSync => _writeLock;
 
     public void Initialize()
@@ -67,17 +67,20 @@ public sealed class ChatStore(MezhsOptions options)
 
     public ChatRecord CreateChat(string? categoryId)
     {
-        if (!string.IsNullOrWhiteSpace(categoryId) && !_categories.ContainsKey(categoryId))
-            throw new ResourceNotFoundException($"Category '{categoryId}' was not found.");
-
-        var chat = new ChatRecord
+        lock (_writeLock)
         {
-            ChatId = NewId("chat"),
-            CategoryId = categoryId
-        };
-        _chats[chat.ChatId] = chat;
-        PersistChat(chat);
-        return chat;
+            if (!string.IsNullOrWhiteSpace(categoryId) && !_categories.ContainsKey(categoryId))
+                throw new ResourceNotFoundException($"Category '{categoryId}' was not found.");
+
+            var chat = new ChatRecord
+            {
+                ChatId = NewId("chat"),
+                CategoryId = categoryId
+            };
+            _chats[chat.ChatId] = chat;
+            PersistChat(chat);
+            return chat;
+        }
     }
 
     public ChatRecord? GetChat(string chatId) =>
@@ -100,53 +103,62 @@ public sealed class ChatStore(MezhsOptions options)
 
     public CategoryRecord CreateCategory(string name)
     {
-        name = name.Trim();
-        if (string.IsNullOrWhiteSpace(name))
-            throw new RequestValidationException("Category name is required.");
-        if (_categories.Values.Any(category =>
-            string.Equals(category.Name, name, StringComparison.OrdinalIgnoreCase)))
-            throw new RequestValidationException($"Category '{name}' already exists.");
-
-        string[] colors = ["#d7ff64", "#72d7c8", "#ffad66", "#bba2ff", "#ff8fa3", "#7bb8ff"];
-        var category = new CategoryRecord
+        lock (_writeLock)
         {
-            CategoryId = NewId("cat"),
-            Name = name,
-            Color = colors[_categories.Count % colors.Length]
-        };
-        _categories[category.CategoryId] = category;
-        SaveCategories();
-        return category;
+            name = name.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+                throw new RequestValidationException("Category name is required.");
+            if (_categories.Values.Any(category =>
+                string.Equals(category.Name, name, StringComparison.OrdinalIgnoreCase)))
+                throw new RequestValidationException($"Category '{name}' already exists.");
+
+            string[] colors = ["#d7ff64", "#72d7c8", "#ffad66", "#bba2ff", "#ff8fa3", "#7bb8ff"];
+            var category = new CategoryRecord
+            {
+                CategoryId = NewId("cat"),
+                Name = name,
+                Color = colors[_categories.Count % colors.Length]
+            };
+            _categories[category.CategoryId] = category;
+            SaveCategories();
+            return category;
+        }
     }
 
     public CategoryRecord RenameCategory(string categoryId, string name)
     {
-        if (!_categories.TryGetValue(categoryId, out var category))
-            throw new ResourceNotFoundException($"Category '{categoryId}' was not found.");
-        name = name.Trim();
-        if (string.IsNullOrWhiteSpace(name))
-            throw new RequestValidationException("Category name is required.");
-        if (_categories.Values.Any(item =>
-            item.CategoryId != categoryId &&
-            string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)))
-            throw new RequestValidationException($"Category '{name}' already exists.");
+        lock (_writeLock)
+        {
+            if (!_categories.TryGetValue(categoryId, out var category))
+                throw new ResourceNotFoundException($"Category '{categoryId}' was not found.");
+            name = name.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+                throw new RequestValidationException("Category name is required.");
+            if (_categories.Values.Any(item =>
+                item.CategoryId != categoryId &&
+                string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)))
+                throw new RequestValidationException($"Category '{name}' already exists.");
 
-        category.Name = name;
-        SaveCategories();
-        return category;
+            category.Name = name;
+            SaveCategories();
+            return category;
+        }
     }
 
     public void DeleteCategory(string categoryId)
     {
-        if (!_categories.TryRemove(categoryId, out _))
-            throw new ResourceNotFoundException($"Category '{categoryId}' was not found.");
-        SaveCategories();
-
-        foreach (var chat in _chats.Values.Where(chat =>
-                     string.Equals(chat.CategoryId, categoryId, StringComparison.OrdinalIgnoreCase)))
+        lock (_writeLock)
         {
-            chat.CategoryId = null;
-            SaveChat(chat);
+            if (!_categories.TryRemove(categoryId, out _))
+                throw new ResourceNotFoundException($"Category '{categoryId}' was not found.");
+            SaveCategories();
+
+            foreach (var chat in _chats.Values.Where(chat =>
+                         string.Equals(chat.CategoryId, categoryId, StringComparison.OrdinalIgnoreCase)))
+            {
+                chat.CategoryId = null;
+                SaveChat(chat);
+            }
         }
     }
 
@@ -215,27 +227,33 @@ public sealed class ChatStore(MezhsOptions options)
 
     public ChatRecord RenameChat(string chatId, string title)
     {
-        title = title.Trim();
-        if (title.Length is < 1 or > 200)
-            throw new RequestValidationException("Chat title must contain 1 to 200 characters.");
+        lock (_writeLock)
+        {
+            title = title.Trim();
+            if (title.Length is < 1 or > 200)
+                throw new RequestValidationException("Chat title must contain 1 to 200 characters.");
 
-        var chat = GetChat(chatId)
-            ?? throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
-        chat.Title = title;
-        SaveChat(chat);
-        return chat;
+            var chat = GetChat(chatId)
+                ?? throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
+            chat.Title = title;
+            SaveChat(chat);
+            return chat;
+        }
     }
 
     public ChatRecord SetChatCategory(string chatId, string? categoryId)
     {
-        var chat = GetChat(chatId)
-            ?? throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
-        if (!string.IsNullOrWhiteSpace(categoryId) && !_categories.ContainsKey(categoryId))
-            throw new ResourceNotFoundException($"Category '{categoryId}' was not found.");
+        lock (_writeLock)
+        {
+            var chat = GetChat(chatId)
+                ?? throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
+            if (!string.IsNullOrWhiteSpace(categoryId) && !_categories.ContainsKey(categoryId))
+                throw new ResourceNotFoundException($"Category '{categoryId}' was not found.");
 
-        chat.CategoryId = string.IsNullOrWhiteSpace(categoryId) ? null : categoryId;
-        SaveChat(chat);
-        return chat;
+            chat.CategoryId = string.IsNullOrWhiteSpace(categoryId) ? null : categoryId;
+            SaveChat(chat);
+            return chat;
+        }
     }
 
     public StoredMessage? GetMessage(string messageId) =>
