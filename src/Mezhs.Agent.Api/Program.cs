@@ -278,14 +278,15 @@ static AgentChatView ToView(
     var core = chats.GetChat(record.ChatId);
     var lastActivity = core?.UpdatedAt > record.UpdatedAt ? core.UpdatedAt : record.UpdatedAt;
     var firstTask = store.GetFirstRootExecutionRequest(record.ChatId);
+    var savedTitle = core?.Title;
     return new AgentChatView(
         record.ChatId,
         record.PolicyId,
         record.OriginSource,
         record.OriginReference,
         record.Paused,
-        !string.IsNullOrWhiteSpace(core?.Title)
-            ? core.Title
+        !string.IsNullOrWhiteSpace(savedTitle)
+            ? savedTitle
             : string.IsNullOrWhiteSpace(firstTask) ? chat?.Title : firstTask,
         chat?.ConnectionId,
         record.CreatedAt,
