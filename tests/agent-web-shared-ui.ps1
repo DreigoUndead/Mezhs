@@ -127,8 +127,10 @@ if ($agentCss -notmatch 'agent-sidebar-tools[\s\S]*?gap:\s*6px' -or
 # Both web surfaces can operate against the Agent host, where group removal also
 # unassigns Agent conversations and chat deletion retains Executor audit history.
 if ($sharedApp -notmatch 'including Agent conversations if present' -or
-    $sharedApp -notmatch 'Historical Executor records and stored files may remain') {
-    throw "Base chat deletion/group confirmations omit Agent-host retention or cross-host group impact."
+    $sharedApp -notmatch 'Historical Executor records and stored files may remain' -or
+    $sharedApp -notmatch 'deletedChatIdsRef\.current\.has\(chat\.chatId\)' -or
+    $sharedApp -notmatch 'deletedChatIdsRef\.current\.add\(id\)') {
+    throw "Base chat deletion/group confirmations or stale-deletion list protection have regressed."
 }
 
 node (Join-Path $root "tests/agent-web-rich-formatting.test.cjs")
