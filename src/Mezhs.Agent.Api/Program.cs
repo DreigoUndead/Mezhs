@@ -29,7 +29,6 @@ builder.Services.AddExceptionHandler<AgentApiExceptionHandler>();
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(_ => new ExecutorService(executorStorage));
 builder.Services.AddSingleton<AgentStore>();
-builder.Services.AddSingleton<AgentChatDeletionHandler>();
 builder.Services.AddSingleton<AgentRecoveryState>();
 builder.Services.AddSingleton<PolicyRegistry>();
 builder.Services.AddSingleton<PolicyEvaluationService>();
@@ -69,7 +68,7 @@ app.MapGet("/", () => Results.Ok(new
         "/v1/diagnostics/connections/{connectionId}/browser/{operation}"
     }
 }));
-app.MapMezhsApi(deleteChats: app.Services.GetRequiredService<AgentChatDeletionHandler>().DeleteChatsAsync);
+app.MapMezhsApi(deleteChats: app.Services.GetRequiredService<AgentService>().DeleteChatsAsync);
 
 app.MapGet("/v1/policies", (PolicyRegistry policies) =>
     Results.Ok(policies.GetViews()));

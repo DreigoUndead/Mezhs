@@ -98,8 +98,7 @@ Assert ($store -notmatch 'CreateChildExecution|CompleteShell|FailShell|TryMarkRu
 Assert ($store -notmatch '_writeLock|Cache\s*=\s*SqliteCacheMode\.Shared') "AgentStore still carries obsolete application locking/shared-cache behavior."
 Assert ($chatStore -match 'SqliteDatabase' -and $chatStore -match 'MigrationState' -and $chatStore -notmatch 'File.AppendAllText|Directory.Move\(original, staged\)') "Core chat persistence does not use SQLite as durable storage."
 Assert ($store -notmatch 'public void BeginChatDeletion|public void CommitChatDeletion|public void ReleaseChatDeletion|public IReadOnlyList<AgentChatDeletionGuard> GetDeletionGuards') "Retired Agent deletion guard protocol is still callable."
-$chatDeletionHandler = Read "src/Mezhs.Agent.Api/Services/AgentChatDeletionHandler.cs"
-Assert ($chatDeletionHandler -match 'agents\.RemoveChatData' -and $chatDeletionHandler -match 'chats\.DeleteChats' -and $chatDeletionHandler -match 'WaitForChatStopAsync' -and $chatDeletionHandler -notmatch 'ExecutorService|executor\.|BlockChats|Reconcile\(') "Chat deletion still crosses Executor ownership or lacks Agent-first stop/join."
+Assert ($agentService -match 'store\.RemoveChatData' -and $agentService -match 'chats\.DeleteChats' -and $agentService -match 'WaitForChatStopAsync' -and $agentService -notmatch 'ExecutorService|executor\.|BlockChats|Reconcile\(') "Chat deletion still crosses Executor ownership or lacks Agent-first stop/join."
 Assert ($store -match 'SqliteDatabase\.DropColumnIfExists\(connection, "Executions", "Requester"\)') "Legacy requester column is not cleaned up during schema migration."
 
 Assert ($policyContext -match 'ExecutionEvidence' -and $evaluation -match 'executor\.List' -and $evaluation -match 'AgentExecutionKind\.Shell') "Policy evaluation does not combine immutable Agent and Executor evidence."
