@@ -1032,8 +1032,7 @@ useEffect(() => {
 
   function selectCategoryFilter(value: string) {
     setCategoryFilter(value);
-    if (value === "uncategorized") setNewChatCategoryId("");
-    else if (value !== "all") setNewChatCategoryId(value);
+    setNewChatCategoryId(value === "all" || value === "uncategorized" ? "" : value);
   }
 
   async function createCategory(event: FormEvent<HTMLFormElement>) {
