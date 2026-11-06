@@ -250,7 +250,8 @@ public sealed class ChatStore(MezhsOptions options)
 
     public ChatListState? TryGetListState(string chatId)
     {
-        if (!_chats.ContainsKey(chatId))
+        var chat = GetChat(chatId);
+        if (chat is null)
             return null;
 
         StoredMessage? latest = null;
@@ -266,7 +267,7 @@ public sealed class ChatStore(MezhsOptions options)
                 firstUser = message;
         }
 
-        var title = string.IsNullOrWhiteSpace(GetChat(chatId)?.Title) ? firstUser?.Content : GetChat(chatId)!.Title;
+        var title = string.IsNullOrWhiteSpace(chat.Title) ? firstUser?.Content : chat.Title;
         return new ChatListState(
             latest?.ConnectionId,
             title is { Length: > 200 } ? title[..200] : title);
