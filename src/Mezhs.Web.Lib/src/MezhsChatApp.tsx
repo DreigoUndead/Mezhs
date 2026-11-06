@@ -92,6 +92,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const providerRegistry = useRef(new ChatProviderRegistry());
   const openChatMenuRef = useRef<HTMLDivElement | null>(null);
+  const deletedChatIdsRef = useRef(new Set<string>());
 
   const selectedConnection = useMemo(
     () => connections.find((connection) => connection.id === connectionId),
@@ -196,7 +197,8 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
 
   async function loadChats(base = apiBase) {
     try {
-      setChats(await apiJson<Chat[]>(base, "/v1/chats"));
+      const loaded = await apiJson<Chat[]>(base, "/v1/chats");
+      setChats(loaded.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not load conversations.");
     }
@@ -427,6 +429,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     }
 
       const deleted = new Set(ids);
+      ids.forEach((id) => deletedChatIdsRef.current.add(id));
       setChats((current) => current.filter((chat) => !deleted.has(chat.chatId)));
       if (chatId && deleted.has(chatId)) newChat();
       setSelectedChatIds(new Set());
