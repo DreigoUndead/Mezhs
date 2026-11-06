@@ -404,6 +404,44 @@ try {
         -Body '{"categoryId":null}' | Out-Null
     Invoke-RestMethod -Method Delete -Uri "$baseUrl/v1/categories/$($category.categoryId)"
 
+    # A shared-group deletion and a chat deletion must serialize their mutations:
+    # both DELETEs succeed and the surviving chat is never left in a removed group.
+    $raceHttp = [System.Net.Http.HttpClient]::new()
+    try {
+        for ($raceIndex = 0; $raceIndex -lt 4; $raceIndex++) {
+            $raceCategory = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/categories" `
+                -ContentType 'application/json' `
+                -Body (ConvertTo-Json @{ name = "deletion-race-$raceIndex-$([Guid]::NewGuid().ToString('N'))" })
+            $raceBody = ConvertTo-Json @{ connectionId = 'test'; categoryId = $raceCategory.categoryId }
+            $raceDeletedChat = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/chats" `
+                -ContentType 'application/json' -Body $raceBody
+            $raceSurvivor = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/chats" `
+                -ContentType 'application/json' -Body $raceBody
+
+            $removeGroup = $raceHttp.DeleteAsync("$baseUrl/v1/categories/$($raceCategory.categoryId)")
+            $removeChat = $raceHttp.DeleteAsync("$baseUrl/v1/chats/$($raceDeletedChat.chatId)")
+            [System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]@($removeGroup, $removeChat))
+            $groupResponse = $removeGroup.Result
+            $chatResponse = $removeChat.Result
+            try {
+                if (-not $groupResponse.IsSuccessStatusCode -or -not $chatResponse.IsSuccessStatusCode) {
+                    throw "Concurrent group/chat delete failed: group $([int]$groupResponse.StatusCode), chat $([int]$chatResponse.StatusCode)."
+                }
+            } finally {
+                $groupResponse.Dispose()
+                $chatResponse.Dispose()
+            }
+
+            $afterRace = Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($raceSurvivor.chatId)"
+            if ($null -ne $afterRace.categoryId) {
+                throw "Concurrent group/chat deletion left a dangling group assignment."
+            }
+            Invoke-RestMethod -Method Delete -Uri "$baseUrl/v1/chats/$($raceSurvivor.chatId)" | Out-Null
+        }
+    } finally {
+        $raceHttp.Dispose()
+    }
+
     $singleDeleteChat = Invoke-RestMethod `
         -Method Post `
         -Uri "$baseUrl/v1/chats" `
