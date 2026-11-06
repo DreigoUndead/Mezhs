@@ -59,7 +59,7 @@ Assert ($policyContext -match 'DefaultModel' -and
         $agentService -match 'policy\.DefaultModel') "Policy-owned names/model defaults are not compiled and applied by Agent."
 
 Assert ($worker -match 'Channel\.CreateBounded<bool>' -and $worker -match 'SignalWork' -and $worker -notmatch 'Channel\.CreateBounded<string>|_queuedCount|_activeCount') "Agent worker still owns execution IDs/state instead of using a wake-only channel."
-Assert ($worker -match 'Task\.Run' -and $worker -match '_inFlight' -and $worker -match 'Task\.WhenAll\(_inFlight\.Values\)' -and $worker -match 'SingleReader = true' -and $worker -notmatch 'Enumerable\.Range|MaxConcurrentExecutions|_maxConcurrentExecutions|_chatGates|SemaphoreSlim') "Agent worker must dispatch independently and track all tasks through shutdown."
+Assert ($worker -match 'Task\.Run' -and $worker -match '_inFlight' -and $worker -match 'Task\.WhenAll\(remaining\)' -and $worker -match 'SingleReader = true' -and $worker -notmatch 'Enumerable\.Range|MaxConcurrentExecutions|_maxConcurrentExecutions|_chatGates|SemaphoreSlim') "Agent worker must dispatch independently and track all tasks through shutdown."
 Assert ($store -match 'TryCreateRootExecution' -and $store -match 'TryClaimNextQueuedExecution' -and $store -match 'RETURNING \*') "SQLite is not the authoritative admission/claim owner for root Agent executions."
 Assert ($store -match 'ClaimAgentChat\(\s*string executionId' -and $store -match 'attach\.Transaction = transaction' -and $store -notmatch 'public void AttachChat') "Agent chat ownership and execution chat attachment are not published atomically."
 Assert ($store -match 'NOT EXISTS \(' -and $store -match 'active\.ChatId = queued\.ChatId') "Queued same-chat work is not serialized before becoming Running."
@@ -96,6 +96,10 @@ Assert ($executorStore -match 'LogSql _log' -and $executorStore -match '_log\.Op
 Assert ($solution -match 'Mezhs.Log.Shared' -and $solution -match 'Mezhs.Log.Data' -and $solution -match 'Mezhs.Log.Sql') "Log foundation projects are missing from the solution."
 Assert ($store -notmatch 'CreateChildExecution|CompleteShell|FailShell|TryMarkRunning|public bool Interrupt') "AgentStore still exposes obsolete shell execution persistence paths."
 Assert ($store -notmatch '_writeLock|Cache\s*=\s*SqliteCacheMode\.Shared') "AgentStore still carries obsolete application locking/shared-cache behavior."
+Assert ($chatStore -match 'SqliteDatabase' -and $chatStore -match 'MigrationState' -and $chatStore -notmatch 'File.AppendAllText|Directory.Move\(original, staged\)') "Core chat persistence does not use SQLite as durable storage."
+Assert ($store -notmatch 'public void BeginChatDeletion|public void CommitChatDeletion|public void ReleaseChatDeletion|public IReadOnlyList<AgentChatDeletionGuard> GetDeletionGuards') "Retired Agent deletion guard protocol is still callable."
+$chatDeletionHandler = Read "src/Mezhs.Agent.Api/Services/AgentChatDeletionHandler.cs"
+Assert ($chatDeletionHandler -match 'agents\.RemoveChatData' -and $chatDeletionHandler -match 'chats\.DeleteChats' -and $chatDeletionHandler -match 'WaitForChatStopAsync' -and $chatDeletionHandler -notmatch 'Executor|BlockChats|Reconcile\(') "Chat deletion still crosses Executor ownership or lacks Agent-first stop/join."
 Assert ($store -match 'SqliteDatabase\.DropColumnIfExists\(connection, "Executions", "Requester"\)') "Legacy requester column is not cleaned up during schema migration."
 
 Assert ($policyContext -match 'ExecutionEvidence' -and $evaluation -match 'executor\.List' -and $evaluation -match 'AgentExecutionKind\.Shell') "Policy evaluation does not combine immutable Agent and Executor evidence."
