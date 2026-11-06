@@ -270,7 +270,32 @@ try
     Check(Open(badRoot).GetChats().Count == 0,
         "Previously failed import resurrected chat on later startup.");
 
-    Console.WriteLine("PASS: SQLite ChatStore migration, JSONL versions, legacy remote metadata, atomic message+chat updates, metadata rollback, category transactions, failed import rollback, Agent-first partial failure, Core bulk rollback, and no resurrection.");
+    // An orphaned message log must block the one-time marker, not silently
+    // strand its history when the missing chat.json is restored later.
+    foreach (var layout in new[] { "chats", Path.Combine("connections", "mock", "chats") })
+    {
+        var orphanRoot = Path.Combine(root, "orphan-" + (layout == "chats" ? "modern" : "legacy"));
+        var orphanDirectory = Path.Combine(orphanRoot, layout, "chat_orphan");
+        Write(Path.Combine(orphanDirectory, "messages.jsonl"), Serialize(new StoredMessage
+        {
+            MessageId = "msg_orphan", ChatId = "chat_orphan", ConnectionId = "mock",
+            Role = "user", Content = "Recovered after chat.json restoration"
+        }) + "\n");
+        try
+        {
+            Open(orphanRoot);
+            throw new InvalidOperationException("Orphaned messages.jsonl was silently marked as migrated.");
+        }
+        catch (InvalidDataException) { }
+        using (var connection = new SqliteDatabase(Path.Combine(orphanRoot, "chats.sqlite")).Open())
+            Check(Rows(connection, "SELECT COUNT(*) FROM MigrationState;") == 0,
+                "Orphaned log incorrectly completed migration.");
+        Write(Path.Combine(orphanDirectory, "chat.json"), Serialize(new ChatRecord { ChatId = "chat_orphan" }));
+        Check(Open(orphanRoot).GetMessages("chat_orphan").Single().Content.StartsWith("Recovered"),
+            "Recovered orphaned message log was not imported after repair.");
+    }
+
+    Console.WriteLine("PASS: SQLite ChatStore migration, JSONL versions, legacy remote metadata, atomic message+chat updates, metadata rollback, category transactions, failed import rollback, orphaned log recovery, Agent-first partial failure, Core bulk rollback, and no resurrection.");
 }
 finally
 {

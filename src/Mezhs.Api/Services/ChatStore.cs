@@ -429,6 +429,7 @@ public sealed class ChatStore(MezhsOptions options)
         var chatsRoot = Path.Combine(_root, "chats");
         if (Directory.Exists(chatsRoot))
         {
+            EnsureMessageLogsHaveChats(chatsRoot);
             foreach (var path in Directory.EnumerateFiles(chatsRoot, "chat.json", SearchOption.AllDirectories))
             {
                 var chat = JsonSerializer.Deserialize<ChatRecord>(File.ReadAllText(path), JsonOptions)
@@ -446,6 +447,7 @@ public sealed class ChatStore(MezhsOptions options)
             {
                 var legacyRoot = Path.Combine(connectionDirectory, "chats");
                 if (!Directory.Exists(legacyRoot)) continue;
+                EnsureMessageLogsHaveChats(legacyRoot);
                 foreach (var path in Directory.EnumerateFiles(legacyRoot, "chat.json", SearchOption.AllDirectories))
                 {
                     var legacy = JsonSerializer.Deserialize<LegacyChatRecord>(File.ReadAllText(path), JsonOptions)
@@ -504,6 +506,18 @@ public sealed class ChatStore(MezhsOptions options)
             ("$at", DateTimeOffset.UtcNow.ToString("O")));
         transaction.Commit();
         // Legacy files are intentionally retained, never reread after this marker.
+    }
+
+    private static void EnsureMessageLogsHaveChats(string chatsRoot)
+    {
+        foreach (var messageFile in Directory.EnumerateFiles(
+                     chatsRoot, "messages.jsonl", SearchOption.AllDirectories))
+        {
+            var chatFile = Path.Combine(Path.GetDirectoryName(messageFile)!, "chat.json");
+            if (!File.Exists(chatFile))
+                throw new InvalidDataException(
+                    $"Cannot import messages from '{messageFile}': adjacent chat.json is missing.");
+        }
     }
 
     private static void LoadLegacyMessages(
