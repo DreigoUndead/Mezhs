@@ -359,9 +359,14 @@ try {
     if ($renamedChat.title -ne 'Renamed agent') {
         throw 'Renamed title did not appear on chat retrieval.'
     }
-    $storedChat = Get-Content -LiteralPath (Join-Path $dataPath "chats/$($created.chatId)/chat.json") -Raw | ConvertFrom-Json
+    # SQLite is now the Core ChatStore source of truth. Inspect the persisted
+    # record rather than the retained (read-only) legacy chat.json layout.
+    $chatDatabase = Join-Path $dataPath 'chats.sqlite'
+    $storedChatJson = python -c 'import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute("SELECT Json FROM Chats WHERE ChatId = ?", (sys.argv[2],)).fetchone()[0])' $chatDatabase $created.chatId
+    if ($LASTEXITCODE -ne 0) { throw 'Could not query Core ChatStore SQLite database.' }
+    $storedChat = $storedChatJson | ConvertFrom-Json
     if ($storedChat.title -ne 'Renamed agent') {
-        throw 'Renamed title was not persisted to storage.'
+        throw 'Renamed title was not persisted to SQLite.'
     }
     Assert-ApiError -Method 'PATCH' -Uri "$baseUrl/v1/chats/$($created.chatId)" `
         -Body '{"title":" "}' -ExpectedStatus 400 -ExpectedError 'title'
@@ -475,8 +480,9 @@ try {
         throw 'Deleted conversations remained in the chat list.'
     }
     foreach ($deletedId in $deletedIds) {
-        if (Test-Path -LiteralPath (Join-Path $dataPath "chats\$deletedId")) {
-            throw "Deleted conversation data remained on disk: $deletedId"
+        $remainingRows = python -c 'import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute("SELECT COUNT(*) FROM Chats WHERE ChatId = ?", (sys.argv[2],)).fetchone()[0])' $chatDatabase $deletedId
+        if ($LASTEXITCODE -ne 0 -or [int]$remainingRows -ne 0) {
+            throw "Deleted conversation data remained in Core SQLite: $deletedId"
         }
     }
     $fileAfterChatDeletion = (Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl$($uploaded.contentUrl)").Content
