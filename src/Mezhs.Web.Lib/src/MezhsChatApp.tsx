@@ -1,4 +1,5 @@
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Check, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
 import { modelActivityLabel } from "./ChatSurface";
 import { ConversationViewport } from "./ConversationViewport";
@@ -68,7 +69,8 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [newChatCategoryId, setNewChatCategoryId] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
-  const [showCategoryForm, setShowCategoryForm] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<"new" | Category | null>(null);
+  const [savingCategory, setSavingCategory] = useState(false);
   const [search, setSearch] = useState("");
   const [chats, setChats] = useState<Chat[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
@@ -84,10 +86,12 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
   const [deletingChats, setDeletingChats] = useState(false);
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
+  const [chatRenameDraft, setChatRenameDraft] = useState("");
   const selectionEpoch = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const providerRegistry = useRef(new ChatProviderRegistry());
+  const openChatMenuRef = useRef<HTMLDivElement | null>(null);
 
   const selectedConnection = useMemo(
     () => connections.find((connection) => connection.id === connectionId),
@@ -95,6 +99,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   );
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
+  const selectedGroup = categories.find((category) => category.categoryId === categoryFilter);
   const draftKey = chatId ? `chat:${chatId}` : `new:${newChatSequence}:${connectionId}`;
   const { draft, setDraft, clearDraft, moveDraft, restoreDraft } = useConversationDrafts(draftKey);
   const { pending: sending, start: startSend, transfer: transferSend, finish: finishSend } = useConversationPending(draftKey);
@@ -148,6 +153,18 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
 }, [apiBase]);
 
 useEffect(() => () => providerRegistry.current.dispose(), []);
+
+  useEffect(() => {
+    if (!chatMenuId) return;
+    const dismiss = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || openChatMenuRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest(".chat-options")) return;
+      setChatMenuId(null);
+    };
+    document.addEventListener("click", dismiss);
+    return () => document.removeEventListener("click", dismiss);
+  }, [chatMenuId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,14 +226,14 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     }
   }
 
-  function newChat(categoryId = "") {
+  function newChat() {
     ++selectionEpoch.current;
     clearPendingFiles();
     setChatMenuId(null);
     setChatId(null);
     setMessages([]);
     setNewChatSequence((current) => current + 1);
-    setNewChatCategoryId(categoryId);
+    setNewChatCategoryId(categoryFilter === "all" || categoryFilter === "uncategorized" ? "" : categoryFilter);
     setSidebarOpen(false);
   }
 
@@ -311,23 +328,38 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     }
   }
 
-  async function createCategory(event: FormEvent) {
+  function beginCategoryEdit() {
+    setNewCategoryName(selectedGroup?.name ?? "");
+    setEditingCategory(selectedGroup ?? "new");
+  }
+
+  async function saveCategory(event: FormEvent) {
     event.preventDefault();
     const name = newCategoryName.trim();
-    if (!name) return;
+    if (!editingCategory || !name || savingCategory) return;
+    setSavingCategory(true);
     try {
-      const category = await apiJson<Category>(apiBase, "/v1/categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
+      if (editingCategory === "new") {
+        await apiJson<Category>(apiBase, "/v1/categories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+      } else {
+        await apiJson<Category>(apiBase,
+          `/v1/categories/${encodeURIComponent(editingCategory.categoryId)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          });
+      }
       await loadCategories();
-      setCategoryFilter(category.categoryId);
-      setNewChatCategoryId(category.categoryId);
       setNewCategoryName("");
-      setShowCategoryForm(false);
+      setEditingCategory(null);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Group could not be created.");
+      setNotice(error instanceof Error ? error.message : "Group could not be saved.");
+    } finally {
+      setSavingCategory(false);
     }
   }
 
@@ -408,26 +440,39 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     }
   }
 
-  async function assignCategory(categoryId: string) {
-    if (!activeChat) {
-      setNewChatCategoryId(categoryId);
-      return;
-    }
+  async function assignCategory(targetChatId: string, categoryId: string) {
     try {
-      await apiJson<Chat>(apiBase, `/v1/chats/${activeChat.chatId}`, {
+      await apiJson<Chat>(apiBase, `/v1/chats/${encodeURIComponent(targetChatId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ categoryId: categoryId || null }),
       });
-      await loadChats();
+      setChats((current) => current.map((chat) =>
+        chat.chatId === targetChatId ? { ...chat, categoryId: categoryId || undefined } : chat));
+      setChatMenuId(null);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Conversation could not be moved.");
     }
   }
 
+  async function renameChat(chat: Chat, value: string) {
+    const title = value.trim();
+    if (!title || title === chat.title) return;
+    try {
+      await apiJson(apiBase, `/v1/chats/${encodeURIComponent(chat.chatId)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      setChats((current) => current.map((item) =>
+        item.chatId === chat.chatId ? { ...item, title } : item));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Conversation could not be renamed.");
+    }
+  }
+
   function selectCategory(id: string) {
     setCategoryFilter(id);
-    if (id !== "all" && id !== "uncategorized") setNewChatCategoryId(id);
+    setNewChatCategoryId(id === "all" || id === "uncategorized" ? "" : id);
   }
 
   useAutoResizeTextArea(composerRef, draft);
