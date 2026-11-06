@@ -284,7 +284,9 @@ static AgentChatView ToView(
         record.OriginSource,
         record.OriginReference,
         record.Paused,
-        string.IsNullOrWhiteSpace(firstTask) ? chat?.Title : firstTask,
+        !string.IsNullOrWhiteSpace(core?.Title)
+            ? core.Title
+            : string.IsNullOrWhiteSpace(firstTask) ? chat?.Title : firstTask,
         chat?.ConnectionId,
         record.CreatedAt,
         lastActivity,
