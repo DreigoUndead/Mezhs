@@ -484,6 +484,7 @@ export default function App() {
     () => new Map(categories.map((category) => [category.categoryId, category])),
     [categories],
   );
+  const selectedGroup = categoryById.get(categoryFilter);
   const filteredChats = useMemo(() => chats
     .filter((chat) => {
       if (categoryFilter === "uncategorized" && chat.categoryId) return false;
@@ -1176,13 +1177,13 @@ useEffect(() => {
             <header>
               <div>
                 <h2 id="agent-manager-title">Manage Agent conversations</h2>
-                <p>{managedChats.length} of {filteredChats.length} shown · {chats.length} total Agent chats</p>
+                <p id="agent-manager-summary">{managedChats.length} of {filteredChats.length} shown · {chats.length} total Agent chats</p>
               </div>
-              <button type="button" aria-label="Close manager"
+              <button type="button" className="agent-manager-close" aria-label="Close manager"
                 onClick={() => setShowConversationManager(false)}>×</button>
             </header>
             <label className="agent-manager-search">Filter displayed conversations
-              <input type="search" value={managerSearch}
+              <input type="search" value={managerSearch} autoFocus
                 onChange={(event) => setManagerSearch(event.target.value)}
                 placeholder="Title, policy, connection, origin, group" />
             </label>
@@ -1200,11 +1201,13 @@ useEffect(() => {
                     <input type="checkbox" disabled={deletingChats}
                       checked={selectedChatIds.has(chat.chatId)}
                       onChange={() => toggleManagedChat(chat.chatId)} />
-                    <span><strong>{displayTitle(chat)}</strong>
+                    <span className="agent-manager-chat-copy">
+                      <strong title={displayTitle(chat)}>{displayTitle(chat)}</strong>
                       <small>{activityLabel(chat.updatedAt)} · {categoryById.get(chat.categoryId ?? "")?.name ?? "Uncategorized"}</small>
                     </span>
                   </label>
-                  <button type="button" disabled={deletingChats}
+                  <button type="button" className="agent-manager-delete" disabled={deletingChats}
+                    aria-label={`Delete ${displayTitle(chat)}`}
                     onClick={() => void deleteConversations([chat], displayTitle(chat))}>Delete</button>
                 </div>
               ))}
@@ -1233,39 +1236,41 @@ useEffect(() => {
         <button className="new-chat" type="button" onClick={beginNewChat}><span>+</span> New agent chat</button>
 
         <div className="agent-group-heading">
-          <span className="section-label">Groups</span>
-          <button type="button" onClick={() => setShowCategoryForm((current) => !current)}
-            aria-label="Create group">+</button>
+          <label className="section-label" htmlFor="agent-category-filter">Groups</label>
+          <button type="button" className="agent-group-add"
+            onClick={() => setShowCategoryForm((current) => !current)}
+            aria-expanded={showCategoryForm} aria-controls="agent-group-create">
+            {showCategoryForm ? "Cancel" : "+ New"}
+          </button>
+        </div>
+        <div className="agent-group-filter">
+          <select id="agent-category-filter" value={categoryFilter}
+            onChange={(event) => selectCategoryFilter(event.target.value)}>
+            <option value="all">All groups ({chats.length})</option>
+            {categories.map((category) => (
+              <option key={category.categoryId} value={category.categoryId}>
+                {category.name} ({chats.filter((chat) => chat.categoryId === category.categoryId).length})
+              </option>
+            ))}
+            <option value="uncategorized">
+              Uncategorized ({chats.filter((chat) => !chat.categoryId).length})
+            </option>
+          </select>
+          {selectedGroup && (
+            <button type="button" className="agent-group-delete"
+              aria-label={`Delete group ${selectedGroup.name}`} title="Delete selected group"
+              onClick={() => void deleteCategory(selectedGroup)}>×</button>
+          )}
         </div>
         {showCategoryForm && (
-          <form className="agent-group-create" onSubmit={(event) => void createCategory(event)}>
+          <form id="agent-group-create" className="agent-group-create"
+            onSubmit={(event) => void createCategory(event)}>
             <input autoFocus value={newCategoryName}
               onChange={(event) => setNewCategoryName(event.target.value)}
               placeholder="Group name" aria-label="New group name" />
-            <button type="submit">Add</button>
+            <button type="submit" disabled={!newCategoryName.trim()}>Add</button>
           </form>
         )}
-        <nav className="agent-group-list" aria-label="Agent conversation groups">
-          <button type="button" className={categoryFilter === "all" ? "active" : ""}
-            onClick={() => selectCategoryFilter("all")}>All <small>{chats.length}</small></button>
-          {categories.map((category) => (
-            <div className="agent-group-entry" key={category.categoryId}>
-              <button type="button" className={categoryFilter === category.categoryId ? "active" : ""}
-                onClick={() => selectCategoryFilter(category.categoryId)}>
-                <span className="agent-group-dot" style={{ backgroundColor: category.color }} />
-                {category.name}
-                <small>{chats.filter((chat) => chat.categoryId === category.categoryId).length}</small>
-              </button>
-              <button type="button" className="agent-group-delete"
-                aria-label={`Delete group ${category.name}`}
-                onClick={() => void deleteCategory(category)}>×</button>
-            </div>
-          ))}
-          <button type="button" className={categoryFilter === "uncategorized" ? "active" : ""}
-            onClick={() => selectCategoryFilter("uncategorized")}>
-            Uncategorized <small>{chats.filter((chat) => !chat.categoryId).length}</small>
-          </button>
-        </nav>
 
         <div className="agent-sidebar-tools">
           <label>Search agent chats
