@@ -1069,7 +1069,6 @@ useEffect(() => {
           body: JSON.stringify({ name }),
         });
         setCategories((current) => [...current, category]);
-        selectCategoryFilter(category.categoryId);
       } else {
         const category = await apiJson<AgentCategory>("",
           `/v1/categories/${encodeURIComponent(editingCategory.categoryId)}`, {
