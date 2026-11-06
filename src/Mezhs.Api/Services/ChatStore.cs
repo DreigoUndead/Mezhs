@@ -213,6 +213,19 @@ public sealed class ChatStore(MezhsOptions options)
         return ids;
     }
 
+    public ChatRecord RenameChat(string chatId, string title)
+    {
+        title = title.Trim();
+        if (title.Length is < 1 or > 200)
+            throw new RequestValidationException("Chat title must contain 1 to 200 characters.");
+
+        var chat = GetChat(chatId)
+            ?? throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
+        chat.Title = title;
+        SaveChat(chat);
+        return chat;
+    }
+
     public ChatRecord SetChatCategory(string chatId, string? categoryId)
     {
         var chat = GetChat(chatId)
@@ -253,7 +266,7 @@ public sealed class ChatStore(MezhsOptions options)
                 firstUser = message;
         }
 
-        var title = firstUser?.Content;
+        var title = string.IsNullOrWhiteSpace(GetChat(chatId)?.Title) ? firstUser?.Content : GetChat(chatId)!.Title;
         return new ChatListState(
             latest?.ConnectionId,
             title is { Length: > 200 } ? title[..200] : title);
