@@ -85,7 +85,7 @@ try
     var legacyFile = Path.Combine(mainRoot, "connections", "mock", "chats", "chat_legacy", "chat.json");
     Write(legacyFile, Serialize(new
     {
-        chatId = "chat_legacy", connectionId = "mock", remoteConversationId = "old-remote",
+        chatId = "chat_legacy", title = "Legacy title", connectionId = "mock", remoteConversationId = "old-remote",
         remoteParentMessageId = "old-parent", categoryId = category.CategoryId,
         createdAt = now, updatedAt = now.AddMinutes(2)
     }));
@@ -112,6 +112,7 @@ try
         restored.Activity == "answer complete" &&
         restored.Analysis == "persisted analysis", "Last JSONL status version or attachments lost.");
     var legacy = store.GetChat("chat_legacy")!;
+    Check(legacy.Title == "Legacy title", "Legacy title was not preserved.");
     Check(legacy.RemoteStates.Single().LastLocalMessageId == legacyReply.MessageId,
         "Legacy remote state did not attach to completed assistant reply.");
 

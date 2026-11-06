@@ -418,6 +418,8 @@ public sealed class ChatStore(MezhsOptions options)
                     {
                         ChatId = legacy.ChatId,
                         CategoryId = legacy.CategoryId,
+                        Title = legacy.Title,
+                        RemoteStates = legacy.RemoteStates ?? [],
                         CreatedAt = legacy.CreatedAt,
                         UpdatedAt = legacy.UpdatedAt
                     };
@@ -425,6 +427,8 @@ public sealed class ChatStore(MezhsOptions options)
                         throw new InvalidDataException($"Duplicate legacy chat ID in '{path}'.");
                     LoadLegacyMessages(path, chat.ChatId, messages);
                     if (!string.IsNullOrWhiteSpace(legacy.ConnectionId) &&
+                        !chat.RemoteStates.Any(state => string.Equals(
+                            state.ConnectionId, legacy.ConnectionId, StringComparison.OrdinalIgnoreCase)) &&
                         (!string.IsNullOrWhiteSpace(legacy.RemoteChatUrl) ||
                          !string.IsNullOrWhiteSpace(legacy.RemoteConversationId) ||
                          !string.IsNullOrWhiteSpace(legacy.RemoteParentMessageId)))
@@ -485,6 +489,10 @@ public sealed class ChatStore(MezhsOptions options)
             if (string.IsNullOrWhiteSpace(item.MessageId) ||
                 !string.Equals(item.ChatId, chatId, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException($"Invalid message ID or chat association at '{path}:{lineNumber}'.");
+            if (messages.TryGetValue(item.MessageId, out var previous) &&
+                !string.Equals(previous.ChatId, item.ChatId, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException(
+                    $"Message ID '{item.MessageId}' appears in different chats in '{path}:{lineNumber}'.");
             // JSONL contains many versions of one message; the last record wins.
             messages[item.MessageId] = item;
         }
@@ -585,6 +593,8 @@ public sealed class ChatStore(MezhsOptions options)
         public string? RemoteConversationId { get; init; }
         public string? RemoteParentMessageId { get; init; }
         public string? CategoryId { get; init; }
+        public string? Title { get; init; }
+        public List<ChatConnectionState>? RemoteStates { get; init; }
         public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
         public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
     }
