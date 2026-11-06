@@ -83,21 +83,31 @@ public sealed class AgentWorker : BackgroundService
             foreach (var id in ids)
                 _deletingChats.Add(id);
 
-            // Stop only the Agent reasoning. No Executor.Kill and no shell join.
-            foreach (var execution in ids.SelectMany(_store.GetExecutions)
-                         .Where(item => item.ParentExecutionId is null &&
-                             item.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running
-                                 or AgentExecutionStatus.CancelRequested))
+            try
             {
-                if (execution.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running)
-                    _store.RequestCancel(execution.ExecutionId);
-                lock (_cancellationSync)
+                // Stop only Agent reasoning. No Executor.Kill and no shell join.
+                foreach (var execution in ids.SelectMany(_store.GetExecutions)
+                             .Where(item => item.ParentExecutionId is null &&
+                                 item.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running
+                                     or AgentExecutionStatus.CancelRequested))
                 {
-                    if (_cancellations.TryGetValue(execution.ExecutionId, out var cancellation))
-                        cancellation.Cancel();
+                    if (execution.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running)
+                        _store.RequestCancel(execution.ExecutionId);
+                    lock (_cancellationSync)
+                    {
+                        if (_cancellations.TryGetValue(execution.ExecutionId, out var cancellation))
+                            cancellation.Cancel();
+                    }
                 }
+                SignalWork();
             }
-            SignalWork();
+            catch
+            {
+                // A failed stop must not leave a permanent admission gate.
+                foreach (var id in ids)
+                    _deletingChats.Remove(id);
+                throw;
+            }
         }
     }
 

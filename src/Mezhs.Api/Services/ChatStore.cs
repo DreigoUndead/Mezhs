@@ -36,6 +36,8 @@ public sealed class ChatStore(MezhsOptions options)
         lock (_writeLock)
         {
             Directory.CreateDirectory(_root);
+            Directory.CreateDirectory(Path.Combine(_root, "connections"));
+            Directory.CreateDirectory(Path.Combine(_root, "chats"));
             _database.Initialize("""
                 CREATE TABLE IF NOT EXISTS Chats (
                     ChatId TEXT PRIMARY KEY COLLATE NOCASE,
@@ -180,6 +182,8 @@ public sealed class ChatStore(MezhsOptions options)
             var members = _chats.Values
                 .Where(chat => string.Equals(chat.CategoryId, categoryId, StringComparison.OrdinalIgnoreCase))
                 .ToArray();
+            var previousUpdates = members.ToDictionary(chat => chat.ChatId, chat => chat.UpdatedAt,
+                StringComparer.OrdinalIgnoreCase);
             using var connection = _database.Open();
             using var transaction = connection.BeginTransaction();
             try
@@ -187,6 +191,7 @@ public sealed class ChatStore(MezhsOptions options)
                 foreach (var chat in members)
                 {
                     chat.CategoryId = null;
+                    chat.UpdatedAt = DateTimeOffset.UtcNow;
                     UpdateChat(connection, transaction, chat);
                 }
                 Execute(connection, transaction,
@@ -197,7 +202,10 @@ public sealed class ChatStore(MezhsOptions options)
             catch
             {
                 foreach (var chat in members)
+                {
                     chat.CategoryId = categoryId;
+                    chat.UpdatedAt = previousUpdates[chat.ChatId];
+                }
                 throw;
             }
             _categories.TryRemove(categoryId, out _);
