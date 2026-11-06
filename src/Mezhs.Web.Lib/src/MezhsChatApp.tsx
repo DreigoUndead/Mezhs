@@ -693,75 +693,74 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
       </aside>
 
       {showConversationManager && (
-        <div className="dialog-backdrop">
-          <section className="conversation-manager" role="dialog" aria-modal="true" aria-labelledby="conversation-manager-title">
+        <div className="dialog-backdrop" onClick={() => setShowConversationManager(false)}>
+          <section className="conversation-manager" role="dialog" aria-modal="true"
+            aria-labelledby="conversation-manager-title" aria-describedby="conversation-manager-summary"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setShowConversationManager(false);
+            }}>
             <header>
               <div>
-                <span className="eyebrow">Conversation management</span>
-                <h2 id="conversation-manager-title">Delete conversations</h2>
-                <p>Showing {managedChats.length} of {filteredChats.length} conversations from the current sidebar filters.</p>
+                <h2 id="conversation-manager-title">Manage conversations</h2>
+                <p id="conversation-manager-summary">
+                  {managedChats.length} of {filteredChats.length} shown · {chats.length} total conversations
+                </p>
               </div>
-              <button className="dialog-close" onClick={() => setShowConversationManager(false)} aria-label="Close conversation manager">×</button>
             </header>
-
-            <div className="manager-filter">
-              <label htmlFor="conversation-delete-filter">Filter conversations to delete</label>
-              <input
-                id="conversation-delete-filter"
-                autoFocus
-                value={managerSearch}
-                onChange={(event) => setManagerSearch(event.target.value)}
-                placeholder="Filter by title, connection, or group"
-              />
-              {managerSearch && <button type="button" onClick={() => setManagerSearch("")} aria-label="Clear delete filter">x</button>}
-            </div>
-
+            <label className="manager-filter">
+              Filter displayed conversations
+              <input type="search" autoFocus autoComplete="off"
+                value={managerSearch} onChange={(event) => setManagerSearch(event.target.value)}
+                placeholder="Title, connection, group" />
+            </label>
             <div className="manager-selection">
-              <button onClick={selectAllManagedChats} disabled={managedChats.length === 0}>
-                {allManagedChatsSelected ? "Clear shown selection" : "Select all shown"}
-              </button>
-              <span>{selectedChatIds.size} selected</span>
+              <label>
+                <input type="checkbox" checked={allManagedChatsSelected}
+                  disabled={managedChats.length === 0 || deletingChats}
+                  onChange={selectAllManagedChats} />
+                Select all shown
+              </label>
+              <span>{managedChats.filter((chat) => selectedChatIds.has(chat.chatId)).length} selected</span>
             </div>
-
             <div className="manager-list">
               {managedChats.map((chat) => {
                 const connection = connectionFor(chat.connectionId);
                 return (
                   <div className="manager-row" key={chat.chatId}>
                     <label>
-                      <input
-                        type="checkbox"
+                      <input type="checkbox" disabled={deletingChats}
                         checked={selectedChatIds.has(chat.chatId)}
-                        onChange={() => toggleManagedChat(chat.chatId)}
-                      />
-                      <span><strong>{chat.title}</strong><small>{connection?.name || chat.connectionId}</small></span>
+                        onChange={() => toggleManagedChat(chat.chatId)} />
+                      <span>
+                        <strong title={chat.title}>{chat.title}</strong>
+                        <small>{connection?.name || chat.connectionId} ·
+                          {new Date(chat.updatedAt).toLocaleDateString()}</small>
+                      </span>
                     </label>
-                    <button
-                      className="delete-one"
-                      disabled={deletingChats}
-                      onClick={() => void deleteConversations([chat], `'${chat.title}'`)}
-                    >Delete</button>
+                    <button type="button" className="delete-one" disabled={deletingChats}
+                      aria-label={`Delete ${chat.title}`}
+                      onClick={() => void deleteConversations([chat], `'${chat.title}'`)}>Delete</button>
                   </div>
                 );
               })}
-              {managedChats.length === 0 && <p className="manager-empty">No conversations match this delete filter.</p>}
+              {managedChats.length === 0 &&
+                <p className="manager-empty">No conversations match the current filters.</p>}
             </div>
-
             <footer>
-              <button className="secondary-action" onClick={() => setShowConversationManager(false)}>Cancel</button>
-              <button
-                className="danger-action"
-                disabled={selectedChatIds.size === 0 || deletingChats}
+              <button type="button" className="danger-action"
+                disabled={deletingChats || !managedChats.some((chat) => selectedChatIds.has(chat.chatId))}
                 onClick={() => void deleteConversations(
-                  filteredChats.filter((chat) => selectedChatIds.has(chat.chatId)),
-                  `${selectedChatIds.size} selected conversations`,
-                )}
-              >Delete selected</button>
-              <button
-                className="danger-action danger-all"
+                  managedChats.filter((chat) => selectedChatIds.has(chat.chatId)),
+                  "selected conversations",
+                )}>Delete selected</button>
+              <button type="button" className="danger-action"
                 disabled={managedChats.length === 0 || deletingChats}
-                onClick={() => void deleteConversations(managedChats, "all conversations shown by the delete filter")}
-              >Delete all shown</button>
+                onClick={() => void deleteConversations(managedChats, "all shown conversations")}>
+                Delete all shown
+              </button>
+              <button type="button" className="secondary-action"
+                onClick={() => setShowConversationManager(false)}>Close</button>
             </footer>
           </section>
         </div>
