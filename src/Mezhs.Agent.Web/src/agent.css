@@ -711,20 +711,20 @@
 
 /* Agent chat navigation and bulk manager */
 .agent-sidebar .new-chat {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  gap: 9px;
   width: 100%;
-  height: 44px;
-  margin-bottom: 12px;
-  padding: 0 12px;
+  height: 38px;
+  margin-bottom: 9px;
+  padding: 0 40px;
   border: 1px solid #555348;
   border-radius: 8px;
   color: #f1eee5;
   background: #292821;
-  font: 600 13px/1.3 "Segoe UI", system-ui, sans-serif;
+  font: 600 12px/1.3 "Segoe UI", system-ui, sans-serif;
   text-align: center;
   transform: none;
 }
@@ -736,145 +736,92 @@
 }
 
 .agent-sidebar .new-chat svg {
+  position: absolute;
+  top: 50%;
+  left: 12px;
   display: block;
-  flex: 0 0 auto;
   color: #d7ff64;
-}
-
-.agent-group-add,
-.agent-group-delete,
-.agent-sidebar-tools button {
-  border: 1px solid #514f47;
-  border-radius: 8px;
-  background: #2a2923;
-  color: #f0eee5;
-  font: 600 12px/1.2 "Segoe UI", system-ui, sans-serif;
-  cursor: pointer;
-}
-
-.agent-group-add {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  flex: 0 0 44px;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  color: #d7ff64;
-}
-
-.agent-group-add svg {
-  display: block;
-}
-
-.agent-group-add:hover,
-.agent-sidebar-tools button:hover {
-  border-color: #8e9768;
-  background: #35372b;
+  transform: translateY(-50%);
 }
 
 .agent-group-filter {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   min-width: 0;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
-.agent-group-filter select {
+.agent-group-filter > select,
+.agent-group-editor input,
+.agent-sidebar-tools input {
   box-sizing: border-box;
   min-width: 0;
   width: 100%;
-  height: 44px;
-  flex: 1 1 auto;
+  height: 38px;
   padding: 0 10px;
   border: 1px solid #555348;
   border-radius: 8px;
   color: #f1eee5;
   background: #292821;
+  font: 400 12px/1.3 "Segoe UI", system-ui, sans-serif;
+}
+
+.agent-group-filter > select {
   color-scheme: dark;
-  font: 500 12px/1.3 "Segoe UI", system-ui, sans-serif;
   cursor: pointer;
 }
 
-.agent-group-filter select:hover {
+.agent-group-filter > select:hover {
   border-color: #858573;
 }
 
-.agent-group-delete {
+.agent-group-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px 30px;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+}
+
+.agent-group-editor button {
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  flex: 0 0 44px;
-  width: 44px;
-  height: 44px;
+  width: 30px;
+  height: 32px;
   padding: 0;
-  color: #ffc0bc;
-}
-
-.agent-group-delete svg {
-  display: block;
-}
-
-.agent-group-delete:hover {
-  border-color: #bc706b;
-  background: #432e2c;
-}
-
-.agent-group-create {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 66px;
-  align-items: stretch;
-  gap: 7px;
-  margin: -5px 0 14px;
-}
-
-.agent-group-create input,
-.agent-sidebar-tools input {
-  box-sizing: border-box;
-  min-width: 0;
-  width: 100%;
-  height: 44px;
   border: 1px solid #555348;
-  border-radius: 8px;
-  padding: 0 11px;
-  color: #f5f3ea;
+  border-radius: 7px;
+  color: #eeeae1;
   background: #292821;
-  font: 400 12px/1.3 "Segoe UI", system-ui, sans-serif;
+  cursor: pointer;
 }
 
-.agent-group-create input::placeholder,
+.agent-group-editor button[type="submit"] {
+  color: #d7ff64;
+}
+
+.agent-group-editor button:hover:not(:disabled) {
+  border-color: #858573;
+  background: #35342e;
+}
+
+.agent-group-editor button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.agent-group-editor input::placeholder,
 .agent-sidebar-tools input::placeholder {
   color: #a5a197;
 }
 
-.agent-group-create button {
-  min-width: 0;
-  border: 1px solid #d7ff64;
-  border-radius: 8px;
-  color: #1e2410;
-  background: #d7ff64;
-  font: 700 12px/1.2 "Segoe UI", system-ui, sans-serif;
-  cursor: pointer;
-}
-
-.agent-group-create button:hover:not(:disabled) {
-  background: #e7ffad;
-}
-
-.agent-group-create button:disabled {
-  opacity: .5;
-  cursor: not-allowed;
-}
-
 .agent-sidebar-tools {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-columns: minmax(0, 1fr) 38px;
   align-items: center;
   gap: 8px;
-  margin: 0 0 12px;
+  margin: 0 0 10px;
 }
 
 .agent-sidebar-tools button {
@@ -882,13 +829,19 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  width: 44px;
-  height: 44px;
+  width: 38px;
+  height: 38px;
   padding: 0;
+  border: 1px solid #514f47;
+  border-radius: 8px;
+  color: #f0eee5;
+  background: #2a2923;
+  cursor: pointer;
 }
 
-.agent-sidebar-tools button svg {
-  display: block;
+.agent-sidebar-tools button:hover {
+  border-color: #8e9768;
+  background: #35372b;
 }
 
 .agent-chat-entry {
