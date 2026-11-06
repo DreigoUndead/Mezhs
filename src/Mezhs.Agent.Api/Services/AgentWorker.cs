@@ -27,8 +27,6 @@ public sealed class AgentWorker : BackgroundService
     private readonly Dictionary<string, Task> _inFlight = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _cancellationSync = new();
     private readonly object _inFlightSync = new();
-    // Held only under ChatStore.DeletionSync; no persistent deletion guards.
-    private readonly HashSet<string> _deletingChats = new(StringComparer.OrdinalIgnoreCase);
     private readonly ILogger<AgentWorker> _logger;
     private readonly Dictionary<string, CancellationTokenSource> _cancellations =
         new(StringComparer.OrdinalIgnoreCase);
@@ -71,50 +69,23 @@ public sealed class AgentWorker : BackgroundService
 
     public void SignalWork() => _wake.Writer.TryWrite(true);
 
-    public void BeginChatDeletion(IReadOnlyList<string> ids)
+    public void StopChatExecutions(IReadOnlyList<string> ids)
     {
-        lock (_chatStore.DeletionSync)
+        // Stop Agent reasoning only; independently running Executor shells are untouched.
+        foreach (var execution in ids.SelectMany(_store.GetExecutions)
+                     .Where(item => item.ParentExecutionId is null &&
+                         item.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running
+                             or AgentExecutionStatus.CancelRequested))
         {
-            if (ids.Any(_deletingChats.Contains))
-                throw new RequestValidationException("A requested chat is already being deleted.");
-            foreach (var id in ids)
-                _deletingChats.Add(id);
-
-            try
+            if (execution.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running)
+                _store.RequestCancel(execution.ExecutionId);
+            lock (_cancellationSync)
             {
-                // Stop only Agent reasoning. No Executor.Kill and no shell join.
-                foreach (var execution in ids.SelectMany(_store.GetExecutions)
-                             .Where(item => item.ParentExecutionId is null &&
-                                 item.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running
-                                     or AgentExecutionStatus.CancelRequested))
-                {
-                    if (execution.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running)
-                        _store.RequestCancel(execution.ExecutionId);
-                    lock (_cancellationSync)
-                    {
-                        if (_cancellations.TryGetValue(execution.ExecutionId, out var cancellation))
-                            cancellation.Cancel();
-                    }
-                }
-                SignalWork();
-            }
-            catch
-            {
-                // A failed stop must not leave a permanent admission gate.
-                foreach (var id in ids)
-                    _deletingChats.Remove(id);
-                throw;
+                if (_cancellations.TryGetValue(execution.ExecutionId, out var cancellation))
+                    cancellation.Cancel();
             }
         }
-    }
-
-    public void EndChatDeletion(IReadOnlyList<string> ids)
-    {
-        lock (_chatStore.DeletionSync)
-        {
-            foreach (var id in ids)
-                _deletingChats.Remove(id);
-        }
+        SignalWork();
     }
 
     public async Task WaitForChatStopAsync(IReadOnlyList<string> ids, CancellationToken cancellationToken)
@@ -257,11 +228,6 @@ public sealed class AgentWorker : BackgroundService
             _cancellations[executionId] = cancellation;
         try
         {
-            lock (_chatStore.DeletionSync)
-            {
-                if (execution.ChatId is { } existing && _deletingChats.Contains(existing))
-                    cancellation.Cancel();
-            }
             // Cancellation may have reached SQLite before the token was registered.
             if (_store.GetExecution(executionId)?.Status == AgentExecutionStatus.CancelRequested)
                 cancellation.Cancel();
@@ -274,8 +240,6 @@ public sealed class AgentWorker : BackgroundService
             // A new core chat is not visible to deletion before its Agent claim.
             lock (_chatStore.DeletionSync)
             {
-                if (chatId is not null && _deletingChats.Contains(chatId))
-                    throw new OperationCanceledException(cancellation.Token);
                 previouslyOwnedAgentChat = chatId is null ? null : _store.GetAgentChat(chatId);
                 if (string.IsNullOrWhiteSpace(chatId))
                 {

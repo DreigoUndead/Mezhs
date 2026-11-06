@@ -92,45 +92,38 @@ public sealed class AgentService(
         {
             ids = requested.Select(id => chats.GetChat(id)?.ChatId
                 ?? throw new ResourceNotFoundException($"Chat '{id}' was not found.")).ToArray();
-            worker.BeginChatDeletion(ids);
+            worker.StopChatExecutions(ids);
         }
 
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stop.CancelAfter(TimeSpan.FromSeconds(20));
         try
         {
-            using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            stop.CancelAfter(TimeSpan.FromSeconds(20));
-            try
+            // Agent reasoning joins, but Executor shells keep running independently.
+            await worker.WaitForChatStopAsync(ids, stop.Token);
+            while (true)
             {
-                // Agent reasoning joins, but Executor shells keep running independently.
-                await worker.WaitForChatStopAsync(ids, stop.Token);
-                while (true)
-                {
-                    bool active;
-                    lock (chats.DeletionSync)
-                        active = ids.Any(id => chats.GetRuntimeState(id).ActiveMessage is not null);
-                    if (!active) break;
-                    await Task.Delay(50, stop.Token);
-                }
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                throw new RequestValidationException(
-                    "Agent or chat processing did not stop in time. No chat data was deleted.");
-            }
-
-            lock (chats.DeletionSync)
-            {
-                if (ids.Any(id => chats.GetRuntimeState(id).ActiveMessage is not null))
-                    throw new RequestValidationException(
-                        "Chat processing resumed before deletion. No chat data was deleted.");
-                store.RemoveChatData(ids); // Agent SQLite transaction first.
-                chats.DeleteChats(ids);      // Core SQLite transaction second.
-                return ids;
+                bool active;
+                lock (chats.DeletionSync)
+                    active = ids.Any(id => chats.GetRuntimeState(id).ActiveMessage is not null);
+                if (!active) break;
+                await Task.Delay(50, stop.Token);
             }
         }
-        finally
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            worker.EndChatDeletion(ids);
+            throw new RequestValidationException(
+                "Agent or chat processing did not stop in time. No chat data was deleted.");
+        }
+
+        lock (chats.DeletionSync)
+        {
+            if (ids.Any(id => chats.GetRuntimeState(id).ActiveMessage is not null))
+                throw new RequestValidationException(
+                    "Chat processing resumed before deletion. No chat data was deleted.");
+            store.RemoveChatData(ids); // Agent SQLite transaction first.
+            chats.DeleteChats(ids);      // Core SQLite transaction second.
+            return ids;
         }
     }
 

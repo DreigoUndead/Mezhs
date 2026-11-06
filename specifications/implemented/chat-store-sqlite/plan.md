@@ -41,7 +41,7 @@ Why:
 Keep the existing single/bulk `DELETE /v1/chats` routes; no parallel Agent endpoint. The shared `MapMezhsApi` maps Core deletion by default and accepts an optional Agent-host deletion callback. Avoid a one-method deletion interface and Core pass-through handler; keep Agent-specific coordination in the existing AgentService; do not add a dedicated deletion handler.
 
 1. Normalize and validate the complete requested set of Core chat IDs.
-2. Under a small **in-process admission/stop gate**, prevent new Agent work from entering those chats. Stop queued/running **Agent reasoning/worker** activity and wait until those workers can no longer write Agent/Core chat data. A deletion-only stop must **not** reuse cancellation that kills Executor shells, and must not wait for those shells to finish.
+2. Request cancellation of existing queued/running **Agent reasoning/worker** activity and wait for it to stop before deletion. Do not maintain an in-process deletion/admission gate: concurrent submissions may fail or cause deletion to fail. The deletion-only stop must **not** kill Executor shells or wait for those shells to finish.
 3. Ensure ongoing core message operations cannot write into removed chats after deletion. If Agent/core processing cannot quiesce, report failure **before** destructive commits.
 4. Delete Agent chat, execution and staged-attachment **references** in **one AgentStore SQLite transaction**.
 5. Delete Core chat and messages in **one ChatStore SQLite transaction**. Successful response only after both commits. Bulk requests use one transaction per store; preserve validation semantics.
@@ -49,7 +49,7 @@ Keep the existing single/bulk `DELETE /v1/chats` routes; no parallel Agent endpo
 
 - Remove the current deletion-specific `Preparing`/`Deleting` guard/reconciliation machinery and `Executor.BlockChats`/`UnblockChats`/active-shell checks from the Agent deletion path. Any Executor-internal compatibility cleanup belongs exclusively to Executor code; never manipulate its database from Agent/Core.
 - Keep the normal Main API deletion purely Core-owned. Continue preventing concurrently admitted messages from recreating deleted chats, without a distributed protocol.
-- Accepted concurrency trade-off: Agent execution submission may race with deletion and be accepted before failing, being canceled, or disappearing with the deleted chat. A concurrent deletion may also fail and be retried. Do not add an AgentService admission-state getter solely to guarantee a graceful rejection; retain the worker-side stop/join and Core SQLite integrity safeguards.
+- Accepted concurrency trade-off: Agent execution submission may race with deletion and be accepted before failing, being canceled, or disappearing with the deleted chat. A concurrent deletion may also fail and be retried. Do not add a deletion-state admission gate solely to guarantee a graceful rejection; retain worker stop/join and Core SQLite integrity safeguards.
 - Adjust UI confirmation/error handling only where needed to reflect the new stop/detach semantics. Search/group/rename and other chat-management UI behavior is not part of this redesign.
 
 ## Acceptance criteria
