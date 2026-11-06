@@ -364,7 +364,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
   }
 
   async function deleteCategory(category: Category) {
-    if (!window.confirm(`Delete the group '${category.name}'? Conversations will be kept.`)) return;
+    if (!window.confirm(`Delete group '${category.name}'? All conversations in this shared group, including Agent conversations if present, will be unassigned. Conversations are kept.`)) return;
     try {
       await apiJsonOrEmpty(apiBase, `/v1/categories/${category.categoryId}`, {
         method: "DELETE",
@@ -410,7 +410,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     if (ids.length === 0 || deletingChats) return;
     const noun = ids.length === 1 ? "conversation" : "conversations";
     if (requireConfirmation &&
-        !window.confirm(`Delete ${description}? This permanently removes ${ids.length} ${noun} from MEŽS.`)) return;
+        !window.confirm(`Permanently delete ${description} (${ids.length} ${noun})? Conversation transcripts and any Agent state will be removed. Historical Executor records and stored files may remain.`)) return;
 
     setDeletingChats(true);
     setChatMenuId(null);
