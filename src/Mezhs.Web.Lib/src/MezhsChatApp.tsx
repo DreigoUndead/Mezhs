@@ -541,8 +541,6 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
           <span className={`health-dot ${online ? "online" : ""}`} title={online ? "API online" : "API offline"} />
         </div>
 
-        <button className="new-chat" onClick={() => newChat()}><span>+</span> New conversation</button>
-
         <ConnectionModelPicker
           connections={connections}
           connectionId={connectionId}
@@ -556,72 +554,130 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
         />
 
 
-        <div className="groups-heading">
-          <span className="section-label">Groups</span>
-          <button onClick={() => setShowCategoryForm((value) => !value)} aria-label="Create group">+</button>
-        </div>
-        {showCategoryForm && (
-          <form className="category-form" onSubmit={(event) => void createCategory(event)}>
-            <input autoFocus value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} placeholder="Group name" />
-            <button type="submit">Add</button>
-          </form>
-        )}
-        <nav className="category-list" aria-label="Conversation groups">
-          <button className={categoryFilter === "all" ? "active" : ""} onClick={() => selectCategory("all")}>
-            <i className="all-dot" /><span>All conversations</span><small>{chats.length}</small>
-          </button>
-          {categories.map((category) => (
-            <div className="category-row" key={category.categoryId}>
-              <button className={categoryFilter === category.categoryId ? "active" : ""} onClick={() => selectCategory(category.categoryId)}>
-                <i style={{ background: category.color }} /><span>{category.name}</span>
-                <small>{chats.filter((chat) => chat.categoryId === category.categoryId).length}</small>
+        <div className="base-group-filter">
+          {editingCategory ? (
+            <form className="base-group-editor" onSubmit={(event) => void saveCategory(event)}>
+              <input autoFocus value={newCategoryName} maxLength={100}
+                aria-label={editingCategory === "new" ? "New group name" : "Rename group"}
+                placeholder={editingCategory === "new" ? "New group name" : "Group name"}
+                disabled={savingCategory}
+                onChange={(event) => setNewCategoryName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && !savingCategory) setEditingCategory(null);
+                }} />
+              <button type="submit" aria-label="Save group" title="Save group"
+                disabled={!newCategoryName.trim() || savingCategory}>
+                <Check aria-hidden="true" size={17} strokeWidth={2} />
               </button>
-              <button className="category-delete" onClick={() => void deleteCategory(category)} title="Delete group">x</button>
-            </div>
-          ))}
-          <button className={categoryFilter === "uncategorized" ? "active" : ""} onClick={() => selectCategory("uncategorized")}>
-            <i className="empty-dot" /><span>Uncategorized</span><small>{chats.filter((chat) => !chat.categoryId).length}</small>
-          </button>
-        </nav>
-
-        <div className="history-heading">
-          <span className="section-label">Conversations</span>
-          <div>
-            <span>{filteredChats.length}</span>
-            <button onClick={openConversationManager} disabled={loading || sending || filteredChats.length === 0}>Manage</button>
-          </div>
+              <button type="button" aria-label="Cancel editing group" title="Cancel"
+                disabled={savingCategory} onClick={() => setEditingCategory(null)}>
+                <X aria-hidden="true" size={17} strokeWidth={2} />
+              </button>
+            </form>
+          ) : (
+            <>
+              <select aria-label="Filter conversations by group"
+                value={categoryFilter} onChange={(event) => selectCategory(event.target.value)}>
+                <option value="all">All groups ({chats.length})</option>
+                {categories.map((category) => (
+                  <option key={category.categoryId} value={category.categoryId}>
+                    {category.name} ({chats.filter((chat) => chat.categoryId === category.categoryId).length})
+                  </option>
+                ))}
+                <option value="uncategorized">
+                  Uncategorized ({chats.filter((chat) => !chat.categoryId).length})
+                </option>
+              </select>
+              <button type="button" onClick={beginCategoryEdit}
+                aria-label={selectedGroup ? `Rename group ${selectedGroup.name}` : "Create group"}
+                title={selectedGroup ? "Rename group" : "Create group"}>
+                {selectedGroup
+                  ? <Pencil aria-hidden="true" size={17} strokeWidth={1.8} />
+                  : <Plus aria-hidden="true" size={18} strokeWidth={2} />}
+              </button>
+              <button type="button" disabled={!selectedGroup}
+                aria-label={selectedGroup ? `Delete group ${selectedGroup.name}` : "Delete group"}
+                title={selectedGroup ? "Delete group" : "Select a group to delete"}
+                onClick={() => { if (selectedGroup) void deleteCategory(selectedGroup); }}>
+                <Trash2 aria-hidden="true" size={17} strokeWidth={1.8} />
+              </button>
+            </>
+          )}
         </div>
-        <label className="search-box">
-          <span>Search</span>
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter conversations" />
-          {search && <button onClick={() => setSearch("")} aria-label="Clear search">x</button>}
-        </label>
+
+        <div className="base-sidebar-tools">
+          <input type="search" aria-label="Search conversations" placeholder="Search conversations"
+            value={search} onChange={(event) => setSearch(event.target.value)} />
+          <button type="button" className="base-sidebar-new" aria-label="New conversation"
+            title="New conversation" onClick={() => newChat()}>
+            <Plus aria-hidden="true" size={18} strokeWidth={2} />
+          </button>
+          <button type="button" aria-label="Manage conversations" title="Manage conversations"
+            onClick={openConversationManager}>
+            <Settings aria-hidden="true" size={18} strokeWidth={1.8} />
+          </button>
+        </div>
+        <span className="section-label">Conversations · {filteredChats.length} of {chats.length}</span>
         <nav className="chat-list" aria-label="Conversation history">
           {filteredChats.map((chat) => {
             const connection = connectionFor(chat.connectionId);
-            const category = categories.find((item) => item.categoryId === chat.categoryId);
             return (
-              <div className="chat-row" key={chat.chatId}>
-                <button className={`chat-open ${chat.chatId === chatId ? "active" : ""}`} onClick={() => void openChat(chat)}>
-                  <span className="chat-title">{chat.title}</span>
-                  <small>{new Date(chat.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</small>
-                  <span className="chat-label">{connection?.name || chat.connectionId}</span>
-                  {category && <i className="chat-category" style={{ background: category.color }} title={category.name} />}
+              <div className="chat-row" key={chat.chatId}
+                ref={chatMenuId === chat.chatId ? openChatMenuRef : null}
+                onBlur={(event) => {
+                  if (chatMenuId === chat.chatId && !event.currentTarget.contains(event.relatedTarget))
+                    setChatMenuId((current) => current === chat.chatId ? null : current);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && chatMenuId === chat.chatId) {
+                    event.stopPropagation();
+                    setChatMenuId(null);
+                  }
+                }}>
+                <button className={`chat-open ${chat.chatId === chatId ? "active" : ""}`}
+                  onClick={() => void openChat(chat)}>
+                  <span className="chat-title" title={chat.title}>{chat.title}</span>
+                  <span className="base-chat-meta">
+                    <span className="base-chat-context">{connection?.name || chat.connectionId}</span>
+                    <time dateTime={chat.updatedAt} title={new Date(chat.updatedAt).toLocaleString()}>
+                      {new Date(chat.updatedAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+                    </time>
+                  </span>
                 </button>
-                <button
-                  className="chat-options"
-                  aria-label={`Conversation options for ${chat.title}`}
-                  aria-haspopup="menu"
+                <button type="button" className="chat-options"
+                  aria-label={`Options for ${chat.title}`}
                   aria-expanded={chatMenuId === chat.chatId}
-                  onClick={() => setChatMenuId((current) => current === chat.chatId ? null : chat.chatId)}
-                >...</button>
+                  onClick={() => {
+                    if (chatMenuId === chat.chatId) setChatMenuId(null);
+                    else {
+                      setChatRenameDraft(chat.title);
+                      setChatMenuId(chat.chatId);
+                    }
+                  }}>⋯</button>
                 {chatMenuId === chat.chatId && (
-                  <div className="chat-options-menu" role="menu">
-                    <button
-                      role="menuitem"
+                  <div className="chat-options-menu">
+                    <input type="text" className="base-chat-menu-title" autoFocus
+                      aria-label={`Rename ${chat.title}`} title="Rename conversation"
+                      maxLength={200} value={chatRenameDraft}
+                      onChange={(event) => setChatRenameDraft(event.target.value)}
+                      onBlur={(event) => { void renameChat(chat, event.currentTarget.value); }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        }
+                      }} />
+                    <select className="base-chat-menu-group" value={chat.categoryId || ""}
+                      aria-label={`Group for ${chat.title}`}
+                      onChange={(event) => void assignCategory(chat.chatId, event.target.value)}>
+                      <option value="">Uncategorized</option>
+                      {categories.map((category) => (
+                        <option key={category.categoryId} value={category.categoryId}>{category.name}</option>
+                      ))}
+                    </select>
+                    <button type="button" className="base-chat-menu-delete"
                       disabled={deletingChats}
-                      onClick={() => void deleteConversations([chat], `'${chat.title}'`, false)}
-                    >Delete</button>
+                      onClick={() => void deleteConversations([chat], `'${chat.title}'`)}>Delete</button>
                   </div>
                 )}
               </div>
@@ -718,13 +774,6 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
             <h1>{activeChat?.title || "New conversation"}</h1>
           </div>
           <div className="header-actions">
-            <label className="group-picker">
-              <span>Group</span>
-              <select value={activeChat?.categoryId || newChatCategoryId} onChange={(event) => void assignCategory(event.target.value)}>
-                <option value="">Uncategorized</option>
-                {categories.map((category) => <option key={category.categoryId} value={category.categoryId}>{category.name}</option>)}
-              </select>
-            </label>
             {selectedConnection && <div className="provider-chip"><span>{makeInitials(selectedConnection.name)}</span>{selectedConnection.name}</div>}
           </div>
         </header>
