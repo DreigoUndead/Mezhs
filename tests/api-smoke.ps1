@@ -350,6 +350,22 @@ try {
         throw 'Global chat list did not preserve category assignment.'
     }
 
+    $renamed = Invoke-RestMethod -Method Patch -Uri "$baseUrl/v1/chats/$($created.chatId)" `
+        -ContentType 'application/json' -Body '{"title":"  Renamed agent  "}'
+    if ($renamed.title -ne 'Renamed agent' -or $renamed.categoryId -ne $category.categoryId) {
+        throw 'Renaming did not preserve the trimmed title and the existing category.'
+    }
+    $renamedChat = Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($created.chatId)"
+    if ($renamedChat.title -ne 'Renamed agent') {
+        throw 'Renamed title did not appear on chat retrieval.'
+    }
+    $storedChat = Get-Content -LiteralPath (Join-Path $dataPath "chats/$($created.chatId)/chat.json") -Raw | ConvertFrom-Json
+    if ($storedChat.title -ne 'Renamed agent') {
+        throw 'Renamed title was not persisted to storage.'
+    }
+    Assert-ApiError -Method 'PATCH' -Uri "$baseUrl/v1/chats/$($created.chatId)" `
+        -Body '{"title":" "}' -ExpectedStatus 400 -ExpectedError 'title'
+
     $history = Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($created.chatId)/messages"
     if ($history.Count -ne 12) { throw "Expected 12 logged messages, got $($history.Count)." }
     $userConnections = @($history | Where-Object { $_.role -eq 'user' } | ForEach-Object { $_.connectionId })
