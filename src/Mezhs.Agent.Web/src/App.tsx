@@ -1173,7 +1173,7 @@ useEffect(() => {
         <div className="agent-modal-backdrop" onClick={() => setShowConversationManager(false)}>
           <section className="agent-conversation-manager" role="dialog" aria-modal="true"
             aria-labelledby="agent-manager-title" aria-describedby="agent-manager-summary"
-            onClick={(event) => event.stopPropagation()
+            onClick={(event) => event.stopPropagation()}
             onKeyDown={(event) => { if (event.key === "Escape") setShowConversationManager(false); }}>
             <header>
               <div>
