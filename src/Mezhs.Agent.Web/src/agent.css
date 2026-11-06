@@ -717,7 +717,9 @@
   justify-content: center;
   box-sizing: border-box;
   width: 100%;
+  flex: 0 0 38px;
   height: 38px;
+  min-height: 38px;
   margin-bottom: 9px;
   padding: 0 40px;
   border: 1px solid #555348;
@@ -745,7 +747,14 @@
 }
 
 .agent-group-filter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px 38px;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 38px;
+  width: 100%;
   min-width: 0;
+  height: 38px;
   margin-bottom: 8px;
 }
 
@@ -773,42 +782,57 @@
   border-color: #858573;
 }
 
-.agent-group-editor {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px 30px;
-  align-items: center;
-  gap: 5px;
-  width: 100%;
-  min-width: 0;
-}
-
+.agent-group-filter > button,
 .agent-group-editor button {
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  width: 30px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
+  min-width: 0;
+  min-height: 0;
   padding: 0;
   border: 1px solid #555348;
-  border-radius: 7px;
-  color: #eeeae1;
+  border-radius: 8px;
+  color: #d7ff64;
   background: #292821;
   cursor: pointer;
 }
 
-.agent-group-editor button[type="submit"] {
-  color: #d7ff64;
+.agent-group-filter button svg {
+  display: block;
+  flex: none;
 }
 
-.agent-group-editor button:hover:not(:disabled) {
+.agent-group-filter button:hover:not(:disabled) {
   border-color: #858573;
   background: #35342e;
 }
 
-.agent-group-editor button:disabled {
-  opacity: .45;
+.agent-group-filter button:disabled {
+  color: #77746c;
+  opacity: .5;
   cursor: not-allowed;
+}
+
+.agent-group-filter > button:last-child {
+  color: #ffc0bc;
+}
+
+.agent-group-editor {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) 38px 38px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+}
+
+.agent-group-editor button:last-child {
+  color: #c1bcb0;
 }
 
 .agent-group-editor input::placeholder,
@@ -820,6 +844,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) 38px;
   align-items: center;
+  flex: 0 0 38px;
   gap: 8px;
   margin: 0 0 10px;
 }
