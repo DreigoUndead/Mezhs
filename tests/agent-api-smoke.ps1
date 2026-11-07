@@ -322,7 +322,7 @@ echo %TEST_AGENT_VALUE%
         } finally { $content.Dispose() }
     } finally { $client.Dispose() }
 
-    $debug = Invoke-WebRequest -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log"
+    $debug = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log"
     if ($debug.StatusCode -ne 200 -or $debug.Headers["Content-Disposition"] -notmatch "attachment" -or $debug.Content -notmatch $completed.executionId) {
         throw "Local debug log is not downloadable/auditable."
     }
@@ -362,7 +362,7 @@ echo %TEST_AGENT_VALUE%
         Start-Sleep -Milliseconds 150
     } while ($true)
 
-    $proxiedDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5200/v1/agent-chats/$($completed.chatId)/debug-log"
+    $proxiedDebug = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:5200/v1/agent-chats/$($completed.chatId)/debug-log"
     if ($proxiedDebug.StatusCode -ne 200) { throw "Agent Web did not proxy the local debug log." }
 
     $webExecution = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5200/v1/executions" `
@@ -394,7 +394,7 @@ echo %TEST_AGENT_VALUE%
     }
 
     # A malformed bulk request must not delete the otherwise valid chat.
-    $invalidBatch = Invoke-WebRequest -Method Delete -Uri "http://127.0.0.1:5199/v1/chats" `
+    $invalidBatch = Invoke-WebRequest -UseBasicParsing -Method Delete -Uri "http://127.0.0.1:5199/v1/chats" `
         -ContentType "application/json" -Body (ConvertTo-Json @{ chatIds = @($webCompleted.chatId, " ") }) `
         -SkipHttpErrorCheck
     if ([int]$invalidBatch.StatusCode -ne 400 -or
@@ -445,12 +445,12 @@ echo %TEST_AGENT_VALUE%
 
     Stop-Process -Id $api.Id -Force
     $api.WaitForExit()
-    $offlineDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log"
+    $offlineDebug = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log"
     if ($offlineDebug.StatusCode -ne 200 -or $offlineDebug.Headers["Content-Disposition"] -notmatch "attachment" -or
         $offlineDebug.Content -notmatch $completed.executionId -or $offlineDebug.Content -match 'chatMessagesUnavailable:') {
         throw "Debug log stopped being available when the generic MEZS API was offline."
     }
-    $offlineProxiedDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5200/v1/agent-chats/$($completed.chatId)/debug-log"
+    $offlineProxiedDebug = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:5200/v1/agent-chats/$($completed.chatId)/debug-log"
     if ($offlineProxiedDebug.StatusCode -ne 200 -or $offlineProxiedDebug.Headers["Content-Disposition"] -notmatch "attachment") {
         throw "Agent Web stopped proxying debug logs when the generic MEZS API was offline."
     }
