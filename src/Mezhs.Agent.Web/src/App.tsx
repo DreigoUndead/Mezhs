@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Check, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import {
   apiJson,
+  apiJsonOrEmpty,
   ChatComposer,
   ChatProviderRegistry,
   ChatTranscript,
@@ -33,6 +35,13 @@ type AgentChat = {
   connectionId?: string;
   createdAt: string;
   updatedAt: string;
+  categoryId?: string | null;
+};
+
+type AgentCategory = {
+  categoryId: string;
+  name: string;
+  color: string;
 };
 
 type AgentChatMessage = {
@@ -170,7 +179,21 @@ function shortId(value: string) {
 }
 
 function displayTitle(chat: AgentChat) {
-  return chat.title?.trim() || `Agent chat ${shortId(chat.chatId)}`;
+  return chat.title?.trim() || `Agent ${shortId(chat.chatId)}`;
+}
+
+function matchesAgentChat(chat: AgentChat, query: string, category?: AgentCategory, policyName?: string) {
+  const normalized = query.trim().toLocaleLowerCase();
+  return !normalized || [
+    chat.title, chat.policyId, policyName, chat.connectionId,
+    chat.originSource, chat.originReference, category?.name,
+  ].some((value) => value?.toLocaleLowerCase().includes(normalized));
+}
+
+function activityLabel(date: string) {
+  const parsed = new Date(date);
+  return Number.isNaN(parsed.getTime()) ? "Unknown activity" :
+    parsed.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 function statusTone(execution: Execution) {
@@ -410,6 +433,19 @@ export default function App() {
   const [modelId, setModelId] = useState("");
   const [modelSpecified, setModelSpecified] = useState(false);
   const [chats, setChats] = useState<AgentChat[]>([]);
+  const [categories, setCategories] = useState<AgentCategory[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [newChatCategoryId, setNewChatCategoryId] = useState("");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [editingCategory, setEditingCategory] = useState<"new" | AgentCategory | null>(null);
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [search, setSearch] = useState("");
+  const [showConversationManager, setShowConversationManager] = useState(false);
+  const [managerSearch, setManagerSearch] = useState("");
+  const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
+  const [deletingChats, setDeletingChats] = useState(false);
+  const [chatMenuId, setChatMenuId] = useState<string | null>(null);
+  const [chatRenameDraft, setChatRenameDraft] = useState("");
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [historyLoadedChatId, setHistoryLoadedChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
@@ -427,6 +463,10 @@ export default function App() {
   const executionsRef = useRef<Execution[]>([]);
   const selectedLoadChatRef = useRef<string | null>(null);
   const selectionEpoch = useRef(0);
+  const selectedChatIdRef = useRef<string | null>(null);
+  const deletedChatIdsRef = useRef(new Set<string>());
+  const chatRefreshEpoch = useRef(0);
+  const openChatMenuRef = useRef<HTMLDivElement | null>(null);
 
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
   const draftKey = selectedChatId && !creating ? `chat:${selectedChatId}` : `new:${newChatSequence}:${policyId}:${connectionId}`;
@@ -444,6 +484,29 @@ export default function App() {
     () => new Map(policies.map((policy) => [policy.id, policy.name])),
     [policies],
   );
+  const categoryById = useMemo(
+    () => new Map(categories.map((category) => [category.categoryId, category])),
+    [categories],
+  );
+  const selectedGroup = categoryById.get(categoryFilter);
+  const filteredChats = useMemo(() => chats
+    .filter((chat) => {
+      if (categoryFilter === "uncategorized" && chat.categoryId) return false;
+      if (categoryFilter !== "all" && categoryFilter !== "uncategorized" &&
+        chat.categoryId !== categoryFilter) return false;
+      return matchesAgentChat(chat, search, categoryById.get(chat.categoryId ?? ""),
+        policyNames.get(chat.policyId));
+    })
+    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)),
+    [chats, categoryFilter, search, categoryById, policyNames],
+  );
+  const managedChats = useMemo(() => filteredChats.filter((chat) =>
+    matchesAgentChat(chat, managerSearch, categoryById.get(chat.categoryId ?? ""),
+      policyNames.get(chat.policyId))),
+    [filteredChats, managerSearch, categoryById, policyNames],
+  );
+  const allManagedSelected = managedChats.length > 0 &&
+    managedChats.every((chat) => selectedChatIds.has(chat.chatId));
   const activeExecution = executions.find((execution) =>
     execution.kind === "Agent" && !execution.isTerminal);
   const activeShellExecution = executions.find((execution) =>
@@ -499,13 +562,15 @@ export default function App() {
       apiJson<AgentPolicy[]>("", "/v1/policies"),
       apiJson<Connection[]>("", "/v1/connections"),
       apiJson<AgentChat[]>("", "/v1/agent-chats"),
+      apiJson<AgentCategory[]>("", "/v1/categories"),
     ])
-      .then(([policyValues, connectionValues, chatValues]) => {
+      .then(([policyValues, connectionValues, chatValues, categoryValues]) => {
         if (cancelled) return;
         providerRegistry.current.configure("", connectionValues);
         setPolicies(policyValues);
         setConnections(connectionValues);
         setChats(chatValues);
+        setCategories(categoryValues);
         const preferredPolicy = policyValues.find((policy) => policy.id.toLocaleLowerCase() === "high") ??
           policyValues[0];
         const preferredConnectionId = preferredPolicy?.connectionId ??
@@ -517,8 +582,10 @@ export default function App() {
         setModelId(preferredPolicy?.defaultModel ?? preferredConnection?.defaultModel ?? "");
         setModelSpecified(preferredPolicy?.defaultModel != null);
         setNotice(null);
-        if (chatValues.length > 0)
+        if (chatValues.length > 0) {
+          selectedChatIdRef.current = chatValues[0].chatId;
           setSelectedChatId(chatValues[0].chatId);
+        }
       })
       .catch((error) => {
         if (!cancelled)
@@ -528,6 +595,19 @@ export default function App() {
   }, []);
 
   useEffect(() => () => providerRegistry.current.dispose(), []);
+
+  useEffect(() => {
+    if (!chatMenuId) return;
+    const dismiss = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || openChatMenuRef.current?.contains(target)) return;
+      // Another chat's toggle opens that menu, rather than immediately closing it.
+      if (target instanceof Element && target.closest(".agent-chat-menu-toggle")) return;
+      setChatMenuId(null);
+    };
+    document.addEventListener("click", dismiss);
+    return () => document.removeEventListener("click", dismiss);
+  }, [chatMenuId]);
 
 useEffect(() => {
   if (!selectedChatId || creating) {
@@ -620,8 +700,24 @@ useEffect(() => {
   }, [apiReady, selectedChatId, creating]);
 
   async function refreshChats(signal?: AbortSignal) {
+    const epoch = ++chatRefreshEpoch.current;
     try {
-      setChats(await apiJson<AgentChat[]>("", "/v1/agent-chats", { signal }));
+      const values = await apiJson<AgentChat[]>("", "/v1/agent-chats", { signal });
+      if (signal?.aborted || epoch !== chatRefreshEpoch.current) return;
+      const visible = values.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId));
+      setChats(visible);
+      const currentId = selectedChatIdRef.current;
+      if (currentId && !visible.some((chat) => chat.chatId === currentId)) {
+        deletedChatIdsRef.current.add(currentId);
+        ++selectionEpoch.current;
+        selectedChatIdRef.current = visible[0]?.chatId ?? null;
+        setSelectedChatId(selectedChatIdRef.current);
+        setCreating(visible.length === 0);
+        messagesRef.current = [];
+        executionsRef.current = [];
+        setMessages([]);
+        setExecutions([]);
+      }
     } catch (error) {
       if (signal?.aborted)
         return;
@@ -635,7 +731,8 @@ useEffect(() => {
       `/v1/agent-chats/${encodeURIComponent(chatId)}/messages`,
       { signal },
     );
-    if (signal?.aborted)
+    if (signal?.aborted || deletedChatIdsRef.current.has(chatId) ||
+        selectedChatIdRef.current !== chatId)
       return;
     if (syncModel) {
       const lastUser = [...values].reverse().find((message) => message.role === "user");
@@ -655,7 +752,8 @@ useEffect(() => {
       `/v1/agent-chats/${encodeURIComponent(chatId)}/executions`,
       { signal },
     );
-    if (signal?.aborted)
+    if (signal?.aborted || deletedChatIdsRef.current.has(chatId) ||
+        selectedChatIdRef.current !== chatId)
       return;
     executionsRef.current = values;
     setExecutions(values);
@@ -676,7 +774,7 @@ useEffect(() => {
 
     const failure = results.find((result) => result.status === "rejected");
     if (failure?.status === "rejected")
-      setNotice(failure.reason instanceof Error ? failure.reason.message : "Could not fully refresh this agent chat.");
+      setNotice(failure.reason instanceof Error ? failure.reason.message : "Could not fully refresh this agent.");
   }
 
   async function refreshRuntime(chatId: string, signal?: AbortSignal) {
@@ -685,7 +783,8 @@ useEffect(() => {
       `/v1/agent-chats/${encodeURIComponent(chatId)}/runtime`,
       { signal },
     );
-    if (signal?.aborted)
+    if (signal?.aborted || deletedChatIdsRef.current.has(chatId) ||
+        selectedChatIdRef.current !== chatId)
       return;
 
     const currentMessages = messagesRef.current;
@@ -787,7 +886,9 @@ useEffect(() => {
     ++selectionEpoch.current;
     setHistoryLoadedChatId(null);
     setCreating(true);
+    selectedChatIdRef.current = null;
     setSelectedChatId(null);
+    setChatMenuId(null);
     setNewChatSequence((current) => current + 1);
     messagesRef.current = [];
     executionsRef.current = [];
@@ -807,6 +908,7 @@ useEffect(() => {
     if (!input.trim() || !effectivePolicyId || !connectionId || sending || activeExecution || selectedChat?.paused)
       return;
     const submittedKey = draftKey;
+    const requestedCategoryId = selectedChat ? "" : newChatCategoryId;
     const epoch = selectionEpoch.current;
     let pendingKey = submittedKey;
     if (!startSend(pendingKey)) return;
@@ -841,7 +943,16 @@ useEffect(() => {
       await refreshChats();
       if (selectionEpoch.current !== epoch) return;
       setCreating(false);
+      selectedChatIdRef.current = attachedChatId;
       setSelectedChatId(attachedChatId);
+      if (requestedCategoryId) {
+        try {
+          await setChatCategory(attachedChatId, requestedCategoryId);
+        } catch (error) {
+          setNotice(error instanceof Error ? `Chat created, but group assignment failed: ${error.message}` :
+            "Chat created, but group assignment failed.");
+        }
+      }
     } catch (error) {
       if (!accepted) restoreDraft(submittedKey, input);
       if (selectionEpoch.current === epoch) setNotice(error instanceof Error ? error.message : "Agent execution could not be started.");
@@ -915,7 +1026,7 @@ useEffect(() => {
         chat.chatId === updated.chatId ? updated : chat));
       await loadSelected(updated.chatId);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Agent chat state could not be changed.");
+      setNotice(error instanceof Error ? error.message : "Agent state could not be changed.");
     } finally {
       setTogglingPause(false);
     }
@@ -923,6 +1034,8 @@ useEffect(() => {
 
   function selectChat(chatId: string) {
     ++selectionEpoch.current;
+    selectedChatIdRef.current = chatId;
+    setChatMenuId(null);
     setHistoryLoadedChatId(null);
     setCreating(false);
     setSelectedChatId(chatId);
@@ -933,17 +1046,232 @@ useEffect(() => {
     setNotice(null);
   }
 
+
+  function selectCategoryFilter(value: string) {
+    setCategoryFilter(value);
+    setNewChatCategoryId(value === "all" || value === "uncategorized" ? "" : value);
+  }
+
+  function beginCategoryEdit() {
+    setNewCategoryName(selectedGroup?.name ?? "");
+    setEditingCategory(selectedGroup ?? "new");
+  }
+
+  async function saveCategory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = newCategoryName.trim();
+    if (!editingCategory || !name || savingCategory) return;
+    setSavingCategory(true);
+    try {
+      if (editingCategory === "new") {
+        const category = await apiJson<AgentCategory>("", "/v1/categories", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        setCategories((current) => [...current, category]);
+      } else {
+        const category = await apiJson<AgentCategory>("",
+          `/v1/categories/${encodeURIComponent(editingCategory.categoryId)}`, {
+            method: "PUT", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          });
+        setCategories((current) => current.map((item) =>
+          item.categoryId === category.categoryId ? category : item));
+      }
+      setEditingCategory(null);
+      setNewCategoryName("");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not save group.");
+    } finally {
+      setSavingCategory(false);
+    }
+  }
+
+  async function deleteCategory(category: AgentCategory) {
+    if (!window.confirm(`Delete group '${category.name}'? All chats in this group, including normal MEŽS chats, will be unassigned. Conversations are kept.`))
+      return;
+    try {
+      await apiJsonOrEmpty("", `/v1/categories/${encodeURIComponent(category.categoryId)}`, {
+        method: "DELETE",
+      });
+      setCategories((current) => current.filter((item) => item.categoryId !== category.categoryId));
+      setChats((current) => current.map((chat) =>
+        chat.categoryId === category.categoryId ? { ...chat, categoryId: null } : chat));
+      if (categoryFilter === category.categoryId) setCategoryFilter("all");
+      if (newChatCategoryId === category.categoryId) setNewChatCategoryId("");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not delete group.");
+    }
+  }
+
+  async function setChatCategory(chatId: string, categoryId: string) {
+    const updated = await apiJson<{ categoryId?: string | null }>("",
+      `/v1/chats/${encodeURIComponent(chatId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categoryId: categoryId || null }),
+      });
+    setChats((current) => current.map((chat) =>
+      chat.chatId === chatId ? { ...chat, categoryId: updated.categoryId ?? null } : chat));
+  }
+
+  async function renameChat(chat: AgentChat, value: string) {
+    const title = value.trim();
+    if (!title || title === displayTitle(chat)) return;
+    try {
+      await apiJson("", `/v1/chats/${encodeURIComponent(chat.chatId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      setChats((current) => current.map((item) =>
+        item.chatId === chat.chatId ? { ...item, title } : item));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not rename agent.");
+    }
+  }
+
+  async function assignCategory(chatId: string, categoryId: string) {
+    try {
+      await setChatCategory(chatId, categoryId);
+      setChatMenuId(null);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not assign group.");
+    }
+  }
+
+  function openConversationManager() {
+    setManagerSearch("");
+    setSelectedChatIds(new Set());
+    setChatMenuId(null);
+    setShowConversationManager(true);
+  }
+
+  function toggleManagedChat(id: string) {
+    setSelectedChatIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllManagedChats() {
+    setSelectedChatIds((current) => {
+      const next = new Set(current);
+      for (const chat of managedChats) {
+        if (allManagedSelected) next.delete(chat.chatId);
+        else next.add(chat.chatId);
+      }
+      return next;
+    });
+  }
+
+  async function deleteConversations(targets: AgentChat[], description: string) {
+    const ids = [...new Set(targets.map((chat) => chat.chatId))];
+    if (ids.length === 0 || deletingChats) return;
+    if (!window.confirm(`Delete ${description} (${ids.length} chat${ids.length === 1 ? "" : "s"})? Conversation transcripts and Agent state will be removed from active storage. Previously imported legacy chat files, if any, remain as backups. Active Agent work receives cancellation requests and associated Executor shells receive termination requests, without waiting for them to stop. Historical Executor records and stored files may remain.`))
+      return;
+    setDeletingChats(true);
+    setNotice(null);
+    try {
+      if (ids.length === 1)
+        await apiJsonOrEmpty("", `/v1/chats/${encodeURIComponent(ids[0])}`, { method: "DELETE" });
+      else
+        await apiJson<{ deletedChatIds: string[] }>("", "/v1/chats", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chatIds: ids }),
+        });
+      // Delayed list and transcript requests cannot restore a deleted conversation.
+      ++chatRefreshEpoch.current;
+      const deleted = new Set(ids);
+      ids.forEach((id) => deletedChatIdsRef.current.add(id));
+      const remaining = chats.filter((chat) => !deleted.has(chat.chatId));
+      setChats(remaining);
+      setSelectedChatIds((current) => new Set([...current].filter((id) => !deleted.has(id))));
+      setChatMenuId(null);
+      const activeId = selectedChatIdRef.current;
+      if (activeId && deleted.has(activeId)) {
+        if (remaining.length > 0) selectChat(remaining[0].chatId);
+        else beginNewChat();
+      }
+      setNotice(`${ids.length} conversation${ids.length === 1 ? "" : "s"} deleted.`);
+      await refreshChats();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not delete conversations.");
+    } finally {
+      setDeletingChats(false);
+    }
+  }
+
   const composerDisabled = sending || !!activeExecution || !!selectedChat?.paused;
   const composerPlaceholder = selectedChat?.paused
-    ? "Resume this agent chat to continue"
+    ? "Resume this agent to continue"
     : activeExecution
       ? "Agent execution is running"
       : creating
         ? "Describe the task for this agent"
-        : "Continue this agent chat";
+        : "Continue this agent";
 
   return (
     <div className="agent-shell">
+      {showConversationManager && (
+        <div className="agent-modal-backdrop" onClick={() => setShowConversationManager(false)}>
+          <section className="agent-conversation-manager" role="dialog" aria-modal="true"
+            aria-labelledby="agent-manager-title" aria-describedby="agent-manager-summary"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => { if (event.key === "Escape") setShowConversationManager(false); }}>
+            <header>
+              <div>
+                <h2 id="agent-manager-title">Manage agents</h2>
+                <p id="agent-manager-summary">{managedChats.length} of {filteredChats.length} shown · {chats.length} total agents</p>
+              </div>
+            </header>
+            <label className="agent-manager-search">Filter displayed conversations
+              <input type="search" name="agent-manager-search" autoComplete="off"
+                value={managerSearch} autoFocus
+                onChange={(event) => setManagerSearch(event.target.value)}
+                placeholder="Title, policy, connection, origin, group" />
+            </label>
+            <div className="agent-manager-select-all">
+              <label><input type="checkbox" checked={allManagedSelected}
+                onChange={toggleAllManagedChats} disabled={managedChats.length === 0 || deletingChats} />
+                Select all shown</label>
+              <span>{managedChats.filter((chat) => selectedChatIds.has(chat.chatId)).length} selected</span>
+            </div>
+            {notice && <p className="agent-manager-notice" role="alert">{notice}</p>}
+            <div className="agent-manager-list">
+              {managedChats.map((chat) => (
+                <div className="agent-manager-row" key={chat.chatId}>
+                  <label>
+                    <input type="checkbox" disabled={deletingChats}
+                      checked={selectedChatIds.has(chat.chatId)}
+                      onChange={() => toggleManagedChat(chat.chatId)} />
+                    <span className="agent-manager-chat-copy">
+                      <strong title={displayTitle(chat)}>{displayTitle(chat)}</strong>
+                      <small>{activityLabel(chat.updatedAt)} · {categoryById.get(chat.categoryId ?? "")?.name ?? "Uncategorized"}</small>
+                    </span>
+                  </label>
+                  <button type="button" className="agent-manager-delete" disabled={deletingChats}
+                    aria-label={`Delete ${displayTitle(chat)}`}
+                    onClick={() => void deleteConversations([chat], displayTitle(chat))}>Delete</button>
+                </div>
+              ))}
+              {managedChats.length === 0 && <p>No agents match the current filters.</p>}
+            </div>
+            <footer>
+              <button type="button" disabled={deletingChats ||
+                  !managedChats.some((chat) => selectedChatIds.has(chat.chatId))}
+                onClick={() => void deleteConversations(
+                  managedChats.filter((chat) => selectedChatIds.has(chat.chatId)), "selected conversations")}>
+                Delete selected</button>
+              <button type="button" disabled={deletingChats || managedChats.length === 0}
+                onClick={() => void deleteConversations(managedChats, "all shown conversations")}>Delete all shown</button>
+              <button type="button" onClick={() => setShowConversationManager(false)}>Close</button>
+            </footer>
+          </section>
+        </div>
+      )}
       <aside className="agent-sidebar">
         <div className="agent-brand-row">
           <div className="agent-brand-mark">M</div>
@@ -951,23 +1279,136 @@ useEffect(() => {
           <span className={`health-dot ${apiReady ? "online" : ""}`} title={apiReady ? "MEŽS Agent API online" : "MEŽS Agent API unavailable"} />
         </div>
 
-        <button className="new-chat" type="button" onClick={beginNewChat}><span>+</span> New agent chat</button>
+        <div className="agent-group-filter">
+          {editingCategory ? (
+            <form className="agent-group-editor" onSubmit={(event) => void saveCategory(event)}>
+              <input autoFocus name="group-name" autoComplete="off" value={newCategoryName}
+                aria-label={editingCategory === "new" ? "New group name" : "Rename group"}
+                placeholder={editingCategory === "new" ? "New group name" : "Group name"}
+                onChange={(event) => setNewCategoryName(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Escape" && !savingCategory) setEditingCategory(null); }}
+                disabled={savingCategory} />
+              <button type="submit" aria-label="Save group" title="Save group"
+                disabled={!newCategoryName.trim() || savingCategory}>
+                <Check aria-hidden="true" size={17} strokeWidth={2} />
+              </button>
+              <button type="button" aria-label="Cancel editing group" title="Cancel"
+                disabled={savingCategory} onClick={() => setEditingCategory(null)}>
+                <X aria-hidden="true" size={17} strokeWidth={2} />
+              </button>
+            </form>
+          ) : (
+            <>
+              <select id="agent-category-filter" aria-label="Filter agents by group"
+                value={categoryFilter} onChange={(event) => selectCategoryFilter(event.target.value)}>
+                <option value="all">All groups ({chats.length})</option>
+                {categories.map((category) => (
+                  <option key={category.categoryId} value={category.categoryId}>
+                    {category.name} ({chats.filter((chat) => chat.categoryId === category.categoryId).length})
+                  </option>
+                ))}
+                <option value="uncategorized">
+                  Uncategorized ({chats.filter((chat) => !chat.categoryId).length})
+                </option>
+              </select>
+              <button type="button"
+                aria-label={selectedGroup ? `Rename group ${selectedGroup.name}` : "Create group"}
+                title={selectedGroup ? "Rename group" : "Create group"}
+                onClick={beginCategoryEdit}>
+                {selectedGroup
+                  ? <Pencil aria-hidden="true" size={17} strokeWidth={1.8} />
+                  : <Plus aria-hidden="true" size={18} strokeWidth={2} />}
+              </button>
+              <button type="button" disabled={!selectedGroup}
+                aria-label={selectedGroup ? `Delete group ${selectedGroup.name}` : "Delete group"}
+                title={selectedGroup ? "Delete group" : "Select a group to delete"}
+                onClick={() => { if (selectedGroup) void deleteCategory(selectedGroup); }}>
+                <Trash2 aria-hidden="true" size={17} strokeWidth={1.8} />
+              </button>
+            </>
+          )}
+        </div>
 
-        <span className="section-label">Agent chats</span>
-        <nav className="agent-chat-list" aria-label="Agent chats">
-          {chats.map((chat) => (
-            <button
-              type="button"
-              key={chat.chatId}
-              className={`agent-chat-row ${selectedChatId === chat.chatId && !creating ? "selected" : ""}`}
-              onClick={() => selectChat(chat.chatId)}
-            >
-              <span className="agent-chat-title">{displayTitle(chat)}</span>
-              <small>{policyNames.get(chat.policyId) ?? chat.policyId} · {chat.originSource}</small>
-              {chat.paused && <i>paused</i>}
-            </button>
+        <div className="agent-sidebar-tools">
+          <input type="search" name="agent-chat-search" autoComplete="off"
+            aria-label="Search agents" placeholder="Search agents"
+            value={search} onChange={(event) => setSearch(event.target.value)} />
+          <button type="button" className="agent-sidebar-new" aria-label="New agent"
+            title="New agent" onClick={beginNewChat}>
+            <Plus aria-hidden="true" size={18} strokeWidth={2} />
+          </button>
+          <button type="button" aria-label="Manage agents" title="Manage agents"
+            onClick={openConversationManager}>
+            <Settings aria-hidden="true" size={18} strokeWidth={1.8} />
+          </button>
+        </div>
+        <span className="section-label">Agents · {filteredChats.length} of {chats.length}</span>
+        <nav className="agent-chat-list" aria-label="Agents">
+          {filteredChats.map((chat) => (
+            <div className="agent-chat-entry" key={chat.chatId}
+              ref={chatMenuId === chat.chatId ? openChatMenuRef : null}
+              onBlur={(event) => {
+                if (chatMenuId === chat.chatId && !event.currentTarget.contains(event.relatedTarget))
+                  setChatMenuId((current) => current === chat.chatId ? null : current);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape" && chatMenuId === chat.chatId) {
+                  event.stopPropagation();
+                  setChatMenuId(null);
+                }
+              }}>
+              <button type="button"
+                className={`agent-chat-row ${selectedChatId === chat.chatId && !creating ? "selected" : ""}`}
+                onClick={() => selectChat(chat.chatId)}>
+                <span className="agent-chat-title">{displayTitle(chat)}</span>
+                <span className="agent-chat-meta">
+                  <span className="agent-chat-context">{policyNames.get(chat.policyId) ?? chat.policyId} · {chat.originSource}</span>
+                  <time dateTime={chat.updatedAt} title={new Date(chat.updatedAt).toLocaleString()}>
+                    {activityLabel(chat.updatedAt)}
+                  </time>
+                </span>
+                {chat.paused && <i>paused</i>}
+              </button>
+              <button type="button" className="agent-chat-menu-toggle"
+                aria-label={`Options for ${displayTitle(chat)}`}
+                aria-expanded={chatMenuId === chat.chatId}
+                onClick={() => {
+                  if (chatMenuId === chat.chatId) setChatMenuId(null);
+                  else {
+                    setChatRenameDraft(displayTitle(chat));
+                    setChatMenuId(chat.chatId);
+                  }
+                }}>⋯</button>
+              {chatMenuId === chat.chatId && (
+                <div className="agent-chat-menu">
+                  <input className="agent-chat-menu-title" type="text" autoFocus
+                    aria-label={`Rename ${displayTitle(chat)}`} title="Rename agent"
+                    maxLength={200} value={chatRenameDraft}
+                    onChange={(event) => setChatRenameDraft(event.target.value)}
+                    onBlur={(event) => { void renameChat(chat, event.currentTarget.value); }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      }
+                    }} />
+                  <select className="agent-chat-menu-group" value={chat.categoryId ?? ""}
+                    aria-label={`Group for ${displayTitle(chat)}`}
+                    onChange={(event) => void assignCategory(chat.chatId, event.target.value)}>
+                    <option value="">Uncategorized</option>
+                    {categories.map((category) => (
+                      <option key={category.categoryId} value={category.categoryId}>{category.name}</option>
+                    ))}
+                  </select>
+                  <button type="button" className="agent-chat-menu-delete"
+                    disabled={deletingChats}
+                    onClick={() => void deleteConversations([chat], displayTitle(chat))}>Delete</button>
+                </div>
+              )}
+            </div>
           ))}
-          {chats.length === 0 && <p className="agent-empty-sidebar">No agent chats yet.</p>}
+          {filteredChats.length === 0 &&
+            <p className="agent-empty-sidebar">{chats.length === 0 ? "No agents yet." : "No matching agents."}</p>}
         </nav>
 
         <div className="agent-sidebar-footer">
@@ -983,7 +1424,7 @@ useEffect(() => {
             <header className="agent-header">
               <div>
                 <span className="eyebrow">Manual execution</span>
-                <h1>New agent chat</h1>
+                <h1>New agent</h1>
               </div>
             </header>
 
@@ -1097,7 +1538,7 @@ useEffect(() => {
               </div>
             </header>
 
-            {selectedChat.paused && <div className="agent-paused-banner">This agent chat is paused. New executions are blocked until it is resumed.</div>}
+            {selectedChat.paused && <div className="agent-paused-banner">This agent is paused. New executions are blocked until it is resumed.</div>}
 
             <ChatTranscript
               messages={sharedMessages}

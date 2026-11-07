@@ -350,6 +350,27 @@ try {
         throw 'Global chat list did not preserve category assignment.'
     }
 
+    $renamed = Invoke-RestMethod -Method Patch -Uri "$baseUrl/v1/chats/$($created.chatId)" `
+        -ContentType 'application/json' -Body '{"title":"  Renamed agent  "}'
+    if ($renamed.title -ne 'Renamed agent' -or $renamed.categoryId -ne $category.categoryId) {
+        throw 'Renaming did not preserve the trimmed title and the existing category.'
+    }
+    $renamedChat = Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($created.chatId)"
+    if ($renamedChat.title -ne 'Renamed agent') {
+        throw 'Renamed title did not appear on chat retrieval.'
+    }
+    # SQLite is now the Core ChatStore source of truth. Inspect the persisted
+    # record rather than the retained (read-only) legacy chat.json layout.
+    $chatDatabase = Join-Path $dataPath 'chats.sqlite'
+    $storedChatJson = python -c "import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute('SELECT Json FROM Chats WHERE ChatId = ?', (sys.argv[2],)).fetchone()[0])" $chatDatabase $created.chatId
+    if ($LASTEXITCODE -ne 0) { throw 'Could not query Core ChatStore SQLite database.' }
+    $storedChat = $storedChatJson | ConvertFrom-Json
+    if ($storedChat.title -ne 'Renamed agent') {
+        throw 'Renamed title was not persisted to SQLite.'
+    }
+    Assert-ApiError -Method 'PATCH' -Uri "$baseUrl/v1/chats/$($created.chatId)" `
+        -Body '{"title":" "}' -ExpectedStatus 400 -ExpectedError 'title'
+
     $history = Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($created.chatId)/messages"
     if ($history.Count -ne 12) { throw "Expected 12 logged messages, got $($history.Count)." }
     $userConnections = @($history | Where-Object { $_.role -eq 'user' } | ForEach-Object { $_.connectionId })
@@ -388,6 +409,44 @@ try {
         -Body '{"categoryId":null}' | Out-Null
     Invoke-RestMethod -Method Delete -Uri "$baseUrl/v1/categories/$($category.categoryId)"
 
+    # A shared-group deletion and a chat deletion must serialize their mutations:
+    # both DELETEs succeed and the surviving chat is never left in a removed group.
+    $raceHttp = [System.Net.Http.HttpClient]::new()
+    try {
+        for ($raceIndex = 0; $raceIndex -lt 4; $raceIndex++) {
+            $raceCategory = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/categories" `
+                -ContentType 'application/json' `
+                -Body (ConvertTo-Json @{ name = "deletion-race-$raceIndex-$([Guid]::NewGuid().ToString('N'))" })
+            $raceBody = ConvertTo-Json @{ connectionId = 'test'; categoryId = $raceCategory.categoryId }
+            $raceDeletedChat = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/chats" `
+                -ContentType 'application/json' -Body $raceBody
+            $raceSurvivor = Invoke-RestMethod -Method Post -Uri "$baseUrl/v1/chats" `
+                -ContentType 'application/json' -Body $raceBody
+
+            $removeGroup = $raceHttp.DeleteAsync("$baseUrl/v1/categories/$($raceCategory.categoryId)")
+            $removeChat = $raceHttp.DeleteAsync("$baseUrl/v1/chats/$($raceDeletedChat.chatId)")
+            [System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]@($removeGroup, $removeChat))
+            $groupResponse = $removeGroup.Result
+            $chatResponse = $removeChat.Result
+            try {
+                if (-not $groupResponse.IsSuccessStatusCode -or -not $chatResponse.IsSuccessStatusCode) {
+                    throw "Concurrent group/chat delete failed: group $([int]$groupResponse.StatusCode), chat $([int]$chatResponse.StatusCode)."
+                }
+            } finally {
+                $groupResponse.Dispose()
+                $chatResponse.Dispose()
+            }
+
+            $afterRace = Invoke-RestMethod -Uri "$baseUrl/v1/chats/$($raceSurvivor.chatId)"
+            if ($null -ne $afterRace.categoryId) {
+                throw "Concurrent group/chat deletion left a dangling group assignment."
+            }
+            Invoke-RestMethod -Method Delete -Uri "$baseUrl/v1/chats/$($raceSurvivor.chatId)" | Out-Null
+        }
+    } finally {
+        $raceHttp.Dispose()
+    }
+
     $singleDeleteChat = Invoke-RestMethod `
         -Method Post `
         -Uri "$baseUrl/v1/chats" `
@@ -421,8 +480,9 @@ try {
         throw 'Deleted conversations remained in the chat list.'
     }
     foreach ($deletedId in $deletedIds) {
-        if (Test-Path -LiteralPath (Join-Path $dataPath "chats\$deletedId")) {
-            throw "Deleted conversation data remained on disk: $deletedId"
+        $remainingRows = python -c "import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute('SELECT COUNT(*) FROM Chats WHERE ChatId = ?', (sys.argv[2],)).fetchone()[0])" $chatDatabase $deletedId
+        if ($LASTEXITCODE -ne 0 -or [int]$remainingRows -ne 0) {
+            throw "Deleted conversation data remained in Core SQLite: $deletedId"
         }
     }
     $fileAfterChatDeletion = (Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl$($uploaded.contentUrl)").Content

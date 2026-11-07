@@ -5,11 +5,11 @@ Read [the workflow](workflow.md). Use [software-change](skills/software-change/S
 ## Coding process
 
 - Follow the task level from [the workflow](workflow.md). A **Small** change can stay in one chat through coding, checks and owner approval. Standard and High-risk changes use independent reviewers.
-- State the classification and verification plan. Escalate if an initially simple change grows risky. For a new change, branch from `main` using the task ID; reuse the same branch for fixes.
+- State the classification and verification plan. Escalate if an initially simple change grows risky. For a new task, create the task-ID branch **before planning or making any commit**, from `main` or an explicitly documented dependent task branch. Continue implementation and fixes on that same branch; never commit plans or workflow changes directly to `main`.
 - Read the plan (or Small-change summary), affected current specifications and source. Find the existing owner before adding a second mechanism.
 - Prefer semantic APIs/protocols to DOM automation. Choose **Reuse / Repair / Refactor / Redesign** based on real responsibility, not minimum diff size.
 - Keep code, tests, final plan and current specifications aligned. Update current specs only when actual behavior changes.
-- **Move the final plan from `specifications/planned/<id>/` to `specifications/implemented/<id>/` on the development branch before independent review/testing.** A Small change may have only a PR description instead of a plan file.
+- **Move the final plan from `specifications/planned/<id>/` to `specifications/implemented/<id>/` on the task branch before independent code review/testing.** A Small change may have only a PR description instead of a plan file.
 - Prepare a **release summary and suggested bump type**, but leave `VERSION` and `CHANGELOG.md` untouched until the approved merge into `main`. Verify the diff and run developer tests. Commit/push, then request **code review before final testing**. For Small changes, self-review and verification in the same chat can suffice. Do not merge without owner approval.
 
 ## Engineering sanity questions
@@ -29,6 +29,8 @@ Ask these throughout the work, especially before adding abstractions:
 - Is the result simple, robust, obvious, and difficult to misuse?
 
 Prefer a coherent mechanism over duplicated decisions. Do not abstract a first occurrence solely for hypothetical reuse.
+
+we shouldn't build coordination machinery merely to guarantee that every concurrent request fails gracefully.
 
 ## Repository-specific guidance
 

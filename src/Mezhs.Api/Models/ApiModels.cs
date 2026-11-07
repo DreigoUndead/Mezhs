@@ -7,6 +7,7 @@ public sealed class ChatRecord
     public required string ChatId { get; init; }
     public List<ChatConnectionState> RemoteStates { get; init; } = [];
     public string? CategoryId { get; set; }
+    public string? Title { get; set; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
@@ -84,4 +85,4 @@ public sealed class StoredFile
 public sealed record CreateCategoryRequest(string Name);
 public sealed record DeleteChatsRequest(IReadOnlyList<string>? ChatIds);
 public sealed record UpdateCategoryRequest(string Name);
-public sealed record UpdateChatRequest(string? CategoryId);
+public sealed record UpdateChatRequest(string? CategoryId = null, string? Title = null);

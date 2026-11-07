@@ -18,8 +18,11 @@ public sealed class MessageService(
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _chatGates =
         new(StringComparer.OrdinalIgnoreCase);
 
-    public ApiMessage Post(PostMessageRequest request) =>
-        Post(request, CancellationToken.None);
+    public ApiMessage Post(PostMessageRequest request)
+    {
+        lock (store.DeletionSync)
+            return Post(request, CancellationToken.None);
+    }
 
     private ApiMessage Post(PostMessageRequest request, CancellationToken cancellationToken)
     {
@@ -76,6 +79,12 @@ public sealed class MessageService(
 
     public ApiMessage Replay(string messageId)
     {
+        lock (store.DeletionSync)
+            return ReplayUnderDeletionLock(messageId);
+    }
+
+    private ApiMessage ReplayUnderDeletionLock(string messageId)
+    {
         var original = store.GetMessage(messageId)
             ?? throw new ResourceNotFoundException($"Message '{messageId}' was not found.");
         if (original.Role != "user")
@@ -104,7 +113,9 @@ public sealed class MessageService(
         CancellationToken cancellationToken = default,
         Action<ApiMessage>? onSubmitted = null)
     {
-        var created = Post(request, cancellationToken);
+        ApiMessage created;
+        lock (store.DeletionSync)
+            created = Post(request, cancellationToken);
         onSubmitted?.Invoke(created);
         return await WaitForReplyAsync(created.MessageId, cancellationToken);
     }
@@ -186,8 +197,7 @@ public sealed class MessageService(
             ReplayOfMessageId = replayOf,
             Status = MessageStatus.Queued
         };
-        store.SaveMessage(message);
-        store.SaveChat(chat);
+        store.SaveMessageAndTouchChat(message, chat);
         if (_queue.Writer.TryWrite(new QueuedMessage(message, cancellationToken)))
             return message;
 
@@ -289,8 +299,13 @@ public sealed class MessageService(
             };
             store.SaveMessage(reply);
 
-            UpdateRemoteState(chat, message.ConnectionId, remoteState, continueRemote, result, reply.MessageId);
-            store.SaveChat(chat);
+            // Category mutations persist the same shared ChatRecord. Keep remote-state
+            // changes and serialization under their common deletion/write guard.
+            lock (store.DeletionSync)
+            {
+                UpdateRemoteState(chat, message.ConnectionId, remoteState, continueRemote, result, reply.MessageId);
+                store.SaveChat(chat);
+            }
 
             message.ReplyMessageId = reply.MessageId;
             message.Status = MessageStatus.Completed;

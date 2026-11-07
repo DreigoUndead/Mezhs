@@ -12,6 +12,7 @@ $agentProgram = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Program.cs") -
 $agentMapper = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Models/AgentApiMapper.cs") -Raw
 $agentMain = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/main.tsx") -Raw
 $agentCss = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/agent.css") -Raw
+$baseCss = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/styles.css") -Raw
 
 foreach ($component in @("ChatTranscript", "ChatComposer", "MarkdownContent", "ConnectionModelPicker")) {
     if ($exports -notmatch $component) { throw "Shared MEZS web library does not export $component." }
@@ -106,6 +107,30 @@ if ($agentApp -notmatch 'Promise\.allSettled' -or
     $agentApp -notmatch 'loadMessages\(chatId, syncModel, signal\)' -or
     $agentApp -notmatch 'loadExecutions\(chatId, signal\)') {
     throw "Agent Web couples durable execution refresh to the remote chat-message request."
+}
+
+# Shared chat-management semantics and compact sidebar structure on both web surfaces.
+if ($agentCss -notmatch 'agent-sidebar-tools[\s\S]*?gap:\s*6px' -or
+    $baseCss -notmatch '\.base-group-filter' -or
+    $baseCss -notmatch '\.base-sidebar-tools' -or
+    $sharedApp -notmatch 'className="base-group-filter"' -or
+    $sharedApp -notmatch 'className="base-sidebar-tools"' -or
+    $sharedApp -notmatch 'async function renameChat' -or
+    $agentApp -notmatch 'async function renameChat' -or
+    $sharedApp -notmatch 'method: "PUT"' -or
+    $agentApp -notmatch 'method: "PUT"' -or
+    $sharedApp -match 'setCategoryFilter\(category\.categoryId\)' -or
+    $agentApp -match 'selectCategoryFilter\(category\.categoryId\)') {
+    throw "Base and Agent chat group controls, rename actions, or non-switching group creation have diverged."
+}
+
+# Both web surfaces can operate against the Agent host, where group removal also
+# unassigns Agent conversations and chat deletion retains Executor audit history.
+if ($sharedApp -notmatch 'including Agent conversations if present' -or
+    $sharedApp -notmatch 'Historical Executor records and stored files may remain' -or
+    $sharedApp -notmatch 'deletedChatIdsRef\.current\.has\(chat\.chatId\)' -or
+    $sharedApp -notmatch 'deletedChatIdsRef\.current\.add\(id\)') {
+    throw "Base chat deletion/group confirmations or stale-deletion list protection have regressed."
 }
 
 node (Join-Path $root "tests/agent-web-rich-formatting.test.cjs")

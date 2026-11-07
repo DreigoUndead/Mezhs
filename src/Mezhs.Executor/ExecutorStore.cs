@@ -19,6 +19,8 @@ internal sealed class ExecutorStore
     {
         _file = System.IO.Path.GetFullPath(path);
         _log.Execute(_file, """
+            DROP TABLE IF EXISTS BlockedChats;
+
             CREATE TABLE IF NOT EXISTS ExecutorExecutions (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 Status TEXT NOT NULL,
@@ -83,7 +85,8 @@ internal sealed class ExecutorStore
             VALUES (
                 $status, $command, $directory, $timeoutSeconds, $createdAt,
                 $chatId, $parentExecutionId, $correlationId, $source, $workspace,
-                $triggerMessageId, $commandIndex, $environmentJson)
+                $triggerMessageId, $commandIndex, $environmentJson
+            )
             ON CONFLICT DO NOTHING
             RETURNING Id;
             """;
