@@ -125,13 +125,16 @@ ping -n 30 127.0.0.1 >nul
     $cancelRunning = Wait-AttachedRunningExecution $cancel.executionId
     $runningShell = Wait-Shell $cancelRunning.chatId @("Running")
 
-    # Neither normal DELETE route may delete a chat with a nonterminal shell/root.
-    $busyDelete = Invoke-WebRequest -Method Delete -Uri "$agentUrl/v1/chats/$($cancelRunning.chatId)" -SkipHttpErrorCheck
-    if ([int]$busyDelete.StatusCode -ne 400) {
-        throw "Active Agent chat deletion returned $([int]$busyDelete.StatusCode), expected 400."
+    # Invalid input is rejected as a whole without disturbing the active Agent.
+    $invalidDeletion = Invoke-WebRequest -Method Delete -Uri "$agentUrl/v1/chats" `
+        -ContentType "application/json" `
+        -Body (ConvertTo-Json @{ chatIds = @($cancelRunning.chatId, "chat_missing") }) `
+        -SkipHttpErrorCheck
+    if ([int]$invalidDeletion.StatusCode -ne 404) {
+        throw "Invalid active-chat deletion returned $([int]$invalidDeletion.StatusCode), expected 404."
     }
     if (-not (Invoke-RestMethod -Uri "$agentUrl/v1/agent-chats/$($cancelRunning.chatId)")) {
-        throw "Busy-chat deletion removed the Agent chat."
+        throw "Rejected deletion affected an active Agent chat."
     }
 
     $childCancelClient = [Net.Http.HttpClient]::new()
@@ -260,20 +263,20 @@ with sqlite3.connect(sys.argv[1]) as db:
     if ((Get-Execution $queued.executionId).status -ne "Queued") {
         throw "Same-chat execution did not stay queued while unrelated work ran."
     }
-    # The normal DELETE batch endpoint is atomic even if an idle chat appears first.
-    $busyBatch = Invoke-WebRequest -Method Delete -Uri "$agentUrl/v1/chats" `
+    # Preserve the restart-recovery fixture: invalid bulk deletion must be atomic.
+    $invalidBatch = Invoke-WebRequest -Method Delete -Uri "$agentUrl/v1/chats" `
         -ContentType "application/json" `
-        -Body (ConvertTo-Json @{ chatIds = @($independentDone.chatId, $seedDone.chatId) }) `
+        -Body (ConvertTo-Json @{ chatIds = @($independentDone.chatId, $seedDone.chatId, "chat_missing") }) `
         -SkipHttpErrorCheck
-    if ([int]$busyBatch.StatusCode -ne 400) {
-        throw "Mixed idle/busy Agent chat deletion returned $([int]$busyBatch.StatusCode), expected 400."
+    if ([int]$invalidBatch.StatusCode -ne 404) {
+        throw "Invalid mixed Agent deletion returned $([int]$invalidBatch.StatusCode), expected 404."
     }
     foreach ($id in @($independentDone.chatId, $seedDone.chatId)) {
         if (-not (Invoke-RestMethod -Uri "$agentUrl/v1/chats/$id")) {
-            throw "Rejected mixed batch partially removed chat '$id'."
+            throw "Invalid batch partially removed chat '$id'."
         }
     }
-    Write-Host "DELETION_BUSY single=400 bulk=400 no_partial_delete=true"
+    Write-Host "DELETION_VALIDATION invalid_batch=404 no_partial_delete=true"
 
     $state = @(Invoke-RestMethod -Uri "$agentUrl/v1/executions")
     $runningRoots = @($state | Where-Object { $_.kind -eq "Agent" -and $_.status -eq "Running" })
@@ -334,7 +337,49 @@ ping -n 5 127.0.0.1 >nul
     }
     Write-Host "SAME_CHAT_WAKE first=$($serialFirstDone.status) successor=$($serialSecondDone.status) cancelled_queued=$($neverStartFinal.status)"
 
-    Write-Host "PASS: Six independent roots and Executor shells overlap; cancellation/failure isolation; queued cancellation; automatic same-chat wake; restart/recovery without duplicate shell commands."
+    # Deletion uses normal Agent cancellation, including associated Executor shell kill.
+    # Validate single and mixed bulk routes without resurrecting deleted chats.
+    $detached = Start-Execution "test-cancel" $longTask
+    $detachedRunning = Wait-AttachedRunningExecution $detached.executionId
+    $detachedShell = Wait-Shell $detachedRunning.chatId @("Running")
+    $singleDeleted = Invoke-WebRequest -Method Delete `
+        -Uri "$agentUrl/v1/chats/$($detachedRunning.chatId)" -SkipHttpErrorCheck
+    if ([int]$singleDeleted.StatusCode -ne 204) {
+        throw "Active Agent deletion did not complete: HTTP $([int]$singleDeleted.StatusCode) $($singleDeleted.Content)"
+    }
+    $coreAfter = Invoke-WebRequest -Uri "$agentUrl/v1/chats/$($detachedRunning.chatId)" -SkipHttpErrorCheck
+    $agentAfter = Invoke-WebRequest -Uri "$agentUrl/v1/agent-chats/$($detachedRunning.chatId)" -SkipHttpErrorCheck
+    if ([int]$coreAfter.StatusCode -ne 404 -or [int]$agentAfter.StatusCode -ne 404) {
+        throw "Active Agent deletion left Agent/Core chat data visible."
+    }
+    $shellAfter = Wait-ExecutionStatus $detachedShell.executionId @("Killed") 15
+    if (-not $shellAfter.completedAt) { throw "Deleted chat shell kill lacks completion timestamp." }
+
+    $bulkActive = Start-Execution "test-cancel" $longTask
+    $bulkRunning = Wait-AttachedRunningExecution $bulkActive.executionId
+    $bulkShell = Wait-Shell $bulkRunning.chatId @("Running")
+    $bulkQueued = Start-Execution "test-cancel" "must never run after deletion" $bulkRunning.chatId
+    $queuedDuringDelete = Wait-ExecutionStatus $bulkQueued.executionId @("Queued") 5
+    $bulkRemoved = Invoke-RestMethod -Method Delete -Uri "$agentUrl/v1/chats" `
+        -ContentType "application/json" `
+        -Body (ConvertTo-Json @{ chatIds = @($afterRestartDone.chatId, $bulkRunning.chatId) })
+    if (@($bulkRemoved.deletedChatIds).Count -ne 2) {
+        throw "Mixed active bulk deletion did not commit both requested chats."
+    }
+    $bulkShellAfter = Wait-ExecutionStatus $bulkShell.executionId @("Killed") 15
+    if (-not $bulkShellAfter.completedAt) { throw "Mixed deletion shell kill lacks completion timestamp." }
+
+    # Shell termination must leave deleted chat/Agent data absent.
+    foreach ($deletedChatId in @($detachedRunning.chatId, $bulkRunning.chatId)) {
+        $lateCore = Invoke-WebRequest -Uri "$agentUrl/v1/chats/$deletedChatId" -SkipHttpErrorCheck
+        $lateAgent = Invoke-WebRequest -Uri "$agentUrl/v1/agent-chats/$deletedChatId" -SkipHttpErrorCheck
+        if ([int]$lateCore.StatusCode -ne 404 -or [int]$lateAgent.StatusCode -ne 404) {
+            throw "Detached shell completion resurrected deleted chat '$deletedChatId'."
+        }
+    }
+    Write-Host "DELETION_CANCEL_IMMEDIATE single=204 mixed_bulk=2 shells=Killed no_resurrection=true"
+
+    Write-Host "PASS: Concurrent roots, independent Executor shells, cancellation isolation, queued cancellation, same-chat wake, restart/recovery and cancellation-based deletion with associated shell kills."
 }
 finally {
     if ($null -ne $agent -and -not $agent.HasExited) {

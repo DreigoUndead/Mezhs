@@ -412,7 +412,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     if (ids.length === 0 || deletingChats) return;
     const noun = ids.length === 1 ? "conversation" : "conversations";
     if (requireConfirmation &&
-        !window.confirm(`Permanently delete ${description} (${ids.length} ${noun})? Conversation transcripts and any Agent state will be removed. Historical Executor records and stored files may remain.`)) return;
+        !window.confirm(`Delete ${description} (${ids.length} ${noun})? Conversation transcripts (and Agent state in the Agent host) will be removed from active storage. Previously imported legacy chat files, if any, remain as backups. Historical Executor records and stored files may remain. Running Executor shells are not stopped by chat deletion.`)) return;
 
     setDeletingChats(true);
     setChatMenuId(null);

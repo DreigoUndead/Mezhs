@@ -26,6 +26,7 @@ public sealed class AgentWorker : BackgroundService
     private readonly Channel<bool> _wake;
     private readonly Dictionary<string, Task> _inFlight = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _cancellationSync = new();
+    private readonly object _inFlightSync = new();
     private readonly ILogger<AgentWorker> _logger;
     private readonly Dictionary<string, CancellationTokenSource> _cancellations =
         new(StringComparer.OrdinalIgnoreCase);
@@ -107,10 +108,14 @@ public sealed class AgentWorker : BackgroundService
             await foreach (var _ in _wake.Reader.ReadAllAsync(stoppingToken))
             {
                 // Only the dispatcher reads or removes in-flight tasks. SQLite owns runnable order.
-                foreach (var (id, task) in _inFlight.Where(pair => pair.Value.IsCompleted).ToArray())
+                KeyValuePair<string, Task>[] completed;
+                lock (_inFlightSync)
+                    completed = _inFlight.Where(pair => pair.Value.IsCompleted).ToArray();
+                foreach (var (id, task) in completed)
                 {
                     await task;
-                    _inFlight.Remove(id);
+                    lock (_inFlightSync)
+                        _inFlight.Remove(id);
                 }
 
                 while (!stoppingToken.IsCancellationRequested)
@@ -121,7 +126,8 @@ public sealed class AgentWorker : BackgroundService
 
                     // Schedule independently; a long-running execution never occupies a dispatcher slot.
                     var task = Task.Run(() => RunExecutionAsync(execution, stoppingToken));
-                    _inFlight.Add(execution.ExecutionId, task);
+                    lock (_inFlightSync)
+                        _inFlight.Add(execution.ExecutionId, task);
                     // Notify only once the task itself has completed, so it is always collectible.
                     task.GetAwaiter().OnCompleted(SignalWork);
                 }
@@ -133,8 +139,12 @@ public sealed class AgentWorker : BackgroundService
         finally
         {
             // Stop claiming before waiting. All started executions retain their cancellation lifetime.
-            await Task.WhenAll(_inFlight.Values);
-            _inFlight.Clear();
+            Task[] remaining;
+            lock (_inFlightSync)
+                remaining = _inFlight.Values.ToArray();
+            await Task.WhenAll(remaining);
+            lock (_inFlightSync)
+                _inFlight.Clear();
         }
     }
 
@@ -193,9 +203,10 @@ public sealed class AgentWorker : BackgroundService
                     chatId = _chats.Create(new CreateChatRequest(execution.ConnectionId)).ChatId;
                     cancellation.Token.ThrowIfCancellationRequested();
                 }
-                else if (!_chats.Exists(chatId))
+                else
                 {
-                    throw new ResourceNotFoundException($"Chat '{chatId}' was not found in MEŽS.");
+                    chatId = _chatStore.GetChat(chatId)?.ChatId
+                        ?? throw new ResourceNotFoundException($"Chat '{chatId}' was not found in MEŽS.");
                 }
 
                 _store.ClaimAgentChat(

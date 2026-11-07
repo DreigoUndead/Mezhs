@@ -13,7 +13,6 @@ public sealed class AgentApiExceptionHandler : IExceptionHandler
         var statusCode = exception switch
         {
             ExecutionNotFoundException => StatusCodes.Status404NotFound,
-            ExecutionChatBlockedException => StatusCodes.Status409Conflict,
             _ => (int?)null
         };
 

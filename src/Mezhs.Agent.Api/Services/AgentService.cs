@@ -9,7 +9,8 @@ public sealed class AgentService(
     AgentStore store,
     PolicyRegistry policies,
     AgentWorker worker,
-    IntegrationRegistry integrations)
+    IntegrationRegistry integrations,
+    ChatStore chats)
 {
     public ExecutionRecord Start(CreateExecutionRequest request)
     {
@@ -53,19 +54,54 @@ public sealed class AgentService(
             }
         }
 
-        var execution = store.TryCreateRootExecution(
-            policyId,
-            connectionId,
-            chatId,
-            source: "manual",
-            sourceReference: null,
-            request.Input,
-            environment,
-            policies.Snapshot(policyId),
-            model);
+        ExecutionRecord execution;
+        lock (chats.DeletionSync)
+        {
+            if (chatId is not null)
+            {
+                var canonical = chats.GetChat(chatId)
+                    ?? throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
+                chatId = canonical.ChatId;
+                store.ValidateAgentChatPolicy(chatId, policyId);
+                store.ValidateAgentChatRunnable(chatId);
+            }
+            execution = store.TryCreateRootExecution(
+                policyId, connectionId, chatId,
+                source: "manual", sourceReference: null, request.Input,
+                environment, policies.Snapshot(policyId), model);
+        }
 
         worker.SignalWork();
         return execution;
+    }
+
+    public Task<IReadOnlyList<string>> DeleteChatsAsync(
+        IEnumerable<string> chatIds,
+        CancellationToken cancellationToken = default)
+    {
+        var entries = chatIds.ToArray();
+        if (entries.Length == 0)
+            throw new RequestValidationException("At least one chatId is required.");
+        if (entries.Any(string.IsNullOrWhiteSpace))
+            throw new RequestValidationException("chatIds cannot contain empty chat IDs.");
+        var requested = entries.Select(id => id.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+
+        lock (chats.DeletionSync)
+        {
+            var ids = requested.Select(id => chats.GetChat(id)?.ChatId
+                ?? throw new ResourceNotFoundException($"Chat '{id}' was not found.")).ToArray();
+            foreach (var execution in ids.SelectMany(store.GetExecutions)
+                         .Where(record => record.ParentExecutionId is null &&
+                             record.Status is AgentExecutionStatus.Queued or AgentExecutionStatus.Running
+                                 or AgentExecutionStatus.CancelRequested))
+                worker.Cancel(execution.ExecutionId);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            store.RemoveChatData(ids); // Agent SQLite transaction first.
+            chats.DeleteChats(ids);      // Core SQLite transaction second.
+            return Task.FromResult<IReadOnlyList<string>>(ids);
+        }
     }
 
     public AgentChatRecord SetPaused(string chatId, bool paused)

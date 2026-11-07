@@ -16,6 +16,12 @@ Do not downgrade high-risk work simply to save time. Record a reason for skipped
 
 **Context quality:** A new agent is useful when the current one loses track of decisions, repeats investigation, confuses versions or produces weaker reasoning. This is a judgment call, **not a fixed token threshold**. For a Small change, staying in the same chat is fine if the work remains clear.
 
+### Mandatory complexity escalation (all stages)
+
+During planning, development, plan/code review, testing and debugging, **stop the affected work and ask the owner before adding complexity** when a requirement seems disproportionate to its value, an initially simple feature needs unexpected coordination or persistent safeguards, a simpler approach exists if a guarantee is relaxed, or fixes repeatedly address consequences of the same design choice. **After two fixes driven by the same architectural decision, reassess the design before another fix.** An approved plan does not waive this rule.
+
+Report concisely: **what** became complex, **which requirement causes it**, **simpler options**, **trade-offs**, and **your recommendation**. Require an explicit owner decision to retain the guarantee, relax it, redesign or stop; record that decision in the task plan or PR before resuming. Do not escalate ordinary implementation details without meaningful maintenance or architectural impact.
+
 ## 2. [Plan](specification.md)
 
 - **All levels:** create a task branch named `<id>` from the current `main` **before the first change or commit**, including a plan or workflow change. Reuse the branch for revisions and fixes. If a task depends on unmerged work, explicitly base its branch on the dependent task branch and keep the relationship visible in the PR.

@@ -197,8 +197,7 @@ public sealed class MessageService(
             ReplayOfMessageId = replayOf,
             Status = MessageStatus.Queued
         };
-        store.SaveMessage(message);
-        store.SaveChat(chat);
+        store.SaveMessageAndTouchChat(message, chat);
         if (_queue.Writer.TryWrite(new QueuedMessage(message, cancellationToken)))
             return message;
 

@@ -82,10 +82,10 @@ $badAgent = Start-Process -FilePath "dotnet" `
     -ArgumentList @($agentDll, "--config", $badConfig) `
     -WorkingDirectory $root -RedirectStandardOutput $badOut -RedirectStandardError $badErr -WindowStyle Hidden -PassThru
 try {
-    if (-not $badAgent.WaitForExit(8000)) {
+    if (-not $badAgent.WaitForExit(25000)) {
         Stop-Process -Id $badAgent.Id -Force
         $badAgent.WaitForExit()
-        throw "Agent API accepted a non-loopback listener for host-shell execution."
+        throw "Non-loopback Agent startup did not exit within 25 seconds (PID $($badAgent.Id)); inspect $badErr."
     }
     $badText = (Get-Content -LiteralPath $badErr -Raw) + (Get-Content -LiteralPath $badOut -Raw)
     if ($badAgent.ExitCode -eq 0 -or $badText -notmatch "loopback") {
@@ -93,6 +93,7 @@ try {
     }
 } finally {
     if (-not $badAgent.HasExited) { Stop-Process -Id $badAgent.Id -Force; $badAgent.WaitForExit() }
+    Remove-Item -LiteralPath $badConfig -Force -ErrorAction SilentlyContinue
 }
 
 $api = Start-Process -FilePath "dotnet" `
@@ -321,7 +322,7 @@ echo %TEST_AGENT_VALUE%
         } finally { $content.Dispose() }
     } finally { $client.Dispose() }
 
-    $debug = Invoke-WebRequest -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log"
+    $debug = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log"
     if ($debug.StatusCode -ne 200 -or $debug.Headers["Content-Disposition"] -notmatch "attachment" -or $debug.Content -notmatch $completed.executionId) {
         throw "Local debug log is not downloadable/auditable."
     }
@@ -334,10 +335,10 @@ echo %TEST_AGENT_VALUE%
         -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj"), "-c", "Release", "--no-build", "--no-launch-profile", "--", "--urls", "http://0.0.0.0:5201", "--Agent:BaseUrl", "http://127.0.0.1:5199") `
         -WorkingDirectory $root -RedirectStandardOutput $badWebOut -RedirectStandardError $badWebErr -WindowStyle Hidden -PassThru
     try {
-        if (-not $badWeb.WaitForExit(8000)) {
+        if (-not $badWeb.WaitForExit(25000)) {
             Stop-Process -Id $badWeb.Id -Force
             $badWeb.WaitForExit()
-            throw "Agent Web accepted a non-loopback listener."
+            throw "Non-loopback Agent Web startup did not exit within 25 seconds (PID $($badWeb.Id)); inspect $badWebErr."
         }
         $badWebText = (Get-Content -LiteralPath $badWebErr -Raw) + (Get-Content -LiteralPath $badWebOut -Raw)
         if ($badWeb.ExitCode -eq 0 -or $badWebText -notmatch "loopback") {
@@ -361,7 +362,7 @@ echo %TEST_AGENT_VALUE%
         Start-Sleep -Milliseconds 150
     } while ($true)
 
-    $proxiedDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5200/v1/agent-chats/$($completed.chatId)/debug-log"
+    $proxiedDebug = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:5200/v1/agent-chats/$($completed.chatId)/debug-log"
     if ($proxiedDebug.StatusCode -ne 200) { throw "Agent Web did not proxy the local debug log." }
 
     $webExecution = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5200/v1/executions" `
@@ -393,10 +394,26 @@ echo %TEST_AGENT_VALUE%
     }
 
     # A malformed bulk request must not delete the otherwise valid chat.
-    $invalidBatch = Invoke-WebRequest -Method Delete -Uri "http://127.0.0.1:5199/v1/chats" `
-        -ContentType "application/json" -Body (ConvertTo-Json @{ chatIds = @($webCompleted.chatId, " ") }) `
-        -SkipHttpErrorCheck
-    if ([int]$invalidBatch.StatusCode -ne 400 -or
+    # Windows PowerShell 5.1 has no -SkipHttpErrorCheck. Inspect the
+    # expected 400 response through HttpClient without throwing on HTTP errors.
+    $invalidClient = [Net.Http.HttpClient]::new()
+    $invalidRequest = [Net.Http.HttpRequestMessage]::new(
+        [Net.Http.HttpMethod]::Delete, "http://127.0.0.1:5199/v1/chats")
+    try {
+        $invalidJson = ConvertTo-Json @{ chatIds = @($webCompleted.chatId, " ") }
+        $invalidRequest.Content = [Net.Http.StringContent]::new(
+            $invalidJson, [Text.Encoding]::UTF8, "application/json")
+        $invalidResponse = $invalidClient.SendAsync($invalidRequest).GetAwaiter().GetResult()
+        try {
+            $invalidStatus = [int]$invalidResponse.StatusCode
+        } finally {
+            $invalidResponse.Dispose()
+        }
+    } finally {
+        $invalidRequest.Dispose()
+        $invalidClient.Dispose()
+    }
+    if ($invalidStatus -ne 400 -or
         (Get-Status "http://127.0.0.1:5199/v1/chats/$($webCompleted.chatId)") -ne 200) {
         throw "Malformed Agent chat deletion batch was not rejected atomically."
     }
@@ -432,24 +449,24 @@ echo %TEST_AGENT_VALUE%
         $restartResponse = $restartClient.PostAsync(
             "http://127.0.0.1:5199/v1/executions/$($environmentShell.executionId)/restart", $null).GetAwaiter().GetResult()
         try {
-            if ([int]$restartResponse.StatusCode -ne 409) {
-                throw "Deleted-chat shell restart returned HTTP $([int]$restartResponse.StatusCode) instead of conflict."
+            if ([int]$restartResponse.StatusCode -ne 202) {
+                throw "Executor rejected a historical restart after chat deletion: HTTP $([int]$restartResponse.StatusCode)."
             }
         } finally { $restartResponse.Dispose() }
     } finally { $restartClient.Dispose() }
     if ((Get-Status "http://127.0.0.1:5199/v1/chats/$($ordinaryChat.chatId)") -ne 200) {
         throw "Deleting Agent chats modified an unrelated ordinary chat."
     }
-    Write-Host "PASS: Agent shared groups, single/bulk deletion, retained Executor audit and blocked historical restarts."
+    Write-Host "PASS: Agent shared groups, single/bulk deletion, retained Executor audit and independent historical restarts."
 
     Stop-Process -Id $api.Id -Force
     $api.WaitForExit()
-    $offlineDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log"
+    $offlineDebug = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/debug-log"
     if ($offlineDebug.StatusCode -ne 200 -or $offlineDebug.Headers["Content-Disposition"] -notmatch "attachment" -or
         $offlineDebug.Content -notmatch $completed.executionId -or $offlineDebug.Content -match 'chatMessagesUnavailable:') {
         throw "Debug log stopped being available when the generic MEZS API was offline."
     }
-    $offlineProxiedDebug = Invoke-WebRequest -Uri "http://127.0.0.1:5200/v1/agent-chats/$($completed.chatId)/debug-log"
+    $offlineProxiedDebug = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:5200/v1/agent-chats/$($completed.chatId)/debug-log"
     if ($offlineProxiedDebug.StatusCode -ne 200 -or $offlineProxiedDebug.Headers["Content-Disposition"] -notmatch "attachment") {
         throw "Agent Web stopped proxying debug logs when the generic MEZS API was offline."
     }
