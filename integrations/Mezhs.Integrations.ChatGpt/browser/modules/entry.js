@@ -1,4 +1,4 @@
-const { ORIGIN, API, accessToken, requireToken, apiJson } = require('./account-transport.js');
+const { ORIGIN, API, accessToken, requireToken, apiFetch, apiJson } = require('./account-transport.js');
 const { nativePickerModels } = require('./account-models.js');
 const { sendAccountMessage } = require('./account-messages.js');
 const { sendPrompt } = require('./guest.js');
@@ -8,7 +8,16 @@ module.exports = {
   homeUrl: ORIGIN + "/",
 
   async isAuthorized(window) {
-    return Boolean(await accessToken(window.webContents.session).catch(() => null));
+    const session = window.webContents.session;
+    const token = await accessToken(session).catch(() => null);
+    if (!token) return false;
+    try {
+      await apiFetch(session, token, API.models);
+      return true;
+    } catch (error) {
+      if (error?.status === 401) return false;
+      throw error;
+    }
   },
 
   operations: {

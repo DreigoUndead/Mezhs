@@ -149,3 +149,17 @@ test("ChatGPT non-JSON HTTP errors retain status without logging response bodies
     return true;
   });
 });
+
+test("ChatGPT HTTP 401 errors request reauthorization", async () => {
+  const { apiFetch } = require(path.join(root,
+    "integrations/Mezhs.Integrations.ChatGpt/browser/modules/account-transport.js"));
+  const session = {
+    cookies: { get: async () => [] },
+    fetch: async () => new Response(null, { status: 401 })
+  };
+  await assert.rejects(apiFetch(session, "stale-token", "/backend-api/models"), error => {
+    assert.equal(error.status, 401);
+    assert.equal(error.code, "authorization_required");
+    return true;
+  });
+});
