@@ -227,7 +227,8 @@ if ($app -match '>U<' -or $app -match '"U"') {
 if ($app -notmatch 'Delete selected' -or $app -notmatch 'Delete all shown') {
     throw "The shared web UI does not expose selected and filtered conversation deletion."
 }
-if ($app -notmatch 'managerSearch' -or $app -notmatch 'Filter by title, connection, or group') {
+if ($app -notmatch 'matchesChatQuery\(chat, managerSearch' -or
+    $app -notmatch 'value=\{managerSearch\}\s+onChange=') {
     throw "The conversation deletion window does not have its own filter."
 }
 if ($app -notmatch 'chat-options-menu' -or $app -notmatch "deleteConversations\(\[chat\].*false") {
