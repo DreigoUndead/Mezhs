@@ -1,9 +1,7 @@
 name: SQLite independent PowerShell 5.1 validation
 
 on:
-  push:
-    branches:
-      - chat-store-sqlite
+  pull_request:
 
 permissions:
   contents: read
