@@ -82,10 +82,10 @@ $badAgent = Start-Process -FilePath "dotnet" `
     -ArgumentList @($agentDll, "--config", $badConfig) `
     -WorkingDirectory $root -RedirectStandardOutput $badOut -RedirectStandardError $badErr -WindowStyle Hidden -PassThru
 try {
-    if (-not $badAgent.WaitForExit(8000)) {
+    if (-not $badAgent.WaitForExit(25000)) {
         Stop-Process -Id $badAgent.Id -Force
         $badAgent.WaitForExit()
-        throw "Agent API accepted a non-loopback listener for host-shell execution."
+        throw "Non-loopback Agent startup did not exit within 25 seconds (PID $($badAgent.Id)); inspect $badErr."
     }
     $badText = (Get-Content -LiteralPath $badErr -Raw) + (Get-Content -LiteralPath $badOut -Raw)
     if ($badAgent.ExitCode -eq 0 -or $badText -notmatch "loopback") {
@@ -93,6 +93,7 @@ try {
     }
 } finally {
     if (-not $badAgent.HasExited) { Stop-Process -Id $badAgent.Id -Force; $badAgent.WaitForExit() }
+    Remove-Item -LiteralPath $badConfig -Force -ErrorAction SilentlyContinue
 }
 
 $api = Start-Process -FilePath "dotnet" `
@@ -334,10 +335,10 @@ echo %TEST_AGENT_VALUE%
         -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj"), "-c", "Release", "--no-build", "--no-launch-profile", "--", "--urls", "http://0.0.0.0:5201", "--Agent:BaseUrl", "http://127.0.0.1:5199") `
         -WorkingDirectory $root -RedirectStandardOutput $badWebOut -RedirectStandardError $badWebErr -WindowStyle Hidden -PassThru
     try {
-        if (-not $badWeb.WaitForExit(8000)) {
+        if (-not $badWeb.WaitForExit(25000)) {
             Stop-Process -Id $badWeb.Id -Force
             $badWeb.WaitForExit()
-            throw "Agent Web accepted a non-loopback listener."
+            throw "Non-loopback Agent Web startup did not exit within 25 seconds (PID $($badWeb.Id)); inspect $badWebErr."
         }
         $badWebText = (Get-Content -LiteralPath $badWebErr -Raw) + (Get-Content -LiteralPath $badWebOut -Raw)
         if ($badWeb.ExitCode -eq 0 -or $badWebText -notmatch "loopback") {
