@@ -394,10 +394,26 @@ echo %TEST_AGENT_VALUE%
     }
 
     # A malformed bulk request must not delete the otherwise valid chat.
-    $invalidBatch = Invoke-WebRequest -UseBasicParsing -Method Delete -Uri "http://127.0.0.1:5199/v1/chats" `
-        -ContentType "application/json" -Body (ConvertTo-Json @{ chatIds = @($webCompleted.chatId, " ") }) `
-        -SkipHttpErrorCheck
-    if ([int]$invalidBatch.StatusCode -ne 400 -or
+    # Windows PowerShell 5.1 has no -SkipHttpErrorCheck. Inspect the
+    # expected 400 response through HttpClient without throwing on HTTP errors.
+    $invalidClient = [Net.Http.HttpClient]::new()
+    $invalidRequest = [Net.Http.HttpRequestMessage]::new(
+        [Net.Http.HttpMethod]::Delete, "http://127.0.0.1:5199/v1/chats")
+    try {
+        $invalidJson = ConvertTo-Json @{ chatIds = @($webCompleted.chatId, " ") }
+        $invalidRequest.Content = [Net.Http.StringContent]::new(
+            $invalidJson, [Text.Encoding]::UTF8, "application/json")
+        $invalidResponse = $invalidClient.SendAsync($invalidRequest).GetAwaiter().GetResult()
+        try {
+            $invalidStatus = [int]$invalidResponse.StatusCode
+        } finally {
+            $invalidResponse.Dispose()
+        }
+    } finally {
+        $invalidRequest.Dispose()
+        $invalidClient.Dispose()
+    }
+    if ($invalidStatus -ne 400 -or
         (Get-Status "http://127.0.0.1:5199/v1/chats/$($webCompleted.chatId)") -ne 200) {
         throw "Malformed Agent chat deletion batch was not rejected atomically."
     }
