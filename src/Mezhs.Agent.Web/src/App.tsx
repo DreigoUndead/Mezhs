@@ -1169,7 +1169,7 @@ useEffect(() => {
   async function deleteConversations(targets: AgentChat[], description: string) {
     const ids = [...new Set(targets.map((chat) => chat.chatId))];
     if (ids.length === 0 || deletingChats) return;
-    if (!window.confirm(`Delete ${description} (${ids.length} chat${ids.length === 1 ? "" : "s"})? Conversation transcripts and Agent state will be removed from active storage. Previously imported legacy chat files, if any, remain as backups. Historical Executor records and stored files may remain. Running Executor shells are not stopped by chat deletion.`))
+    if (!window.confirm(`Delete ${description} (${ids.length} chat${ids.length === 1 ? "" : "s"})? Conversation transcripts and Agent state will be removed from active storage. Previously imported legacy chat files, if any, remain as backups. Active Agent work receives cancellation requests and associated Executor shells receive termination requests, without waiting for them to stop. Historical Executor records and stored files may remain.`))
       return;
     setDeletingChats(true);
     setNotice(null);
