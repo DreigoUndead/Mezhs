@@ -1,0 +1,71 @@
+name: SQLite independent PowerShell 5.1 validation
+
+on:
+  push:
+    branches:
+      - chat-store-sqlite
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sqlite-ps51-validation
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build solution and frontend assets
+        run: dotnet build Mezhs.sln -c Release --nologo
+      - name: Architecture (Windows PowerShell 5.1)
+        id: architecture
+        continue-on-error: true
+        shell: powershell
+        run: |
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\architecture.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Core API smoke (Windows PowerShell 5.1)
+        id: core_api
+        continue-on-error: true
+        shell: powershell
+        run: |
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\api-smoke.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Agent API smoke (Windows PowerShell 5.1)
+        id: agent_api
+        continue-on-error: true
+        shell: powershell
+        run: |
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\agent-api-smoke.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Executor lifecycle (Windows PowerShell 5.1)
+        id: executor
+        continue-on-error: true
+        timeout-minutes: 12
+        shell: powershell
+        run: |
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\executor-lifecycle.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Require all checks to pass
+        if: always()
+        shell: powershell
+        run: |
+          Write-Host 'Architecture: ${{ steps.architecture.outcome }}'
+          Write-Host 'Core API: ${{ steps.core_api.outcome }}'
+          Write-Host 'Agent API: ${{ steps.agent_api.outcome }}'
+          Write-Host 'Executor lifecycle: ${{ steps.executor.outcome }}'
+          if ('${{ steps.architecture.outcome }}' -ne 'success' -or
+              '${{ steps.core_api.outcome }}' -ne 'success' -or
+              '${{ steps.agent_api.outcome }}' -ne 'success' -or
+              '${{ steps.executor.outcome }}' -ne 'success') {
+            exit 1
+          }
