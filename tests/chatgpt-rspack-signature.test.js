@@ -167,6 +167,9 @@ test("module, export and function-metadata getters are not executed", async () =
   const getterExports = {};
   Object.defineProperty(getterExports, "f", { enumerable: true, get: getter });
   b.loader.c.getterExports = { exports: getterExports };
+  const getterRecord = {};
+  Object.defineProperty(getterRecord, "exports", { enumerable: true, get: getter });
+  b.loader.c.getterRecord = getterRecord;
   Object.defineProperty(b.provider, "name", { get: getter, configurable: true });
   const result = await getNativeHeaders(b.window, {}, "token");
   assert.equal(result["OpenAI-Sentinel-Chat-Requirements-Token"], "server-1");
@@ -207,4 +210,17 @@ test("failed prepare and absent requirements tokens never succeed", async () => 
   const missing = browser({ headers: {} });
   await assert.rejects(getNativeHeaders(missing.window, {}, "token"), /did not produce a requirements token/);
   assert.equal(missing.requests.length, 1);
+});
+
+test("bound/native push functions are not probed", async () => {
+  const b = browser();
+  delete b.globals.webpackChunkchatgpt;
+  let touched = 0;
+  const registry = [[[1], { x: function x() {} }]];
+  registry.push = function runtimePush() { touched++; }.bind(null);
+  b.globals.webpackChunkbound = registry;
+  await assert.rejects(getNativeHeaders(b.window, {}, "token"),
+    /chunk registry was not observed/);
+  assert.equal(touched, 0);
+  assert.equal(b.requests.length, 0);
 });
