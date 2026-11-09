@@ -124,7 +124,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
                     requireAuthorization: true,
                     cancellationToken);
 
-            reportStage?.Invoke("Browser session ready; preparing ChatGPT request.");
+            reportStage?.Invoke("Browser session ready; preparing request.");
             try
             {
                 return await action(_transport!, cancellationToken);
