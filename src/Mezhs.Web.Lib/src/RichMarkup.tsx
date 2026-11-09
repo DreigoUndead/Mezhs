@@ -47,11 +47,13 @@ export function remarkRichMarkup(slotOffsets: Record<string, number> = Object.cr
                 typeof attrs[0].value === "string" && safeId(attrs[0].value)) {
               ids = [attrs[0].value];
             } else if (attrs.length === 1 && attrs[0].type === "mdxJsxAttribute" &&
-                       attrs[0].name === "refs" && typeof attrs[0].value === "object" &&
-                       attrs[0].value !== null) {
-              // Restricted expression expansion stores literal arrays as
-              // encoded JSON. Only accept finite arrays of exact source IDs.
-              const value = attrs[0].value.value;
+                       attrs[0].name === "refs") {
+              // The restricted template expander serializes literal arrays
+              // into a quoted json: attribute. MDX can also expose expression
+              // attributes; neither form is evaluated as code.
+              const raw = attrs[0].value;
+              const value = typeof raw === "string" ? raw :
+                raw && typeof raw === "object" ? raw.value : "";
               if (value.startsWith("json:") && value.length < 800) {
                 try {
                   const decoded: unknown = JSON.parse(decodeURIComponent(value.slice(5)));
