@@ -2,6 +2,16 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.2.1] — 2026-11-09
+
+### Added
+- Observed Agent activity-stage durations and shell command durations in downloadable debug logs, with timing interpretation guidance.
+- Progress reporting for ChatGPT Account browser session acquisition, authentication, model selection, turn preparation, submission and final response retrieval.
+
+### Changed
+- Clarify Agent waiting and command-result fallback labels without changing submission, execution, connection serialization or persistence behavior.
+- Extend ChatGPT Account progress regression coverage.
+
 ## [0.2.0] — 2026-11-07
 
 ### Added
