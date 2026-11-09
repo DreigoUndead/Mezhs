@@ -6,8 +6,11 @@ const { readConversationStream, mergeExecutionMetadata } = require('./account-st
 const { waitForConversation } = require('./account-results.js');
 
 async function sendAccountMessage(context, isNew) {
+  context.reportProgress?.({ state: "preparing", detail: "Checking ChatGPT account session." });
   const token = await requireToken(context.session);
   const selection = parseModelSelection(context.args.model);
+  if (selection.model !== "auto")
+    context.reportProgress?.({ state: "preparing", detail: "Applying ChatGPT model selection." });
   await setModelPreference(context.session, token, selection);
   return sendApiAccountMessage(context, isNew, token, selection);
 }
@@ -15,6 +18,7 @@ async function sendAccountMessage(context, isNew) {
 
 async function sendApiAccountMessage({ window, session, args, sleep, reportProgress }, isNew, token, selection) {
   if (!isNew) {
+    reportProgress?.({ state: "preparing", detail: "Checking existing ChatGPT conversation." });
     const endpoint = API.conversationById(args.conversationId);
     try {
       const response = await apiFetch(session, token, endpoint);
@@ -25,6 +29,8 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
       throw error;
     }
   }
+  if (args.files?.length)
+    reportProgress?.({ state: "preparing", detail: "Uploading files to ChatGPT." });
   const uploaded = await uploadFiles(session, token, args.files || []);
   const imageParts = uploaded
     .filter(file => file.contentType.startsWith("image/"))
@@ -90,8 +96,8 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
   }
 
   reportProgress?.({
-    state: "submitting",
-    detail: "Submitting prompt to ChatGPT."
+    state: "preparing",
+    detail: "Preparing ChatGPT turn."
   });
 
   const clientSessionId = randomUUID();
@@ -130,6 +136,7 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
   if (!conversationId)
     throw new Error("ChatGPT did not return a conversation id.");
 
+  reportProgress?.({ state: "retrieving", detail: "Retrieving final ChatGPT response." });
   return completeAccountMessage(
     session, token, conversationId, requestMessageId, sleep,
     reportProgress, execution
@@ -146,6 +153,7 @@ async function postConversationTurn(
   clientSessionId
 ) {
   const turnTraceId = randomUUID();
+  reportProgress?.({ state: "preparing", detail: "Obtaining ChatGPT turn preparation token." });
   const conduitToken = await getConduitToken(
     session,
     token,
@@ -153,6 +161,7 @@ async function postConversationTurn(
     conversationPreparePayload(payload),
     clientSessionId
   );
+  reportProgress?.({ state: "preparing", detail: "Preparing ChatGPT security requirements." });
   // The authenticated frontend owns Sentinel requirements and enforcement tokens.
   // Never invent or reuse tokens from a different turn/session.
   const sentinelHeaders = await nativeChatRequirementsHeaders(window, session, token);
@@ -170,6 +179,7 @@ async function postConversationTurn(
     }
   );
 
+  reportProgress?.({ state: "submitting", detail: "Submitting prompt to ChatGPT." });
   const response = await apiFetch(session, token, API.conversation, {
     method: "POST",
     headers,
@@ -214,6 +224,8 @@ async function completeAccountMessage(
     execution
   );
 
+  if (result.files?.size)
+    reportProgress?.({ state: "retrieving", detail: "Downloading ChatGPT response attachments." });
   return {
     text: result.text,
     conversationId,
