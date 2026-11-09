@@ -318,7 +318,15 @@ test("actual sanitized telemetry reply expands and renders native 340-by-236 SVG
 });
 
 test("actual sanitized telemetry reply offers A-default three-choice question", () => {
-  const prepared = extractRichQuestions(actualTelemetry);
+  const richExpressionBundle = esbuild.buildSync({
+    entryPoints: [path.join(frontend, "node_modules/@mezhs/web-lib/src/RichExpression.ts")],
+    preserveSymlinks: true, bundle: true, platform: "node", format: "cjs", write: false,
+  }).outputFiles[0].text;
+  const expressionModule = new Module(path.join(frontend, "rich-expression-tests.cjs"));
+  expressionModule.filename = path.join(frontend, "rich-expression-tests.cjs");
+  expressionModule.paths = Module._nodeModulePaths(frontend);
+  expressionModule._compile(richExpressionBundle, expressionModule.filename);
+  const prepared = extractRichQuestions(expressionModule.exports.expandRichTemplates(actualTelemetry));
   assert.equal(Object.keys(prepared.questions).length, 1);
   const data = Object.values(prepared.questions)[0];
   assert.equal(data.initial, "A");
@@ -344,7 +352,8 @@ test("invalid citation references never create navigation or executable markup",
     '<Cite refs={["turn123search1"]} onClick={alert(1)}/>',
   ]) {
     const output = html("Before " + sample + " after");
-    assert.doesNotMatch(output, /<a\b[^>]+href="javascript:|<script\b|<button\b|onClick=/i);
+    assert.doesNotMatch(output, /<a\b[^>]+href="javascript:|<script\b|<button\b|\bonclick=/i);
+    // Literal source text remains safely escaped rather than becoming DOM attributes.
     assert.match(output, /Before/);
     assert.match(output, /after/);
   }
