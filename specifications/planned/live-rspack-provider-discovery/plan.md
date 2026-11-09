@@ -59,7 +59,7 @@ The implementation must avoid invoking unverified exports or arbitrary page arra
 - [ ] A fresh renderer with no Resource Timing entries and a live Rspack registry discovers the native requirements coordinator.
 - [ ] Discovery does not read Resource Timing or import CDN runtime URLs.
 - [ ] Known and semantically renamed coordinator modules are supported through semantic inspection of the live module cache, without module-ID assumptions.
-- [ ] Repeated turns perform only one bounded loader capture per renderer document while obtaining fresh requirements each time.
+- [ ] Repeated turns perform at most one successful loader capture per validated registry in the same renderer document while obtaining fresh requirements each time.
 - [ ] Diagnostic inspection followed by two provider turns shares one loader capture per registry while both turns perform fresh requirements preparation.
 - [ ] Global accessors, module-cache/export getters, native arrays, similarly named decoys, and unrelated custom push functions are neither invoked nor mutated; invalid shared cache records fail closed.
 - [ ] Missing and ambiguous coordinators fail closed before Sentinel preparation or conversation submission.
