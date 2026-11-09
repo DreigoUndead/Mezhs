@@ -344,6 +344,20 @@ test("actual sanitized telemetry reply offers A-default three-choice question", 
   assert.match(readOnly, /Submission unavailable in this view/);
 });
 
+test("standalone literal citation arrays render safe unavailable indicators", () => {
+  for (const sample of [
+    '<Cite refs={["turn123search3"]}/>',
+    '<Cite refs={["turn123search3","turn123news10"]}/>',
+  ]) {
+    // This path has no unrelated JSX template to trigger RichExpression.
+    const output = html("Before " + sample + " after");
+    assert.match(output, /class="rich-citation-unavailable"/);
+    assert.doesNotMatch(output, /&lt;Cite|<a\\b|<script\\b/i);
+    assert.match(output, /Before/);
+    assert.match(output, /after/);
+  }
+});
+
 test("invalid citation references never create navigation or executable markup", () => {
   for (const sample of [
     '<Cite ref="javascript:alert(1)"/>',
