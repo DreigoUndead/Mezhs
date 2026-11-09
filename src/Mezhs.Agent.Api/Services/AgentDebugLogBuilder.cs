@@ -32,6 +32,7 @@ public sealed class AgentDebugLogBuilder(
         var log = new StringBuilder();
         log.AppendLine("MEŽS Agent debug log");
         log.AppendLine($"generatedAt: {Format(now)}");
+        log.AppendLine("timingNote: Activity stage durations are observed wall-clock intervals between status events; they include scheduling/polling and do not prove model or host causality.");
         log.AppendLine($"chatId: {chat.ChatId}");
         log.AppendLine($"policyId: {chat.PolicyId}");
         log.AppendLine($"originSource: {chat.OriginSource}");
@@ -100,12 +101,17 @@ public sealed class AgentDebugLogBuilder(
             if (message.ActivityHistory is { Count: > 0 })
             {
                 log.AppendLine("activityTimeline:");
-                foreach (var activity in message.ActivityHistory)
+                for (var i = 0; i < message.ActivityHistory.Count; i++)
                 {
+                    var activity = message.ActivityHistory[i];
+                    var nextAt = i + 1 < message.ActivityHistory.Count
+                        ? message.ActivityHistory[i + 1].At
+                        : message.CompletedAt ?? now;
+                    var durationSeconds = Math.Max(0, (nextAt - activity.At).TotalSeconds);
                     var detail = string.IsNullOrWhiteSpace(activity.Detail)
                         ? string.Empty
                         : $" - {activity.Detail}";
-                    log.AppendLine($"  [{Format(activity.At)}] {activity.State}{detail}");
+                    log.AppendLine($"  [{Format(activity.At)}] {activity.State}{detail} | observedSeconds={durationSeconds.ToString("0.000", CultureInfo.InvariantCulture)}");
                 }
             }
             AppendBlock(log, "analysis", message.Analysis);
@@ -172,6 +178,8 @@ public sealed class AgentDebugLogBuilder(
         log.AppendLine($"completedAt: {(execution.CompletedAt is { } completed ? Format(completed) : "-")}");
         if (execution.StartedAt is { } startedAt && execution.CompletedAt is null)
             log.AppendLine($"elapsedSeconds: {(now - startedAt).TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)}");
+        if (execution.StartedAt is { } shellStarted)
+            log.AppendLine($"durationSeconds: {Math.Max(0, ((execution.CompletedAt ?? now) - shellStarted).TotalSeconds).ToString("0.000", CultureInfo.InvariantCulture)}");
         if (execution.ExitCode is { } exitCode)
             log.AppendLine($"exitCode: {exitCode}");
         if (execution.RestartedFromId is { } restartedFrom)
