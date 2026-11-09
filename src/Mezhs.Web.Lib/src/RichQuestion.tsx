@@ -187,7 +187,7 @@ function attributeMap(node: SyntaxNode) {
 
 function expressionAttribute(value: unknown, identifierValue: string) {
   return !!value && typeof value === "object" &&
-    (value as { value?: unknown }).value?.toString() === identifierValue;
+    (value as { value?: unknown }).value === identifierValue;
 }
 
 // Markdown syntax positions, rather than textual tag matching, determine both
@@ -282,7 +282,14 @@ export function extractRichQuestions(source: string): {
         (attrs.size === 3 && attrs.get("direction") !== "col") ||
         (attrs.size === 2 && attrs.has("direction")) ||
         !attrs.has("value") || !attrs.has("onChange")) continue;
-    const radioNodes = group.children || [];
+    // MDX parses single-line <radio> siblings inside one Markdown paragraph.
+    // In a flow group, the same controls can be direct flow-element children.
+    const groupChildren = group.children || [];
+    const inline = groupChildren.length === 1 && groupChildren[0].type === "paragraph"
+      ? groupChildren[0].children || [] : null;
+    const radioNodes = inline
+      ? inline.filter(child => !(child.type === "text" && !child.value?.trim()))
+      : groupChildren;
     if (radioNodes.length < 2 || radioNodes.length > 12) continue;
 
     const candidate = [...declarations].reverse().find(item =>
