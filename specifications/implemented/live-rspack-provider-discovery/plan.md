@@ -54,6 +54,40 @@ This establishes semantic-only feasibility for the tested frontend build. If the
 
 The implementation must avoid invoking unverified exports or arbitrary page arrays. If the current live build does not expose a safely identifiable chunk registry, stop and reassess rather than adding navigation or timing fallbacks.
 
+## 2026-11-09 live failure: diagnostic-first amendment
+
+Status: owner approved this plan revision after two live Account execution failures. This is a plan-only stage pending independent high-risk plan review; no implementation or runtime change is approved yet.
+
+### Observed failure and unresolved hypothesis
+
+- Executions exec_c3373045fa7643d1abcefaf89f6b9cb6 and exec_12e4f313a6944eab92494782acd2279d failed with: ChatGPT live Rspack chunk registry was not observed. Both failed before successful loader capture or Sentinel preparation.
+- The current registry filter requires a narrowly named page global, an Array with own non-native push data function, a bounded nonempty length, and at least one processed chunk entry with the expected shape. The error proves no candidate passed all checks, not which check failed.
+- A bound/native-looking runtime push is a plausible cause, not an established root cause. Tests currently use a synthetic non-native push and deliberately reject bound functions. The later process inspection showed a Debug main host, which does not establish which build was active at failure time.
+
+### Stage A - read-only diagnostic only
+
+1. Add an explicit opt-in ChatGPT-only operation named rspackRegistryShape to the existing loopback browser diagnostics path. Require args.inspect === true. Do not call it automatically from Account transport or from unrelated providers. Use the existing authorized-session and diagnostics routing; do not create an additional server endpoint or expose it beyond loopback.
+2. Run a bounded renderer-side observation function without calling any chunk push, injecting chunks, evaluating factories, capturing loaders, importing assets, invoking exports, preparing requirements, navigating, or changing existing cache/global state. Do not inspect Resource Timing for discovery.
+3. Enumerate own global names and access matching own property descriptors, not property getters. For each plausible array, inspect own data descriptors for push, length and a bounded set of stored chunk entries; inspect only shape, never contents. Function.prototype.toString may classify a function as native-looking, but must never return the source text or call that function. Guard introspection exceptions as a sanitized category.
+4. Return only a fixed-schema aggregate of bounded integer counters and booleans: scannedGlobals, matchingNames, dataArrayCandidates, accessorCandidates, ownPushFunctions, inheritedOrAbsentPush, nativeLookingPush, nonNativePush, emptyArrays, processedEntryShapeCandidates, noProcessedEntryShape, passedNameAndArray, passedNameArrayAndOwnPush, passedNameArrayOwnPushNonNative, passedAllPredicates, descriptorErrors, and limitExceeded. Cumulative passed-stage counters must apply to the same candidate at each step, not independent category totals. Do not return registry names, module IDs, chunk IDs, function source, URLs, raw objects, request data, cookies, credentials, tokens, headers or screenshots.
+5. Bound enumeration to 5000 globals, 32 matching candidates, 2048 entries per candidate and 4096 entries total. If a bound or descriptor access fails, return a single sanitized bounded-failure indication; do not treat truncated observations as conclusive evidence or bypass existing runtime safety checks. No persistent logging of confidential browser content.
+6. Implement targeted unit and diagnostic API tests for empty globals, non-runtime arrays, missing or inherited push, native-looking/bound push classification, valid synthetic runtime, accessor properties, thrown introspection, bounds, redaction and the opt-in ChatGPT/loopback authorization checks. Keep existing Account behavior unchanged and all existing tests passing.
+7. On an owner-controlled exact-branch build with an authenticated renderer, run rspackRegistryShape once and record only its aggregate counters plus branch commit and build identity. Do not perform an Account turn for this observation. If diagnosis is blocked by runtime access, record the blocker; do not infer a registry shape from synthetic results.
+
+### Stage B - explicit evidence and approval gate
+
+- Explain which specific structural predicate rejected the live registry using Stage A counts. If counts remain ambiguous, request further owner-approved read-only evidence rather than guessing.
+- Propose the smallest safely identifiable compatibility strategy using the observed shape. Maintain descriptor-only reads, no unverified arbitrary push invocation, fresh per-turn requirements, semantic coordinator uniqueness and fail-closed submission. Do not silently relax the non-native push rule or add fallback imports, retries or cached security results.
+- If the live registry cannot be safely distinguished from unrelated page arrays, preserve fail-closed Account behavior and escalate the architectural trade-off to the owner; never substitute a guessed runtime. Any changed mutation/identity guarantee needs a further explicit owner decision and amended independent plan review before implementation.
+- After a separately approved Stage B implementation, repeat the original focused/full checks, independent code review, independent testing and exact-build same-document live two-turn verification. The current live failure is not a test PASS.
+
+### Additional Stage A acceptance criteria
+
+- [ ] Read-only diagnostic reports bounded, sanitized counts for each cumulative registry-validation stage, so a specific rejection stage can be isolated without exposing candidate identities.
+- [ ] No Account transport behavior changes; the diagnostic neither mutates page state nor invokes untrusted page functions.
+- [ ] Opt-in authorization, ChatGPT-only scope, aggregate response schema and input bounds are tested; live observations include exact running build identity or are explicitly blocked.
+- [ ] No Stage B compatibility change begins until live evidence, owner approval and independent review establish its safety.
+
 ## Acceptance criteria
 
 - [ ] A fresh renderer with no Resource Timing entries and a live Rspack registry discovers the native requirements coordinator.
