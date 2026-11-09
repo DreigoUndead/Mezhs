@@ -352,7 +352,7 @@ test("standalone literal citation arrays render safe unavailable indicators", ()
     // This path has no unrelated JSX template to trigger RichExpression.
     const output = html("Before " + sample + " after");
     assert.match(output, /class="rich-citation-unavailable"/);
-    assert.doesNotMatch(output, /&lt;Cite|<a\\b|<script\\b/i);
+    assert.doesNotMatch(output, /&lt;Cite|<a\b|<script\b/i);
     assert.match(output, /Before/);
     assert.match(output, /after/);
   }
