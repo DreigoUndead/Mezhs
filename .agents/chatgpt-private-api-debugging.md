@@ -20,7 +20,7 @@ The observed submission sequence is:
 
 The two `prepare` endpoints are **different protocols**. Do not fabricate, persist or replay Sentinel challenge/proof tokens, or replace semantic submission with UI clicking.
 
-**Upstream instability:** `633146`, `lXE.f`, export shape/arity and model/conversation schemas are private implementation details. They can change on any frontend update. The current adapter in `account-transport.js` caches only a **verified coordinator function reference within the same renderer document** using `Symbol.for("mezhs.chatgpt.nativeRequirementsProvider")`. Each turn still obtains fresh requirements. Resource Timing entries can disappear without unloading a module; a new document has no verified cache and must fail closed. Do not add guessed IDs, fallback token synthesis or arbitrary navigation/sleep loops.
+**Upstream instability:** Historical `633146` and `lXE.f`, export shape/arity and model/conversation schemas are private implementation details. They can change on any frontend update. Account and `inspectRspackExports` now share one descriptor-validated live Rspack registry inspector (from `rspack-runtime.js`). It captures loader references once per renderer document in a frozen `Symbol.for("mezhs.chatgpt.rspackLoaders.v1")` record, then rescans live module caches for a unique semantic coordinator before **every turn**. It never caches a coordinator, headers, challenge, or token. A missing or ambiguous signature, unrecognized registry or invalid cache fails before conversation submission; do not restore guessed IDs, imports or navigation retries. Resource Timing has no role in provider discovery.
 
 **Historical evidence, not proof of full causality:** MEŽS initially received HTTP 403 at `/backend-api/f/conversation` while a manual same-session browser request succeeded. Passive tracing found Sentinel **header-name differences**; a former all-marker function signature matched no exports, whereas bounded inspection identified `lXE.f`. After the native-coordinator repair, an October 13 live Agent run completed five Agent executions and four Shell executions, including multi-turn follow-up. This strongly supports a protocol mismatch, but the upstream cause of the original 403 was not independently proven. Later `Rspack runtime is not loaded` errors were consistent with loss of a Resource Timing entry, **not proof** of module unload.
 
@@ -41,7 +41,8 @@ Endpoint pattern (use the configured port and connection ID):
 `POST /v1/diagnostics/connections/{connectionId}/browser/{operation}`
 
 - `networkTrace`: passively compare method, path, status, timing and **header names** from a genuine successful browser action versus a MEŽS failure. Observe rather than mutate.
-- `inspectRspackExports`: inspect a **small** set of identified module exports for bounded function metadata/snippets without invoking them. Historical `lXE` keys are comparison evidence, not future identifiers.
+- `inspectRspackExports`: inspect a **small** set of current cached module exports through the same live registry validation as Account submission; returns bounded function metadata/snippets without invoking them. Historical `lXE` keys are comparison evidence, not future identifiers.
+- `rspackTiming` with `{ "clear": true }`: **explicitly destructive** Resource Timing clear for same-document regression verification. Returns sanitized before/after counts only (no URLs or secret values); never use as provider discovery.
 - `snapshot`, `inspectPoint`, `click`, `type`, `key`, `screenshot`, `show`: diagnostic-only browser interactions; never use them as a replacement for Account semantic sending.
 
 Example, with the relevant account window active:
@@ -57,7 +58,7 @@ Compare a **same-build, same-session** working request with the failing one. Kee
 
 | Symptom | What is established / next check |
 | --- | --- |
-| No verified native provider / missing Resource Timing entry | Check document lifecycle, loaded bundle and coordinator cache; do **not** infer unload or blindly resend |
+| No verified native coordinator | Inspect the live registry and unique semantic export signature; Resource Timing history is irrelevant. Do not blindly resend |
 | Native export `lXE.f` unavailable | Frontend internals may have changed; inspect the current runtime interface |
 | Requirements prepare HTTP 403 | Pre-submission authentication/requirements failed; inspect browser behavior, do not invent proof |
 | Conversation POST HTTP 403 | Backend rejected request; compare sequence and **header names**, not guessed server motives |
@@ -69,10 +70,10 @@ Compare a **same-build, same-session** working request with the failing one. Kee
 
 ## Regressions and verification
 
-- `tests/chatgpt-rspack-signature.test.js`: genuine coordinator script in a synthetic Rspack cache, prepare callback, header filtering, lost Resource Timing and fresh-document fail-closed.
+- `tests/chatgpt-rspack-signature.test.js`: live descriptor-validated Rspack registry, empty Resource Timing, semantic coordinator, ambiguous/missing runtime, frozen loader cache, accessor/decoy guards, scan limits and fresh per-turn requirements.
 - `tests/chatgpt-account-api.test.js`: semantic request, response ancestry and model metadata, polling/rate limits, citation handling and replay safety.
 - `tests/chatgpt-guest-composer.test.js`: delayed or empty guest text, login requirement, bounded timeouts and no replay in existing chats.
-- `tests/electron-rspack-inspection.test.js`: export diagnostics must not invoke private functions.
+- `tests/electron-rspack-inspection.test.js`: shared live export diagnostics must not invoke private functions; explicit timing clear reports sanitized counts.
 - `tests/agent-protocol-result.ps1`: inert escaped examples, raw `SH`/`DONE`, durable shell results and continuation.
 
 Use the permanent `.github/workflows/mezhs-core.yml` validation and relevant focused tests. Mock tests and compilation alone do not prove an undocumented upstream interface still works: where safe and authorized, also verify a **multi-turn** Account Agent flow (harmless `SH` → durable result → model follow-up → raw `DONE`). Record observed evidence and remaining uncertainty; leave PRs unmerged until explicit post-review approval.
