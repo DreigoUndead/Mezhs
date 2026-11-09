@@ -216,6 +216,10 @@ export function extractRichQuestions(source: string): {
   for (const match of source.matchAll(bodyPattern)) {
     const start = match.index!;
     const end = start + match[0].length;
+    // Mask even inert directives before MDX parsing: MDX otherwise rejects
+    // {@body} inside indented examples, though such code grants no authority.
+    // Replacements occur only for separately validated, unprotected directives.
+    for (let i = start; i < end; i++) masked[i] = " ";
     if (protectedAt(start) || escapedAt(source, start)) continue;
     // A directive is only authorized when it occupies its own Markdown line,
     // never within a quote, list marker, inline text, attribute or HTML comment.
@@ -227,7 +231,6 @@ export function extractRichQuestions(source: string): {
     if (!standalone) continue;
     // MDX cannot parse {@body}; preserving byte offsets lets AST positions
     // refer to the original source while declarations remain non-executable.
-    for (let i = start; i < end; i++) masked[i] = " ";
     const parsed = declaration(match[0].slice(6, -1).trim());
     if (parsed && declarations.length < 16)
       declarations.push({ start, end, ...parsed });
