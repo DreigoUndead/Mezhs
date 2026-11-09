@@ -372,3 +372,42 @@ test("invalid citation references never create navigation or executable markup",
     assert.match(output, /after/);
   }
 });
+
+test("multiline DIL declarations remain actionable only outside Markdown code", () => {
+  for (const newline of ["\n", "\r\n"]) {
+    const multiline = question.replace("{@body const ", "{@body\n  const ").replace(/\n/g, newline);
+    const parsed = extractRichQuestions(multiline);
+    assert.equal(Object.keys(parsed.questions).length, 1, "Valid multiline declaration not recognized");
+    const rendered = html(multiline, { onIssueNewTurn() {} });
+    assert.match(rendered, /<fieldset class="rich-question"/);
+    assert.match(rendered, /checked="" value="B"/);
+    assert.doesNotMatch(rendered, /\{@body/);
+
+    const fenced = "~~~mdx" + newline + multiline + newline + "~~~";
+    const indented = multiline.trim().replace(/^/gm, "    ");
+    const quoted = "> ~~~mdx" + newline +
+      "> " + multiline.trim().replace(/\r?\n/g, newline + "> ") +
+      newline + "> ~~~";
+    const escaped = multiline.replace("{@body", "\\{@body");
+    for (const [name, source] of [
+      ["fenced", fenced],
+      ["indented", indented],
+      ["blockquote fenced", quoted],
+      ["escaped", escaped],
+    ]) {
+      const extracted = extractRichQuestions(source);
+      assert.equal(Object.keys(extracted.questions).length, 0,
+        name + " multiline code must stay inert");
+      assert.doesNotMatch(html(source, { onIssueNewTurn() {
+        throw Error("Inert multiline code must not send");
+      }}), /<fieldset class="rich-question"/, name + " unexpectedly mounted a question");
+    }
+  }
+});
+
+test("multiline body rejects additional executable declarations", () => {
+  const unsupported = question.replace("{@body const ", "{@body\n  alert(1);\n  const ");
+  assert.equal(Object.keys(extractRichQuestions(unsupported).questions).length, 0);
+  assert.doesNotMatch(html(unsupported, { onIssueNewTurn() {} }),
+    /<fieldset class="rich-question"/);
+});

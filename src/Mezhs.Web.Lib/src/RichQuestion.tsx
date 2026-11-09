@@ -163,7 +163,7 @@ type SyntaxNode = {
 
 type BodyDeclaration = { start: number; end: number; state: string; setter: string; initial: string };
 type Replacement = { from: number; to: number; text: string; questionId?: string };
-const bodyPattern = /\{@body[^\r\n}]{1,320}\}/g;
+const bodyPattern = /\{@body[^}]{1,320}\}/g;
 const jsx = (node: SyntaxNode, name: string) =>
   (node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") && node.name === name;
 
@@ -219,7 +219,10 @@ export function extractRichQuestions(source: string): {
     // Mask even inert directives before MDX parsing: MDX otherwise rejects
     // {@body} inside indented examples, though such code grants no authority.
     // Replacements occur only for separately validated, unprotected directives.
-    for (let i = start; i < end; i++) masked[i] = " ";
+    // Preserve line endings: the MDX AST must retain original block structure and offsets.
+    for (let i = start; i < end; i++) {
+      if (source.charCodeAt(i) !== 10 && source.charCodeAt(i) !== 13) masked[i] = " ";
+    }
     if (protectedAt(start) || escapedAt(source, start)) continue;
     // A directive is only authorized when it occupies its own Markdown line,
     // never within a quote, list marker, inline text, attribute or HTML comment.
