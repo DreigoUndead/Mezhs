@@ -1,6 +1,6 @@
 import { ReactNode, CSSProperties } from "react";
 import type { Components } from "react-markdown";
-import { Check, CircleCheck, CircleAlert, CircleX, Info, ArrowDown, GitBranch, GitPullRequest } from "lucide-react";
+import { Check, CircleCheck, CircleAlert, CircleX, Info, ArrowDown, GitBranch, GitPullRequest, ScrollText, ChartNoAxesCombined, Network, Database } from "lucide-react";
 import { RichChart } from "./RichChart";
 import { prepareSvg, svgComponents } from "./RichSvg";
 
@@ -34,6 +34,35 @@ export function remarkRichMarkup(slotOffsets: Record<string, number> = Object.cr
           if (node.name === "svg") {
             // The entire subtree passes one atomic validator before React gets any nodes.
             return prepareSvg(node) ? node : original(node);
+          }
+          if (node.name === "Cite") {
+            // Source IDs are transient per ChatGPT reply. MEŽS does not
+            // receive a trusted citation-ID to URL map; never fabricate links.
+            const attrs = node.attributes || [];
+            const safeId = (value: unknown): value is string =>
+              typeof value === "string" &&
+              /^turn[0-9]{1,12}(?:search|news|web)[0-9]{1,6}$/.test(value);
+            let ids: string[] = [];
+            if (attrs.length === 1 && attrs[0].type === "mdxJsxAttribute" && attrs[0].name === "ref" &&
+                typeof attrs[0].value === "string" && safeId(attrs[0].value)) {
+              ids = [attrs[0].value];
+            } else if (attrs.length === 1 && attrs[0].type === "mdxJsxAttribute" &&
+                       attrs[0].name === "refs" && typeof attrs[0].value === "object" &&
+                       attrs[0].value !== null) {
+              // Restricted expression expansion stores literal arrays as
+              // encoded JSON. Only accept finite arrays of exact source IDs.
+              const value = attrs[0].value.value;
+              if (value.startsWith("json:") && value.length < 800) {
+                try {
+                  const decoded: unknown = JSON.parse(decodeURIComponent(value.slice(5)));
+                  if (Array.isArray(decoded) && decoded.length > 0 && decoded.length <= 8 &&
+                      decoded.every(safeId)) ids = decoded;
+                } catch { /* Not a supported literal citation list. */ }
+              }
+            }
+            if (!ids.length || (node.children || []).length) return original(node);
+            node.data = { hName: "mezhs-cite", hProperties: {} };
+            return node;
           }
           if (node.name === "mezhs-question-slot") {
             const attrs = node.attributes || [];
@@ -114,7 +143,7 @@ function surface(props: RichProps): CSSProperties {
     ...layout(props),
     padding: boundedSpacing(padding),
     paddingLeft: boundedSpacing(paddingObject?.left),
-    borderRadius: ({ sm: 5, md: 9, lg: 14, full: 999 } as Record<string, number>)[radius],
+    borderRadius: ({ sm: 5, md: 9, lg: 14, xl: 18, full: 999 } as Record<string, number>)[radius],
     background: read(props, "background") === "surface-secondary" ? "#eeebe5" : undefined,
     width: /^(?:100|[1-9]?\d)%$/.test(width) ||
       /^\d{1,3}(?:\.\d+)?px$/.test(width) && parseFloat(width) <= 500 ? width : undefined,
@@ -134,11 +163,14 @@ const icons = {
   check: Check, "check-circle": CircleCheck, "circle-check": CircleCheck,
   "alert-circle": CircleAlert, "x-circle": CircleX, info: Info,
   "arrow-down": ArrowDown, "git-branch": GitBranch, "git-pull-request": GitPullRequest,
+  "scroll-text": ScrollText, "chart-no-axes-combined": ChartNoAxesCombined,
+  network: Network, database: Database,
 };
 
 export const richComponents = {
   ...svgComponents(),
   "mezhs-chart": (props: RichProps) => <RichChart content={structured(props, "content")} />,
+  "mezhs-cite": (props: RichProps) => <span className="rich-citation-unavailable" role="note" title="Source reference unavailable in this MEŽS transcript">[source unavailable]</span>,
   "mezhs-row": ({ children, ...props }: RichProps) => <div className="rich-row" style={layout(props)}>{children}</div>,
   "mezhs-col": ({ children, ...props }: RichProps) => <div className="rich-col" style={layout(props)}>{children}</div>,
   "mezhs-box": ({ children, ...props }: RichProps) => <div className={"rich-box" + (read(props, "border") === "true" ? " rich-bordered" : "")} style={surface(props)}>{children}</div>,
