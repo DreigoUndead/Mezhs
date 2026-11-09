@@ -26,8 +26,9 @@ public sealed class BrowserAccountSession : IAsyncDisposable
 
     public Task<TResult> UseAsync<TResult>(
         Func<IChatBrowserTransport, CancellationToken, Task<TResult>> action,
-        CancellationToken cancellationToken = default) =>
-        UseCoreAsync(action, allowInteractiveLogin: true, cancellationToken);
+        CancellationToken cancellationToken = default,
+        Action<string>? reportStage = null) =>
+        UseCoreAsync(action, allowInteractiveLogin: true, cancellationToken, reportStage);
 
     public async Task<TResult> UseAuthorizedAsync<TResult>(
         Func<IChatBrowserTransport, CancellationToken, Task<TResult>> action,
@@ -105,13 +106,16 @@ public sealed class BrowserAccountSession : IAsyncDisposable
     private async Task<TResult> UseCoreAsync<TResult>(
         Func<IChatBrowserTransport, CancellationToken, Task<TResult>> action,
         bool allowInteractiveLogin,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<string>? reportStage = null)
     {
+        reportStage?.Invoke("Waiting for shared browser session slot.");
         await _gate.WaitAsync(cancellationToken);
         try
         {
             ThrowIfDisposed();
             CancelIdle();
+            reportStage?.Invoke("Checking authorized browser session.");
             if (allowInteractiveLogin)
                 await EnsureAuthorizedTransportAsync(cancellationToken);
             else
@@ -120,6 +124,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
                     requireAuthorization: true,
                     cancellationToken);
 
+            reportStage?.Invoke("Browser session ready; preparing request.");
             try
             {
                 return await action(_transport!, cancellationToken);

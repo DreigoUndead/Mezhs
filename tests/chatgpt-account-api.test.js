@@ -1353,3 +1353,41 @@ test('ChatGPT artifact downloads never forward account credentials to external o
     }
   });
 });
+
+
+test("ChatGPT account reports preparation, submission and final retrieval without leaking tokens", async () => {
+  const chatgpt = loadChatGptModule();
+  let sentId;
+  const session = protocolSession({
+    conversationId: "stage-timeline",
+    onConversationPost: body => { sentId = body.messages[0].id; },
+    onConversationRead: () => jsonResponse(completedConversation("stage-timeline", sentId))
+  });
+  const progress = [];
+  const result = await chatgpt.operations.newChat({
+    ...nativeBrowserSurface(),
+    session,
+    args: { prompt: "hello", model: "gpt-5-6-thinking", files: [] },
+    sleep: async () => { throw new Error("Completed turn must not sleep."); },
+    reportProgress: value => progress.push(value)
+  });
+  assert.equal(result.text, "answer");
+  const details = progress.map(value => value.detail);
+  const expected = [
+    "Checking ChatGPT account session.",
+    "Applying ChatGPT model selection.",
+    "Preparing ChatGPT turn.",
+    "Obtaining ChatGPT turn preparation token.",
+    "Preparing ChatGPT security requirements.",
+    "Submitting prompt to ChatGPT.",
+    "Prompt accepted; waiting for model activity.",
+    "Retrieving final ChatGPT response."
+  ];
+  let previous = -1;
+  for (const detail of expected) {
+    const index = details.indexOf(detail);
+    assert.ok(index > previous, `Missing or out-of-order ChatGPT stage: ${detail}`);
+    previous = index;
+  }
+  assert.doesNotMatch(JSON.stringify(progress), /conduit-server-issued|native-requirements|native-proof|Bearer token/);
+});

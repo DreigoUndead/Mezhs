@@ -71,6 +71,9 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
 
             async Task<(ChatGptSendResponse Response, string? ProjectId)> SendAsync(bool newChat)
             {
+                if (newChat && !string.IsNullOrWhiteSpace(workspace))
+                    context.ReportActivity?.Invoke(new IntegrationActivity(
+                        "preparing", "Resolving ChatGPT project."));
                 var projectId = newChat
                     ? await ResolveProjectIdAsync(transport, workspace, token)
                     : null;
@@ -115,7 +118,8 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 sent.Response.ParentMessageId,
                 OutputFiles(sent.Response.Artifacts),
                 sent.Response.Model);
-        }, cancellationToken);
+        }, cancellationToken, stage =>
+            context.ReportActivity?.Invoke(new IntegrationActivity("preparing", stage)));
 
     private static async Task<string?> ResolveProjectIdAsync(
         IChatBrowserTransport transport,

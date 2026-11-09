@@ -189,8 +189,13 @@ static async Task TestSessionOwnershipAsync(string root)
         await integration.Login!.OpenBrowserAsync();
         Assert(host.ShowCount == 1 && host.Initializations.Count == 1,
             "opening existing browser unexpectedly created another transport");
-        var send = await integration.SendMessageAsync(SimpleContext());
+        var stages = new List<IntegrationActivity>();
+        var send = await integration.SendMessageAsync(SimpleContext() with { ReportActivity = stages.Add });
         Assert(send.Text == "ok", "normal sending failed after diagnostics and browser show");
+        Assert(stages.Select(stage => stage.Detail).SequenceEqual(
+            ["Waiting for shared browser session slot.", "Checking authorized browser session.",
+             "Browser session ready; preparing request."]),
+            "authenticated request did not report the expected session preparation stages");
         await integration.Models!.GetModelsAsync();
         Assert(host.Invocations.Select(x => x.Operation).SequenceEqual(
             ["$diagnostics/snapshot", "newChat", "getModels"]),
