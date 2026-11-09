@@ -33,17 +33,23 @@ The current code treats `performance.getEntriesByType("resource")` as the entran
 
 Invariant: provider discovery reads the current renderer document's live module registry directly. Its correctness must not depend on historical resource entries, bundle URLs, a previous successful turn, or cached security results.
 
+## Feasibility evidence
+
+On 2026-11-09, a temporary sanitized planning diagnostic against the current authenticated ChatGPT renderer observed 57 matching runtime assets, one loader, and 10,185 cached modules. The existing four-marker semantic predicate found exactly one coordinator, the historical `lXEa`/`lXE` lookup found exactly one coordinator, and both identified the same function. The temporary diagnostic exposed only counts/identity equality and was removed immediately after the observation.
+
+This establishes semantic-only feasibility for the tested frontend build. If the predicate is no longer unique during implementation or live verification, stop and reassess rather than restoring module IDs or adding fallback chains.
+
 ## Approach
 
 `account-transport.js` remains the owner of authenticated transport and native Sentinel requirements.
 
 1. Enumerate renderer globals through own property descriptors so accessors are not invoked. Consider only narrowly named Webpack/Rspack chunk arrays with an own non-native `push` data property and processed chunk-entry shape; ignore native arrays, getters, similarly named decoys, and unrelated custom push functions.
 2. On the first provider request in a renderer document, use one unique inert runtime chunk per validated registry to obtain its existing loader. Accept only function loaders with a live module-cache object.
-3. Cache only the validated loader references for that renderer document so probing has a bounded, one-time side effect. Do not cache a coordinator, requirements key, challenge, token, or headers.
+3. Cache only the validated loader references for that renderer document under the shared versioned key `Symbol.for("mezhs.chatgpt.rspackLoaders.v1")`. The value is a versioned record containing a frozen loader-reference array; every consumer validates the record and each loader's live cache before use. Do not cache a coordinator, requirements key, challenge, token, or headers.
 4. On every turn, rescan the live loader caches for the semantic coordinator signature, deduplicate candidates by function identity, and accept exactly one coordinator. This lets later-loaded modules appear without repeating registry mutation.
 5. Remove the provider cache, Resource Timing scan, bundle URL assumptions, known module-ID dependency, and dynamic runtime imports instead of retaining fallback paths.
 6. Preserve fresh per-turn preparation, header allowlisting, login handling, and fail-closed behavior. Missing or ambiguous coordinators fail before preparation or conversation submission.
-7. Replace the existing Resource Timing-based `inspectRspackExports` implementation with bounded live-loader inspection using the same registry safety contract. Add a loopback-only diagnostic option that clears Resource Timing and reports sanitized before/after counts for deterministic same-document verification; it must not expose URLs, exports, credentials, or token values.
+7. Replace the existing Resource Timing-based `inspectRspackExports` implementation with bounded live-loader inspection using the same shared cache key, schema, and validation contract as production. Diagnostic-first inspection and later provider turns therefore reuse the same loader capture. Add a loopback-only diagnostic option that clears Resource Timing and reports sanitized before/after counts for deterministic same-document verification; it must not expose URLs, exports, credentials, or token values.
 8. Update `.agents/chatgpt-private-api-debugging.md` so discovery, diagnostics, failure classification, and regression guidance match the new mechanism.
 
 The implementation must avoid invoking unverified exports or arbitrary page arrays. If the current live build does not expose a safely identifiable chunk registry, stop and reassess rather than adding navigation or timing fallbacks.
@@ -54,6 +60,7 @@ The implementation must avoid invoking unverified exports or arbitrary page arra
 - [ ] Discovery does not read Resource Timing or import CDN runtime URLs.
 - [ ] Known and semantically renamed coordinator modules are supported through semantic inspection of the live module cache, without module-ID assumptions.
 - [ ] Repeated turns perform only one bounded loader capture per renderer document while obtaining fresh requirements each time.
+- [ ] Diagnostic inspection followed by two provider turns shares one loader capture per registry while both turns perform fresh requirements preparation.
 - [ ] Global accessors, native arrays, similarly named decoys, and unrelated custom push functions are neither invoked nor mutated.
 - [ ] Missing and ambiguous coordinators fail closed before Sentinel preparation or conversation submission.
 - [ ] Every turn obtains fresh requirements and only allowlisted Sentinel headers are forwarded.
@@ -64,6 +71,7 @@ The implementation must avoid invoking unverified exports or arbitrary page arra
 
 - Focused Node tests for live-registry discovery, empty Resource Timing, renamed modules, ambiguity, missing runtime, repeated-turn loader reuse, fresh per-turn preparation, header filtering, accessors, native arrays, similarly named decoys, and non-runtime custom push functions.
 - Focused Electron diagnostic tests for sanitized timing counts/clearing and live-registry export inspection. `inspectRspackExports` is updated rather than used as a Resource Timing oracle.
+- A combined same-document test runs diagnostic inspection first and then two provider turns, asserting one registry capture and two fresh requirements preparations.
 - `node --check` for every deployed ChatGPT browser module.
 - `node --test tests/*.test.js`.
 - `dotnet build Mezhs.sln -c Release` using isolated output paths if the running application locks normal build output.
