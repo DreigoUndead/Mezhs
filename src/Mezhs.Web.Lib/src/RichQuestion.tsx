@@ -1,5 +1,8 @@
 import { parse, parseExpressionAt } from "acorn";
 import { fromMarkdown } from "mdast-util-from-markdown";
+import { unified } from "unified";
+import remarkParse from "remark-parse";
+import remarkMdx from "remark-mdx";
 import { createContext, useContext, useId, useState } from "react";
 import Markdown, { uriTransformer } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -13,6 +16,7 @@ export type RichQuestionData = {
   button: string;
   prefix: string;
   suffix: string;
+  block?: boolean;
 };
 
 const identifier = /^[A-Za-z_$][\w$]*$/;
@@ -72,49 +76,6 @@ function handler(code: string, state: string) {
     return { prefix, suffix };
   } catch { return null; }
 }
-
-// An opening tag scanner is necessary because an arrow's => is not the end
-// of <button onClick={...}>. Quotes and JavaScript braces stay inert here.
-function tagEnd(source: string, start: number) {
-  let braces = 0;
-  let quote = "";
-  for (let i = start; i < source.length && i < start + 3500; i++) {
-    const char = source[i];
-    if (quote) {
-      if (char === "\\") { i++; continue; }
-      if (char === quote) quote = "";
-    } else if (char === "'" || char === '"' || char === "`") {
-      quote = char;
-    } else if (char === "{") braces++;
-    else if (char === "}") { if (--braces < 0) return -1; }
-    else if (char === ">" && braces === 0) return i;
-  }
-  return -1;
-}
-
-function bindings(source: string, state: string, setter: string) {
-  const attribute = /([A-Za-z]+)\s*=\s*\{\s*([A-Za-z_$][\w$]*)\s*\}/g;
-  const found = [...source.matchAll(attribute)];
-  if (found.length !== 2 || source.replace(attribute, "").trim()) return false;
-  const values = new Map(found.map(item => [item[1], item[2]]));
-  return values.size === 2 && values.get("value") === state && values.get("onChange") === setter;
-}
-
-function options(source: string, initial: string) {
-  const option = /<radio\s+value\s*=\s*(["'])([A-Za-z0-9_-]{1,64})\1\s*>([\s\S]*?)<\/radio\s*>/g;
-  const matches = [...source.matchAll(option)];
-  if (matches.length < 2 || matches.length > 12 || source.replace(option, "").trim()) return null;
-  const seen = new Set<string>();
-  const values = [];
-  for (const item of matches) {
-    const label = item[3].trim();
-    if (!label || label.length > 300 || /[<>{}]/.test(label) || seen.has(item[2])) return null;
-    seen.add(item[2]);
-    values.push({ value: item[2], label });
-  }
-  return seen.has(initial) ? values : null;
-}
-
 
 type MarkdownNode = {
   type: string;
@@ -190,98 +151,252 @@ function protectedPositions(source: string): Uint8Array | null {
   }
 }
 
+
+type SyntaxNode = {
+  type: string;
+  name?: string | null;
+  attributes?: Array<{ type: string; name?: string; value?: string | { value: string } | null }>;
+  children?: SyntaxNode[];
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  value?: string;
+};
+
+type BodyDeclaration = { start: number; end: number; state: string; setter: string; initial: string };
+type Replacement = { from: number; to: number; text: string; questionId?: string };
+const bodyPattern = /\{@body[^\r\n}]{1,320}\}/g;
+const jsx = (node: SyntaxNode, name: string) =>
+  (node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") && node.name === name;
+
+function boundaries(node: SyntaxNode): { start: number; end: number } | null {
+  const start = node.position?.start.offset;
+  const end = node.position?.end.offset;
+  return typeof start === "number" && typeof end === "number" && start >= 0 && end > start
+    ? { start, end } : null;
+}
+
+function attributeMap(node: SyntaxNode) {
+  const values = new Map<string, string | { value: string } | null>();
+  for (const attr of node.attributes || []) {
+    if (attr.type !== "mdxJsxAttribute" || !attr.name || values.has(attr.name)) return null;
+    if (attr.value !== null && typeof attr.value !== "string" &&
+        (typeof attr.value !== "object" || typeof attr.value.value !== "string")) return null;
+    values.set(attr.name, attr.value ?? null);
+  }
+  return values;
+}
+
+function expressionAttribute(value: unknown, identifierValue: string) {
+  return !!value && typeof value === "object" &&
+    (value as { value?: unknown }).value?.toString() === identifierValue;
+}
+
+// Markdown syntax positions, rather than textual tag matching, determine both
+// whether a directive is code and whether a group/button are structural siblings.
+// Acorn validates the only model-authored JS forms accepted as inert syntax data.
 export function extractRichQuestions(source: string): {
   content: string;
   questions: Record<string, RichQuestionData>;
   slotOffsets: Record<string, number>;
 } {
   const questions: Record<string, RichQuestionData> = Object.create(null);
-  if (!source.includes("{@body") || source.length > 180000)
-    return { content: source, questions, slotOffsets: Object.create(null) as Record<string, number> };
-  const protectedMask = protectedPositions(source);
-  if (!protectedMask)
-    return { content: source, questions, slotOffsets: Object.create(null) as Record<string, number> };
-  const protectedAt = (position: number) => protectedMask[position] === 1;
-  const escapedAt = (position: number) => {
-    let slashes = 0;
-    for (let i = position - 1; i >= 0 && source[i] === "\\"; i--) slashes++;
-    return slashes % 2 === 1;
-  };
-  const replacements: Array<{ from: number; to: number; text: string; questionId?: string }> = [];
-  let cursor = 0;
-  while (Object.keys(questions).length < 16) {
-    const start = source.indexOf("{@body", cursor);
-    if (start < 0) break;
-    cursor = start + 6;
-    if (protectedAt(start) || escapedAt(start)) continue;
-    const bodyEnd = source.indexOf("}", cursor);
-    if (bodyEnd < 0 || bodyEnd - start > 320) continue;
-    const state = declaration(source.slice(start + 6, bodyEnd).trim());
-    if (!state) continue;
-    const maxEnd = Math.min(source.length, bodyEnd + maxQuestionLength);
-    const groupStart = source.indexOf("<radio-group", bodyEnd + 1);
-    if (groupStart < 0 || groupStart >= maxEnd ||
-        source.slice(bodyEnd + 1, groupStart).includes("{@body") || protectedAt(groupStart) || escapedAt(groupStart)) continue;
-    const groupOpenEnd = tagEnd(source, groupStart);
-    if (groupOpenEnd < 0 || groupOpenEnd >= maxEnd ||
-        !bindings(source.slice(groupStart + "<radio-group".length, groupOpenEnd), state.state, state.setter)) continue;
-    const groupClose = source.indexOf("</radio-group>", groupOpenEnd + 1);
-    if (groupClose < 0 || groupClose >= maxEnd) continue;
-    const choices = options(source.slice(groupOpenEnd + 1, groupClose), state.initial);
-    if (!choices) continue;
-    const buttonStart = source.indexOf("<button", groupClose + "</radio-group>".length);
-    if (buttonStart < 0 || buttonStart >= maxEnd ||
-        source.slice(groupClose, buttonStart).includes("{@body") || protectedAt(buttonStart) || escapedAt(buttonStart)) continue;
-    const buttonOpenEnd = tagEnd(source, buttonStart);
-    if (buttonOpenEnd < 0 || buttonOpenEnd >= maxEnd) continue;
-    const attrs = source.slice(buttonStart + "<button".length, buttonOpenEnd);
-    const click = /^\s*onClick\s*=\s*\{([\s\S]*)\}\s*$/.exec(attrs);
-    const action = click && handler(click[1], state.state);
-    if (!action) continue;
-    const buttonClose = source.indexOf("</button>", buttonOpenEnd + 1);
-    if (buttonClose < 0 || buttonClose >= maxEnd) continue;
-    const buttonText = source.slice(buttonOpenEnd + 1, buttonClose).trim();
-    if (!buttonText || buttonText.length > 80 || /[<>{}]/.test(buttonText)) continue;
-    const id = String(Object.keys(questions).length);
-    questions[id] = { initial: state.initial, options: choices, button: buttonText, ...action };
-    replacements.push(
-      { from: start, to: bodyEnd + 1, text: "" },
-      { from: groupStart, to: groupClose + "</radio-group>".length,
-        text: '<mezhs-question-slot id="' + id + '" />', questionId: id },
-      { from: buttonStart, to: buttonClose + "</button>".length, text: "" },
-    );
-    cursor = buttonClose + "</button>".length;
-  }
-  // Unsupported body directives must not poison the MDX parser. Escaping the
-  // opening brace leaves the original directive legible but always inert.
-  let output = "";
-  let pos = 0;
-  // Only positions inserted by this extractor are allowed to become actions.
-  // A model-authored <mezhs-question-slot> with the same ID is still inert.
   const slotOffsets: Record<string, number> = Object.create(null);
+  const empty = () => ({ content: source, questions, slotOffsets });
+  if (!source.includes("{@body") || source.length > 180000) return empty();
+  const protectedMask = protectedPositions(source);
+  if (!protectedMask) return empty();
+  const protectedAt = (index: number) => protectedMask[index] === 1;
+  const escapedAt = (text: string, index: number) => {
+    let backslashes = 0;
+    for (let i = index - 1; i >= 0 && text[i] === "\\"; i--) backslashes++;
+    return backslashes % 2 === 1;
+  };
+
+  const masked = source.split("");
+  const declarations: BodyDeclaration[] = [];
+  for (const match of source.matchAll(bodyPattern)) {
+    const start = match.index!;
+    const end = start + match[0].length;
+    if (protectedAt(start) || escapedAt(source, start)) continue;
+    // A directive is only authorized when it occupies its own Markdown line,
+    // never within a quote, list marker, inline text, attribute or HTML comment.
+    const lineStart = source.lastIndexOf("\n", start - 1) + 1;
+    const newline = source.indexOf("\n", end);
+    const lineEnd = newline < 0 ? source.length : newline;
+    const standalone = !source.slice(lineStart, start).trim() &&
+      !source.slice(end, lineEnd).trim();
+    if (!standalone) continue;
+    // MDX cannot parse {@body}; preserving byte offsets lets AST positions
+    // refer to the original source while declarations remain non-executable.
+    for (let i = start; i < end; i++) masked[i] = " ";
+    const parsed = declaration(match[0].slice(6, -1).trim());
+    if (parsed && declarations.length < 16)
+      declarations.push({ start, end, ...parsed });
+  }
+  if (!declarations.length) return empty();
+
+  let tree: SyntaxNode;
+  try {
+    tree = unified().use(remarkParse).use(remarkGfm).use(remarkMdx)
+      .parse(masked.join("")) as SyntaxNode;
+  } catch {
+    // Never reconstruct actionable controls from context-free recovery blocks.
+    return escapeUnsupported(source, [], questions, slotOffsets, protectedMask);
+  }
+
+  let seenNodes = 0;
+  const groups: Array<{ node: SyntaxNode; parent: SyntaxNode; index: number }> = [];
+  function visit(node: SyntaxNode, depth: number): boolean {
+    if (++seenNodes > 12000 || depth > 40) return false;
+    for (const [index, child] of (node.children || []).entries()) {
+      if (jsx(child, "radio-group")) groups.push({ node: child, parent: node, index });
+      if (!visit(child, depth + 1)) return false;
+    }
+    return true;
+  }
+  if (!visit(tree, 0)) return escapeUnsupported(source, [], questions, slotOffsets, protectedMask);
+
+  const usedDeclarations = new Set<number>();
+  const replacements: Replacement[] = [];
+  for (const entry of groups) {
+    if (Object.keys(questions).length >= 16) break;
+    const { node: group, parent, index } = entry;
+    const groupPos = boundaries(group);
+    if (!groupPos || groupPos.end - groupPos.start > 8192) continue;
+    // Only a root question or a question whose first child is inside one
+    // static DIL box is in scope. No arbitrary nesting or adjacent buttons.
+    const wrapped = jsx(parent, "box");
+    if ((!wrapped && parent.type !== "root") || (wrapped && index !== 0)) continue;
+    const parentPos = wrapped ? boundaries(parent) : null;
+    if (wrapped && !parentPos) continue;
+    const sibling = parent.children?.[index + 1];
+    const button = sibling?.type === "paragraph" && sibling.children?.length === 1
+      ? sibling.children[0]
+      : sibling;
+    if (!button || !jsx(button, "button")) continue;
+    const buttonPos = boundaries(button);
+    if (!buttonPos || buttonPos.start < groupPos.end ||
+        !/^\s*$/.test(source.slice(groupPos.end, buttonPos.start))) continue;
+
+    const attrs = attributeMap(group);
+    if (!attrs || (attrs.size !== 2 && attrs.size !== 3) ||
+        (attrs.size === 3 && attrs.get("direction") !== "col") ||
+        (attrs.size === 2 && attrs.has("direction")) ||
+        !attrs.has("value") || !attrs.has("onChange")) continue;
+    const radioNodes = group.children || [];
+    if (radioNodes.length < 2 || radioNodes.length > 12) continue;
+
+    const candidate = [...declarations].reverse().find(item =>
+      !usedDeclarations.has(item.start) &&
+      item.end < groupPos.start && groupPos.start - item.start <= 8192);
+    if (!candidate ||
+        !expressionAttribute(attrs.get("value"), candidate.state) ||
+        !expressionAttribute(attrs.get("onChange"), candidate.setter)) continue;
+
+    // The permitted gap contains only whitespace or the opening of the
+    // containing box. A separate paragraph/element cannot lend its state.
+    if (wrapped) {
+      const boxStart = parentPos!.start;
+      if (boxStart < candidate.end ||
+          source.slice(candidate.end, boxStart).trim() ||
+          !/^<box\b[^>]{0,512}>\s*$/.test(source.slice(boxStart, groupPos.start)))
+        continue;
+    } else if (source.slice(candidate.end, groupPos.start).trim()) continue;
+
+    const selected = new Set<string>();
+    const options: RichQuestionData["options"] = [];
+    let validOptions = true;
+    for (const radio of radioNodes) {
+      if (!jsx(radio, "radio")) { validOptions = false; break; }
+      const values = attributeMap(radio);
+      const value = values?.get("value");
+      const children = radio.children || [];
+      if (!values || values.size !== 1 || typeof value !== "string" ||
+          !/^[A-Za-z0-9_-]{1,64}$/.test(value) || selected.has(value) ||
+          !children.length || children.some(child => !safeLabelNode(child))) {
+        validOptions = false; break;
+      }
+      const first = boundaries(children[0]);
+      const last = boundaries(children[children.length - 1]);
+      if (!first || !last) { validOptions = false; break; }
+      const label = source.slice(first.start, last.end).trim();
+      if (!label || label.length > 600) { validOptions = false; break; }
+      selected.add(value);
+      options.push({ value, label });
+    }
+    if (!validOptions || !selected.has(candidate.initial)) continue;
+
+    const buttonAttributes = attributeMap(button);
+    if (!buttonAttributes || !buttonAttributes.has("onClick") ||
+        (buttonAttributes.size !== 1 && buttonAttributes.size !== 2) ||
+        (buttonAttributes.size === 2 && buttonAttributes.get("block") !== null) ||
+        (buttonAttributes.size === 2 && !buttonAttributes.has("block"))) continue;
+    const click = buttonAttributes.get("onClick");
+    if (!click || typeof click !== "object") continue;
+    const action = handler(click.value, candidate.state);
+    const buttonChildren = button.children || [];
+    if (!action || buttonChildren.length !== 1 || buttonChildren[0].type !== "text") continue;
+    const buttonText = buttonChildren[0].value?.trim() || "";
+    if (!buttonText || buttonText.length > 80) continue;
+
+    const id = String(Object.keys(questions).length);
+    questions[id] = {
+      initial: candidate.initial, options, button: buttonText,
+      block: buttonAttributes.has("block"), ...action,
+    };
+    usedDeclarations.add(candidate.start);
+    replacements.push(
+      { from: candidate.start, to: candidate.end, text: "" },
+      { from: groupPos.start, to: groupPos.end,
+        text: '<mezhs-question-slot id="' + id + '" />', questionId: id },
+      { from: buttonPos.start, to: buttonPos.end, text: "" },
+    );
+  }
+  return escapeUnsupported(source, replacements, questions, slotOffsets, protectedMask);
+}
+
+function safeLabelNode(node: SyntaxNode): boolean {
+  if (node.type.startsWith("mdx") || node.type === "html" ||
+      node.type === "definition" || node.type === "image") return false;
+  return (node.children || []).every(safeLabelNode);
+}
+
+function escapeUnsupported(
+  source: string, replacements: Replacement[],
+  questions: Record<string, RichQuestionData>, slotOffsets: Record<string, number>,
+  originalMask: Uint8Array,
+) {
+  let output = "";
+  let cursor = 0;
   for (const replacement of replacements.sort((a, b) => a.from - b.from)) {
-    output += source.slice(pos, replacement.from);
+    if (replacement.from < cursor) continue;
+    output += source.slice(cursor, replacement.from);
     if (replacement.questionId !== undefined)
       slotOffsets[replacement.questionId] = output.length;
     output += replacement.text;
-    pos = replacement.to;
+    cursor = replacement.to;
   }
-  output += source.slice(pos);
-  const escapedMask = output.includes("{@body") ? protectedPositions(output) : null;
-  if (output.includes("{@body") && !escapedMask)
-    return { content: source, questions: Object.create(null), slotOffsets: Object.create(null) };
-  const escapeInsertions: number[] = [];
-  output = output.replace(/\{@body/g, (match, index: number) => {
-    if (escapedMask?.[index]) return match;
-    escapeInsertions.push(index);
-    return "\\{" + match.slice(1);
-  });
-  // The extra Markdown escapes shift downstream AST source positions.
-  for (const id of Object.keys(slotOffsets)) {
-    const original = slotOffsets[id];
-    slotOffsets[id] = original + escapeInsertions.filter(offset => offset < original).length;
+  output += source.slice(cursor);
+  if (!output.includes("{@body")) return { content: output, questions, slotOffsets };
+  const mask = replacements.length ? protectedPositions(output) : originalMask;
+  if (!mask) return { content: source, questions: Object.create(null),
+    slotOffsets: Object.create(null) };
+  const additions: number[] = [];
+  let result = "";
+  let from = 0;
+  for (const match of output.matchAll(/\{@body/g)) {
+    const index = match.index!;
+    if (mask[index]) continue;
+    let slashes = 0;
+    for (let i = index - 1; i >= 0 && output[i] === "\\"; i--) slashes++;
+    if (slashes % 2) continue;
+    result += output.slice(from, index) + "\\";
+    from = index;
+    additions.push(index);
   }
-  return { content: output, questions, slotOffsets };
+  result += output.slice(from);
+  for (const id of Object.keys(slotOffsets))
+    slotOffsets[id] += additions.filter(offset => offset < slotOffsets[id]).length;
+  return { content: result, questions, slotOffsets };
 }
 
 export function RichQuestion({ data }: { data: RichQuestionData }) {
@@ -298,7 +413,7 @@ export function RichQuestion({ data }: { data: RichQuestionData }) {
       <div><Markdown remarkPlugins={[remarkGfm]}
         transformLinkUri={uriTransformer} transformImageUri={() => ""}>{option.label}</Markdown></div>
     </label>)}
-    <button type="button" disabled={!enabled} onClick={() => {
+    <button type="button" className={data.block ? "rich-question-block" : undefined} disabled={!enabled} onClick={() => {
       if (enabled) onIssueNewTurn?.(data.prefix + choice + data.suffix);
     }}>{data.button}</button>
     {!onIssueNewTurn && <small className="rich-question-readonly">Submission unavailable in this view.</small>}
