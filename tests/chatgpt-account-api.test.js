@@ -91,7 +91,7 @@ function nativeBrowserSurface() {
     window: {
     webContents: {
       executeJavaScript: async source => {
-        assert.match(source, /lXE/);
+        assert.match(source, /mezhs\.chatgpt\.rspackLoaders\.v1/);
         assert.doesNotThrow(() => new Function(`return ${source};`));
         assert.doesNotMatch(source, /document\.querySelector|querySelectorAll|sendInputEvent/);
         return {

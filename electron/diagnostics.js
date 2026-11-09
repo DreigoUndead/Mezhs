@@ -122,59 +122,19 @@ async function captureDiagnosticNetwork(action, waitMs, { traceHeaders = false, 
 }
 
 
-async function inspectRspackExportsPage(moduleId, exportKeys) {
-      const resources = performance.getEntriesByType("resource")
-        .map(item => String(item.name || ""))
-        .filter(url => /^https:\/\/chatgpt\.com\/cdn\/assets\/[^/?#]+\.js(?:[?#].*)?$/i.test(url));
-      if (!resources.length)
-        throw new Error("ChatGPT Rspack runtime was not loaded.");
-      const preferred = resources.filter(url =>
-        /\/(?:manifest|entry\.client|root)-[^/?#]*\.js(?:[?#]|$)/i.test(url));
-      const candidates = [...new Set([...preferred, ...resources.slice().reverse()])];
-      let record;
-      for (const runtimeUrl of candidates) {
-        try {
-          const runtime = await import(runtimeUrl);
-          record = runtime?.__webpack_require__?.c?.[moduleId];
-          if (record) break;
-        } catch {
-          // Some loaded scripts are not importable modules; inspect the next asset.
-        }
-      }
-      if (!record)
-        throw new Error("Requested Rspack module was not present in the loaded cache.");
-      const exports = record.exports;
-      const keys = exportKeys;
-      const markers = ["chatReq", "turnstileToken", "proofToken"];
-      const context = (source, marker) => {
-        const index = source.indexOf(marker);
-        return index < 0 ? null
-          : source.slice(Math.max(0, index - 90), Math.min(source.length, index + marker.length + 130));
-      };
-      const results = keys.map(key => {
-        const value = exports?.[key];
-        if (typeof value !== "function")
-          return { exportKey: key, type: typeof value };
-        const source = Function.prototype.toString.call(value);
-        return {
-          exportKey: key,
-          name: String(value.name || "").slice(0, 64),
-          arity: value.length,
-          sourceLength: source.length,
-          start: source.slice(0, 160),
-          end: source.slice(-100),
-          markerContexts: Object.fromEntries(markers.map(marker => [marker, context(source, marker)]))
-        };
-      });
-      return {
-        moduleId,
-        availableExportKeys: Object.keys(exports || {}).slice(0, 30),
-        results
-      };
-}
-
-function inspectRspackExportsScript(moduleId, exportKeys) {
-  return pageScript(inspectRspackExportsPage, moduleId, exportKeys);
+function rspackTimingPage(clear) {
+  const count = () => {
+    const entries = performance.getEntriesByType("resource");
+    return {
+      resourceEntries: entries.length,
+      runtimeAssets: entries.filter(entry =>
+        /^https:\/\/chatgpt\.com\/cdn\/assets\/[^/?#]+\.js(?:[?#].*)?$/i.test(
+          String(entry.name || ""))).length
+    };
+  };
+  const before = count();
+  if (clear) performance.clearResourceTimings();
+  return { cleared: clear, before, after: count() };
 }
 
 function inspectPointPage(x, y) {
@@ -216,8 +176,13 @@ async function invokeDiagnostic(operation, args, { window, browserModule, sleep 
             /^[A-Za-z0-9_$-]{1,32}$/.test(key)))
         throw new Error('Invalid Rspack module id or export keys.');
       return window.webContents.executeJavaScript(
-        inspectRspackExportsScript(moduleId, keys), true
+        browserModule.diagnostics.inspectRspackExportsScript(moduleId, keys), true
       );
+    }
+    case 'rspackTiming': {
+      if (browserModule?.name !== 'ChatGPT' || args?.clear !== true)
+        throw new Error('Rspack timing clearing requires ChatGPT and clear=true.');
+      return window.webContents.executeJavaScript(pageScript(rspackTimingPage, true), true);
     }
     case 'networkTrace': {
       // Observe a manual browser action. No DOM selectors, request bodies, or secret values.
@@ -286,5 +251,5 @@ module.exports = {
   invokeDiagnostic,
   captureDiagnosticNetwork,
   diagnosticElementSnapshot,
-  inspectRspackExportsScript
+  rspackTimingPage
 };

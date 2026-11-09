@@ -1,3 +1,4 @@
+const { inspectRspackExportsScript } = require("./rspack-runtime.js");
 const { ORIGIN, API, accessToken, requireToken, apiFetch, apiJson } = require('./account-transport.js');
 const { nativePickerModels } = require('./account-models.js');
 const { sendAccountMessage } = require('./account-messages.js');
@@ -6,6 +7,7 @@ const { sendPrompt } = require('./guest.js');
 module.exports = {
   name: "ChatGPT",
   homeUrl: ORIGIN + "/",
+  diagnostics: { inspectRspackExportsScript },
 
   async isAuthorized(window) {
     const session = window.webContents.session;

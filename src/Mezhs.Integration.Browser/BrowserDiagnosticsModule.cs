@@ -16,6 +16,7 @@ public sealed class BrowserDiagnosticsModule(BrowserAccountSession session)
         "screenshot",
         "networkTrace",
         "inspectRspackExports",
+        "rspackTiming",
         "show"
     ];
 
