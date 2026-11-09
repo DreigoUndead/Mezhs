@@ -297,7 +297,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     // A detached old message must never target the newly selected conversation.
     if (sourceEpoch !== selectionEpoch.current || !chatId ||
         source.chatId !== chatId || source.connectionId !== connectionId ||
-        !online || sending || source.role !== "assistant" || source.status !== "Completed" ||
+        !online || sending || !!activeMessage || source.role !== "assistant" || source.status !== "Completed" ||
         ["agent-runtime", "command-result"].includes(source.origin.toLowerCase()) ||
         !messages.some((message) => message.messageId === source.messageId &&
           message.content === source.content && message.status === "Completed")) return;
@@ -843,7 +843,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                         message.connectionId === connectionId && message.role === "assistant" &&
                         message.status === "Completed" &&
                         !["agent-runtime", "command-result"].includes(message.origin.toLowerCase()) &&
-                        !sending && online
+                        !sending && !activeMessage && online
                         ? (content) => issueNewTurn(message, messageEpoch, content)
                         : undefined}
                     /></div>}
