@@ -520,11 +520,11 @@ export default function App() {
     : activeMessage?.activity
       ? modelActivityLabel(activeMessage.activity, activeMessage.activityDetail)
       : activeMessage?.origin === "command-result"
-        ? "Processing command result…"
+        ? "Preparing command-result follow-up…"
         : activeMessage
-          ? "Waiting for model…"
+          ? "Preparing model request…"
           : activeExecution
-            ? "Processing model response…"
+            ? "Handling model reply or preparing next step…"
             : undefined;
   const sharedMessages = useMemo(
     () => messages.map((message) => toSharedMessage(message, executions)),
