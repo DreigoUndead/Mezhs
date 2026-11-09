@@ -194,7 +194,7 @@ static async Task TestSessionOwnershipAsync(string root)
         Assert(send.Text == "ok", "normal sending failed after diagnostics and browser show");
         Assert(stages.Select(stage => stage.Detail).SequenceEqual(
             ["Waiting for shared browser session slot.", "Checking authorized browser session.",
-             "Browser session ready; preparing ChatGPT request."]),
+             "Browser session ready; preparing request."]),
             "authenticated request did not report the expected session preparation stages");
         await integration.Models!.GetModelsAsync();
         Assert(host.Invocations.Select(x => x.Operation).SequenceEqual(
