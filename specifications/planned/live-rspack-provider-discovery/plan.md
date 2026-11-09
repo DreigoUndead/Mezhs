@@ -43,13 +43,13 @@ This establishes semantic-only feasibility for the tested frontend build. If the
 
 `account-transport.js` remains the owner of authenticated transport and native Sentinel requirements.
 
-1. Enumerate renderer globals through own property descriptors so accessors are not invoked. Consider only narrowly named Webpack/Rspack chunk arrays with an own non-native `push` data property and processed chunk-entry shape; ignore native arrays, getters, similarly named decoys, and unrelated custom push functions.
-2. On the first provider request in a renderer document, use one unique inert runtime chunk per validated registry to obtain its existing loader. Accept only function loaders with a live module-cache object.
-3. Cache only the validated loader references for that renderer document under the shared versioned key `Symbol.for("mezhs.chatgpt.rspackLoaders.v1")`. The value is a versioned record containing a frozen loader-reference array; every consumer validates the record and each loader's live cache before use. Do not cache a coordinator, requirements key, challenge, token, or headers.
-4. On every turn, rescan the live loader caches for the semantic coordinator signature, deduplicate candidates by function identity, and accept exactly one coordinator. This lets later-loaded modules appear without repeating registry mutation.
+1. Enumerate renderer globals through own property descriptors so accessors are not invoked. Consider only narrowly named Webpack/Rspack chunk arrays with an own non-native `push` data property and processed chunk-entry shape; ignore native arrays, getters, similarly named decoys, and unrelated custom push functions. Apply the same no-getter rule when validating the loader, module-cache records, and candidate exports; do not trust a property merely because the outer object passed validation.
+2. On first discovery in a renderer document (whether initiated by the diagnostic or provider), use one collision-resistant, inert runtime chunk per validated registry to obtain its existing loader; do not register actual module factories or invoke arbitrary exports. Accept only function loaders with a live module-cache object, and do not probe registries that fail the safety checks.
+3. Cache only the validated loader references for that renderer document under the shared versioned key `Symbol.for("mezhs.chatgpt.rspackLoaders.v1")`. The value is a versioned record containing a frozen loader-reference array; every consumer validates the record and each loader's live cache before use. An invalid or tampered record must fail closed, not become a reason to execute unvalidated cached data. Do not cache a coordinator, requirements key, challenge, token, or headers.
+4. On every turn, rescan the live loader caches for the existing four-marker semantic coordinator signature, deduplicate candidates by function identity across all validated loaders, and accept exactly one coordinator. Read candidate exports through data-property descriptors without executing getters or unverified functions. Bound the number of registries/modules inspected and metadata returned; choose limits that accommodate the observed 10,185-module live cache, and fail closed if bounds are exceeded. This lets later-loaded modules appear without repeating registry mutation.
 5. Remove the provider cache, Resource Timing scan, bundle URL assumptions, known module-ID dependency, and dynamic runtime imports instead of retaining fallback paths.
 6. Preserve fresh per-turn preparation, header allowlisting, login handling, and fail-closed behavior. Missing or ambiguous coordinators fail before preparation or conversation submission.
-7. Replace the existing Resource Timing-based `inspectRspackExports` implementation with bounded live-loader inspection using the same shared cache key, schema, and validation contract as production. Diagnostic-first inspection and later provider turns therefore reuse the same loader capture. Add a loopback-only diagnostic option that clears Resource Timing and reports sanitized before/after counts for deterministic same-document verification; it must not expose URLs, exports, credentials, or token values.
+7. Replace the existing Resource Timing-based `inspectRspackExports` implementation with bounded live-loader inspection using the same discovery/safety mechanism and shared cache key/schema as production; avoid two independently drifting implementations of registry validation. Preserve its validated `moduleId`/`exportKeys` inputs and bounded function-metadata response where practical, without returning raw export values or full function bodies. Diagnostic-first inspection and later provider turns must reuse the same loader capture. Add an explicitly opted-in, loopback-only timing diagnostic that clears Resource Timing and reports sanitized before/after counts only; never expose URLs, export values, credentials, or token values in those timing results.
 8. Update `.agents/chatgpt-private-api-debugging.md` so discovery, diagnostics, failure classification, and regression guidance match the new mechanism.
 
 The implementation must avoid invoking unverified exports or arbitrary page arrays. If the current live build does not expose a safely identifiable chunk registry, stop and reassess rather than adding navigation or timing fallbacks.
@@ -61,29 +61,32 @@ The implementation must avoid invoking unverified exports or arbitrary page arra
 - [ ] Known and semantically renamed coordinator modules are supported through semantic inspection of the live module cache, without module-ID assumptions.
 - [ ] Repeated turns perform only one bounded loader capture per renderer document while obtaining fresh requirements each time.
 - [ ] Diagnostic inspection followed by two provider turns shares one loader capture per registry while both turns perform fresh requirements preparation.
-- [ ] Global accessors, native arrays, similarly named decoys, and unrelated custom push functions are neither invoked nor mutated.
+- [ ] Global accessors, module-cache/export getters, native arrays, similarly named decoys, and unrelated custom push functions are neither invoked nor mutated; invalid shared cache records fail closed.
 - [ ] Missing and ambiguous coordinators fail closed before Sentinel preparation or conversation submission.
 - [ ] Every turn obtains fresh requirements and only allowlisted Sentinel headers are forwarded.
+- [ ] Cache traversal has explicit, tested bounds that handle the observed live cache size without accidentally accepting a partial/ambiguous scan.
+- [ ] The existing validated `inspectRspackExports` request and safe response fields remain usable after switching discovery to the live registry.
 - [ ] Existing authenticated ChatGPT tests and packaging checks remain green.
-- [ ] A live same-session check clears Resource Timing through the bounded diagnostic, records zero matching timing entries, then demonstrates successful provider inspection and prompt submission without navigation or restarting Electron.
+- [ ] A live same-session check clears Resource Timing through the bounded diagnostic, records zero matching timing entries, then demonstrates successful provider inspection and two sequential harmless Account turns without navigation or restarting Electron.
 
 ## Verification
 
-- Focused Node tests for live-registry discovery, empty Resource Timing, renamed modules, ambiguity, missing runtime, repeated-turn loader reuse, fresh per-turn preparation, header filtering, accessors, native arrays, similarly named decoys, and non-runtime custom push functions.
-- Focused Electron diagnostic tests for sanitized timing counts/clearing and live-registry export inspection. `inspectRspackExports` is updated rather than used as a Resource Timing oracle.
+- Focused Node tests for live-registry discovery, empty Resource Timing, renamed modules, ambiguity, missing runtime, repeated-turn loader reuse, fresh per-turn preparation, header filtering, global/module/export accessors, invalid or tampered shared cache records, scan bounds, native arrays, similarly named decoys, and non-runtime custom push functions.
+- Focused Electron diagnostic tests for sanitized timing counts/clearing, existing inspection input/response compatibility, and safe live-registry export inspection. `inspectRspackExports` is updated rather than used as a Resource Timing oracle.
 - A combined same-document test runs diagnostic inspection first and then two provider turns, asserting one registry capture and two fresh requirements preparations.
 - `node --check` for every deployed ChatGPT browser module.
 - `node --test tests/*.test.js`.
 - `dotnet build Mezhs.sln -c Release` using isolated output paths if the running application locks normal build output.
 - `tests/integration-resources.ps1`.
-- Live verification procedure: start the exact branch build once; call the loopback timing diagnostic with its explicit clear option; verify sanitized after-counts are zero; call live-registry export inspection; then submit one harmless prompt through the normal MEŽS connection path without navigation or restart. Record only status and sanitized counts.
+- Live verification procedure: start the exact branch build once; call the loopback timing diagnostic with its explicit clear option; verify sanitized after-counts are zero; call live-registry export inspection; then submit two successive harmless Account prompts in the same conversation through the normal MEŽS connection path without navigation or restart. Record only status and sanitized counts; do not record prompts, headers, or responses.
 
 ## Risks
 
 - ChatGPT can change or hide its page-global Rspack registry or loader contract.
 - Probing an unrelated page array could mutate page state; descriptor-only enumeration, narrow names, processed-entry shape, own non-native push validation, inert unique chunk IDs, and decoy tests are required.
 - Capturing a loader mutates a real chunk registry; the loader cache must bound this to one successful capture per renderer document and repeated-turn tests must prove it does not accumulate.
-- Semantic coordinator markers can drift or become ambiguous; ambiguity must fail closed rather than guessing.
+- Semantic coordinator markers can drift or become ambiguous; ambiguity or an incomplete bounded scan must fail closed rather than guessing.
+- A shared page-global cache is cross-consumer state, not an authority: reject malformed or stale cache records, and keep the discovery implementation consistent across transport and diagnostics.
 - Synthetic tests cannot prove an undocumented upstream interface; the live check is required but still represents only the tested frontend build.
 
 ## Release proposal
