@@ -352,7 +352,7 @@ test("invalid citation references never create navigation or executable markup",
     '<Cite refs={["turn123search1"]} onClick={alert(1)}/>',
   ]) {
     const output = html("Before " + sample + " after");
-    assert.doesNotMatch(output, /<a\b[^>]+href="javascript:|<script\b|<button\b|\bonclick=/i);
+    assert.doesNotMatch(output, /<(?:a|button|script)\b|<[^>]+\sonclick\s*=/i);
     // Literal source text remains safely escaped rather than becoming DOM attributes.
     assert.match(output, /Before/);
     assert.match(output, /after/);
