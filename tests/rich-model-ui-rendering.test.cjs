@@ -285,3 +285,67 @@ test("a valid question following inline handler examples is still recognized", (
   const output = html(source, { onIssueNewTurn() {} });
   assert.equal((output.match(/<fieldset class="rich-question"/g) || []).length, 1);
 });
+
+
+// Actual stored model reply, sanitized without reconstructing its Markdown/MDX.
+const actualTelemetryPath = path.join(__dirname,
+  "fixtures/rich-model-ui/actual-telemetry-2026-11-05-sanitized.md");
+const actualTelemetry = fs.readFileSync(actualTelemetryPath, "utf8");
+
+test("actual sanitized telemetry reply preserves nested log/trace/metric card UI", () => {
+  const output = html(actualTelemetry);
+  assert.match(output, /class="rich-box/);
+  assert.match(output, /class="rich-row/);
+  assert.match(output, /aria-label="scroll-text"/);
+  assert.match(output, /aria-label="chart-no-axes-combined"/);
+  assert.match(output, /aria-label="git-branch"/);
+  assert.match(output, /<span class="rich-icon" role="img" aria-label="scroll-text"><svg/);
+  assert.match(output, /<span class="rich-icon" role="img" aria-label="chart-no-axes-combined"><svg/);
+  assert.doesNotMatch(output, /&lt;box gap=|&lt;row align=|&lt;\/box&gt;/);
+});
+
+test("actual sanitized telemetry reply expands and renders native 340-by-236 SVG", () => {
+  const output = html(actualTelemetry);
+  assert.match(output, /class="rich-svg"/);
+  assert.match(output, /viewBox="0 0 340 236"/);
+  assert.match(output, /<rect\b/);
+  assert.match(output, /<path\b/);
+  assert.match(output, /<text\b/);
+  assert.doesNotMatch(output, /&lt;svg viewBox/);
+  assert.doesNotMatch(output, /&lt;Cite refs=/);
+  assert.match(output, /class="rich-citation-unavailable"/);
+  assert.match(output, /OpenTelemetry/);
+});
+
+test("actual sanitized telemetry reply offers A-default three-choice question", () => {
+  const prepared = extractRichQuestions(actualTelemetry);
+  assert.equal(Object.keys(prepared.questions).length, 1);
+  const data = Object.values(prepared.questions)[0];
+  assert.equal(data.initial, "A");
+  assert.deepEqual(data.options.map(option => option.value), ["A", "B", "C"]);
+  assert.equal(data.block, true);
+  const output = html(actualTelemetry, { onIssueNewTurn() {
+    throw Error("Rendering must not submit");
+  } });
+  assert.equal((output.match(/<fieldset class="rich-question"/g) || []).length, 1);
+  assert.match(output, /checked="" value="A"/);
+  assert.match(output, /rich-question-block/);
+  assert.match(output, /Confirm and continue/);
+  assert.doesNotMatch(output, /<button[^>]*disabled/);
+  const readOnly = html(actualTelemetry);
+  assert.match(readOnly, /Submission unavailable in this view/);
+});
+
+test("invalid citation references never create navigation or executable markup", () => {
+  for (const sample of [
+    '<Cite ref="javascript:alert(1)"/>',
+    '<Cite refs={["turn123search1",globalThis.alert(1)]}/>',
+    '<Cite refs={["turn123search1", "https://example.com"]}/>',
+    '<Cite refs={["turn123search1"]} onClick={alert(1)}/>',
+  ]) {
+    const output = html("Before " + sample + " after");
+    assert.doesNotMatch(output, /<a\b[^>]+href="javascript:|<script\b|<button\b|onClick=/i);
+    assert.match(output, /Before/);
+    assert.match(output, /after/);
+  }
+});
