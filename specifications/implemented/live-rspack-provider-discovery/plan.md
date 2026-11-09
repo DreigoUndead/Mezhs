@@ -84,7 +84,7 @@ Status: owner approved the diagnostic-first revision after two live Account exec
 ### Additional Stage A acceptance criteria
 
 - [ ] Read-only diagnostic reports bounded, sanitized, monotonic cumulative counts for each observable registry-validation stage, without exposing candidate identities or claiming an unverified runtime identity.
-- [ ] No Account transport behavior changes; the diagnostic neither mutates page state nor invokes untrusted page functions.
+- [ ] No Account transport behavior changes; the diagnostic performs no intentional page writes, chunk-push calls, or direct page-function/getter invocation. Potential Proxy-trap side effects are explicitly treated as an introspection limitation, not as proof of absolute inertness.
 - [ ] Opt-in authorization, ChatGPT-only scope, aggregate response schema, exception/Proxy and input bounds are tested; incomplete scans cannot be treated as positive evidence, and live observations include verified renderer-to-running-build identity or are explicitly blocked.
 - [ ] No Stage B compatibility change begins until live evidence, owner approval and independent review establish its safety.
 
