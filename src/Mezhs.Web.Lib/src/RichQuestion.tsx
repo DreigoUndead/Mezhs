@@ -246,7 +246,7 @@ export function extractRichQuestions(source: string): {
   let seenNodes = 0;
   const groups: Array<{ node: SyntaxNode; parent: SyntaxNode; index: number }> = [];
   function visit(node: SyntaxNode, depth: number): boolean {
-    if (++seenNodes > 12000 || depth > 40) return false;
+    if (++seenNodes > 120000 || depth > 40) return false;
     for (const [index, child] of (node.children || []).entries()) {
       if (jsx(child, "radio-group")) groups.push({ node: child, parent: node, index });
       if (!visit(child, depth + 1)) return false;
