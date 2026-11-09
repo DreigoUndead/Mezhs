@@ -5,11 +5,11 @@ Read [the workflow](workflow.md). Use [software-change](skills/software-change/S
 ## Coding process
 
 - Follow the task level from [the workflow](workflow.md). A **Small** change can stay in one chat through coding, checks and owner approval. Standard and High-risk changes use independent reviewers.
-- State the classification and verification plan. Escalate if an initially simple change grows risky. For a new change, branch from `main` using the task ID; reuse the same branch for fixes.
+- State the classification and verification plan. Escalate if an initially simple change grows risky. For a new task, create the task-ID branch **before planning or making any commit**, from `main` or an explicitly documented dependent task branch. Continue implementation and fixes on that same branch; never commit plans or workflow changes directly to `main`.
 - Read the plan (or Small-change summary), affected current specifications and source. Find the existing owner before adding a second mechanism.
 - Prefer semantic APIs/protocols to DOM automation. Choose **Reuse / Repair / Refactor / Redesign** based on real responsibility, not minimum diff size.
 - Keep code, tests, final plan and current specifications aligned. Update current specs only when actual behavior changes.
-- **Move the final plan from `specifications/planned/<id>/` to `specifications/implemented/<id>/` on the development branch before independent review/testing.** A Small change may have only a PR description instead of a plan file.
+- **Move the final plan from `specifications/planned/<id>/` to `specifications/implemented/<id>/` on the task branch before independent code review/testing.** A Small change may have only a PR description instead of a plan file.
 - Prepare a **release summary and suggested bump type**, but leave `VERSION` and `CHANGELOG.md` untouched until the approved merge into `main`. Verify the diff and run developer tests. Commit/push, then request **code review before final testing**. For Small changes, self-review and verification in the same chat can suffice. Do not merge without owner approval.
 
 ## Engineering sanity questions
@@ -30,13 +30,11 @@ Ask these throughout the work, especially before adding abstractions:
 
 Prefer a coherent mechanism over duplicated decisions. Do not abstract a first occurrence solely for hypothetical reuse.
 
+we shouldn't build coordination machinery merely to guarantee that every concurrent request fails gracefully.
+
 ## Repository-specific guidance
 
 - **Codegraph:** prefer live `codegraph` before broad manual source searches for dependencies, callers and impact. GitHub-only agents may use `.agents/codegraph/graph.json` as a navigation hint, **not source truth**. After code changes that affect dependencies, regenerate the committed graph before testing/review using `node .agents/codegraph/export.cjs` (Codegraph 3.0.0 and Node.js). Do not hand-edit generated graphs. `.codegraph/` is local cache: never commit it. Report missing tools or stale data.
 - **Shared foundation:** `src/Mezhs.Common` owns generic primitives such as `Cast`, `TypeExtensions` and `Registry<TKey..., TValue>`. Reuse these where appropriate; keep domain rules in their actual owner.
 - **Runtime boundaries:** preserve Agent API policy/queue ownership, Executor shell/process ownership and loopback security. Read [architecture](../docs/architecture.md) before touching them.
 - **Working tree:** use local shell inspection/build/tests for a checked-out repository; GitHub tools for remote PRs and branches. Prefer dedicated patch/edit operations over shell one-liners. Confirm changes with a diff. Do not kill running applications just to get a build.
-
-## Review handoff
-
-> Role: independent code reviewer (if required by task level). Task: `<id>`; level: `<level>`; PR/branch: `<link>`; commit: `<sha>`; final plan or Small-change summary: `<path/link>`; developer checks: `<evidence>`. Follow `.agents/review.md`. Review code, risk, final specification and test coverage. Return PASS/FAIL/BLOCKED. On failure, give a focused developer fix prompt; on PASS, give the next testing/verification prompt.

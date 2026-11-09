@@ -228,6 +228,7 @@ function queueProviderOperation(request) {
     status: "queued",
     result: undefined,
     error: null,
+    code: null,
     progress: null
   };
   providerOperations.set(operationId, state);
@@ -248,6 +249,7 @@ function queueProviderOperation(request) {
       state.status = "completed";
     } catch (error) {
       state.error = String(error?.stack ?? error);
+      state.code = typeof error?.code === "string" ? error.code : null;
       state.status = "failed";
     }
   });

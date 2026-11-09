@@ -47,8 +47,9 @@ public sealed class ChatService(
         var resolvedConnectionId = connectionId
             ?? messages.LastOrDefault()?.ConnectionId
             ?? string.Empty;
-        var title = messages.FirstOrDefault(message => message.Role == "user")?.Content
-            ?? "New chat";
+        var title = chat.Title ??
+            messages.FirstOrDefault(message => message.Role == "user")?.Content ??
+            "New chat";
         return new ApiChat(
             chat.ChatId,
             resolvedConnectionId,

@@ -210,6 +210,7 @@ async function apiFetch(session, token, endpoint, options = {}) {
   throw Object.assign(
     new Error(`ChatGPT ${endpoint} failed with HTTP ${response.status}`),
     {
+      code: response.status === 401 ? "authorization_required" : null,
       status: response.status,
       endpoint,
       providerCode,

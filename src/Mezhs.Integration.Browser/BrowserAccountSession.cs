@@ -124,6 +124,16 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             {
                 return await action(_transport!, cancellationToken);
             }
+            catch (BrowserAuthorizationRequiredException) when (allowInteractiveLogin)
+            {
+                await EnsureInteractiveLoginAsync(cancellationToken);
+                await DisposeTransportAsync();
+                await EnsureTransportAsync(
+                    showBrowser: false,
+                    requireAuthorization: true,
+                    cancellationToken);
+                return await action(_transport!, cancellationToken);
+            }
             catch (OperationCanceledException)
             {
                 await DisposeTransportAsync();

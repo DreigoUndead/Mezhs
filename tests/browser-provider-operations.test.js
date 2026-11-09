@@ -112,7 +112,27 @@ test("browser transport polls long provider operations through short HTTP reques
   assert.match(contract, /BrowserOperationProgress/);
   assert.match(electron, /reportProgress/);
   assert.match(transport, /reportProgress\?\.Invoke\(progress\)/);
+  assert.match(electron, /state\.code = typeof error\?\.code === "string"/);
+  assert.match(transport, /state\.Code,[\s\S]*"authorization_required"[\s\S]*BrowserAuthorizationRequiredException/);
   assert.doesNotMatch(contract, /SendPromptAsync|SendWebRequestAsync|BrowserWebRequest|BrowserWebResponse/);
+});
+
+test("ChatGPT authorization rejects a stale token that the backend returns 401 for", async () => {
+  const chatgpt = loadChatGptModule();
+  let backendStatus = 401;
+  const session = mockSession(async url => {
+    const target = new URL(String(url));
+    if (target.pathname === "/api/auth/session")
+      return jsonResponse({ accessToken: "stale-token" });
+    if (target.pathname === "/backend-api/models")
+      return jsonResponse({}, backendStatus);
+    throw new Error(`Unexpected request ${target}`);
+  });
+  const window = { webContents: { session } };
+
+  assert.equal(await chatgpt.isAuthorized(window), false);
+  backendStatus = 200;
+  assert.equal(await chatgpt.isAuthorized(window), true);
 });
 
 test("provider response lifetime is not capped by wall-clock deadlines", () => {

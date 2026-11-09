@@ -59,6 +59,8 @@ public sealed class AgentStore(AgentOptions options)
             CREATE INDEX IF NOT EXISTS IX_Executions_Status
                 ON Executions(Status);
 
+            DROP TABLE IF EXISTS ChatDeletionGuards;
+
             CREATE TABLE IF NOT EXISTS StagedAttachments (
                 ExecutionId TEXT NOT NULL,
                 TriggerMessageId TEXT NOT NULL,
@@ -146,7 +148,7 @@ public sealed class AgentStore(AgentOptions options)
         using var command = connection.CreateCommand();
         command.CommandText = string.IsNullOrWhiteSpace(chatId)
             ? "SELECT * FROM Executions WHERE Kind = $agentKind ORDER BY CreatedAt DESC;"
-            : "SELECT * FROM Executions WHERE Kind = $agentKind AND ChatId = $chatId ORDER BY CreatedAt DESC;";
+            : "SELECT * FROM Executions WHERE Kind = $agentKind AND ChatId = $chatId COLLATE NOCASE ORDER BY CreatedAt DESC;";
         command.Parameters.AddWithValue("$agentKind", AgentExecutionKind.Agent.ToString());
         if (!string.IsNullOrWhiteSpace(chatId))
             command.Parameters.AddWithValue("$chatId", chatId);
@@ -204,7 +206,7 @@ public sealed class AgentStore(AgentOptions options)
     {
         using var connection = _database.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT * FROM AgentChats WHERE ChatId = $chatId;";
+        command.CommandText = "SELECT * FROM AgentChats WHERE ChatId = $chatId COLLATE NOCASE;";
         command.Parameters.AddWithValue("$chatId", chatId);
         using var reader = command.ExecuteReader();
         return reader.Read() ? ReadAgentChat(reader) : null;
@@ -356,14 +358,14 @@ public sealed class AgentStore(AgentOptions options)
                   AND NOT EXISTS (
                       SELECT 1
                       FROM AgentChats chat
-                      WHERE chat.ChatId = queued.ChatId
+                      WHERE chat.ChatId = queued.ChatId COLLATE NOCASE
                         AND chat.Paused = 1)
                   AND NOT EXISTS (
                       SELECT 1
                       FROM Executions active
                       WHERE active.Kind = $agentKind
                         AND active.Status IN ($running, $cancelRequested)
-                        AND active.ChatId = queued.ChatId)
+                        AND active.ChatId = queued.ChatId COLLATE NOCASE)
                 ORDER BY queued.CreatedAt, queued.ExecutionId
                 LIMIT 1)
             RETURNING *;
@@ -615,6 +617,29 @@ public sealed class AgentStore(AgentOptions options)
         transaction.Commit();
     }
 
+
+    public void RemoveChatData(IReadOnlyList<string> ids)
+    {
+        using var connection = _database.Open();
+        using var transaction = connection.BeginTransaction();
+        foreach (var id in ids)
+        {
+            foreach (var sql in new[] {
+                "DELETE FROM StagedAttachments WHERE ExecutionId IN (SELECT ExecutionId FROM Executions WHERE ChatId = $id COLLATE NOCASE);",
+                "DELETE FROM Executions WHERE ChatId = $id COLLATE NOCASE;",
+                "DELETE FROM AgentChats WHERE ChatId = $id COLLATE NOCASE;"
+            })
+            {
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = sql;
+                command.Parameters.AddWithValue("$id", id);
+                command.ExecuteNonQuery();
+            }
+        }
+        transaction.Commit();
+    }
+
     private void InsertExecution(ExecutionRecord record)
     {
         using var connection = _database.Open();
@@ -625,15 +650,16 @@ public sealed class AgentStore(AgentOptions options)
                 PolicyId, ConnectionId, Model, Source, SourceReference, Status,
                 Request, EnvironmentJson, Result, Error, ExitCode, PolicySnapshot,
                 CreatedAt, StartedAt, CompletedAt)
-            VALUES (
+            SELECT
                 $executionId, $parentExecutionId, $correlationId, $kind, $chatId,
                 $policyId, $connectionId, $model, $source, $sourceReference, $status,
                 $request, $environmentJson, NULL, NULL, NULL, $policySnapshot,
-                $createdAt, NULL, NULL);
+                $createdAt, NULL, NULL
+            ;
             """;
         BindExecution(command, record);
         if (command.ExecuteNonQuery() != 1)
-            throw new InvalidOperationException("Agent execution could not be persisted.");
+            throw new InvalidOperationException("Agent execution could not be admitted.");
     }
 
     private bool Finish(
@@ -785,3 +811,4 @@ public sealed record StagedAttachmentRecord(
     int CommandIndex,
     IReadOnlyList<string> FileIds,
     string? ConsumedByMessageId);
+

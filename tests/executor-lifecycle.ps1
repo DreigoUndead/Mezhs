@@ -13,11 +13,33 @@ $env:MEZHS_EXECUTION_ID = 'validation-parent'
 $env:MEZHS_SOURCE = 'executor-lifecycle-test'
 
 function Executor([Parameter(ValueFromRemainingArguments=$true)][string[]]$arguments) {
-    $output = & dotnet $executor @arguments 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "Executor $($arguments -join ' ') failed: $($output -join [Environment]::NewLine)"
+    # ConsoleApplication parses the raw process command line. PowerShell 5.1
+    # does not preserve the quotes needed around commands containing spaces.
+    $commandLineArgs = @($executor) + @($arguments)
+    $quoted = @($commandLineArgs | ForEach-Object {
+        '"' + $_.Replace('"', '\"') + '"'
+    })
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = 'dotnet'
+    $start.Arguments = $quoted -join ' '
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+
+    $process = [Diagnostics.Process]::Start($start)
+    try {
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $output = $process.StandardOutput.ReadToEnd()
+        $errorOutput = $stderrTask.GetAwaiter().GetResult()
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) {
+            throw "Executor $($arguments -join ' ') failed (exit $($process.ExitCode)): $errorOutput $output"
+        }
+        return $output.Trim()
+    } finally {
+        $process.Dispose()
     }
-    return ($output -join [Environment]::NewLine).Trim()
 }
 function Field([string]$record,[string]$name) {
     ([regex]::Match($record,"(?m)^$([regex]::Escape($name)):\s+([^\r\n]+)\s*$")).Groups[1].Value.Trim()

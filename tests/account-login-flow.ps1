@@ -39,6 +39,7 @@ try
     Console.WriteLine("PASS: T2 browser session ownership and diagnostics regressions");
     if (args.Contains("--ownership-only")) return;
     await TestAutomaticLoginAsync(Path.Combine(root, "automatic"));
+    await TestExpiredOperationLoginAsync(Path.Combine(root, "expired-operation"));
     await TestExplicitLoginAsync(Path.Combine(root, "explicit"));
     await TestModelDeduplicationAsync(Path.Combine(root, "models"));
     await TestStaleConversationRecoveryAsync(Path.Combine(root, "stale"));
@@ -54,6 +55,25 @@ static IntegrationConnection Connection() => new(
     "Account",
     "chatgpt-web-account",
     new Dictionary<string, string?>());
+
+static async Task TestExpiredOperationLoginAsync(string root)
+{
+    var host = new FakeHost(root, authorized: true) { AuthorizationFailureOnce = true };
+    await using var integration = new ChatGptAccountIntegration(Connection(), host);
+    var now = DateTimeOffset.UtcNow;
+    var result = await integration.SendMessageAsync(new IntegrationSendContext(
+        new IntegrationChatContext("chat", "account"),
+        new IntegrationMessageContext("message", "user", "hello", false, now, null),
+        Array.Empty<IntegrationMessageContext>(),
+        Array.Empty<IntegrationInputFile>()));
+
+    Assert(result.Text == "ok", "message did not continue after operation-time reauthentication");
+    Assert(host.Initializations.Count == 3,
+        $"expected hidden operation + visible login + hidden retry, got {host.Initializations.Count} initializations");
+    Assert(host.Initializations[1].ShowBrowser, "operation-time 401 did not transition to visible login");
+    Assert(!host.Initializations[2].ShowBrowser, "operation-time 401 did not resume hidden after login");
+    Assert(host.PromptCount == 1, $"expected one prompt after reauthentication, got {host.PromptCount}");
+}
 
 static async Task TestAutomaticLoginAsync(string root)
 {
@@ -229,6 +249,7 @@ sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
     public int ActiveTransports { get; set; }
     public int ShowCount { get; set; }
     public bool Authorized { get; set; } = authorized;
+    public bool AuthorizationFailureOnce { get; set; }
     public bool UnavailableContinuationOnce { get; set; }
 
     public string GetConnectionRoot(string connectionId)
@@ -268,6 +289,13 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         CancellationToken cancellationToken = default)
     {
         host.Invocations.Add((operation, JsonSerializer.Serialize(arguments, JsonOptions)));
+
+        if (host.AuthorizationFailureOnce && operation is "getProjects" or "newChat" or "send")
+        {
+            host.AuthorizationFailureOnce = false;
+            host.Authorized = false;
+            throw new BrowserAuthorizationRequiredException("Authorization required.");
+        }
 
         if (operation == "$diagnostics/snapshot")
             return Result<TResult>(new { snapshot = true });

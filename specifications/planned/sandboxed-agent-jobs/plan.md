@@ -53,7 +53,7 @@ Do not duplicate job state in Agent API, container CRUD in Agent API, or command
 
 1. Caller submits repository URL, exact SHA, PR/MR identifier and review task to Jobs API. It returns `jobId`. **Jobs API V1 has no API key, OAuth or repository allowlist**: caller access is governed by the deployment network. GitHub Actions/GitLab CI decide when to invoke it.
 2. Jobs API resolves any Git token from the current host `jobs.yaml` when cloning and checks out the **exact requested revision**. A repository with no configured token may be cloned anonymously; fail clearly if access requires credentials.
-3. Jobs API requires valid `.mezhs/agent.yaml` and `.mezhs/sandbox.yaml` from that revision. It retains the original checkout, prepares a separate writable workspace without `.git`, and replaces `SecurityCritical` regions with unique placeholders before creating any container. Bad markers fail the job.
+3. Jobs API requires `.mezhs/agent.yaml` from the requested revision and `.mezhs/sandbox.yaml` from the source selected by host `jobs.yaml` (requested revision by default, or a configured trusted repository ref). Missing/invalid selected files fail the job; a failed trusted-ref lookup must never fall back to the PR version. It retains the original checkout, prepares a separate writable workspace without `.git`, and replaces `SecurityCritical` regions with unique placeholders before creating any container. Bad markers fail the job.
 4. Jobs API enqueues the sandbox allocation under one shared FIFO capacity limit. When space is available, it calls ContainerTool with project Docker/network settings and the sanitized workspace. ContainerTool uses the configured **local** Docker engine and manages an associated **host-side** NGINX proxy.
 5. Jobs API starts the agent through the **normal Agent API creation endpoint**, passing task, immutable `SandboxId` and the **absolute host path** to the cloned project's `.mezhs/agent.yaml` as the existing `policyId` parameter. Agent API resolves a registered policy name or a file path, loads policy once and persists the effective policy snapshot for the execution.
 6. SandboxExecutor runs normal `<SH>` commands in the container. The agent inspects the prepared checkout as its project policy instructs. The agent does not receive Docker/Git credentials or the original checkout via the standard workspace preparation.
@@ -78,6 +78,7 @@ Extend the ordinary Agent API creation request with optional `sandboxId`; no sep
 
 - `sandboxId != null`: route **all** SH commands of that execution to SandboxExecutor and the assigned container.
 - `sandboxId == null`: use existing host Executor **only if trusted Agent API host settings permit it**. A restricted deployment rejects missing/unusable sandbox assignment rather than falling back to host. Personal deployment can allow either route.
+- **`ATTACH` is prohibited for sandboxed executions (`sandboxId != null`) in V1.** Enforce the rejection in Agent API command dispatch regardless of project policy allowances, not solely through generated model instructions: the existing `ATTACH` implementation resolves file paths and imports them on the Agent API host and would bypass the sandbox. Leave `ATTACH` unchanged for ordinary trusted local agents under this task; its future removal/replacement is separate work.
 - Sandbox assignment is immutable for the execution. Policy, prompt, project YAML or user-provided command environment cannot change the execution target. An opaque sandbox ID resolves to a container on the configured local Docker engine; it is not an authentication secret.
 - Existing `MEZHS_*` execution context may convey a host-side `MEZHS_SANDBOX_ID` generated from persisted state; user input cannot set reserved routing variables. Never blindly forward host environment snapshots, credentials or internal API context into Docker.
 - Normal/host agents work without Jobs API; Jobs API's project `agent.yaml` is not allowed to select host execution.
@@ -106,20 +107,22 @@ The agent still emits plain `<SH>`, never `docker exec`. SandboxExecutor transla
 
 ### Required project configuration
 
-Both files are **mandatory in the requested Git revision**; missing or malformed files fail job preparation, with no project defaults:
+Both files are **mandatory in their selected Git revision**; missing or malformed files fail job preparation, with no project defaults. The agent policy comes from the requested review SHA; the sandbox configuration comes from the source selected by host `jobs.yaml`:
 
 | File | Meaning |
 | --- | --- |
 | `.mezhs/agent.yaml` | Instructions, model/policy, review scope, allowed commands, required successful Jobs comment call |
 | `.mezhs/sandbox.yaml` | OS/image, resources, Docker options/mounts, HTTP endpoint/method/query permissions and TCP destinations |
 
-Developers may modify either file in the reviewed branch itself. Project YAML may configure Docker privileges, networking, mounts and destinations; **MEŽS must not add approval layers or arbitrary developer-facing restrictions**. DevOps governs host, Docker daemon permissions and wider network reachability. This is an accepted trust model, not a guarantee that all developer-supplied Docker settings preserve sandbox isolation.
+Developers may modify either file in the reviewed branch itself. For a repository using a trusted sandbox-config ref in `jobs.yaml`, a proposed change to `.mezhs/sandbox.yaml` in the reviewed PR/MR does **not** affect that job; Jobs API reads the sandbox config from the trusted ref instead. Outside this configured source-selection rule, project YAML may configure Docker privileges, networking, mounts and destinations; **MEŽS must not add approval layers or arbitrary developer-facing restrictions**. DevOps governs host, Docker daemon permissions and wider network reachability. This remains an accepted trust model, not a guarantee that Docker settings preserve sandbox isolation.
 
 **Host versus sandbox is the one separate trusted routing choice:** whether Agent API may execute host commands is decided by host-owned Agent API settings, not project YAML.
 
 ### Host-owned `jobs.yaml`
 
-Use one Jobs API server-side `jobs.yaml` for Git credentials and Jobs API/container/proxy/queue settings as applicable. Do not introduce a separate `containertool.yaml` in V1 without an actual need. It is outside cloned repositories and **not part of the normal container mount**.
+Use one Jobs API server-side `jobs.yaml` for Git credentials, trusted sandbox-config source selection, and Jobs API/container/proxy/queue settings as applicable. Do not introduce a separate `containertool.yaml` in V1 without an actual need. It is outside cloned repositories and **not part of the normal container mount**.
+
+**Trusted sandbox-config selection (approved Grill Me decision):** `jobs.yaml` can opt a repository into reading `.mezhs/sandbox.yaml` from a host-configured trusted ref of the **target repository**, rather than from the reviewed PR/MR SHA. The configured ref must be protected by repository administration. Jobs API resolves that ref to an exact SHA **when accepting the job** and persists it for that job; branch movement while queued cannot change the selected config. Do not take the ref, repository identity or source mode from PR content or caller-supplied overrides. Apply the repository setting to all its jobs rather than trying to infer author trust from PR metadata. If a configured ref or its sandbox file cannot be read, fail the job; **do not fall back to the PR's config**. Repositories without this opt-in retain the prior requested-revision behavior and are suitable only for trusted-source jobs. This is source selection, not a new approval service or general Git push restriction. External-contributor jobs should use the trusted-ref mode. A trusted sandbox config that deliberately enables privileged access still does **not** make execution of untrusted code safe; DevOps must select appropriate sandbox privileges for such repositories.
 
 GitHub and GitLab use **configured access tokens** in V1, not GitHub App installations or provider-native token renewal. Support both Git-server/host defaults and repository overrides; resolution priority:
 
@@ -143,6 +146,13 @@ git:
   gitlab:
     - host: gitlab.example.org
       tokenEnv: GITLAB_TOKEN
+projectConfiguration:
+  repositories:
+    - repository: company/private-project
+      sandbox:
+        source: trustedRef
+        ref: refs/heads/main
+# Other repositories: sandbox config from requested revision (trusted sources only).
 ~~~
 
 Jobs API accepts **arbitrary repository URLs**, not just names in `jobs.yaml`. The token resolver must only use matching host/repository credentials; never send a credential to an unrelated server. An anonymous clone/comment may fail if authorization is required.
@@ -165,7 +175,7 @@ Never intentionally include `.git`, Git credentials or protected original code i
 
 Project policy dictates review scope and method. Do not force a Git diff workflow: the agent receives a working source tree without `.git`; its policy must be written accordingly. No synthetic diff required.
 
-The sandbox's comment call is restricted by its generated NGINX rules to the owning job. Jobs API resolves repository/PR/MR target from the **job record**, not from arbitrary destination fields in the agent's comment body. Jobs API simply posts one summary comment to the existing GitHub PR/GitLab MR. Policy enforces a successful comment operation before `<DONE>`; Jobs API does not add independent outcome verification.
+The sandbox's comment call is restricted by its generated NGINX rules to the owning job. Jobs API resolves repository/PR/MR target from the **job record**, not from arbitrary destination fields in the agent's comment body. Jobs API simply attempts to post one summary comment to the existing GitHub PR/GitLab MR. Policy enforces a successful comment operation before `<DONE>`; Jobs API does not add independent outcome verification. **If the Git provider request times out, fails, or returns an ambiguous response, treat it as an ordinary error**: report failure through the existing command/job error path, without automatic retry, duplicate detection, reconciliation, or a special delivery status. The external provider may have accepted a comment despite the reported error; V1 does not guarantee exactly-once delivery in this failure case.
 
 Cleanup sequence: finish any outstanding Git/comment operation that requires job state; stop and destroy container/proxy and release mounts; then delete the Jobs API job directory and free capacity. No separate container file export pipeline.
 
@@ -178,7 +188,7 @@ Provide **one NGINX instance/configuration per sandbox, running on the host**, m
 - Jobs API supplies the job identity and recorded comment target. The sandbox cannot select a different job just by submitting a new ID/body parameter **through normally enforced per-sandbox proxy rules**.
 - Test method/path/query filtering, TCP forwarding, ordinary proxy routing and attempts to reach Jobs API directly or through another sandbox in normal isolated configurations. Arbitrary HTTPS CONNECT tunnels cannot provide path-level filtering without controlled termination.
 
-**Explicit accepted limitation:** Developers may request Docker `privileged`, host networking, host mounts or Docker socket access. Those choices can bypass/defeat NGINX isolation or expose the host. **MEŽS does not reject such Docker configurations**; network containment is therefore not an unconditional guarantee. DevOps owns Docker daemon access, host privileges, firewall rules and network segmentation. A firewall on network traffic alone does not prevent misuse of a privileged Docker socket. Document requirements and verify normal supported configurations without adding unapproved safety subsystems.
+**Explicit accepted limitation and owner decision:** Docker network isolation and enforcement of proxy-only traffic are **entirely DevOps' responsibility**, including ordinary (non-privileged) containers. MEŽS configures its per-sandbox NGINX rules but does **not** implement or guarantee firewall/egress enforcement. DevOps must prevent direct container access to protected destinations when the deployment requires it; configuring NGINX alone does not block direct Docker bridge-network connections. Developers may request Docker `privileged`, host networking, host mounts or Docker socket access, which can bypass/defeat NGINX isolation or expose the host. **MEŽS does not reject such Docker configurations**. DevOps owns Docker daemon access, host privileges, firewall rules and network segmentation. A firewall on network traffic alone does not prevent misuse of a privileged Docker socket. Document deployment requirements and verify normal supported configurations without adding unapproved safety subsystems.
 
 Agent API is internal to the trusted same-host setup; Jobs API exposure is explicitly a network/deployment decision. Do not assume private networking supplies per-user authorization—none is implemented in V1.
 
@@ -211,22 +221,38 @@ The new services/tools are **not yet implemented on `main`**. Inspect these agai
 
 Do not silently incorporate the separately proposed `plan/multi-agent-orchestration` lifecycle/status changes.
 
-## 9. Implementation sequence and acceptance tests
+## 9. Nine independently deliverable implementation tasks
 
-1. **Independent High-risk plan review**, using a separate reviewer, with findings presented to the owner before any edits. No implementation until the plan review has been resolved and the owner authorizes coding.
-2. **ContainerTool feasibility:** configured local engine, requested image/OS, workspace mount, creation/cleanup, host-managed per-sandbox NGINX and job-scoped HTTP/query/TCP rules. Test separate supported Linux/Windows installations and report limitations of developer-chosen privileged settings.
-3. **Executor and Agent API:** shared/derived executor refactor, persistent immutable sandbox assignment, file-path policy loaded/snapshotted once, normal pause/recovery behavior, required successful SH exact/prefix matching, `<ABORT>`, shell output/exit/timeout behavior.
-4. **Jobs API:** `jobs.yaml` lazy Git token resolution, GitHub and GitLab adapters, exact SHA clone, mandatory project YAML, protected-code placeholder handling, queue/capacity, container CRUD, Agent API status monitoring, one-comment operation, cleanup and job status queries.
-5. **Full Jobs/Containers UI** and end-to-end runs for both Git providers, concurrent requests, error paths and status-based deletion, followed by independent code review and independent testing under `.agents/workflow.md`.
+The architecture above is the approved parent decision record. Implement the feature in the following dependency order, **one task at a time**, rather than as one long-lived implementation branch. Each task begins from the latest owner-approved `main` and must build, have focused regression evidence, pass the applicable independent review/testing, and receive **separate owner approval before merge**. Do not start the next code task until its predecessor is merged (unless the owner explicitly authorizes an exception). Create a small child plan under `specifications/planned/<task-id>/plan.md` before that task; the child plan links here and may not silently revise previously grilled architecture decisions. Classification and independent checks follow `.agents/workflow.md`.
+
+| # | Task / implementation branch | Scope and independent completion gate | Depends on |
+| --- | --- | --- | --- |
+| 1 | **agent-policy-foundation** | Extend Agent API file-path policy loading; use persisted effective policy snapshot for queued, running and recovered executions; add `<ABORT>` and exact/prefix SH successful-command matching. Preserve existing host agents. Unit/integration tests verify each behavior without Docker or Jobs API. | Existing Agent API |
+| 2 | **container-tool-docker** | Standalone `Mezhs.ContainerTool` CLI to create/start/inspect/stop/destroy containers on the configured local Docker engine, mount a supplied workspace and handle errors/cleanup. No proxy or scheduler yet. Prove the lifecycle on supported available engine configurations. | 1 (sequential merge; technically independent) |
+| 3 | **container-tool-proxy** | Extend ContainerTool with host-managed per-sandbox NGINX, exact HTTP method/path/query permissions, TCP destinations, connectivity and cleanup. Test permitted/denied proxy requests and the relevant Linux/Windows deployment paths; **DevOps**, not MEŽS, enforces network isolation/egress. | 2 |
+| 4 | **executor-sandbox-routing** | Reuse existing durable Executor history and runner; add backend selection, immutable persisted sandbox assignment in Agent API and detached Executor state, Docker SH launch, recovery/kill/timeout behavior and no host fallback. **Reject `ATTACH` for sandboxed executions here**, when `SandboxId` exists. Preserve trusted host execution. | 2–3 |
+| 5 | **jobs-git-preparation** | Prepare Jobs API-owned Git services: `jobs.yaml` credential lookup, exact-SHA checkout, trusted-ref sandbox config pinning, required project YAML validation, protected-code marker replacement and sanitized workspace. No Docker allocation or job scheduler yet. | 4 (sequential merge; component independent) |
+| 6 | **jobs-api-lifecycle** | Add `Mezhs.Jobs.Api` service, SQLite FIFO queue/capacity, status endpoints, ContainerTool allocation and cleanup, Agent API creation/status integration, failure paths. Test the full job-to-terminal lifecycle with controlled local/test policy **without** real provider comment publishing. | 2–5 |
+| 7 | **jobs-github-review** | GitHub PR identity/revision validation, job-scoped comment endpoint and real provider summary submission; failures including ambiguous responses are ordinary errors without special retry logic. End-to-end GitHub review and comment tests. | 6 |
+| 8 | **jobs-gitlab-review** | GitLab MR adapter using the same Jobs API workflow, token rules and job-scoped comment behavior. End-to-end GitLab review tests without provider-specific orchestration duplication. | 7 |
+| 9 | **jobs-management-ui** | Jobs/Containers Existing and Pending lists, status/progress, inspection, cancellation and permitted deletion via the Jobs API. Full cross-component and regression verification for both providers, concurrency, failures and cleanup. | 6–8 |
+
+**Task boundaries:** Tasks 1–4 establish behavior and infrastructure but do not introduce a parallel Jobs API scheduler. Task 1 does **not** implement sandbox `ATTACH` blocking before a persisted sandbox identity exists: Task 4 owns that requirement. Tasks 2–3 do not implement DevOps' firewall/network admission policy. Task 5 does not secretly start jobs. Task 6 may use a controlled test-only agent completion path while Git provider publishing is not yet integrated; production review completion remains subject to the parent comment requirement. Tasks 7–8 must reuse the same job record and lifecycle. Task 9 completes the agreed V1 UI, not a new UI state store.
+
+**Review gates:** The approved overall architecture has undergone owner Grill Me and an independent high-risk review. Each task must honor `.agents/workflow.md`; any substantive new high-risk design must undergo independent plan review before coding. No child task may amend a grilled owner decision without the owner's explicit approval. Review/test evidence is attached to the exact implementation SHA. Only task 9 closes the complete parent feature.
+
+**First child plan:** [agent-policy-foundation](../agent-policy-foundation/plan.md). Create subsequent child plans when their task starts; do not pre-design all nine implementations or expand their scope.
 
 ### Observable acceptance criteria
 
 - [ ] GitHub/GitLab requests run the **exact SHA** when submitted; later branch pushes do not alter the review. There is no automatic scheduling or callback.
 - [ ] An unconfigured repository is attempted anonymously. `jobs.yaml` exact-repo override beats host default; editing YAML affects the **next** clone/comment credential lookup without restarting Jobs API.
-- [ ] Missing project YAML, malformed YAML or malformed `SecurityCritical` markers fails before sandbox creation. Valid protected regions become unique placeholders, and no compilation repair is performed.
+- [ ] Missing selected project YAML, malformed YAML or malformed `SecurityCritical` markers fails before sandbox creation. Valid protected regions become unique placeholders, and no compilation repair is performed.
+- [ ] For repositories configured with `projectConfiguration.repositories[].sandbox.source: trustedRef` in host `jobs.yaml`, modifying `.mezhs/sandbox.yaml` in an external PR/MR has no effect on the sandbox. The configured trusted ref is pinned to a commit per job; missing/unreadable trusted config fails closed without PR fallback. Non-opted-in repositories retain requested-revision configuration for trusted sources only.
 - [ ] Agent API reads a path policy once, persists effective policy and immutable sandbox assignment, and uses them during normal execution/recovery. Host execution remains optional under trusted host settings.
 - [ ] Sandbox agent emits ordinary `<SH>`; shared Executor records output/exit/timeout using specialized Docker launch and no duplicate execution store. Docker process behavior is tested.
-- [ ] The policy requires a **successful** Jobs API comment command before `<DONE>`; unsuccessful HTTP calls do not satisfy it; `<ABORT>` fails the execution. Jobs API posts one summary or no-findings comment to the correct existing PR/MR.
+- [ ] `ATTACH` commands are rejected for sandboxed executions even if project policy allows them; no sandbox-origin file path can trigger an Agent API host-file import. Trusted local agents retain existing `ATTACH` behavior for V1.
+- [ ] The policy requires a **successful** Jobs API comment command before `<DONE>`; unsuccessful HTTP calls do not satisfy it; `<ABORT>` fails the execution. Jobs API posts one summary or no-findings comment to the correct existing PR/MR. Timeout/ambiguous provider responses follow the ordinary error path without automatic retries or special handling.
 - [ ] Jobs API status classification controls cleanup: **stopped/terminal => stop/destroy remaining container processes and release resources; non-stopped => retain**. No resumable Pause/Resume implementation is introduced.
 - [ ] NGINX exact job-specific method/path/query and TCP rules work in normally isolated configurations; bypass attempts and developer-configured privilege limitations are tested/documented, not silently hidden or overpromised.
 - [ ] One FIFO capacity rule governs all managed containers; concurrent submissions do not overbook; terminal destruction frees a slot and admits the next pending job.
@@ -238,9 +264,9 @@ Do not silently incorporate the separately proposed `plan/multi-agent-orchestrat
 
 **Accepted operational risks:** Jobs API has no caller authentication, so network-reachable callers can invoke its exposed operations; DevOps controls admission. Developers can configure Docker privileges/mounts that compromise NGINX containment; DevOps controls Docker/host trust. An abnormal crash or ambiguous inter-service call can orphan work; no cross-service transaction system. Redaction may make sanitized code uncompilable; no auto-stubs.
 
-**Technical proof still required:** NGINX routing/query enforcement and normal-case egress control on each supported platform; host-side NGINX reachability from Linux/Windows containers; Docker exec output and timeout/kill semantics; same-host workspace mounts; FIFO and cleanup behavior. Do not mistake a design choice for demonstrated isolation.
+**Technical proof still required:** MEŽS NGINX routing/query enforcement and host-side NGINX reachability from Linux/Windows containers; demonstration that deployment-owned network controls block direct egress when proxy-only isolation is claimed (not a MEŽS enforcement feature); Docker exec output and timeout/kill semantics; same-host workspace mounts; FIFO and cleanup behavior. Do not mistake a design choice for demonstrated isolation.
 
-**Deferred:** Git commit reconstruction of protected code, code changes/PR creation, inline comments, Jira, review status callbacks, GitHub Apps, token UI, automatic review triggers, resumable Pause, multi-agent descendants, remote Docker engines, cross-OS simultaneous engines and any generic recovery/auth policy subsystem not requested.
+**Deferred:** Git commit reconstruction of protected code, code changes/PR creation, inline comments, Jira, review status callbacks, GitHub Apps, token UI, automatic review triggers, resumable Pause, multi-agent descendants, remote Docker engines, cross-OS simultaneous engines, replacing/removing the existing `ATTACH` command, and any generic recovery/auth policy subsystem not requested.
 
 **Do not revive:** Container queue/CRUD in Agent API; Git-only tool owning source but not job lifecycle; scheduler or SQLite queue in ContainerTool; project YAML choosing host execution; subclassing Agent API for Git; a second Executor persistence model; Agent API destroying Jobs-owned containers; custom network firewall or container shell daemon without verified need; opportunistic multi-agent orchestration rewrite.
 

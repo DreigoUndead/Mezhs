@@ -1,4 +1,5 @@
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Check, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
 import { modelActivityLabel } from "./ChatSurface";
 import { ConversationViewport } from "./ConversationViewport";
@@ -68,7 +69,8 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [newChatCategoryId, setNewChatCategoryId] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
-  const [showCategoryForm, setShowCategoryForm] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<"new" | Category | null>(null);
+  const [savingCategory, setSavingCategory] = useState(false);
   const [search, setSearch] = useState("");
   const [chats, setChats] = useState<Chat[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
@@ -84,10 +86,13 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
   const [deletingChats, setDeletingChats] = useState(false);
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
+  const [chatRenameDraft, setChatRenameDraft] = useState("");
   const selectionEpoch = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const providerRegistry = useRef(new ChatProviderRegistry());
+  const openChatMenuRef = useRef<HTMLDivElement | null>(null);
+  const deletedChatIdsRef = useRef(new Set<string>());
 
   const selectedConnection = useMemo(
     () => connections.find((connection) => connection.id === connectionId),
@@ -95,6 +100,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   );
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
+  const selectedGroup = categories.find((category) => category.categoryId === categoryFilter);
   const draftKey = chatId ? `chat:${chatId}` : `new:${newChatSequence}:${connectionId}`;
   const { draft, setDraft, clearDraft, moveDraft, restoreDraft } = useConversationDrafts(draftKey);
   const { pending: sending, start: startSend, transfer: transferSend, finish: finishSend } = useConversationPending(draftKey);
@@ -150,6 +156,18 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
 useEffect(() => () => providerRegistry.current.dispose(), []);
 
   useEffect(() => {
+    if (!chatMenuId) return;
+    const dismiss = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || openChatMenuRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest(".chat-options")) return;
+      setChatMenuId(null);
+    };
+    document.addEventListener("click", dismiss);
+    return () => document.removeEventListener("click", dismiss);
+  }, [chatMenuId]);
+
+  useEffect(() => {
     let cancelled = false;
     setModels([]);
     setModelId("");
@@ -179,7 +197,8 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
 
   async function loadChats(base = apiBase) {
     try {
-      setChats(await apiJson<Chat[]>(base, "/v1/chats"));
+      const loaded = await apiJson<Chat[]>(base, "/v1/chats");
+      setChats(loaded.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not load conversations.");
     }
@@ -209,14 +228,14 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     }
   }
 
-  function newChat(categoryId = "") {
+  function newChat() {
     ++selectionEpoch.current;
     clearPendingFiles();
     setChatMenuId(null);
     setChatId(null);
     setMessages([]);
     setNewChatSequence((current) => current + 1);
-    setNewChatCategoryId(categoryId);
+    setNewChatCategoryId(categoryFilter === "all" || categoryFilter === "uncategorized" ? "" : categoryFilter);
     setSidebarOpen(false);
   }
 
@@ -331,28 +350,43 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     }
   }
 
-  async function createCategory(event: FormEvent) {
+  function beginCategoryEdit() {
+    setNewCategoryName(selectedGroup?.name ?? "");
+    setEditingCategory(selectedGroup ?? "new");
+  }
+
+  async function saveCategory(event: FormEvent) {
     event.preventDefault();
     const name = newCategoryName.trim();
-    if (!name) return;
+    if (!editingCategory || !name || savingCategory) return;
+    setSavingCategory(true);
     try {
-      const category = await apiJson<Category>(apiBase, "/v1/categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
+      if (editingCategory === "new") {
+        await apiJson<Category>(apiBase, "/v1/categories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+      } else {
+        await apiJson<Category>(apiBase,
+          `/v1/categories/${encodeURIComponent(editingCategory.categoryId)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          });
+      }
       await loadCategories();
-      setCategoryFilter(category.categoryId);
-      setNewChatCategoryId(category.categoryId);
       setNewCategoryName("");
-      setShowCategoryForm(false);
+      setEditingCategory(null);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Group could not be created.");
+      setNotice(error instanceof Error ? error.message : "Group could not be saved.");
+    } finally {
+      setSavingCategory(false);
     }
   }
 
   async function deleteCategory(category: Category) {
-    if (!window.confirm(`Delete the group '${category.name}'? Conversations will be kept.`)) return;
+    if (!window.confirm(`Delete group '${category.name}'? All conversations in this shared group, including Agent conversations if present, will be unassigned. Conversations are kept.`)) return;
     try {
       await apiJsonOrEmpty(apiBase, `/v1/categories/${category.categoryId}`, {
         method: "DELETE",
@@ -398,7 +432,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     if (ids.length === 0 || deletingChats) return;
     const noun = ids.length === 1 ? "conversation" : "conversations";
     if (requireConfirmation &&
-        !window.confirm(`Delete ${description}? This permanently removes ${ids.length} ${noun} from MEŽS.`)) return;
+        !window.confirm(`Delete ${description} (${ids.length} ${noun})? Conversation transcripts (and Agent state in the Agent host) will be removed from active storage. Previously imported legacy chat files, if any, remain as backups. Historical Executor records and stored files may remain. Running Executor shells are not stopped by chat deletion.`)) return;
 
     setDeletingChats(true);
     setChatMenuId(null);
@@ -415,6 +449,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     }
 
       const deleted = new Set(ids);
+      ids.forEach((id) => deletedChatIdsRef.current.add(id));
       setChats((current) => current.filter((chat) => !deleted.has(chat.chatId)));
       if (chatId && deleted.has(chatId)) newChat();
       setSelectedChatIds(new Set());
@@ -428,26 +463,39 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     }
   }
 
-  async function assignCategory(categoryId: string) {
-    if (!activeChat) {
-      setNewChatCategoryId(categoryId);
-      return;
-    }
+  async function assignCategory(targetChatId: string, categoryId: string) {
     try {
-      await apiJson<Chat>(apiBase, `/v1/chats/${activeChat.chatId}`, {
+      await apiJson<Chat>(apiBase, `/v1/chats/${encodeURIComponent(targetChatId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ categoryId: categoryId || null }),
       });
-      await loadChats();
+      setChats((current) => current.map((chat) =>
+        chat.chatId === targetChatId ? { ...chat, categoryId: categoryId || undefined } : chat));
+      setChatMenuId(null);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Conversation could not be moved.");
     }
   }
 
+  async function renameChat(chat: Chat, value: string) {
+    const title = value.trim();
+    if (!title || title === chat.title) return;
+    try {
+      await apiJson(apiBase, `/v1/chats/${encodeURIComponent(chat.chatId)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      setChats((current) => current.map((item) =>
+        item.chatId === chat.chatId ? { ...item, title } : item));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Conversation could not be renamed.");
+    }
+  }
+
   function selectCategory(id: string) {
     setCategoryFilter(id);
-    if (id !== "all" && id !== "uncategorized") setNewChatCategoryId(id);
+    setNewChatCategoryId(id === "all" || id === "uncategorized" ? "" : id);
   }
 
   useAutoResizeTextArea(composerRef, draft);
@@ -516,8 +564,6 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
           <span className={`health-dot ${online ? "online" : ""}`} title={online ? "API online" : "API offline"} />
         </div>
 
-        <button className="new-chat" onClick={() => newChat()}><span>+</span> New conversation</button>
-
         <ConnectionModelPicker
           connections={connections}
           connectionId={connectionId}
@@ -531,72 +577,130 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
         />
 
 
-        <div className="groups-heading">
-          <span className="section-label">Groups</span>
-          <button onClick={() => setShowCategoryForm((value) => !value)} aria-label="Create group">+</button>
-        </div>
-        {showCategoryForm && (
-          <form className="category-form" onSubmit={(event) => void createCategory(event)}>
-            <input autoFocus value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} placeholder="Group name" />
-            <button type="submit">Add</button>
-          </form>
-        )}
-        <nav className="category-list" aria-label="Conversation groups">
-          <button className={categoryFilter === "all" ? "active" : ""} onClick={() => selectCategory("all")}>
-            <i className="all-dot" /><span>All conversations</span><small>{chats.length}</small>
-          </button>
-          {categories.map((category) => (
-            <div className="category-row" key={category.categoryId}>
-              <button className={categoryFilter === category.categoryId ? "active" : ""} onClick={() => selectCategory(category.categoryId)}>
-                <i style={{ background: category.color }} /><span>{category.name}</span>
-                <small>{chats.filter((chat) => chat.categoryId === category.categoryId).length}</small>
+        <div className="base-group-filter">
+          {editingCategory ? (
+            <form className="base-group-editor" onSubmit={(event) => void saveCategory(event)}>
+              <input autoFocus value={newCategoryName} maxLength={100}
+                aria-label={editingCategory === "new" ? "New group name" : "Rename group"}
+                placeholder={editingCategory === "new" ? "New group name" : "Group name"}
+                disabled={savingCategory}
+                onChange={(event) => setNewCategoryName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && !savingCategory) setEditingCategory(null);
+                }} />
+              <button type="submit" aria-label="Save group" title="Save group"
+                disabled={!newCategoryName.trim() || savingCategory}>
+                <Check aria-hidden="true" size={17} strokeWidth={2} />
               </button>
-              <button className="category-delete" onClick={() => void deleteCategory(category)} title="Delete group">x</button>
-            </div>
-          ))}
-          <button className={categoryFilter === "uncategorized" ? "active" : ""} onClick={() => selectCategory("uncategorized")}>
-            <i className="empty-dot" /><span>Uncategorized</span><small>{chats.filter((chat) => !chat.categoryId).length}</small>
-          </button>
-        </nav>
-
-        <div className="history-heading">
-          <span className="section-label">Conversations</span>
-          <div>
-            <span>{filteredChats.length}</span>
-            <button onClick={openConversationManager} disabled={loading || sending || filteredChats.length === 0}>Manage</button>
-          </div>
+              <button type="button" aria-label="Cancel editing group" title="Cancel"
+                disabled={savingCategory} onClick={() => setEditingCategory(null)}>
+                <X aria-hidden="true" size={17} strokeWidth={2} />
+              </button>
+            </form>
+          ) : (
+            <>
+              <select aria-label="Filter conversations by group"
+                value={categoryFilter} onChange={(event) => selectCategory(event.target.value)}>
+                <option value="all">All groups ({chats.length})</option>
+                {categories.map((category) => (
+                  <option key={category.categoryId} value={category.categoryId}>
+                    {category.name} ({chats.filter((chat) => chat.categoryId === category.categoryId).length})
+                  </option>
+                ))}
+                <option value="uncategorized">
+                  Uncategorized ({chats.filter((chat) => !chat.categoryId).length})
+                </option>
+              </select>
+              <button type="button" onClick={beginCategoryEdit}
+                aria-label={selectedGroup ? `Rename group ${selectedGroup.name}` : "Create group"}
+                title={selectedGroup ? "Rename group" : "Create group"}>
+                {selectedGroup
+                  ? <Pencil aria-hidden="true" size={17} strokeWidth={1.8} />
+                  : <Plus aria-hidden="true" size={18} strokeWidth={2} />}
+              </button>
+              <button type="button" disabled={!selectedGroup}
+                aria-label={selectedGroup ? `Delete group ${selectedGroup.name}` : "Delete group"}
+                title={selectedGroup ? "Delete group" : "Select a group to delete"}
+                onClick={() => { if (selectedGroup) void deleteCategory(selectedGroup); }}>
+                <Trash2 aria-hidden="true" size={17} strokeWidth={1.8} />
+              </button>
+            </>
+          )}
         </div>
-        <label className="search-box">
-          <span>Search</span>
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter conversations" />
-          {search && <button onClick={() => setSearch("")} aria-label="Clear search">x</button>}
-        </label>
+
+        <div className="base-sidebar-tools">
+          <input type="search" aria-label="Search conversations" placeholder="Search conversations"
+            value={search} onChange={(event) => setSearch(event.target.value)} />
+          <button type="button" className="base-sidebar-new" aria-label="New conversation"
+            title="New conversation" onClick={() => newChat()}>
+            <Plus aria-hidden="true" size={18} strokeWidth={2} />
+          </button>
+          <button type="button" aria-label="Manage conversations" title="Manage conversations"
+            onClick={openConversationManager}>
+            <Settings aria-hidden="true" size={18} strokeWidth={1.8} />
+          </button>
+        </div>
+        <span className="section-label">Conversations · {filteredChats.length} of {chats.length}</span>
         <nav className="chat-list" aria-label="Conversation history">
           {filteredChats.map((chat) => {
             const connection = connectionFor(chat.connectionId);
-            const category = categories.find((item) => item.categoryId === chat.categoryId);
             return (
-              <div className="chat-row" key={chat.chatId}>
-                <button className={`chat-open ${chat.chatId === chatId ? "active" : ""}`} onClick={() => void openChat(chat)}>
-                  <span className="chat-title">{chat.title}</span>
-                  <small>{new Date(chat.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</small>
-                  <span className="chat-label">{connection?.name || chat.connectionId}</span>
-                  {category && <i className="chat-category" style={{ background: category.color }} title={category.name} />}
+              <div className="chat-row" key={chat.chatId}
+                ref={chatMenuId === chat.chatId ? openChatMenuRef : null}
+                onBlur={(event) => {
+                  if (chatMenuId === chat.chatId && !event.currentTarget.contains(event.relatedTarget))
+                    setChatMenuId((current) => current === chat.chatId ? null : current);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && chatMenuId === chat.chatId) {
+                    event.stopPropagation();
+                    setChatMenuId(null);
+                  }
+                }}>
+                <button className={`chat-open ${chat.chatId === chatId ? "active" : ""}`}
+                  onClick={() => void openChat(chat)}>
+                  <span className="chat-title" title={chat.title}>{chat.title}</span>
+                  <span className="base-chat-meta">
+                    <span className="base-chat-context">{connection?.name || chat.connectionId}</span>
+                    <time dateTime={chat.updatedAt} title={new Date(chat.updatedAt).toLocaleString()}>
+                      {new Date(chat.updatedAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+                    </time>
+                  </span>
                 </button>
-                <button
-                  className="chat-options"
-                  aria-label={`Conversation options for ${chat.title}`}
-                  aria-haspopup="menu"
+                <button type="button" className="chat-options"
+                  aria-label={`Options for ${chat.title}`}
                   aria-expanded={chatMenuId === chat.chatId}
-                  onClick={() => setChatMenuId((current) => current === chat.chatId ? null : chat.chatId)}
-                >...</button>
+                  onClick={() => {
+                    if (chatMenuId === chat.chatId) setChatMenuId(null);
+                    else {
+                      setChatRenameDraft(chat.title);
+                      setChatMenuId(chat.chatId);
+                    }
+                  }}>⋯</button>
                 {chatMenuId === chat.chatId && (
-                  <div className="chat-options-menu" role="menu">
-                    <button
-                      role="menuitem"
+                  <div className="chat-options-menu">
+                    <input type="text" className="base-chat-menu-title" autoFocus
+                      aria-label={`Rename ${chat.title}`} title="Rename conversation"
+                      maxLength={200} value={chatRenameDraft}
+                      onChange={(event) => setChatRenameDraft(event.target.value)}
+                      onBlur={(event) => { void renameChat(chat, event.currentTarget.value); }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        }
+                      }} />
+                    <select className="base-chat-menu-group" value={chat.categoryId || ""}
+                      aria-label={`Group for ${chat.title}`}
+                      onChange={(event) => void assignCategory(chat.chatId, event.target.value)}>
+                      <option value="">Uncategorized</option>
+                      {categories.map((category) => (
+                        <option key={category.categoryId} value={category.categoryId}>{category.name}</option>
+                      ))}
+                    </select>
+                    <button type="button" className="base-chat-menu-delete"
                       disabled={deletingChats}
-                      onClick={() => void deleteConversations([chat], `'${chat.title}'`, false)}
-                    >Delete</button>
+                      onClick={() => void deleteConversations([chat], `'${chat.title}'`)}>Delete</button>
                   </div>
                 )}
               </div>
@@ -612,75 +716,74 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
       </aside>
 
       {showConversationManager && (
-        <div className="dialog-backdrop">
-          <section className="conversation-manager" role="dialog" aria-modal="true" aria-labelledby="conversation-manager-title">
+        <div className="dialog-backdrop" onClick={() => setShowConversationManager(false)}>
+          <section className="conversation-manager" role="dialog" aria-modal="true"
+            aria-labelledby="conversation-manager-title" aria-describedby="conversation-manager-summary"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setShowConversationManager(false);
+            }}>
             <header>
               <div>
-                <span className="eyebrow">Conversation management</span>
-                <h2 id="conversation-manager-title">Delete conversations</h2>
-                <p>Showing {managedChats.length} of {filteredChats.length} conversations from the current sidebar filters.</p>
+                <h2 id="conversation-manager-title">Manage conversations</h2>
+                <p id="conversation-manager-summary">
+                  {managedChats.length} of {filteredChats.length} shown · {chats.length} total conversations
+                </p>
               </div>
-              <button className="dialog-close" onClick={() => setShowConversationManager(false)} aria-label="Close conversation manager">×</button>
             </header>
-
-            <div className="manager-filter">
-              <label htmlFor="conversation-delete-filter">Filter conversations to delete</label>
-              <input
-                id="conversation-delete-filter"
-                autoFocus
-                value={managerSearch}
-                onChange={(event) => setManagerSearch(event.target.value)}
-                placeholder="Filter by title, connection, or group"
-              />
-              {managerSearch && <button type="button" onClick={() => setManagerSearch("")} aria-label="Clear delete filter">x</button>}
-            </div>
-
+            <label className="manager-filter">
+              Filter displayed conversations
+              <input type="search" autoFocus autoComplete="off"
+                value={managerSearch} onChange={(event) => setManagerSearch(event.target.value)}
+                placeholder="Title, connection, group" />
+            </label>
             <div className="manager-selection">
-              <button onClick={selectAllManagedChats} disabled={managedChats.length === 0}>
-                {allManagedChatsSelected ? "Clear shown selection" : "Select all shown"}
-              </button>
-              <span>{selectedChatIds.size} selected</span>
+              <label>
+                <input type="checkbox" checked={allManagedChatsSelected}
+                  disabled={managedChats.length === 0 || deletingChats}
+                  onChange={selectAllManagedChats} />
+                Select all shown
+              </label>
+              <span>{managedChats.filter((chat) => selectedChatIds.has(chat.chatId)).length} selected</span>
             </div>
-
             <div className="manager-list">
               {managedChats.map((chat) => {
                 const connection = connectionFor(chat.connectionId);
                 return (
                   <div className="manager-row" key={chat.chatId}>
                     <label>
-                      <input
-                        type="checkbox"
+                      <input type="checkbox" disabled={deletingChats}
                         checked={selectedChatIds.has(chat.chatId)}
-                        onChange={() => toggleManagedChat(chat.chatId)}
-                      />
-                      <span><strong>{chat.title}</strong><small>{connection?.name || chat.connectionId}</small></span>
+                        onChange={() => toggleManagedChat(chat.chatId)} />
+                      <span>
+                        <strong title={chat.title}>{chat.title}</strong>
+                        <small>{connection?.name || chat.connectionId} ·
+                          {new Date(chat.updatedAt).toLocaleDateString()}</small>
+                      </span>
                     </label>
-                    <button
-                      className="delete-one"
-                      disabled={deletingChats}
-                      onClick={() => void deleteConversations([chat], `'${chat.title}'`)}
-                    >Delete</button>
+                    <button type="button" className="delete-one" disabled={deletingChats}
+                      aria-label={`Delete ${chat.title}`}
+                      onClick={() => void deleteConversations([chat], `'${chat.title}'`)}>Delete</button>
                   </div>
                 );
               })}
-              {managedChats.length === 0 && <p className="manager-empty">No conversations match this delete filter.</p>}
+              {managedChats.length === 0 &&
+                <p className="manager-empty">No conversations match the current filters.</p>}
             </div>
-
             <footer>
-              <button className="secondary-action" onClick={() => setShowConversationManager(false)}>Cancel</button>
-              <button
-                className="danger-action"
-                disabled={selectedChatIds.size === 0 || deletingChats}
+              <button type="button" className="danger-action"
+                disabled={deletingChats || !managedChats.some((chat) => selectedChatIds.has(chat.chatId))}
                 onClick={() => void deleteConversations(
-                  filteredChats.filter((chat) => selectedChatIds.has(chat.chatId)),
-                  `${selectedChatIds.size} selected conversations`,
-                )}
-              >Delete selected</button>
-              <button
-                className="danger-action danger-all"
+                  managedChats.filter((chat) => selectedChatIds.has(chat.chatId)),
+                  "selected conversations",
+                )}>Delete selected</button>
+              <button type="button" className="danger-action"
                 disabled={managedChats.length === 0 || deletingChats}
-                onClick={() => void deleteConversations(managedChats, "all conversations shown by the delete filter")}
-              >Delete all shown</button>
+                onClick={() => void deleteConversations(managedChats, "all shown conversations")}>
+                Delete all shown
+              </button>
+              <button type="button" className="secondary-action"
+                onClick={() => setShowConversationManager(false)}>Close</button>
             </footer>
           </section>
         </div>
@@ -693,13 +796,6 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
             <h1>{activeChat?.title || "New conversation"}</h1>
           </div>
           <div className="header-actions">
-            <label className="group-picker">
-              <span>Group</span>
-              <select value={activeChat?.categoryId || newChatCategoryId} onChange={(event) => void assignCategory(event.target.value)}>
-                <option value="">Uncategorized</option>
-                {categories.map((category) => <option key={category.categoryId} value={category.categoryId}>{category.name}</option>)}
-              </select>
-            </label>
             {selectedConnection && <div className="provider-chip"><span>{makeInitials(selectedConnection.name)}</span>{selectedConnection.name}</div>}
           </div>
         </header>

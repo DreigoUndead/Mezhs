@@ -53,7 +53,7 @@ Assert ($chatGpt.Contains('SendAnonymousAsync(context, cancellationToken)') -and
     'Anonymous providers no longer use temporary anonymous transports.'
 
 Assert (-not $agentProgram.Contains('--diagnostics') -and
-        $agentProgram.Contains('app.MapMezhsApi();')) `
+        $agentProgram.Contains('app.MapMezhsApi(deleteChats:')) `
     'Agent API must register the shared diagnostics endpoint through MapMezhsApi, not a separate launch mode.'
 
 Assert ($diagnosticsApi.Contains('/v1/diagnostics/connections/{connectionId}/browser/{operation}') -and

@@ -2,6 +2,31 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.2.0] — 2026-11-07
+
+### Added
+- Agent and base Web chat management: search, categories/groups, renaming, activity information, and confirmed single/bulk deletion.
+- Core SQLite chat, message, category, and remote-state persistence with one-time transactional import of existing JSON and JSONL history.
+
+### Changed
+- Simplify Agent chat deletion to request cancellation of Agent work and associated Executor shells, then delete Agent data followed by Core chat data in separate transactions without waiting for shell completion.
+- Preserve Executor execution history, unrelated uploaded files, and legacy chat files retained as migration backups.
+- Require task-branch-first planning, documentation, workflow, and implementation changes; keep `main` release-only.
+
+### Fixed
+- Chat/group UI synchronization and deletion disclosures, atomic SQLite message admission, orphaned legacy message-log migration handling, and successful staged attachments after deletion-guard removal.
+- Windows PowerShell 5.1 API, architecture, and Executor lifecycle test compatibility.
+
+## [0.1.4] — 2026-11-05
+
+### Changed
+- Start each next-role prompt with the task name and role; keep handoffs generic, minimal and free of prior-review steering.
+- Have code reviewers correct issues and hand off to a fresh independent reviewer until PASS.
+- Require initial feasibility, complexity, risk and conflict assessment; summarize proposed plans before committing and notify the owner before plan-review edits.
+- Simplify development workflow instructions by removing duplicated handoff guidance.
+
+No application runtime changes were made by this release.
+
 ## [0.1.3] — 2026-11-05
 
 ### Fixed

@@ -68,7 +68,7 @@ app.MapGet("/", () => Results.Ok(new
         "/v1/diagnostics/connections/{connectionId}/browser/{operation}"
     }
 }));
-app.MapMezhsApi();
+app.MapMezhsApi(deleteChats: app.Services.GetRequiredService<AgentService>().DeleteChatsAsync);
 
 app.MapGet("/v1/policies", (PolicyRegistry policies) =>
     Results.Ok(policies.GetViews()));
@@ -272,17 +272,23 @@ static AgentChatView ToView(
     ChatStore chats)
 {
     var chat = chats.TryGetListState(record.ChatId);
+    var core = chats.GetChat(record.ChatId);
+    var lastActivity = core?.UpdatedAt > record.UpdatedAt ? core.UpdatedAt : record.UpdatedAt;
     var firstTask = store.GetFirstRootExecutionRequest(record.ChatId);
+    var savedTitle = core?.Title;
     return new AgentChatView(
         record.ChatId,
         record.PolicyId,
         record.OriginSource,
         record.OriginReference,
         record.Paused,
-        string.IsNullOrWhiteSpace(firstTask) ? chat?.Title : firstTask,
+        !string.IsNullOrWhiteSpace(savedTitle)
+            ? savedTitle
+            : string.IsNullOrWhiteSpace(firstTask) ? chat?.Title : firstTask,
         chat?.ConnectionId,
         record.CreatedAt,
-        record.UpdatedAt);
+        lastActivity,
+        core?.CategoryId);
 }
 
 static string SafeFilePart(string value)

@@ -148,8 +148,14 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
                             $"Electron provider operation '{operation}' returned no result.");
 
                 case "failed":
-                    throw new InvalidOperationException(
-                        $"Electron provider operation failed: {state.Error ?? "Unknown provider error."}");
+                    throw string.Equals(
+                        state.Code,
+                        "authorization_required",
+                        StringComparison.OrdinalIgnoreCase)
+                        ? new BrowserAuthorizationRequiredException(
+                            state.Error ?? "Browser authorization is required.")
+                        : new InvalidOperationException(
+                            $"Electron provider operation failed: {state.Error ?? "Unknown provider error."}");
 
                 default:
                     throw new InvalidOperationException(
@@ -271,6 +277,7 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         string Status,
         JsonElement? Result,
         string? Error,
+        string? Code,
         BrowserOperationProgress? Progress);
 
     private static async Task IgnoreFailureAsync(Task task)
