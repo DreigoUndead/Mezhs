@@ -30,6 +30,40 @@ compiled.paths = Module._nodeModulePaths(frontend);
 compiled._compile(output, file);
 const html = (value, props = {}) => renderToStaticMarkup(React.createElement(compiled.exports.MarkdownContent, { content: value, ...props }));
 
+
+test("WritingBlock displays bounded metadata and preserves raw Markdown for editing", () => {
+  const input = '<WritingBlock variant="email" recipient="alex@example.com" subject="Hello">\n**Hi Alex,**\n\n- First item\n- Second item\n</WritingBlock>';
+  const output = html(input);
+  assert.match(output, /class="rich-writing-block"/);
+  assert.match(output, /Email draft/);
+  assert.match(output, /alex@example\.com/);
+  assert.match(output, /Subject:/);
+  assert.match(output, /aria-label="Edit writing block"/);
+  assert.match(output, /\*\*Hi Alex,\*\*/);
+  assert.match(output, /- First item/);
+  assert.match(output, /aria-label="Copy writing block"/);
+});
+
+test("WritingBlock fails closed on executable metadata and unrecognized variants", () => {
+  for (const input of [
+    '<WritingBlock variant={globalThis.alert(1)}>Unsafe</WritingBlock>',
+    '<WritingBlock variant="email" onClick="alert(1)">Unsafe</WritingBlock>',
+    '<WritingBlock variant="unknown">Unsafe</WritingBlock>',
+    '<WritingBlock recipient="a" recipient="b">Unsafe</WritingBlock>',
+    '<WritingBlock subject="a" {...unsafe}>Unsafe</WritingBlock>',
+  ]) {
+    const output = html(input);
+    assert.doesNotMatch(output, /class="rich-writing-block"/);
+    assert.match(output, /Unsafe/);
+  }
+});
+
+test("WritingBlock inside fenced Markdown remains inert", () => {
+  const output = html('~~~mdx\n<WritingBlock variant="document">\nHidden **draft**\n</WritingBlock>\n~~~');
+  assert.doesNotMatch(output, /class="rich-writing-block"/);
+  assert.match(output, /&lt;WritingBlock/);
+});
+
 test("GFM tables, cell alignment, and escaped pipes", () => {
   const output = html("| Name | Result |\n| :--- | ---: |\n| A \\| B | **PASS** |");
   assert.match(output, /<table>/);
