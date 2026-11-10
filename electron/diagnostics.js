@@ -137,6 +137,118 @@ function rspackTimingPage(clear) {
   return { cleared: clear, before, after: count() };
 }
 
+function rspackRegistryShapePage(root = globalThis) {
+  // Read-only shape classification. Proxy descriptor traps may still run page code.
+  const empty = () => ({
+    scannedGlobals: 0,
+    matchingNames: 0,
+    dataArrayCandidates: 0,
+    accessorCandidates: 0,
+    ownPushFunctions: 0,
+    inheritedOrAbsentPush: 0,
+    nativeLookingPush: 0,
+    nonNativePush: 0,
+    emptyArrays: 0,
+    processedEntryShapeCandidates: 0,
+    noProcessedEntryShape: 0,
+    passedNameAndArray: 0,
+    passedNameArrayAndOwnPush: 0,
+    passedNameArrayOwnPushNonNative: 0,
+    passedAllPredicates: 0,
+    descriptorErrors: 0,
+    limitExceeded: false,
+    incomplete: false
+  });
+  const failure = limit => {
+    // Do not publish a partially successful aggregate after an unsafe scan.
+    const result = empty();
+    result.incomplete = true;
+    if (limit) result.limitExceeded = true;
+    else result.descriptorErrors = 1;
+    return result;
+  };
+  try {
+    const result = empty();
+    const own = (object, key) => {
+      if (object === null || (typeof object !== 'object' && typeof object !== 'function'))
+        return { kind: 'missing' };
+      const descriptor = Object.getOwnPropertyDescriptor(object, key);
+      if (!descriptor) return { kind: 'missing' };
+      return Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        ? { kind: 'data', value: descriptor.value }
+        : { kind: 'accessor' };
+    };
+    const names = Object.getOwnPropertyNames(root);
+    if (names.length > 5000) return failure(true);
+    result.scannedGlobals = names.length;
+    let inspectedEntries = 0;
+    for (const name of names) {
+      if (!/^webpackChunk[A-Za-z0-9_$]{1,80}$/.test(name)) continue;
+      result.matchingNames++;
+      if (result.matchingNames > 32) return failure(true);
+      let sawAccessor = false;
+      const read = (object, key) => {
+        const descriptor = own(object, key);
+        if (descriptor.kind === 'accessor' && !sawAccessor) {
+          sawAccessor = true;
+          result.accessorCandidates++;
+        }
+        return descriptor.kind === 'data' ? descriptor.value : undefined;
+      };
+      const registry = read(root, name);
+      if (!Array.isArray(registry)) continue;
+      result.dataArrayCandidates++;
+      result.passedNameAndArray++;
+      const push = read(registry, 'push');
+      if (typeof push !== 'function') {
+        result.inheritedOrAbsentPush++;
+        continue;
+      }
+      result.ownPushFunctions++;
+      result.passedNameArrayAndOwnPush++;
+      if (push === Array.prototype.push ||
+          /\[native code\]/.test(Function.prototype.toString.call(push))) {
+        result.nativeLookingPush++;
+        continue;
+      }
+      result.nonNativePush++;
+      result.passedNameArrayOwnPushNonNative++;
+      const length = read(registry, 'length');
+      if (length === 0) result.emptyArrays++;
+      if (Number.isSafeInteger(length) && length > 2048) return failure(true);
+      if (!Number.isSafeInteger(length) || length < 1) {
+        result.noProcessedEntryShape++;
+        continue;
+      }
+      let processed = false;
+      for (let index = 0; index < length; index++) {
+        inspectedEntries++;
+        if (inspectedEntries > 4096) return failure(true);
+        const entry = read(registry, String(index));
+        if (!Array.isArray(entry)) continue;
+        const ids = read(entry, '0');
+        const modules = read(entry, '1');
+        if (!Array.isArray(ids) || modules === null ||
+            (typeof modules !== 'object' && typeof modules !== 'function') ||
+            Array.isArray(modules) || !(read(ids, 'length') >= 1))
+          continue;
+        const firstId = read(ids, '0');
+        if (typeof firstId === 'string' || typeof firstId === 'number') {
+          processed = true;
+          break;
+        }
+      }
+      if (processed) {
+        result.processedEntryShapeCandidates++;
+      result.passedAllPredicates++;
+      } else result.noProcessedEntryShape++;
+    }
+    return result;
+  } catch {
+    return failure(false);
+  }
+}
+
 function inspectPointPage(x, y) {
   const element = document.elementFromPoint(x, y);
   if (!element) return null;
@@ -178,6 +290,13 @@ async function invokeDiagnostic(operation, args, { window, browserModule, sleep 
       return window.webContents.executeJavaScript(
         browserModule.diagnostics.inspectRspackExportsScript(moduleId, keys), true
       );
+    }
+    case 'rspackRegistryShape': {
+      if (browserModule?.name !== 'ChatGPT')
+        throw new Error('Rspack registry shape is limited to ChatGPT diagnostics.');
+      if (args?.inspect !== true)
+        throw new Error('Rspack registry shape requires inspect=true.');
+      return window.webContents.executeJavaScript(pageScript(rspackRegistryShapePage), true);
     }
     case 'rspackTiming': {
       if (browserModule?.name !== 'ChatGPT' || args?.clear !== true)
@@ -251,5 +370,6 @@ module.exports = {
   invokeDiagnostic,
   captureDiagnosticNetwork,
   diagnosticElementSnapshot,
-  rspackTimingPage
+  rspackTimingPage,
+  rspackRegistryShapePage
 };
