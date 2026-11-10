@@ -1,6 +1,6 @@
 import { ReactNode, CSSProperties } from "react";
 import type { Components } from "react-markdown";
-import { Check, CircleCheck, CircleAlert, CircleX, Info, ArrowDown, GitBranch, GitPullRequest, ScrollText, ChartNoAxesCombined, Network, Database } from "lucide-react";
+import { Check, CircleCheck, CircleAlert, CircleX, Info, ArrowDown, ArrowRight, GitBranch, GitPullRequest, ScrollText, ChartNoAxesCombined, Network, Database } from "lucide-react";
 import { RichChart } from "./RichChart";
 import { prepareSvg, svgComponents } from "./RichSvg";
 
@@ -15,7 +15,7 @@ type MarkupNode = {
 };
 
 const components = new Set(["row", "col", "box", "grid", "grid-item", "text", "title", "divider", "badge", "icon", "caption", "Link", "Chart"]);
-const attributes = new Set(["gap", "align", "justify", "color", "name", "size", "border", "strong", "url", "title", "columns", "padding", "radius", "background", "width", "weight", "textAlign", "key", "flex", "tabularNums", "content"]);
+const attributes = new Set(["gap", "align", "justify", "color", "name", "size", "border", "strong", "url", "title", "columns", "padding", "radius", "background", "width", "weight", "textAlign", "key", "flex", "tabularNums", "content", "inline"]);
 
 // Parse supported JSX-like markup as DATA. Unknown constructs and executable
 // expressions remain escaped text. MDX is never compiled or evaluated.
@@ -165,7 +165,7 @@ function tone(props: RichProps) {
 const icons = {
   check: Check, "check-circle": CircleCheck, "circle-check": CircleCheck,
   "alert-circle": CircleAlert, "x-circle": CircleX, info: Info,
-  "arrow-down": ArrowDown, "git-branch": GitBranch, "git-pull-request": GitPullRequest,
+  "arrow-down": ArrowDown, "arrow-right": ArrowRight, "git-branch": GitBranch, "git-pull-request": GitPullRequest,
   "scroll-text": ScrollText, "chart-no-axes-combined": ChartNoAxesCombined,
   network: Network, database: Database,
 };
