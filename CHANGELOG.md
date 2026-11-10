@@ -2,6 +2,16 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.3.0] — 2026-11-10
+
+### Added
+- Safe, bounded SVG rendering for model replies.
+- Restricted interactive DIL questions with guarded host submission.
+- Rich UI documentation, security regressions, and Chromium coverage.
+
+### Changed
+- Improved supported rich Markdown rendering while keeping unsupported markup inert.
+
 ## [0.2.1] — 2026-11-09
 
 ### Added
