@@ -81,20 +81,20 @@ try {
     $route = '/v1/diagnostics/connections/{connectionId}/browser/{operation}'
     if (([regex]::Matches($api, [regex]::Escape("MapPost(`"$route`""))).Count -ne 1 -or
         $agent -match 'MapAgentDiagnostics|MapPost\("/v1/diagnostics' -or
-        $agent -notmatch 'app.MapMezhsApi\(\)') {
+        $agent -notmatch 'app.MapMezhsApi\(deleteChats:') {
         throw 'Diagnostics route is not registered exactly once in the common API mapping.'
     }
     Write-Host 'PASS unique shared endpoint ownership'
 
-    $apiUrl = 'http://127.0.0.1:52951'
-    $agentUrl = 'http://127.0.0.1:52952'
+    $apiUrl = 'http://127.0.0.1:42651'
+    $agentUrl = 'http://127.0.0.1:42652'
     $genericConfig = Join-Path $temp 'api.yaml'
     $data = (Join-Path $temp 'generic-data').Replace('\', '/')
     $electron = (Join-Path $root 'electron').Replace('\', '/')
     @"
 version: 1
 server:
-  listen: http://0.0.0.0:52951
+  listen: http://0.0.0.0:42651
 transport:
   type: electron
   idleMinutes: 1
@@ -158,15 +158,16 @@ agentStorage:
         $null = Check $name 'remote-origin' $url ($diagnostic + 'echo') 403 '' 'https://attacker.example'
         $null = Check $name 'null-origin' $url ($diagnostic + 'echo') 403 '' 'null'
         $null = Check $name 'lookalike-origin' $url ($diagnostic + 'echo') 403 '' 'http://localhost.attacker.example'
+        $null = Check $name 'rspack-shape-remote-origin' $url '/v1/diagnostics/connections/account/browser/rspackRegistryShape' 403 '' 'https://attacker.example'
         $null = Check $name 'remote-origin-before-lookup' $url '/v1/diagnostics/connections/missing/browser/echo' 403 '' 'https://attacker.example'
     }
 
     # Exercise the actual shared endpoint with a non-loopback RemoteIpAddress,
     # independent of whether Windows firewall permits connections via a LAN adapter.
-    $remoteUrl = 'http://127.0.0.1:52953'
+    $remoteUrl = 'http://127.0.0.1:42653'
     $remoteConfig = Join-Path $temp 'remote.yaml'
     (Get-Content $genericConfig -Raw).
-        Replace('http://0.0.0.0:52951', $remoteUrl).
+        Replace('http://0.0.0.0:42651', $remoteUrl).
         Replace('generic-data', 'remote-data') |
         Set-Content $remoteConfig -Encoding UTF8
     $null = Start-Host 'Mezhs.Diagnostics.RemoteIpTestHost' `

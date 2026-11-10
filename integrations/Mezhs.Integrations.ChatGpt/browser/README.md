@@ -11,6 +11,7 @@ Electron uses Node's ordinary `require()` to resolve the sibling files.
 - `entry.js`: public ChatGPT integration descriptor and operations.
 - `guest.js`: anonymous ChatGPT DOM composer and reply collection.
 - `account-transport.js`: authenticated API requests, session tokens, and browser-owned Sentinel requirements.
+- `rspack-runtime.js`: bounded renderer-local Rspack loader discovery shared with Account export diagnostics; caches only frozen loader references per document.
 - `account-models.js`: model picker mapping and selected model preferences.
 - `account-files.js`: uploaded attachment preparation and downloaded artifacts.
 - `account-messages.js`: semantic new/follow-up submission and completion orchestration.
@@ -21,6 +22,6 @@ Electron uses Node's ordinary `require()` to resolve the sibling files.
 
 Run `node --check` on each `browser/modules/*.js` file and `node --test tests/*.test.js`.
 Build with `dotnet build Mezhs.sln -c Release` and run `tests/integration-resources.ps1`.
-The package regression tests verify that all eight modules load from an isolated directory.
+The package regression tests verify that all nine modules load from an isolated directory.
 The published-module probe additionally checks the real embedded resources and extraction
 without access to the source checkout.

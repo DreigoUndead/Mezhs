@@ -122,59 +122,131 @@ async function captureDiagnosticNetwork(action, waitMs, { traceHeaders = false, 
 }
 
 
-async function inspectRspackExportsPage(moduleId, exportKeys) {
-      const resources = performance.getEntriesByType("resource")
-        .map(item => String(item.name || ""))
-        .filter(url => /^https:\/\/chatgpt\.com\/cdn\/assets\/[^/?#]+\.js(?:[?#].*)?$/i.test(url));
-      if (!resources.length)
-        throw new Error("ChatGPT Rspack runtime was not loaded.");
-      const preferred = resources.filter(url =>
-        /\/(?:manifest|entry\.client|root)-[^/?#]*\.js(?:[?#]|$)/i.test(url));
-      const candidates = [...new Set([...preferred, ...resources.slice().reverse()])];
-      let record;
-      for (const runtimeUrl of candidates) {
-        try {
-          const runtime = await import(runtimeUrl);
-          record = runtime?.__webpack_require__?.c?.[moduleId];
-          if (record) break;
-        } catch {
-          // Some loaded scripts are not importable modules; inspect the next asset.
-        }
-      }
-      if (!record)
-        throw new Error("Requested Rspack module was not present in the loaded cache.");
-      const exports = record.exports;
-      const keys = exportKeys;
-      const markers = ["chatReq", "turnstileToken", "proofToken"];
-      const context = (source, marker) => {
-        const index = source.indexOf(marker);
-        return index < 0 ? null
-          : source.slice(Math.max(0, index - 90), Math.min(source.length, index + marker.length + 130));
-      };
-      const results = keys.map(key => {
-        const value = exports?.[key];
-        if (typeof value !== "function")
-          return { exportKey: key, type: typeof value };
-        const source = Function.prototype.toString.call(value);
-        return {
-          exportKey: key,
-          name: String(value.name || "").slice(0, 64),
-          arity: value.length,
-          sourceLength: source.length,
-          start: source.slice(0, 160),
-          end: source.slice(-100),
-          markerContexts: Object.fromEntries(markers.map(marker => [marker, context(source, marker)]))
-        };
-      });
-      return {
-        moduleId,
-        availableExportKeys: Object.keys(exports || {}).slice(0, 30),
-        results
-      };
+function rspackTimingPage(clear) {
+  const count = () => {
+    const entries = performance.getEntriesByType("resource");
+    return {
+      resourceEntries: entries.length,
+      runtimeAssets: entries.filter(entry =>
+        /^https:\/\/chatgpt\.com\/cdn\/assets\/[^/?#]+\.js(?:[?#].*)?$/i.test(
+          String(entry.name || ""))).length
+    };
+  };
+  const before = count();
+  if (clear) performance.clearResourceTimings();
+  return { cleared: clear, before, after: count() };
 }
 
-function inspectRspackExportsScript(moduleId, exportKeys) {
-  return pageScript(inspectRspackExportsPage, moduleId, exportKeys);
+function rspackRegistryShapePage(root = globalThis) {
+  // Read-only shape classification. Proxy descriptor traps may still run page code.
+  const empty = () => ({
+    scannedGlobals: 0,
+    matchingNames: 0,
+    dataArrayCandidates: 0,
+    accessorCandidates: 0,
+    ownPushFunctions: 0,
+    inheritedOrAbsentPush: 0,
+    nativeLookingPush: 0,
+    nonNativePush: 0,
+    emptyArrays: 0,
+    processedEntryShapeCandidates: 0,
+    noProcessedEntryShape: 0,
+    passedNameAndArray: 0,
+    passedNameArrayAndOwnPush: 0,
+    passedNameArrayOwnPushNonNative: 0,
+    passedAllPredicates: 0,
+    descriptorErrors: 0,
+    limitExceeded: false,
+    incomplete: false
+  });
+  const failure = limit => {
+    // Do not publish a partially successful aggregate after an unsafe scan.
+    const result = empty();
+    result.incomplete = true;
+    if (limit) result.limitExceeded = true;
+    else result.descriptorErrors = 1;
+    return result;
+  };
+  try {
+    const result = empty();
+    const own = (object, key) => {
+      if (object === null || (typeof object !== 'object' && typeof object !== 'function'))
+        return { kind: 'missing' };
+      const descriptor = Object.getOwnPropertyDescriptor(object, key);
+      if (!descriptor) return { kind: 'missing' };
+      return Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        ? { kind: 'data', value: descriptor.value }
+        : { kind: 'accessor' };
+    };
+    const names = Object.getOwnPropertyNames(root);
+    if (names.length > 5000) return failure(true);
+    result.scannedGlobals = names.length;
+    let inspectedEntries = 0;
+    for (const name of names) {
+      if (!/^webpackChunk[A-Za-z0-9_$]{1,80}$/.test(name)) continue;
+      result.matchingNames++;
+      if (result.matchingNames > 32) return failure(true);
+      let sawAccessor = false;
+      const read = (object, key) => {
+        const descriptor = own(object, key);
+        if (descriptor.kind === 'accessor' && !sawAccessor) {
+          sawAccessor = true;
+          result.accessorCandidates++;
+        }
+        return descriptor.kind === 'data' ? descriptor.value : undefined;
+      };
+      const registry = read(root, name);
+      if (!Array.isArray(registry)) continue;
+      result.dataArrayCandidates++;
+      result.passedNameAndArray++;
+      const push = read(registry, 'push');
+      if (typeof push !== 'function') {
+        result.inheritedOrAbsentPush++;
+        continue;
+      }
+      result.ownPushFunctions++;
+      result.passedNameArrayAndOwnPush++;
+      if (push === Array.prototype.push ||
+          /\[native code\]/.test(Function.prototype.toString.call(push))) {
+        result.nativeLookingPush++;
+        continue;
+      }
+      result.nonNativePush++;
+      result.passedNameArrayOwnPushNonNative++;
+      const length = read(registry, 'length');
+      if (length === 0) result.emptyArrays++;
+      if (Number.isSafeInteger(length) && length > 2048) return failure(true);
+      if (!Number.isSafeInteger(length) || length < 1) {
+        result.noProcessedEntryShape++;
+        continue;
+      }
+      let processed = false;
+      for (let index = 0; index < length; index++) {
+        inspectedEntries++;
+        if (inspectedEntries > 4096) return failure(true);
+        const entry = read(registry, String(index));
+        if (!Array.isArray(entry)) continue;
+        const ids = read(entry, '0');
+        const modules = read(entry, '1');
+        if (!Array.isArray(ids) || modules === null ||
+            (typeof modules !== 'object' && typeof modules !== 'function') ||
+            Array.isArray(modules) || !(read(ids, 'length') >= 1))
+          continue;
+        const firstId = read(ids, '0');
+        if (typeof firstId === 'string' || typeof firstId === 'number') {
+          processed = true;
+          break;
+        }
+      }
+      if (processed) {
+        result.processedEntryShapeCandidates++;
+      result.passedAllPredicates++;
+      } else result.noProcessedEntryShape++;
+    }
+    return result;
+  } catch {
+    return failure(false);
+  }
 }
 
 function inspectPointPage(x, y) {
@@ -216,8 +288,20 @@ async function invokeDiagnostic(operation, args, { window, browserModule, sleep 
             /^[A-Za-z0-9_$-]{1,32}$/.test(key)))
         throw new Error('Invalid Rspack module id or export keys.');
       return window.webContents.executeJavaScript(
-        inspectRspackExportsScript(moduleId, keys), true
+        browserModule.diagnostics.inspectRspackExportsScript(moduleId, keys), true
       );
+    }
+    case 'rspackRegistryShape': {
+      if (browserModule?.name !== 'ChatGPT')
+        throw new Error('Rspack registry shape is limited to ChatGPT diagnostics.');
+      if (args?.inspect !== true)
+        throw new Error('Rspack registry shape requires inspect=true.');
+      return window.webContents.executeJavaScript(pageScript(rspackRegistryShapePage), true);
+    }
+    case 'rspackTiming': {
+      if (browserModule?.name !== 'ChatGPT' || args?.clear !== true)
+        throw new Error('Rspack timing clearing requires ChatGPT and clear=true.');
+      return window.webContents.executeJavaScript(pageScript(rspackTimingPage, true), true);
     }
     case 'networkTrace': {
       // Observe a manual browser action. No DOM selectors, request bodies, or secret values.
@@ -286,5 +370,6 @@ module.exports = {
   invokeDiagnostic,
   captureDiagnosticNetwork,
   diagnosticElementSnapshot,
-  inspectRspackExportsScript
+  rspackTimingPage,
+  rspackRegistryShapePage
 };
