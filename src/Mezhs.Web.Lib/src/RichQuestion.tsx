@@ -462,9 +462,10 @@ function safeQuestionContentNode(node: SyntaxNode): boolean {
 }
 
 function renderQuestionContent(content: string) {
+  const parseMarkup = () => remarkRichMarkup();
   return <Markdown
     remarkPlugins={[remarkGfm, remarkMdx as unknown as typeof remarkGfm,
-      remarkRichMarkup() as unknown as typeof remarkGfm]}
+      parseMarkup as unknown as typeof remarkGfm]}
     components={richComponents}
     transformLinkUri={uriTransformer} transformImageUri={() => ""}>
     {content}
