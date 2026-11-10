@@ -76,7 +76,7 @@ async function recover(apiBase: string, state: ApiState) {
   await state.recovery;
 }
 
-export async function waitForApi(apiBase: string, signal?: AbortSignal) {
+export async function waitForApi(apiBase: string, signal?: AbortSignal | null) {
   const state = stateFor(apiBase);
   if (signal?.aborted) throw new DOMException("Request aborted.", "AbortError");
   if (state.availability === "online") return;
