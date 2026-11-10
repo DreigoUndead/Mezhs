@@ -73,6 +73,23 @@ For the exact four-option example, including all four conditional payloads and a
 
 This is **not** an arbitrary custom-component runtime or general DIL interpreter: it extends the single-state radio question and shares existing static rendering and the host callback. Other control types and state operations remain unsupported unless explicitly implemented and validated.
 
+## Editable WritingBlock
+
+A bounded `WritingBlock` renders model-authored Markdown as source in a local editable text area, with a **Copy** button. The supported literal attributes are `variant` (`email`, `chat_message`, `social_post`, `document`, `standard`), `recipient`, `cc`, `bcc`, `subject`, and optional five-digit `id`. Email metadata appears as labels above the editor. The Markdown is editable text, **not** rendered HTML, and no model-authored scripts or callbacks execute.
+
+```mdx
+<WritingBlock variant="email" recipient="team@example.com" subject="Project update">
+Hello team,
+
+**Highlights**
+
+- The prototype is ready for review.
+- Feedback is welcome.
+</WritingBlock>
+```
+
+The Copy button copies the current edited body only, not the email headers. It reports an error when clipboard access is unavailable. Edits are local to the displayed block and do not alter the underlying message or chat composer; there is no send action. Invalid or unsupported attributes, executable expressions and oversized content do not activate the block. Fenced examples remain literal. `options` and application-specific sending are not supported.
+
 ## Citations
 
 `<Cite ref="turn123search3"/>` or `<Cite refs={["turn123search3","turn123search10"]}/>` accept only bounded literal source IDs. MEŽS currently has **no trusted citation-ID-to-URL provenance metadata** in the shared message contract. These render a compact *[source unavailable]* indicator; they are **not links** and must never be presented as independently verified sources. Use a normal supported Markdown link only when the real URL is known.
