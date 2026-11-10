@@ -33,3 +33,13 @@ Render common model-authored interactive DIL-style content as safe declarative c
 - Keep plan, code, tests and documentation changes on rich-ui-custom-controls. Move the final plan to specifications/implemented on the same branch before review.
 - No VERSION or CHANGELOG edits during development. Suggest MINOR for the compatible UI feature; final version is determined at release time.
 - Owner approval is mandatory before merging to main.
+
+## Owner-added scope (2026-11-10): WritingBlock
+
+Owner requested `WritingBlock` support before PR #53 independent review. Implement this as a separate inert document-editing surface in the shared renderer, not as an extension of the radio action grammar. Level remains Standard; no script execution, arbitrary MDX components, new host endpoints or chat send authority.
+
+- Recognize a bounded `<WritingBlock variant="..." subject="..." recipient="..." cc="..." bcc="...">…</WritingBlock>` with literal static metadata and plain Markdown source content. Variants: `email`, `chat_message`, `social_post`, `document`, `standard`. No model-authored handlers.
+- Render a usable accessible editor with local draft state and a copy action, preserving Markdown source as editable text. Editing/copying does **not** send a chat message or overwrite the host composer. Explain any clipboard failure.
+- Reject malformed/unsafe metadata atomically into inert source; never run expressions, inline HTML, event handlers or scripts. Maintain bounded body/metadata sizes and parser provenance so code fences remain literal.
+- Add parser/SSR and Chromium editing/copy/read-only/security regression tests, document the supported subset and run the same developer checks.
+- `options` variations and host-specific send actions are explicitly deferred until defined by a separate contract.
