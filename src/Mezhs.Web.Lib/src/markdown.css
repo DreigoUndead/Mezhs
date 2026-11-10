@@ -100,3 +100,12 @@
   width: 100%;
   margin-top: 10px;
 }
+
+/* WritingBlock is a local editable artifact; model content never becomes HTML or a send action. */
+.markdown-content .rich-writing-block { min-width: 0; margin: .75em 0; padding: 12px; border: 1px solid #ded9cf; border-radius: 10px; background: #faf9f5; }
+.markdown-content .rich-writing-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.markdown-content .rich-writing-header button { padding: 5px 11px; border: 1px solid #a7a196; border-radius: 6px; background: #fff; cursor: pointer; color: #34302b; }
+.markdown-content .rich-writing-header button:focus-visible, .markdown-content .rich-writing-block textarea:focus-visible { outline: 2px solid #55672c; outline-offset: 2px; }
+.markdown-content .rich-writing-metadata { font-size: .88em; color: #625d54; margin-bottom: 8px; overflow-wrap: anywhere; }
+.markdown-content .rich-writing-block textarea { box-sizing: border-box; width: 100%; min-height: 120px; max-height: 420px; padding: 10px; border: 1px solid #cac4b8; border-radius: 7px; background: #fff; color: inherit; font: inherit; line-height: 1.5; resize: vertical; }
+.markdown-content .rich-writing-status { display: block; margin-top: 6px; color: #625d54; font-size: .84em; }
