@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
 import { modelActivityLabel } from "./ChatSurface";
@@ -50,6 +50,21 @@ function formatBytes(value: number) {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Bound each request. A client-side timeout does not undo a server-side write.
+async function groupDeleteRequest<T>(request: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 12_000);
+  try {
+    return await request(controller.signal);
+  } catch (error) {
+    if (controller.signal.aborted)
+      throw new Error("Request timed out. The server may still have completed the operation.");
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 function matchesChatQuery(chat: Chat, query: string, connectionName?: string, categoryName?: string) {
   const normalized = query.trim().toLocaleLowerCase();
   if (!normalized) return true;
@@ -94,6 +109,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [groupDeleteOpening, setGroupDeleteOpening] = useState(false);
   const [groupDeleteBusy, setGroupDeleteBusy] = useState(false);
   const [groupDeleteError, setGroupDeleteError] = useState<string | null>(null);
+  const [groupDeleteUnverified, setGroupDeleteUnverified] = useState(false);
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
   const [chatRenameDraft, setChatRenameDraft] = useState("");
   const selectionEpoch = useRef(0);
@@ -102,6 +118,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const providerRegistry = useRef(new ChatProviderRegistry());
   const openChatMenuRef = useRef<HTMLDivElement | null>(null);
   const deletedChatIdsRef = useRef(new Set<string>());
+  const groupDeleteModalRef = useRef<HTMLDialogElement>(null);
 
   const selectedConnection = useMemo(
     () => connections.find((connection) => connection.id === connectionId),
@@ -163,6 +180,19 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
 }, [apiBase]);
 
 useEffect(() => () => providerRegistry.current.dispose(), []);
+
+  // showModal makes the rest of the page inert and contains keyboard focus.
+  useLayoutEffect(() => {
+    if (!groupDeleteDialog) return;
+    const modal = groupDeleteModalRef.current;
+    if (!modal) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    modal.showModal();
+    return () => {
+      if (modal.open) modal.close();
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [Boolean(groupDeleteDialog)]);
 
   useEffect(() => {
     if (!chatMenuId) return;
@@ -400,7 +430,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     setNotice(null);
     try {
       // Core chat inventory includes Agent-backed chats on the Agent host.
-      const current = await apiJson<Chat[]>(apiBase, "/v1/chats");
+      const current = await groupDeleteRequest((signal) => apiJson<Chat[]>(apiBase, "/v1/chats", { signal }));
       setChats(current.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
       setGroupDeleteDialog({
         category,
@@ -408,6 +438,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
           .map((chat) => chat.chatId),
       });
       setGroupDeleteError(null);
+      setGroupDeleteUnverified(false);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not load group conversations.");
     } finally {
@@ -419,16 +450,17 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     if (groupDeleteBusy) return;
     setGroupDeleteDialog(null);
     setGroupDeleteError(null);
+    setGroupDeleteUnverified(false);
   }
 
   async function deleteCategory(mode: "unassign" | "delete") {
     const dialog = groupDeleteDialog;
-    if (!dialog || groupDeleteBusy || deletingChats) return;
+    if (!dialog || groupDeleteBusy || groupDeleteUnverified || deletingChats) return;
     setGroupDeleteBusy(true);
     setGroupDeleteError(null);
     let chatsDeleted = false;
     try {
-      const current = await apiJson<Chat[]>(apiBase, "/v1/chats");
+      const current = await groupDeleteRequest((signal) => apiJson<Chat[]>(apiBase, "/v1/chats", { signal }));
       const ids = current.filter((chat) => chat.categoryId === dialog.category.categoryId)
         .map((chat) => chat.chatId);
       // Never silently delete a different set than the one shown in the dialog.
@@ -443,15 +475,15 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
       if (mode === "delete" && ids.length > 0) {
         // The Agent host routes these same requests through Agent-first/Core-second cleanup.
         if (ids.length === 1) {
-          await apiJsonOrEmpty(apiBase, `/v1/chats/${encodeURIComponent(ids[0])}`, {
-            method: "DELETE",
-          });
+          await groupDeleteRequest((signal) => apiJsonOrEmpty(apiBase, `/v1/chats/${encodeURIComponent(ids[0])}`, {
+            method: "DELETE", signal,
+          }));
         } else {
-          await apiJsonOrEmpty(apiBase, "/v1/chats", {
-            method: "DELETE",
+          await groupDeleteRequest((signal) => apiJsonOrEmpty(apiBase, "/v1/chats", {
+            method: "DELETE", signal,
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ chatIds: ids }),
-          });
+          }));
         }
         chatsDeleted = true;
         const removed = new Set(ids);
@@ -464,10 +496,10 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
 
       // Keep this existing endpoint/behavior for "Unassign conversations".
       // Delete the group only after the chat deletion request has succeeded.
-      await apiJsonOrEmpty(apiBase,
+      await groupDeleteRequest((signal) => apiJsonOrEmpty(apiBase,
         `/v1/categories/${encodeURIComponent(dialog.category.categoryId)}`, {
-          method: "DELETE",
-        });
+          method: "DELETE", signal,
+        }));
 
       if (categoryFilter === dialog.category.categoryId) setCategoryFilter("all");
       if (newChatCategoryId === dialog.category.categoryId) setNewChatCategoryId("");
@@ -477,7 +509,12 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
         ? `Group '${dialog.category.name}' and ${ids.length} ${noun} deleted.`
         : `Group '${dialog.category.name}' deleted; ${ids.length} ${noun} unassigned.`);
       try {
-        await Promise.all([loadCategories(), loadChats()]);
+        const [currentCategories, currentChats] = await Promise.all([
+          groupDeleteRequest((signal) => apiJson<Category[]>(apiBase, "/v1/categories", { signal })),
+          groupDeleteRequest((signal) => apiJson<Chat[]>(apiBase, "/v1/chats", { signal })),
+        ]);
+        setCategories(currentCategories);
+        setChats(currentChats.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
       } catch (error) {
         setNotice(error instanceof Error ? error.message : "Group deleted, but the list could not be refreshed.");
       }
@@ -487,10 +524,17 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
       // owners' Core views before offering a retry or claiming any outcome.
       try {
         const [current, currentCategories] = await Promise.all([
-          apiJson<Chat[]>(apiBase, "/v1/chats"),
-          apiJson<Category[]>(apiBase, "/v1/categories"),
+          groupDeleteRequest((signal) => apiJson<Chat[]>(apiBase, "/v1/chats", { signal })),
+          groupDeleteRequest((signal) => apiJson<Category[]>(apiBase, "/v1/categories", { signal })),
         ]);
+        // The server may have committed the delete before the response was lost.
+        // Reconcile against all remaining Core chats, not category membership.
+        const currentChatIds = new Set(current.map((chat) => chat.chatId));
+        const removed = new Set(dialog.chatIds.filter((id) => !currentChatIds.has(id)));
+        removed.forEach((id) => deletedChatIdsRef.current.add(id));
         setChats(current.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
+        if (chatId && removed.has(chatId)) newChat();
+        setSelectedChatIds((selected) => new Set([...selected].filter((id) => !removed.has(id))));
         setCategories(currentCategories);
         if (!currentCategories.some((category) => category.categoryId === dialog.category.categoryId)) {
           if (categoryFilter === dialog.category.categoryId) setCategoryFilter("all");
@@ -510,7 +554,8 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
             : `Could not complete group deletion: ${detail} Review the current count before retrying.`);
         }
       } catch {
-        setGroupDeleteError(`Could not verify group deletion: ${detail} Refresh the page before retrying.`);
+        setGroupDeleteUnverified(true);
+        setGroupDeleteError(`Could not verify group deletion: ${detail} Close this dialog and refresh the page before retrying.`);
       }
     } finally {
       setGroupDeleteBusy(false);
@@ -834,16 +879,19 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
       </aside>
 
       {groupDeleteDialog && (
-        <div className="dialog-backdrop" onClick={closeGroupDeleteDialog}>
-          <section className="group-delete-dialog" role="dialog" aria-modal="true"
-            aria-labelledby="group-delete-title" aria-describedby="group-delete-summary"
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.stopPropagation();
-                closeGroupDeleteDialog();
-              }
-            }}>
+        <dialog ref={groupDeleteModalRef} className="group-delete-dialog" aria-modal="true"
+          aria-labelledby="group-delete-title" aria-describedby="group-delete-summary"
+          onCancel={(event) => {
+            event.preventDefault();
+            closeGroupDeleteDialog();
+          }}
+          onClick={(event) => {
+            if (event.target !== event.currentTarget) return;
+            const bounds = event.currentTarget.getBoundingClientRect();
+            if (event.clientX < bounds.left || event.clientX > bounds.right ||
+                event.clientY < bounds.top || event.clientY > bounds.bottom)
+              closeGroupDeleteDialog();
+          }}>
             <h2 id="group-delete-title">Delete group</h2>
             <p id="group-delete-summary">
               Group <strong>{groupDeleteDialog.category.name}</strong> contains{" "}
@@ -852,12 +900,12 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
               Choose what happens to its conversations, including Agent conversations if present.
             </p>
             <div className="group-delete-choices">
-              <button type="button" disabled={groupDeleteBusy}
+              <button type="button" disabled={groupDeleteBusy || groupDeleteUnverified}
                 onClick={() => void deleteCategory("unassign")}>
                 <strong>Unassign conversations</strong>
                 <span>Delete only the group. Keep all conversations without a group.</span>
               </button>
-              <button type="button" className="destructive" disabled={groupDeleteBusy}
+              <button type="button" className="destructive" disabled={groupDeleteBusy || groupDeleteUnverified}
                 onClick={() => void deleteCategory("delete")}>
                 <strong>Delete conversations</strong>
                 <span>Delete the group and all its conversations permanently.</span>
@@ -873,8 +921,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
               <button type="button" autoFocus disabled={groupDeleteBusy}
                 onClick={closeGroupDeleteDialog}>Cancel</button>
             </footer>
-          </section>
-        </div>
+        </dialog>
       )}
 
       {showConversationManager && (

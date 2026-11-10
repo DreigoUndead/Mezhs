@@ -6,6 +6,7 @@ $markdown = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/MarkdownContent.
 $resize = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/useAutoResizeTextArea.ts") -Raw
 $targetPicker = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/ConnectionModelPicker.tsx") -Raw
 $sharedApp = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/MezhsChatApp.tsx") -Raw
+$apiClient = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/api.ts") -Raw
 $exports = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/index.ts") -Raw
 $agentApp = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/App.tsx") -Raw
 $agentProgram = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Program.cs") -Raw
@@ -142,7 +143,7 @@ if ($groupDialogStart -lt 0 -or $groupWorkflowStart -lt 0 -or $groupWorkflowEnd 
     throw "Normal Web group deletion dialog/workflow is missing."
 }
 $groupWorkflow = $sharedApp.Substring($groupWorkflowStart, $groupWorkflowEnd - $groupWorkflowStart)
-if ($sharedApp -notmatch 'role="dialog" aria-modal="true"' -or
+if ($sharedApp -notmatch 'className="group-delete-dialog" aria-modal="true"' -or
     $sharedApp -notmatch 'groupDeleteDialog.chatIds.length' -or
     $sharedApp -notmatch 'deleteCategory\("unassign"\)' -or
     $sharedApp -notmatch 'deleteCategory\("delete"\)' -or
@@ -154,7 +155,8 @@ if ($sharedApp -notmatch 'role="dialog" aria-modal="true"' -or
     $baseCss -notmatch '\.group-delete-choices button.destructive') {
     throw "Normal Web group deletion must present unassign/delete/cancel with count and disclosure."
 }
-if ($groupWorkflow -notmatch 'await apiJson<Chat\[\]>\(apiBase, "/v1/chats"\)' -or
+if ($groupWorkflow -notmatch 'groupDeleteRequest' -or
+    $groupWorkflow -notmatch 'apiJson<Chat\[\]>\(apiBase, "/v1/chats", \{ signal \}\)' -or
     $groupWorkflow -notmatch 'Group membership changed' -or
     $groupWorkflow -notmatch 'method: "DELETE"' -or
     $groupWorkflow -notmatch '"/v1/chats"' -or
@@ -162,6 +164,20 @@ if ($groupWorkflow -notmatch 'await apiJson<Chat\[\]>\(apiBase, "/v1/chats"\)' -
     $groupWorkflow -notmatch 'deletedChatIdsRef.current.add' -or
     $groupWorkflow -notmatch 'if \(chatId && removed.has\(chatId\)\) newChat\(\)') {
     throw "Normal Web group destructive deletion bypasses the shared chat API or stale-data guard."
+}
+# Covers the mitigations for an unbounded outage, an uncertain successful delete,
+# and modal keyboard focus. P1 is pending a server-contract owner decision.
+if ($sharedApp -notmatch 'modal\.showModal\(\)' -or
+    $sharedApp -notmatch 'previousFocus\.focus\(\)' -or
+    $sharedApp -notmatch 'onCancel=\{\(event\) => \{' -or
+    $baseCss -notmatch '\.group-delete-dialog::backdrop' -or
+    $sharedApp -notmatch 'groupDeleteUnverified' -or
+    $groupWorkflow -notmatch 'const currentChatIds = new Set\(' -or
+    $groupWorkflow -notmatch 'if \(chatId && removed\.has\(chatId\)\) newChat\(\)' -or
+    $sharedApp -notmatch 'controller\.abort\(\)' -or
+    $apiClient -notmatch 'await waitForApi\(apiBase, init\?\.signal\)' -or
+    $apiClient -notmatch 'signal\.addEventListener\("abort"') {
+    throw "Group deletion lacks bounded requests, uncertain-outcome reconciliation or keyboard focus isolation."
 }
 $chatDeleteOffset = $groupWorkflow.IndexOf('if (mode === "delete"')
 $categoryDeleteOffset = $groupWorkflow.IndexOf('/v1/categories/')
