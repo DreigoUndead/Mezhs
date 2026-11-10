@@ -2,6 +2,8 @@ param([switch]$OwnershipOnly)
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
+$previousBridge = $env:MEZHS_RSPACK_BRIDGE
+$env:MEZHS_RSPACK_BRIDGE = Join-Path $root 'tests/rspack-diagnostic-transport-bridge.cjs'
 $temp = Join-Path ([System.IO.Path]::GetTempPath()) ('mezhs-account-login-test-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
 
@@ -18,6 +20,7 @@ try {
   <ItemGroup>
     <ProjectReference Include="$chatGptProject" />
     <ProjectReference Include="$root\integrations\Mezhs.Integrations.Gemini\Mezhs.Integrations.Gemini.csproj" />
+    <ProjectReference Include="$root\integrations\Mezhs.Integrations.Grok\Mezhs.Integrations.Grok.csproj" />
   </ItemGroup>
 </Project>
 "@ | Set-Content -LiteralPath (Join-Path $temp 'Test.csproj') -Encoding UTF8
@@ -29,12 +32,14 @@ using Mezhs.Integrations;
 using Mezhs.Integrations.Browser;
 using Mezhs.Integrations.ChatGpt;
 using Mezhs.Integrations.Gemini;
+using Mezhs.Integrations.Grok;
 
 var root = Path.Combine(Path.GetTempPath(), "mezhs-account-login-flow", Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 try
 {
     await TestSessionOwnershipAsync(Path.Combine(root, "ownership"));
+    await TestRspackDiagnosticsAsync(Path.Combine(root, "rspack"));
     await TestAnonymousDiagnosticsAsync(Path.Combine(root, "guests"));
     Console.WriteLine("PASS: T2 browser session ownership and diagnostics regressions");
     if (args.Contains("--ownership-only")) return;
@@ -206,6 +211,95 @@ static async Task TestSessionOwnershipAsync(string root)
     await integration.DisposeAsync();
 }
 
+static async Task ExpectRspackRejectAsync(IIntegrationDiagnosticsModule diagnostics, JsonElement arguments, string expected)
+{
+    try
+    {
+        await diagnostics.InvokeAsync("rspackRegistryShape", arguments);
+        throw new Exception("Expected diagnostic rejection containing: " + expected);
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains(expected, StringComparison.Ordinal))
+    {
+    }
+}
+
+static async Task TestRspackDiagnosticsAsync(string root)
+{
+    // C# authenticated session -> real transport InvokeAsync contract -> real
+    // Electron diagnostic handler -> synthetic renderer. No actual login required.
+    var host = new FakeHost(Path.Combine(root, "chatgpt"), authorized: true)
+    {
+        EnableRspackBridge = true
+    };
+    await using (var account = new ChatGptAccountIntegration(Connection(), host))
+    {
+        var diagnostics = account.Diagnostics
+            ?? throw new Exception("ChatGPT account diagnostics missing");
+        foreach (var json in new[] { "{}", "{\\"inspect\\":false}", "{\\"inspect\\":\\"true\\"}" })
+        {
+            using var document = JsonDocument.Parse(json);
+            await ExpectRspackRejectAsync(diagnostics, document.RootElement.Clone(), "inspect=true");
+        }
+        Assert(host.RendererCalls == 0, "invalid opt-in executed renderer JavaScript");
+        Assert(host.Invocations.Count == 3, "opt-in requests bypassed the browser transport");
+        var result = await diagnostics.InvokeAsync("rspackRegistryShape",
+            JsonSerializer.SerializeToElement(new { inspect = true }));
+        Assert(result.GetProperty("passedAllPredicates").GetInt32() == 1,
+            "authorized diagnostic did not classify synthetic registry");
+        Assert(!result.GetProperty("incomplete").GetBoolean() &&
+            result.EnumerateObject().Count() == 18,
+            "authorized diagnostic result did not have the expected fixed schema");
+        var output = result.GetRawText();
+        Assert(!output.Contains("webpackChunk", StringComparison.Ordinal) &&
+            !output.Contains("factory", StringComparison.Ordinal) &&
+            !output.Contains("private-token", StringComparison.Ordinal),
+            "diagnostic leaked renderer details");
+        Assert(host.RendererCalls == 1, "authorized request did not execute exactly once");
+        Assert(host.Initializations.Count == 1 && host.Initializations[0].RequireAuthorization &&
+            !host.Initializations[0].ShowBrowser,
+            "diagnostic bypassed authenticated hidden session or opened another browser");
+        Assert(host.Invocations.All(item => item.Operation == "$diagnostics/rspackRegistryShape"),
+            "diagnostic did not use existing Electron operation route");
+    }
+
+    var deniedHost = new FakeHost(Path.Combine(root, "unauthorized"), authorized: false)
+    {
+        EnableRspackBridge = true
+    };
+    await using (var denied = new ChatGptAccountIntegration(Connection(), deniedHost))
+    {
+        try
+        {
+            await denied.Diagnostics!.InvokeAsync("rspackRegistryShape",
+                JsonSerializer.SerializeToElement(new { inspect = true }));
+            throw new Exception("Unauthenticated diagnostic unexpectedly succeeded");
+        }
+        catch (IntegrationAuthorizationRequiredException)
+        {
+        }
+        Assert(deniedHost.RendererCalls == 0 && deniedHost.Invocations.Count == 0,
+            "unauthenticated diagnostic crossed into the browser transport");
+    }
+
+    var grokHost = new FakeHost(Path.Combine(root, "grok"), authorized: true)
+    {
+        EnableRspackBridge = true,
+        RspackProviderName = "Grok"
+    };
+    var grokConnection = new IntegrationConnection("grok-account", "Grok Account",
+        "grok-web-account", new Dictionary<string, string?>());
+    await using (var grok = new GrokAccountIntegration(grokConnection, grokHost))
+    {
+        await ExpectRspackRejectAsync(grok.Diagnostics!,
+            JsonSerializer.SerializeToElement(new { inspect = true }), "limited to ChatGPT");
+        Assert(grokHost.RendererCalls == 0, "non-ChatGPT diagnostic executed renderer JavaScript");
+        Assert(grokHost.Invocations.Count == 1 &&
+            grokHost.Invocations[0].Operation == "$diagnostics/rspackRegistryShape",
+            "non-ChatGPT request did not exercise real C# diagnostics transport");
+    }
+    Console.WriteLine("PASS: Rspack diagnostic authorization, opt-in, provider gate, and transport fixture");
+}
+
 static async Task TestAnonymousDiagnosticsAsync(string root)
 {
     var host = new FakeHost(root, authorized: true);
@@ -251,6 +345,9 @@ sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
     public bool Authorized { get; set; } = authorized;
     public bool AuthorizationFailureOnce { get; set; }
     public bool UnavailableContinuationOnce { get; set; }
+    public bool EnableRspackBridge { get; set; }
+    public string RspackProviderName { get; set; } = "ChatGPT";
+    public int RendererCalls { get; set; }
 
     public string GetConnectionRoot(string connectionId)
     {
@@ -297,6 +394,8 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
             throw new BrowserAuthorizationRequiredException("Authorization required.");
         }
 
+        if (operation == "$diagnostics/rspackRegistryShape" && host.EnableRspackBridge)
+            return InvokeRspackBridgeAsync<TResult>(arguments);
         if (operation == "$diagnostics/snapshot")
             return Result<TResult>(new { snapshot = true });
         if (operation == "sendPrompt")
@@ -331,6 +430,35 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         throw new InvalidOperationException($"Unexpected fake browser operation '{operation}'.");
     }
 
+    private async Task<TResult> InvokeRspackBridgeAsync<TResult>(object? arguments)
+    {
+        var bridge = Environment.GetEnvironmentVariable("MEZHS_RSPACK_BRIDGE")
+            ?? throw new InvalidOperationException("Diagnostic bridge test path missing.");
+        var info = new System.Diagnostics.ProcessStartInfo("node")
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        info.ArgumentList.Add(bridge);
+        info.ArgumentList.Add(host.RspackProviderName);
+        info.ArgumentList.Add(JsonSerializer.Serialize(arguments, JsonOptions));
+        using var process = System.Diagnostics.Process.Start(info)
+            ?? throw new InvalidOperationException("Node bridge failed to start.");
+        var output = await process.StandardOutput.ReadToEndAsync();
+        var error = await process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException("Node bridge failed: " + error);
+        using var json = JsonDocument.Parse(output);
+        var result = json.RootElement;
+        host.RendererCalls += result.GetProperty("rendererCalls").GetInt32();
+        if (!result.GetProperty("ok").GetBoolean())
+            throw new InvalidOperationException(result.GetProperty("error").GetString());
+        return JsonSerializer.Deserialize<TResult>(
+            result.GetProperty("result").GetRawText(), JsonOptions)!;
+    }
+
     private static Task<TResult> Result<TResult>(object value)
     {
         var json = JsonSerializer.Serialize(value, JsonOptions);
@@ -363,5 +491,6 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
     if ($LASTEXITCODE -ne 0) { throw "Account integration flow test failed with exit code $LASTEXITCODE." }
 }
 finally {
+    $env:MEZHS_RSPACK_BRIDGE = $previousBridge
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }
