@@ -99,3 +99,17 @@ The Copy button copies the current edited body only, not the email headers. It r
 Fenced and inline code samples always remain literal. Escaped markup and unrecognized expressions remain inert. Model-authored scripts, arbitrary DIL hooks/components, event handlers, external SVG assets, remote citation IDs as URLs, dynamic code execution, and arbitrary CSS are **not supported**. The render pipeline bounds source size, AST depth, state/action grammar, SVG complexity and literal template expansion.
 
 The actual sanitized telemetry fixture and adversarial tests are in `tests/fixtures/rich-model-ui/` and `tests/rich-model-ui-rendering.test.cjs`. Rendering a model response does not imply those claims are verified facts.
+
+## Element architecture and raw WritingBlock source
+
+Each static supported render element has a separate host-owned implementation
+module in `src/Mezhs.Web.Lib/src/rich-elements/` with its own allowed attributes.
+`RichMarkup` only dispatches validated inert Markdown/MDX nodes through a fixed
+registry; model text cannot register modules or run JavaScript. Question, SVG,
+citation, chart and writing controls retain their specialized owners.
+
+WritingBlock metadata must be literal and its opening tag must begin its own
+Markdown line (up to three leading spaces). The source editor can preserve
+otherwise invalid MDX-like text (such as an unmatched `{`), Markdown fences,
+and template examples verbatim. Content inside fences, inline code and HTML
+comments is never activated. Unsupported/malformed blocks remain inert source.

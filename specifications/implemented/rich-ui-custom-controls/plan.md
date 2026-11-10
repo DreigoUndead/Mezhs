@@ -43,3 +43,21 @@ Owner requested `WritingBlock` support before PR #53 independent review. Impleme
 - Reject malformed/unsafe metadata atomically into inert source; never run expressions, inline HTML, event handlers or scripts. Maintain bounded body/metadata sizes and parser provenance so code fences remain literal.
 - Add parser/SSR and Chromium editing/copy/read-only/security regression tests, document the supported subset and run the same developer checks.
 - `options` variations and host-specific send actions are explicitly deferred until defined by a separate contract.
+
+## Review corrections (2026-11-10)
+- Owner requires each supported rich render/control element in its own file.
+  `rich-elements/{Row,Col,Box,Grid,GridItem,Text,Title,Caption,Divider,Badge,Icon,Link,Chart,Cite}.tsx`
+  now own their renderers or citation validation; `RichQuestion.tsx`,
+  `RichSvg.tsx` and `RichWritingBlock.tsx` remain specialized element owners.
+- `RichMarkup.tsx` retains only a fixed host-owned dispatch table invocation and
+  source-provenance checks for generated question/writing slots. Each static element
+  declares its own literal attribute allowlist. `MarkdownContent.tsx` retains
+  one Markdown parser pipeline; no arbitrary JavaScript/MDX execution is introduced.
+- `extractWritingBlocks` shields validated Markdown source before the template
+  and MDX passes. It recognizes a standalone opening tag at line start with
+  bounded literal metadata and a matching closing tag, preserving body text
+  containing otherwise invalid MDX. Fences, inline code, comments and forged
+  slots remain inert. Only a fixed map of block data reaches local editing/copy.
+- Regression tests cover malformed MDX in editable source, fake/comment/fenced
+  blocks, rejected metadata, and the existing interactions. Complete independent
+  code review and targeted verification at the corrected commit before release.

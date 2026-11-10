@@ -399,3 +399,43 @@ test("valid chart labels are React-escaped", () => {
   assert.match(output, /&lt;img/);
   assert.doesNotMatch(output, /<img\b|onerror="/);
 });
+
+test("WritingBlock shields malformed MDX, code and literal template syntax in its editable source", () => {
+  const body = [
+    "Literal unmatched { and <unfinished",
+    "Keep {#each [{name:'x'}] as item} literal",
+    "{@body const [choice,setChoice] = DIL.useState(\"A\")}",
+    "",
+    "~~~mdx",
+    "<radio-group onChange={evil()} />",
+    "~~~",
+  ].join("\n");
+  const output = html('<WritingBlock variant="document">\n' + body + '\n</WritingBlock>');
+  assert.match(output, /class="rich-writing-block"/);
+  assert.match(output, /Literal unmatched \{/);
+  assert.match(output, /&lt;unfinished/);
+  assert.match(output, /#each/);
+  assert.match(output, /DIL\.useState/);
+  assert.doesNotMatch(output, /class="rich-question"/);
+});
+
+test("fake WritingBlock slots, HTML comments and fenced examples stay inert", () => {
+  const fake = '<mezhs-writing-slot id="w0" />';
+  assert.doesNotMatch(html(fake), /class="rich-writing-block"/);
+  assert.doesNotMatch(html('<!--\n<WritingBlock variant="document">\nFake\n</WritingBlock>\n-->'),
+    /class="rich-writing-block"/);
+  const duplicate = fake + '\n\n<WritingBlock variant="document">\nSafe text\n</WritingBlock>';
+  assert.doesNotMatch(html(duplicate), /class="rich-writing-block"/);
+  const fenced = '~~~mdx\n<WritingBlock variant="document">\nHidden\n</WritingBlock>\n~~~';
+  assert.doesNotMatch(html(fenced), /class="rich-writing-block"/);
+});
+
+test("WritingBlock literal metadata cannot turn into handlers", () => {
+  for (const source of [
+    '<WritingBlock onClick="submit">Unsafe</WritingBlock>',
+    '<WritingBlock variant={evil()}>Unsafe</WritingBlock>',
+    '<WritingBlock recipient="x" recipient="y">Unsafe</WritingBlock>',
+  ]) {
+    assert.doesNotMatch(html(source), /class="rich-writing-block"/);
+  }
+});

@@ -1,13 +1,13 @@
 import type { Components } from "react-markdown";
 import { prepareSvg, svgComponents } from "./RichSvg";
-import { prepareWritingBlock, RichWritingBlock } from "./RichWritingBlock";
+import { RichWritingBlockSlot } from "./RichWritingBlock";
 import { prepareCite, Cite } from "./rich-elements/Cite";
 import { richElementRegistry, richStaticComponents } from "./rich-elements";
-import { prepareStaticElement, type MarkupNode, type RichProps } from "./rich-elements/Element";
-import { read } from "./rich-elements/Style";
+import { prepareStaticElement, type MarkupNode } from "./rich-elements/Element";
 
 // Fixed host-owned dispatch. No MDX compilation, model JS or dynamic imports.
-export function remarkRichMarkup(slotOffsets: Record<string, number> = Object.create(null)) {
+export function remarkRichMarkup(slotOffsets: Record<string, number> = Object.create(null),
+  writingOffsets: Record<string, number> = Object.create(null)) {
   return (tree: MarkupNode, file: { value: unknown }) => {
     const source = String(file.value);
     const original = (node: MarkupNode) => {
@@ -21,8 +21,16 @@ export function remarkRichMarkup(slotOffsets: Record<string, number> = Object.cr
         if (node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") {
           if (node.name === "svg")
             return prepareSvg(node) ? node : original(node);
-          if (node.name === "WritingBlock")
-            return prepareWritingBlock(node, source) ? node : original(node);
+          if (node.name === "mezhs-writing-slot") {
+            const attrs = node.attributes || [];
+            const id = attrs.length === 1 && attrs[0].type === "mdxJsxAttribute" &&
+              attrs[0].name === "id" && typeof attrs[0].value === "string" ? attrs[0].value : "";
+            if (!Object.prototype.hasOwnProperty.call(writingOffsets, id) ||
+                node.position?.start.offset !== writingOffsets[id] ||
+                (node.children || []).length) return original(node);
+            node.data = { hName: "mezhs-writing-block", hProperties: { "data-mezhs-writing-id": id } };
+            return node;
+          }
           if (node.name === "Cite")
             return prepareCite(node) ? node : original(node);
           if (node.name === "mezhs-question-slot") {
@@ -50,13 +58,6 @@ export function remarkRichMarkup(slotOffsets: Record<string, number> = Object.cr
 export const richComponents = {
   ...svgComponents(),
   ...richStaticComponents,
-  "mezhs-writing-block": (props: RichProps) => <RichWritingBlock
-    source={read(props, "writing-source")}
-    variant={read(props, "variant") || "standard"}
-    subject={read(props, "subject")}
-    recipient={read(props, "recipient")}
-    cc={read(props, "cc")}
-    bcc={read(props, "bcc")}
-  />,
+  "mezhs-writing-block": RichWritingBlockSlot,
   "mezhs-cite": Cite,
 } as Components;

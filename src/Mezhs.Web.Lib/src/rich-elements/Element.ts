@@ -18,7 +18,7 @@ export function prepareStaticElement(node: MarkupNode, element: RichElement): bo
   const props: Record<string, string> = Object.create(null);
   for (const attr of node.attributes || []) {
     if (attr.type !== "mdxJsxAttribute" || !attr.name ||
-        !element.attributes.has(attr.name) || Object.prototype.hasOwnProperty.call(props, attr.name))
+        !element.attributes.has(attr.name) || Object.prototype.hasOwnProperty.call(props, "data-mezhs-" + attr.name))
       return false;
     const expression = typeof attr.value === "object" && attr.value ? attr.value.value.trim() : "";
     if (expression && !/^(?:\d+(?:\.\d+)?|true|false)$/.test(expression))
