@@ -108,6 +108,28 @@ test('accessor globals and accessor push are classified without running their ge
   assert.equal(getters, 0);
 });
 
+test('forged chunk ID length does not invoke value coercion', () => {
+  let coercions = 0;
+  let pushes = 0;
+  const ids = new Proxy([1], {
+    getOwnPropertyDescriptor(target, key) {
+      if (key === 'length') return {
+        value: { valueOf() { coercions++; return 1; } },
+        writable: true, enumerable: false, configurable: false
+      };
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    }
+  });
+  const candidate = runtime([[ids, {}]], function doNotPush() { pushes++; });
+  const found = look({ webpackChunkMalformedIdsLength: candidate });
+  expectSchema(found);
+  expectStages(found);
+  assert.equal(found.passedAllPredicates, 0);
+  assert.equal(found.noProcessedEntryShape, 1);
+  assert.equal(coercions, 0);
+  assert.equal(pushes, 0);
+});
+
 test('Array.prototype.push getter is not invoked during page inspection', () => {
   const context = vm.createContext({});
   vm.runInContext(`
