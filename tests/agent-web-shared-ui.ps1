@@ -133,6 +133,44 @@ if ($sharedApp -notmatch 'including Agent conversations if present' -or
     throw "Base chat deletion/group confirmations or stale-deletion list protection have regressed."
 }
 
+# Normal API Web group deletion is three-choice; bulk deletion must use the
+# shared Core/Agent chat endpoint before category removal, without a native confirm.
+$groupDialogStart = $sharedApp.IndexOf('async function promptDeleteCategory(')
+$groupWorkflowStart = $sharedApp.IndexOf('async function deleteCategory(mode:')
+$groupWorkflowEnd = $sharedApp.IndexOf('function openConversationManager()', $groupWorkflowStart)
+if ($groupDialogStart -lt 0 -or $groupWorkflowStart -lt 0 -or $groupWorkflowEnd -le $groupWorkflowStart) {
+    throw "Normal Web group deletion dialog/workflow is missing."
+}
+$groupWorkflow = $sharedApp.Substring($groupWorkflowStart, $groupWorkflowEnd - $groupWorkflowStart)
+if ($sharedApp -notmatch 'role="dialog" aria-modal="true"' -or
+    $sharedApp -notmatch 'groupDeleteDialog.chatIds.length' -or
+    $sharedApp -notmatch 'deleteCategory\("unassign"\)' -or
+    $sharedApp -notmatch 'deleteCategory\("delete"\)' -or
+    $sharedApp -notmatch '>Cancel</button>' -or
+    $sharedApp -notmatch 'group-delete-disclosure' -or
+    $sharedApp -notmatch 'role="alert"' -or
+    $sharedApp -match 'window.confirm\(`Delete group' -or
+    $baseCss -notmatch '\.group-delete-dialog' -or
+    $baseCss -notmatch '\.group-delete-choices button.destructive') {
+    throw "Normal Web group deletion must present unassign/delete/cancel with count and disclosure."
+}
+if ($groupWorkflow -notmatch 'await apiJson<Chat\[\]>\(apiBase, "/v1/chats"\)' -or
+    $groupWorkflow -notmatch 'Group membership changed' -or
+    $groupWorkflow -notmatch 'method: "DELETE"' -or
+    $groupWorkflow -notmatch '"/v1/chats"' -or
+    $groupWorkflow -notmatch '"/v1/categories/' -or
+    $groupWorkflow -notmatch 'deletedChatIdsRef.current.add' -or
+    $groupWorkflow -notmatch 'if \(chatId && removed.has\(chatId\)\) newChat\(\)') {
+    throw "Normal Web group destructive deletion bypasses the shared chat API or stale-data guard."
+}
+$chatDeleteOffset = $groupWorkflow.IndexOf('if (mode === "delete"')
+$categoryDeleteOffset = $groupWorkflow.IndexOf('await apiJsonOrEmpty(apiBase,', $chatDeleteOffset + 50)
+# Source guard: the category delete request must come after the conditional chat delete.
+if ($chatDeleteOffset -lt 0 -or $categoryDeleteOffset -le $chatDeleteOffset -or
+    $groupWorkflow.IndexOf('"/v1/categories/') -lt $categoryDeleteOffset) {
+    throw "Group removal must follow completed conversation removal."
+}
+
 node (Join-Path $root "tests/agent-web-rich-formatting.test.cjs")
 if ($LASTEXITCODE -ne 0) { throw "Shared chat rich-formatting regressions failed." }
 
