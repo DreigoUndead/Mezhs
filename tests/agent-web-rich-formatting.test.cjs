@@ -447,3 +447,11 @@ test("unknown prototype-named DIL tags cannot select host renderer entries", () 
   assert.match(output, /Also inert/);
   assert.doesNotMatch(output, /<constructor|<__proto__/);
 });
+
+test("unexpected inherited icon names remain inert labels", () => {
+  for (const iconName of ["constructor", "__proto__"]) {
+    const output = html('<icon name="' + iconName + '"/>');
+    assert.match(output, new RegExp(iconName));
+    assert.doesNotMatch(output, /<script|onerror=/);
+  }
+});

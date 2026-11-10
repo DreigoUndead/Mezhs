@@ -61,3 +61,12 @@ Owner requested `WritingBlock` support before PR #53 independent review. Impleme
 - Regression tests cover malformed MDX in editable source, fake/comment/fenced
   blocks, rejected metadata, and the existing interactions. Complete independent
   code review and targeted verification at the corrected commit before release.
+
+## Developer verification limitation (2026-11-10)
+The required Codegraph regeneration was attempted in a temporary read-only
+GitHub Actions job. The package pinned as 3.0.0 was unavailable on npm;
+the published CLI installed as 1.6.2 and did not implement the required
+`codegraph graph` command. The temporary workflow was removed; the generated
+graph was not hand-edited. A developer with the repository-compatible
+Codegraph CLI must run `node .agents/codegraph/export.cjs`, commit the
+generated graph, and repeat affected verification before independent review.

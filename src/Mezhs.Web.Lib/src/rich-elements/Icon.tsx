@@ -13,7 +13,8 @@ const icons = {
 export const iconElement = defineElement("icon", ["name","size","color","inline"],
   (props: RichProps) => {
     const name = read(props, "name");
-    const Icon = icons[name as keyof typeof icons];
+    const Icon = Object.prototype.hasOwnProperty.call(icons, name)
+      ? icons[name as keyof typeof icons] : undefined;
     const size = read(props, "size") === "lg" ? 20 : read(props, "size") === "sm" ? 14 : 16;
     return <span className={"rich-icon" + tone(props)} role="img" aria-label={name || "icon"}>
       {Icon ? <Icon size={size} aria-hidden="true" /> : name}
