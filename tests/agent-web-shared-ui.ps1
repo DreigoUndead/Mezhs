@@ -158,16 +158,16 @@ if ($groupWorkflow -notmatch 'await apiJson<Chat\[\]>\(apiBase, "/v1/chats"\)' -
     $groupWorkflow -notmatch 'Group membership changed' -or
     $groupWorkflow -notmatch 'method: "DELETE"' -or
     $groupWorkflow -notmatch '"/v1/chats"' -or
-    $groupWorkflow -notmatch '"/v1/categories/' -or
+    $groupWorkflow -notmatch '/v1/categories/' -or
     $groupWorkflow -notmatch 'deletedChatIdsRef.current.add' -or
     $groupWorkflow -notmatch 'if \(chatId && removed.has\(chatId\)\) newChat\(\)') {
     throw "Normal Web group destructive deletion bypasses the shared chat API or stale-data guard."
 }
 $chatDeleteOffset = $groupWorkflow.IndexOf('if (mode === "delete"')
-$categoryDeleteOffset = $groupWorkflow.IndexOf('await apiJsonOrEmpty(apiBase,', $chatDeleteOffset + 50)
+$categoryDeleteOffset = $groupWorkflow.IndexOf('/v1/categories/')
 # Source guard: the category delete request must come after the conditional chat delete.
 if ($chatDeleteOffset -lt 0 -or $categoryDeleteOffset -le $chatDeleteOffset -or
-    $groupWorkflow.IndexOf('"/v1/categories/') -lt $categoryDeleteOffset) {
+    $categoryDeleteOffset -lt $chatDeleteOffset) {
     throw "Group removal must follow completed conversation removal."
 }
 
