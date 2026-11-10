@@ -2,6 +2,23 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.4.0] — 2026-11-10
+
+### Added
+- Three-choice group deletion dialog in regular API Web: unassign conversations, permanently delete group conversations, or cancel, with the current group count and clear retention disclosures.
+- Native accessible modal with keyboard focus management, request timeouts, pre-deletion membership reconfirmation, and best-effort reconciliation after uncertain server responses.
+
+### Changed
+- Reuse existing Core/Agent chat deletion and category removal APIs without changing Agent Web group deletion behavior or existing Agent/Core partial-failure semantics.
+- Handle case-insensitive group identifiers consistently in filtering, counts, and deletion.
+
+### Tests
+- Add Chromium group-deletion regression scenarios for modal focus, changed membership, lost responses, interrupted requests, mixed-case IDs, and successful deletion.
+- Extend shared UI regression checks. Developer CI passed; separate high-risk independent testing was explicitly waived by the owner.
+
+### Known limitations
+- Group membership validation is not atomic with ID-based deletion: a conversation moved to another group after the final preflight may still be deleted. This owner-accepted risk is documented in the implementation plan and current specification.
+
 ## [0.3.1] — 2026-11-10
 
 ### Changed
