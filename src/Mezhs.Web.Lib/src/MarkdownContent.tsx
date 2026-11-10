@@ -87,17 +87,20 @@ export function MarkdownContent({ content, verbatim = false, onIssueNewTurn }: {
       <RichQuestionsContext.Provider value={prepared.questions}>
         <div className="markdown-content">{renderRich(prepared.content, prepared.slotOffsets, prepared.writingOffsets)}</div>
       </RichQuestionsContext.Provider>
-    </RichActionContext.Provider>;
+      </RichActionContext.Provider>
+    </WritingBlocksContext.Provider>;
   } catch {
     // Recover independently renderable blocks using only the complete
     // message's already-validated slots. No fragment can gain new authority.
     if (!prepared) return null;
-    return <RichActionContext.Provider value={onIssueNewTurn}>
+    return <WritingBlocksContext.Provider value={prepared.blocks}>
+      <RichActionContext.Provider value={onIssueNewTurn}>
       <RichQuestionsContext.Provider value={prepared.questions}>
         <div className="markdown-content">{recoveryChunks(prepared.content, prepared.slotOffsets, prepared.writingOffsets).map((chunk, i) =>
           <div key={i}>{renderChunk(chunk.content, chunk.slotOffsets, chunk.writingOffsets)}</div>
         )}</div>
       </RichQuestionsContext.Provider>
-    </RichActionContext.Provider>;
+      </RichActionContext.Provider>
+    </WritingBlocksContext.Provider>;
   }
 }
