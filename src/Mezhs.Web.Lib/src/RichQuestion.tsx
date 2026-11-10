@@ -2,7 +2,6 @@ import { parse, parseExpressionAt } from "acorn";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
-import remarkMdx from "remark-mdx";
 import { createContext, useContext, useId, useState } from "react";
 import Markdown, { uriTransformer } from "react-markdown";
 import remarkGfm from "remark-gfm";
