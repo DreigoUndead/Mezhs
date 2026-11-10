@@ -23,6 +23,7 @@ compiled._compile(bundle, moduleFile);
 const html = (content, props = {}) => renderToStaticMarkup(React.createElement(compiled.exports.MarkdownContent, { content, ...props }));
 const svg = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/representative-svg.md"), "utf8");
 const question = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/representative-question.md"), "utf8").replace(/\r\n?/g, "\n");
+const customQuestion = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/custom-controls-question.md"), "utf8").replace(/\r\n?/g, "\n");
 // Exercise the production extractor directly: a full Markdown render would hide
 // scanner regressions behind unrelated Markdown/React parsing work.
 const extractorBundle = esbuild.buildSync({
@@ -410,4 +411,42 @@ test("multiline body rejects additional executable declarations", () => {
   assert.equal(Object.keys(extractRichQuestions(unsupported).questions).length, 0);
   assert.doesNotMatch(html(unsupported, { onIssueNewTurn() {} }),
     /<fieldset class="rich-question"/);
+});
+
+test("custom rich controls parse all four choice messages without evaluating JS", () => {
+  const parsed = extractRichQuestions(customQuestion);
+  assert.equal(Object.keys(parsed.questions).length, 1, "Expected one validated custom question");
+  const data = parsed.questions["0"];
+  assert.equal(data.initial, "A");
+  assert.deepEqual(data.options.map(option => option.value), ["A", "B", "C", "D"]);
+  assert.match(data.options[0].label, /<text size="sm" color="secondary">/);
+  assert.match(data.button, /<icon name="arrow-right" inline\/>/);
+  for (const [choice, text] of Object.entries({
+    A: "Grill Me Q1: A — minimum interval between request starts.",
+    B: "Grill Me Q1: B — cooldown after each completed request.",
+    C: "Grill Me Q1: C — delay only after rate limiting.",
+    D: "Grill Me Q1: D — I want different semantics.",
+  })) assert.equal(data.messages[choice], text);
+});
+
+test("custom rich controls render allowed label text, arrow icon and inert read-only button", () => {
+  const rendered = html(customQuestion);
+  assert.equal((rendered.match(/type="radio"/g) || []).length, 4);
+  assert.match(rendered, /Minimum interval between request starts/);
+  assert.match(rendered, /rich-tone-secondary/);
+  assert.match(rendered, /aria-label="arrow-right"/);
+  assert.match(rendered, /Submission unavailable in this view/);
+  assert.match(rendered, /<button[^>]*disabled/);
+});
+
+test("unsupported content nested in custom controls rejects action authority", () => {
+  for (const edited of [
+    customQuestion.replace('<text size="sm"', '<text onClick={alert(1)} size="sm"'),
+    customQuestion.replace('<icon name="arrow-right" inline/>', '<icon name="arrow-right" onClick={alert(1)}/>'),
+    customQuestion.replace('choice==="A"', 'globalThis.alert(1)==="A"'),
+    customQuestion.replace('choice==="A"', 'choice["constructor"]==="A"'),
+  ]) {
+    assert.equal(Object.keys(extractRichQuestions(edited).questions).length, 0);
+    assert.doesNotMatch(html(edited), /<fieldset class="rich-question"/);
+  }
 });
