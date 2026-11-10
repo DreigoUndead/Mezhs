@@ -2,6 +2,15 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.3.1] — 2026-11-10
+
+### Changed
+- Automatically select newly created groups in the regular API Web UI after successful creation and category refresh, using the server-returned category ID.
+- Preserve Agent Web's existing group-creation selection behavior.
+
+### Tests
+- Update shared UI regression assertions for the regular API Web group-selection behavior.
+
 ## [0.3.0] — 2026-11-10
 
 ### Added
