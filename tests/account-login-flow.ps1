@@ -40,6 +40,7 @@ try
 {
     await TestSessionOwnershipAsync(Path.Combine(root, "ownership"));
     await TestRspackDiagnosticsAsync(Path.Combine(root, "rspack"));
+    await TestOpenBrowserThenAuthorizedDiagnosticsAsync(Path.Combine(root, "open-first"));
     await TestAnonymousDiagnosticsAsync(Path.Combine(root, "guests"));
     Console.WriteLine("PASS: T2 browser session ownership and diagnostics regressions");
     if (args.Contains("--ownership-only")) return;
@@ -298,6 +299,49 @@ static async Task TestRspackDiagnosticsAsync(string root)
             "non-ChatGPT request did not exercise real C# diagnostics transport");
     }
     Console.WriteLine("PASS: Rspack diagnostic authorization, opt-in, provider gate, and transport fixture");
+}
+
+static async Task TestOpenBrowserThenAuthorizedDiagnosticsAsync(string root)
+{
+    foreach (var authorized in new[] { false, true })
+    {
+        var host = new FakeHost(Path.Combine(root, authorized ? "authorized" : "unauthorized"), authorized)
+        {
+            EnableRspackBridge = true
+        };
+        await using (var account = new ChatGptAccountIntegration(Connection(), host))
+        {
+            await account.Login!.OpenBrowserAsync();
+            Assert(host.Initializations.Count == 1 &&
+                host.Initializations[0].ShowBrowser &&
+                !host.Initializations[0].RequireAuthorization,
+                "manually opened browser was unexpectedly authorization-checked");
+
+            var arguments = JsonSerializer.SerializeToElement(new { inspect = true });
+            if (authorized)
+            {
+                var result = await account.Diagnostics!.InvokeAsync("rspackRegistryShape", arguments);
+                Assert(result.GetProperty("passedAllPredicates").GetInt32() == 1 &&
+                    host.RendererCalls == 1,
+                    "authorized open-first diagnostic did not reach synthetic renderer");
+            }
+            else
+            {
+                var denied = false;
+                try { await account.Diagnostics!.InvokeAsync("rspackRegistryShape", arguments); }
+                catch (IntegrationAuthorizationRequiredException) { denied = true; }
+                Assert(denied && host.RendererCalls == 0 && host.Invocations.Count == 0,
+                    "unauthorized open-first browser executed a diagnostic");
+            }
+
+            Assert(host.Initializations.Count == 2 &&
+                !host.Initializations[1].ShowBrowser &&
+                host.Initializations[1].RequireAuthorization,
+                "diagnostic reused a browser without verifying authorization");
+        }
+        Assert(host.ActiveTransports == 0, "open-first diagnostic leaked browser transport");
+    }
+    Console.WriteLine("PASS: open-first diagnostics enforce authorization before execution");
 }
 
 static async Task TestAnonymousDiagnosticsAsync(string root)
