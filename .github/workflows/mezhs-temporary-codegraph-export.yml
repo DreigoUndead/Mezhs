@@ -1,0 +1,26 @@
+name: Temporary Codegraph Export
+on:
+  push:
+    branches: [rich-ui-custom-controls]
+permissions:
+  contents: read
+jobs:
+  portable-graph:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Export portable Codegraph
+        shell: pwsh
+        run: |
+          npm install -g @colbymchenry/codegraph@3.0.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/codegraph/export.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Emit segmented portable snapshot for developer retrieval
+        shell: pwsh
+        run: |
+          node -e "const fs=require('fs'); const data=encodeURIComponent(fs.readFileSync('.agents/codegraph/graph.json','utf8')); for(let i=0;i<data.length;i+=6000){console.log('CGCHUNK:'+Math.floor(i/6000)+':'+data.slice(i,i+6000));}"
