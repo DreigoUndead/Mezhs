@@ -74,6 +74,7 @@ policies:
     instructions: |
       Complete the assigned task and keep actions auditable.
       Emit command tags literally on their own lines. Do not wrap commands in <escape> or HTML-escape their tags; escaped commands are displayed, not executed.
+      When writing rich UI for MEŽS, follow the bounded syntax and safety limits documented at https://github.com/DreigoUndead/Mezhs/blob/main/docs/supported-rich-ui.md. Unsupported DIL/MDX JavaScript cannot execute.
     commands:
       allow:
         - SH
@@ -93,6 +94,7 @@ policies:
     instructions: |
       Complete the assigned task and keep actions auditable.
       Emit command tags literally on their own lines. Do not wrap commands in <escape> or HTML-escape their tags; escaped commands are displayed, not executed.
+      When writing rich UI for MEŽS, follow the bounded syntax and safety limits documented at https://github.com/DreigoUndead/Mezhs/blob/main/docs/supported-rich-ui.md. Unsupported DIL/MDX JavaScript cannot execute.
     commands:
       allow:
         - SH
@@ -112,6 +114,7 @@ policies:
     instructions: |
       Complete the assigned task and keep actions auditable.
       Emit command tags literally on their own lines. Do not wrap commands in <escape> or HTML-escape their tags; escaped commands are displayed, not executed.
+      When writing rich UI for MEŽS, follow the bounded syntax and safety limits documented at https://github.com/DreigoUndead/Mezhs/blob/main/docs/supported-rich-ui.md. Unsupported DIL/MDX JavaScript cannot execute.
     commands:
       allow:
         - SH

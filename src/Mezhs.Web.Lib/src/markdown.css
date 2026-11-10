@@ -74,3 +74,29 @@
 @media (max-width: 480px) {
   .markdown-content .rich-chart-row { grid-template-columns: 1fr; gap: 4px; }
 }
+
+/* Validated native SVG only: no external assets, CSS or model-provided handlers. */
+.markdown-content .rich-svg { display: block; width: 100%; max-width: 100%; max-height: 520px; height: auto; overflow: hidden; margin: .6em 0; }
+.markdown-content .rich-question { min-width: 0; margin: .6em 0; padding: 12px 14px; border: 1px solid #ded9cf; border-radius: 10px; }
+.markdown-content .rich-question-caption { font-size: .88em; font-weight: 650; color: inherit; padding: 0 5px; }
+.markdown-content .rich-question-option { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; margin: 7px 0; overflow-wrap: anywhere; }
+.markdown-content .rich-question-option input { flex: none; margin-top: .2em; accent-color: #55672c; }
+.markdown-content .rich-question-option p { margin: 0; }
+.markdown-content .rich-question-option :focus-visible, .markdown-content .rich-question button:focus-visible { outline: 2px solid #55672c; outline-offset: 3px; }
+.markdown-content .rich-question button { display: inline-block; padding: 7px 14px; border-radius: 7px; border: 1px solid #53652d; background: #53652d; color: #fff; cursor: pointer; }
+.markdown-content .rich-question button:disabled { opacity: .45; cursor: not-allowed; }
+.markdown-content .rich-question-readonly { display: block; margin-top: 7px; color: #777169; }
+
+/* Verified transient citation IDs have no destination metadata in MEŽS. */
+.markdown-content .rich-citation-unavailable {
+  display: inline;
+  white-space: nowrap;
+  font-size: .78em;
+  color: #777169;
+  vertical-align: baseline;
+}
+.markdown-content .rich-question .rich-question-block {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+}
