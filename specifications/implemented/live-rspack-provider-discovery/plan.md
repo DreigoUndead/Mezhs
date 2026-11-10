@@ -64,11 +64,33 @@ Status: owner approved the diagnostic-first revision after two live Account exec
 - The current registry filter requires a narrowly named page global, an Array with own non-native push data function, a bounded nonempty length, and at least one processed chunk entry with the expected shape. The error proves no candidate passed all checks, not which check failed.
 - A bound/native-looking runtime push is a plausible cause, not an established root cause. Tests currently use a synthetic non-native push and deliberately reject bound functions. The later process inspection showed a Debug main host, which does not establish which build was active at failure time.
 
+### Owner decision — 2026-11-10: practical, reusable diagnostics
+
+The owner explicitly relaxed the Stage A guarantee against invoking page code
+through modified JavaScript built-ins. This is an opt-in **best-effort diagnostic**,
+not a security-grade integrity assertion. The page can replace introspection
+functions or use Proxy traps. Even `incomplete: false` means only that an
+attempted scan finished, not trustworthy proof about a hostile or modified realm.
+No isolated-world/debugger bridge is needed solely to defend against substitutions.
+
+Avoid ordinary getter invocations where straightforward; do not build an
+intrinsic-integrity subsystem. Continue to require authenticated loopback
+access, ChatGPT-only explicit `inspect: true`, bounded fixed-schema aggregates,
+redaction, and no intentional registry pushes, loader captures, export calls,
+Sentinel preparation, or page writes. Best-effort results must not weaken
+production Account validation or authorize Stage B without independent evidence
+and owner approval.
+
+The broader goal is a reusable diagnostic facility for existing and future
+integrations. Reuse MEŽS's existing common diagnostic transport and routing;
+keep this Rspack operation ChatGPT-specific. Broader provider probes are
+outside this Stage A PR.
+
 ### Stage A - read-only diagnostic only
 
 1. Add an explicit opt-in ChatGPT-only operation named rspackRegistryShape to the existing loopback browser diagnostics path. Require args.inspect === true. Do not call it automatically from Account transport or from unrelated providers. Use the existing authorized-session and diagnostics routing; do not create an additional server endpoint or expose it beyond loopback.
 2. Run a bounded renderer-side observation function without calling any chunk push, injecting chunks, evaluating factories, capturing loaders, importing assets, invoking exports, preparing requirements, navigating, or changing existing cache/global state. Do not inspect Resource Timing for discovery.
-3. Enumerate own global names and access matching own property descriptors, not property getters. For each plausible array, inspect own data descriptors for push, length and a bounded set of stored chunk entries; inspect only shape, never contents. Function.prototype.toString may classify a function as native-looking, but must never return the source text or call that function. Guard introspection exceptions as a sanitized category. These operations must not deliberately invoke page callbacks or accessor getters; however, descriptor/introspection operations on a Proxy can run its traps, so a literal guarantee that no page code executes is not possible. Treat thrown/revoked-Proxy cases as incomplete and untrusted evidence, never as a successful match.
+3. Enumerate own global names and access matching own property descriptors, not property getters. For each plausible array, inspect own data descriptors for push, length and a bounded set of stored chunk entries; inspect only shape, never contents. Function.prototype.toString may classify a function as native-looking, but must never return the source text or call that function. Guard introspection exceptions as a sanitized category. Avoid deliberate registry callbacks and ordinary property getters. Page-modified built-ins and Proxy traps can still execute page code and affect results; this best-effort observation is not a security guarantee. Treat thrown/revoked-Proxy cases as incomplete and untrusted evidence, never as a successful match.
 4. Return only a fixed-schema aggregate of bounded integer counters and booleans: scannedGlobals, matchingNames, dataArrayCandidates, accessorCandidates, ownPushFunctions, inheritedOrAbsentPush, nativeLookingPush, nonNativePush, emptyArrays, processedEntryShapeCandidates, noProcessedEntryShape, passedNameAndArray, passedNameArrayAndOwnPush, passedNameArrayOwnPushNonNative, passedAllPredicates, descriptorErrors, limitExceeded, and incomplete. Cumulative passed-stage counters must apply to the same candidate at each step, not independent category totals; keep the cumulative sequence monotonic. Aggregates classify matching candidates, not which candidate is the actual runtime. In particular, matchingNames=0 proves only that no enumerated global matched the current name predicate. Do not return registry names, module IDs, chunk IDs, function source, URLs, raw objects, request data, cookies, credentials, tokens, headers or screenshots.
 5. Bound enumeration to 5000 globals, 32 matching candidates, 2048 entries per candidate and 4096 entries total. On a bound breach or unsafe/failed introspection, return the same fixed schema with incomplete=true and the applicable bounded limitExceeded or descriptorErrors indication, not a raw exception/message/stack or partially successful diagnosis. Do not treat truncated observations as conclusive evidence or bypass existing runtime safety checks. No persistent logging of confidential browser content.
 6. Implement targeted unit and diagnostic API tests for empty globals, non-runtime arrays, missing or inherited push, native-looking/bound push classification, valid synthetic runtime, accessor properties, Proxy/revoked-Proxy introspection failure, bounds, cumulative counter semantics, incomplete-result handling, redaction and the opt-in ChatGPT/loopback authorization checks (including rejection for non-ChatGPT sessions). Assert that the diagnostic makes no chunk-push calls, writes, loader captures or Sentinel preparations. Keep existing Account behavior unchanged and all existing tests passing.
@@ -84,7 +106,7 @@ Status: owner approved the diagnostic-first revision after two live Account exec
 ### Additional Stage A acceptance criteria
 
 - [ ] Read-only diagnostic reports bounded, sanitized, monotonic cumulative counts for each observable registry-validation stage, without exposing candidate identities or claiming an unverified runtime identity.
-- [ ] No Account transport behavior changes; the diagnostic performs no intentional page writes, chunk-push calls, or direct page-function/getter invocation. Potential Proxy-trap side effects are explicitly treated as an introspection limitation, not as proof of absolute inertness.
+- [ ] No Account transport behavior changes; the diagnostic performs no intentional page writes, chunk-push calls, loader captures, export calls or Sentinel preparation. Ordinary getters are avoided where practical; modified page built-ins and Proxy traps may still execute page code and influence complete-looking results (owner-approved best-effort limitation).
 - [ ] Opt-in authorization, ChatGPT-only scope, aggregate response schema, exception/Proxy and input bounds are tested; incomplete scans cannot be treated as positive evidence, and live observations include verified renderer-to-running-build identity or are explicitly blocked.
 - [ ] No Stage B compatibility change begins until live evidence, owner approval and independent review establish its safety.
 
