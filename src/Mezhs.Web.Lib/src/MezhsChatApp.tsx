@@ -24,6 +24,11 @@ type Category = {
   createdAt: string;
 };
 
+type GroupDeleteDialog = {
+  category: Category;
+  chatIds: string[];
+};
+
 type PendingFile = {
   key: string;
   file: File;
@@ -85,6 +90,10 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [managerSearch, setManagerSearch] = useState("");
   const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
   const [deletingChats, setDeletingChats] = useState(false);
+  const [groupDeleteDialog, setGroupDeleteDialog] = useState<GroupDeleteDialog | null>(null);
+  const [groupDeleteOpening, setGroupDeleteOpening] = useState(false);
+  const [groupDeleteBusy, setGroupDeleteBusy] = useState(false);
+  const [groupDeleteError, setGroupDeleteError] = useState<string | null>(null);
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
   const [chatRenameDraft, setChatRenameDraft] = useState("");
   const selectionEpoch = useRef(0);
@@ -385,17 +394,112 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     }
   }
 
-  async function deleteCategory(category: Category) {
-    if (!window.confirm(`Delete group '${category.name}'? All conversations in this shared group, including Agent conversations if present, will be unassigned. Conversations are kept.`)) return;
+  async function promptDeleteCategory(category: Category) {
+    if (groupDeleteOpening || groupDeleteBusy || deletingChats) return;
+    setGroupDeleteOpening(true);
+    setNotice(null);
     try {
-      await apiJsonOrEmpty(apiBase, `/v1/categories/${category.categoryId}`, {
-        method: "DELETE",
+      // Core chat inventory includes Agent-backed chats on the Agent host.
+      const current = await apiJson<Chat[]>(apiBase, "/v1/chats");
+      setChats(current.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
+      setGroupDeleteDialog({
+        category,
+        chatIds: current.filter((chat) => chat.categoryId === category.categoryId)
+          .map((chat) => chat.chatId),
       });
-      if (categoryFilter === category.categoryId) setCategoryFilter("all");
-      if (newChatCategoryId === category.categoryId) setNewChatCategoryId("");
-      await Promise.all([loadCategories(), loadChats()]);
+      setGroupDeleteError(null);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Group could not be deleted.");
+      setNotice(error instanceof Error ? error.message : "Could not load group conversations.");
+    } finally {
+      setGroupDeleteOpening(false);
+    }
+  }
+
+  function closeGroupDeleteDialog() {
+    if (groupDeleteBusy) return;
+    setGroupDeleteDialog(null);
+    setGroupDeleteError(null);
+  }
+
+  async function deleteCategory(mode: "unassign" | "delete") {
+    const dialog = groupDeleteDialog;
+    if (!dialog || groupDeleteBusy || deletingChats) return;
+    setGroupDeleteBusy(true);
+    setGroupDeleteError(null);
+    let chatsDeleted = false;
+    try {
+      const current = await apiJson<Chat[]>(apiBase, "/v1/chats");
+      const ids = current.filter((chat) => chat.categoryId === dialog.category.categoryId)
+        .map((chat) => chat.chatId);
+      // Never silently delete a different set than the one shown in the dialog.
+      if (ids.length !== dialog.chatIds.length ||
+          ids.some((id) => !dialog.chatIds.includes(id))) {
+        setChats(current.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
+        setGroupDeleteDialog({ ...dialog, chatIds: ids });
+        setGroupDeleteError("Group membership changed. Review the updated count and choose again.");
+        return;
+      }
+
+      if (mode === "delete" && ids.length > 0) {
+        // The Agent host routes these same requests through Agent-first/Core-second cleanup.
+        if (ids.length === 1) {
+          await apiJsonOrEmpty(apiBase, `/v1/chats/${encodeURIComponent(ids[0])}`, {
+            method: "DELETE",
+          });
+        } else {
+          await apiJsonOrEmpty(apiBase, "/v1/chats", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chatIds: ids }),
+          });
+        }
+        chatsDeleted = true;
+        const removed = new Set(ids);
+        ids.forEach((id) => deletedChatIdsRef.current.add(id));
+        setChats((existing) => existing.filter((chat) => !removed.has(chat.chatId)));
+        if (chatId && removed.has(chatId)) newChat();
+        setSelectedChatIds((selected) => new Set([...selected].filter((id) => !removed.has(id))));
+        setShowConversationManager(false);
+      }
+
+      // Keep this existing endpoint/behavior for "Unassign conversations".
+      // Delete the group only after the chat deletion request has succeeded.
+      await apiJsonOrEmpty(apiBase,
+        `/v1/categories/${encodeURIComponent(dialog.category.categoryId)}`, {
+          method: "DELETE",
+        });
+
+      if (categoryFilter === dialog.category.categoryId) setCategoryFilter("all");
+      if (newChatCategoryId === dialog.category.categoryId) setNewChatCategoryId("");
+      setGroupDeleteDialog(null);
+      const noun = ids.length === 1 ? "conversation" : "conversations";
+      setNotice(mode === "delete"
+        ? `Group '${dialog.category.name}' and ${ids.length} ${noun} deleted.`
+        : `Group '${dialog.category.name}' deleted; ${ids.length} ${noun} unassigned.`);
+      try {
+        await Promise.all([loadCategories(), loadChats()]);
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "Group deleted, but the list could not be refreshed.");
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Request failed.";
+      setGroupDeleteError(chatsDeleted
+        ? `Conversations were deleted, but the group was not removed: ${detail} Retry to remove the group.`
+        : `Could not complete group deletion: ${detail} No further steps were attempted.`);
+      // A partially completed sequence is retryable. Reconcile the displayed count.
+      try {
+        const current = await apiJson<Chat[]>(apiBase, "/v1/chats");
+        setChats(current.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
+        setGroupDeleteDialog({
+          ...dialog,
+          chatIds: current.filter((chat) => chat.categoryId === dialog.category.categoryId)
+            .map((chat) => chat.chatId),
+        });
+      } catch {
+        // Preserve the dialog and error; a later action must refresh before writing.
+      }
+    } finally {
+      setGroupDeleteBusy(false);
     }
   }
 
@@ -618,10 +722,10 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                   ? <Pencil aria-hidden="true" size={17} strokeWidth={1.8} />
                   : <Plus aria-hidden="true" size={18} strokeWidth={2} />}
               </button>
-              <button type="button" disabled={!selectedGroup}
+              <button type="button" disabled={!selectedGroup || groupDeleteOpening || deletingChats}
                 aria-label={selectedGroup ? `Delete group ${selectedGroup.name}` : "Delete group"}
                 title={selectedGroup ? "Delete group" : "Select a group to delete"}
-                onClick={() => { if (selectedGroup) void deleteCategory(selectedGroup); }}>
+                onClick={() => { if (selectedGroup) void promptDeleteCategory(selectedGroup); }}>
                 <Trash2 aria-hidden="true" size={17} strokeWidth={1.8} />
               </button>
             </>
@@ -714,6 +818,50 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
           <small>{apiBase || "Connecting..."}</small>
         </div>
       </aside>
+
+      {groupDeleteDialog && (
+        <div className="dialog-backdrop" onClick={closeGroupDeleteDialog}>
+          <section className="group-delete-dialog" role="dialog" aria-modal="true"
+            aria-labelledby="group-delete-title" aria-describedby="group-delete-summary"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.stopPropagation();
+                closeGroupDeleteDialog();
+              }
+            }}>
+            <h2 id="group-delete-title">Delete group</h2>
+            <p id="group-delete-summary">
+              Group <strong>{groupDeleteDialog.category.name}</strong> contains{" "}
+              <strong>{groupDeleteDialog.chatIds.length}</strong>{" "}
+              {groupDeleteDialog.chatIds.length === 1 ? "conversation" : "conversations"}.
+              Choose what happens to its conversations, including Agent conversations if present.
+            </p>
+            <div className="group-delete-choices">
+              <button type="button" disabled={groupDeleteBusy}
+                onClick={() => void deleteCategory("unassign")}>
+                <strong>Unassign conversations</strong>
+                <span>Delete only the group. Keep all conversations without a group.</span>
+              </button>
+              <button type="button" className="destructive" disabled={groupDeleteBusy}
+                onClick={() => void deleteCategory("delete")}>
+                <strong>Delete conversations</strong>
+                <span>Delete the group and all its conversations permanently.</span>
+              </button>
+            </div>
+            <p className="group-delete-disclosure">
+              Deletion removes conversation transcripts and associated Agent state from active storage.
+              Previously imported legacy chat files may remain as backups. Historical Executor records
+              and stored files may remain. Running Executor shells are not guaranteed to stop.
+            </p>
+            {groupDeleteError && <p className="group-delete-error" role="alert">{groupDeleteError}</p>}
+            <footer>
+              <button type="button" autoFocus disabled={groupDeleteBusy}
+                onClick={closeGroupDeleteDialog}>Cancel</button>
+            </footer>
+          </section>
+        </div>
+      )}
 
       {showConversationManager && (
         <div className="dialog-backdrop" onClick={() => setShowConversationManager(false)}>
