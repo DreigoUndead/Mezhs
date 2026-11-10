@@ -235,7 +235,7 @@ static async Task TestRspackDiagnosticsAsync(string root)
     {
         var diagnostics = account.Diagnostics
             ?? throw new Exception("ChatGPT account diagnostics missing");
-        foreach (var json in new[] { "{}", "{\\"inspect\\":false}", "{\\"inspect\\":\\"true\\"}" })
+        foreach (var json in new[] { "{}", "{\"inspect\":false}", "{\"inspect\":\"true\"}" })
         {
             using var document = JsonDocument.Parse(json);
             await ExpectRspackRejectAsync(diagnostics, document.RootElement.Clone(), "inspect=true");
