@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { MarkupNode } from "./rich-elements/Element";
 
 const variants: Record<string, string> = {
   email: "Email draft",
@@ -48,4 +49,45 @@ export function RichWritingBlock({ source, variant, subject, recipient, cc, bcc 
     }} rows={Math.max(5, Math.min(18, draft.split("\n").length + 2))} spellCheck />
     {copyStatus && <span className="rich-writing-status" role="status">{copyStatus}</span>}
   </section>;
+}
+
+export function prepareWritingBlock(node: MarkupNode, source: string): boolean {
+            // Extract the original Markdown source, not rendered children.
+            // This component is local editing/copy only; no host action authority.
+            const attrs: Record<string, string> = Object.create(null);
+            const allowed = new Set(["variant", "subject", "recipient", "cc", "bcc", "id"]);
+            let safe = (node.attributes || []).length <= 6;
+            for (const attr of node.attributes || []) {
+              if (attr.type !== "mdxJsxAttribute" || !attr.name ||
+                  !allowed.has(attr.name) || Object.prototype.hasOwnProperty.call(attrs, attr.name) ||
+                  typeof attr.value !== "string" || attr.value.length > 256) { safe = false; break; }
+              attrs[attr.name] = attr.value;
+            }
+            if (attrs.variant && !["email", "chat_message", "social_post", "document", "standard"].includes(attrs.variant))
+              safe = false;
+            if (attrs.id && !/^[0-9]{5}$/.test(attrs.id)) safe = false;
+            const start = node.position?.start.offset;
+            const end = node.position?.end.offset;
+            const raw = start !== undefined && end !== undefined && end - start <= 32768
+              ? source.slice(start, end) : "";
+            // The opening tag can contain > inside a quoted metadata value.
+            let openerEnd = -1;
+            let quote = "";
+            for (let i = 0; i < Math.min(raw.length, 1600); i++) {
+              const char = raw[i];
+              if (quote) { if (char === quote) quote = ""; }
+              else if (char === '"' || char === "'") quote = char;
+              else if (char === ">") { openerEnd = i + 1; break; }
+            }
+            const closer = /<\/WritingBlock\s*>$/.exec(raw);
+            const body = closer && openerEnd > 0 ? raw.slice(openerEnd, closer.index).replace(/^\n|\n$/g, "") : "";
+            if (!safe || !raw.startsWith("<WritingBlock") || !closer ||
+                openerEnd < 0 || body.length > 24000 || !body.trim()) return false;
+            node.children = [];
+            node.data = { hName: "mezhs-writing-block", hProperties: {
+              "data-mezhs-writing-source": body,
+              ...Object.fromEntries(Object.entries(attrs).map(([key, value]) => ["data-mezhs-" + key, value])),
+            } };
+            return true;
+
 }
