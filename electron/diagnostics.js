@@ -138,7 +138,8 @@ function rspackTimingPage(clear) {
 }
 
 function rspackRegistryShapePage(root = globalThis) {
-  // Read-only shape classification. Proxy descriptor traps may still run page code.
+  // Best-effort read-only classification. Page-modified built-ins and Proxy
+  // traps can execute page code or distort results; counts are not integrity proof.
   const empty = () => ({
     scannedGlobals: 0,
     matchingNames: 0,
@@ -206,8 +207,9 @@ function rspackRegistryShapePage(root = globalThis) {
       }
       result.ownPushFunctions++;
       result.passedNameArrayAndOwnPush++;
-      if (push === Array.prototype.push ||
-          /\[native code\]/.test(Function.prototype.toString.call(push))) {
+      // Do not read Array.prototype.push: page-installed getters can execute.
+      // Function.prototype.toString remains best-effort in the page realm.
+      if (/\[native code\]/.test(Function.prototype.toString.call(push))) {
         result.nativeLookingPush++;
         continue;
       }
