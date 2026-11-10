@@ -244,6 +244,7 @@
     "tests/electron-rspack-inspection.test.js",
     "tests/electron-rspack-registry-shape.test.js",
     "tests/grok-browser-module.test.js",
+    "tests/rspack-diagnostic-transport-bridge.cjs",
     "transports/Mezhs.Browser.Abstractions/IChatBrowserTransport.cs",
     "transports/Mezhs.Browser.Abstractions/Mezhs.Browser.Abstractions.csproj",
     "transports/Mezhs.Browser.Electron/ElectronBrowserTransport.cs",
@@ -5388,7 +5389,23 @@
       "raw": "node:test"
     },
     {
-      "from": 246,
+      "from": 244,
+      "to": {
+        "type": "external",
+        "name": "node:vm"
+      },
+      "raw": "node:vm"
+    },
+    {
+      "from": 244,
+      "to": {
+        "type": "file",
+        "path": 28
+      },
+      "raw": "../electron/diagnostics"
+    },
+    {
+      "from": 247,
       "to": {
         "type": "external",
         "name": "Mezhs.Browser"
@@ -5396,7 +5413,7 @@
       "raw": "Mezhs.Browser"
     },
     {
-      "from": 246,
+      "from": 247,
       "to": {
         "type": "external",
         "name": "System.Diagnostics"
@@ -5404,7 +5421,7 @@
       "raw": "System.Diagnostics"
     },
     {
-      "from": 246,
+      "from": 247,
       "to": {
         "type": "external",
         "name": "System.Net.Http.Json"
@@ -5412,7 +5429,7 @@
       "raw": "System.Net.Http.Json"
     },
     {
-      "from": 246,
+      "from": 247,
       "to": {
         "type": "external",
         "name": "System.Text.Json"
@@ -5424,7 +5441,7 @@
     "mode": "semantic",
     "backend": "native",
     "parserDegradedFiles": 0,
-    "nativeFilesUsed": 165,
+    "nativeFilesUsed": 166,
     "nativeFilesFellBack": 0,
     "label": "native semantic"
   }

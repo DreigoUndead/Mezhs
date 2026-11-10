@@ -31,3 +31,24 @@ Running Agent API and Electron processes were observed under D:/Projects/Mezhs (
 ## Next workflow gate
 
 Submit Stage A for independent code review and independent testing. Obtain a verified exact-branch authenticated renderer for a separately authorized one-time read-only observation, or explicitly retain this blocker. Stage B needs live evidence, owner approval and independent review; the original live two-turn Account acceptance remains deferred.
+
+
+## Review corrections and developer verification - 2026-11-10
+
+Independent review: FAIL on 8440e1886e48268122246f4f1fe9307f24996ee4, review 5841137247.
+Owner decision: 2026-11-10, recorded on PR #49 as comment 6767578914. Page-modified JavaScript intrinsics need not be treated as a hostile security boundary; the diagnostic is best-effort and must not be interpreted as authoritative integrity evidence.
+
+Changes: avoid the direct Array.prototype.push read that could execute an ordinary getter; document modified-intrinsic and Proxy limitations; add controlled intrinsic regression tests and an authenticated C# browser-transport to Electron-dispatch fixture. The fixture uses real diagnostic handling with a synthetic renderer and mock transport. It does not launch a real authenticated Electron browser.
+
+Developer verification on ec3c57d13c014e2a7eec24046932005c96479e90:
+- Focused Electron diagnostic tests: PASS, 16 tests, 0 failed.
+- Full Node regression tests: PASS, 128 tests, 0 failed.
+- ChatGPT Account integration tests, including mock transport and authorization: PASS.
+- Diagnostic API tests for Mezhs.Api and Mezhs.Agent.Api, including remote Origin and nonloopback address rejection: PASS.
+- Diagnostics architecture and integration resources: PASS.
+- .NET Release solution build: PASS, 0 errors, 1 warning CS0114 in unrelated Mezhs.WhatsApp WhatsAppApplication.Tests.cs.
+- Electron and new test JavaScript syntax checks: PASS.
+- Codegraph regenerated: 249 files, 647 edges.
+- Git diff whitespace check: PASS.
+
+Limits and next gates: page-modified built-ins may produce misleading complete-looking observations by owner-approved design. Production Account transport and Stage B were not changed. Exact-branch authenticated renderer observation is still BLOCKED; no production Rspack shape counters are established. Independent code re-review and subsequent independent testing are pending. No owner merge approval has been requested.
