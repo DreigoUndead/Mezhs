@@ -483,20 +483,34 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Request failed.";
-      setGroupDeleteError(chatsDeleted
-        ? `Conversations were deleted, but the group was not removed: ${detail} Retry to remove the group.`
-        : `Could not complete group deletion: ${detail} No further steps were attempted.`);
-      // A partially completed sequence is retryable. Reconcile the displayed count.
+      // The server may have committed even if the response was lost. Read both
+      // owners' Core views before offering a retry or claiming any outcome.
       try {
-        const current = await apiJson<Chat[]>(apiBase, "/v1/chats");
+        const [current, currentCategories] = await Promise.all([
+          apiJson<Chat[]>(apiBase, "/v1/chats"),
+          apiJson<Category[]>(apiBase, "/v1/categories"),
+        ]);
         setChats(current.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
-        setGroupDeleteDialog({
-          ...dialog,
-          chatIds: current.filter((chat) => chat.categoryId === dialog.category.categoryId)
-            .map((chat) => chat.chatId),
-        });
+        setCategories(currentCategories);
+        if (!currentCategories.some((category) => category.categoryId === dialog.category.categoryId)) {
+          if (categoryFilter === dialog.category.categoryId) setCategoryFilter("all");
+          if (newChatCategoryId === dialog.category.categoryId) setNewChatCategoryId("");
+          setGroupDeleteDialog(null);
+          setNotice(chatsDeleted
+            ? `Group '${dialog.category.name}' is removed; conversation deletion succeeded.`
+            : `Group '${dialog.category.name}' is removed; verify conversations because the earlier request outcome was uncertain.`);
+        } else {
+          setGroupDeleteDialog({
+            ...dialog,
+            chatIds: current.filter((chat) => chat.categoryId === dialog.category.categoryId)
+              .map((chat) => chat.chatId),
+          });
+          setGroupDeleteError(chatsDeleted
+            ? `Conversations were deleted, but the group remains: ${detail} Retry to remove the group.`
+            : `Could not complete group deletion: ${detail} Review the current count before retrying.`);
+        }
       } catch {
-        // Preserve the dialog and error; a later action must refresh before writing.
+        setGroupDeleteError(`Could not verify group deletion: ${detail} Refresh the page before retrying.`);
       }
     } finally {
       setGroupDeleteBusy(false);
