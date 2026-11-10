@@ -52,3 +52,22 @@ Developer verification on ec3c57d13c014e2a7eec24046932005c96479e90:
 - Git diff whitespace check: PASS.
 
 Limits and next gates: page-modified built-ins may produce misleading complete-looking observations by owner-approved design. Production Account transport and Stage B were not changed. Exact-branch authenticated renderer observation is still BLOCKED; no production Rspack shape counters are established. Independent code re-review and subsequent independent testing are pending. No owner merge approval has been requested.
+
+
+## Owner-approved review corrections — 2026-11-10
+
+The owner approved two small repairs from the independent code review without authorizing Stage B or any merge:
+
+- `BrowserAccountSession` now tracks whether its active browser transport was initialized with the required authorization check. If `OpenBrowserAsync` first created an unverified visible transport, a subsequent authorized diagnostic disposes it and initializes an authorized hidden transport before executing. Shared session ownership remains unchanged.
+- The Stage A Rspack shape observer now checks that the descriptor-returned chunk ID length is a safe integer before comparing it. This avoids implicit JavaScript value coercion of malformed, page-supplied descriptor values.
+- Added `tests/account-login-flow.ps1` regression scenarios for manually opened authorized and unauthorized browsers and `tests/electron-rspack-registry-shape.test.js` regression for forged chunk-length coercion.
+
+### Verification performed on these corrections
+
+- Focused in-memory V8 verification using the exact committed `electron/diagnostics.js` source: **PASS** for ordinary synthetic registry, forged chunk ID length (zero coercion callbacks or push calls), accessor avoidance, revoked Proxy sanitized failure, global limit fail closed, invalid opt-in, non-ChatGPT rejection, and successful opted-in diagnostic dispatch.
+- JavaScript syntax compilation in V8 of the committed diagnostic and new registry-shape test source: **PASS**.
+- Source inspection checked that the shared C# session lifecycle records and resets verification state and that the new C# transport regression test scenarios exist. **These checks do not substitute for executing C# tests.**
+- This execution environment has Node/V8 but no .NET SDK, PowerShell or repository checkout. The full Node test suite, actual C# regression, .NET Release build, PowerShell diagnostics API test, and integration resources test were **not rerun** here on the new SHA. Prior developer test passes belong to older SHAs.
+- There was no verified exact-branch authenticated Electron renderer; the live Stage A observation remains **BLOCKED**, and the root cause of the Rspack production failure is still unresolved.
+
+Next workflow stage: fresh independent code review on the new exact branch commit, followed by independent high-risk testing. Do not merge, change PR draft status or begin Stage B without the separately required approvals.
