@@ -65,6 +65,11 @@ async function groupDeleteRequest<T>(request: (signal: AbortSignal) => Promise<T
   }
 }
 
+// Category IDs are case-insensitive in ChatStore.
+function sameCategoryId(left: string | null | undefined, right: string) {
+  return left?.toLowerCase() === right.toLowerCase();
+}
+
 function matchesChatQuery(chat: Chat, query: string, connectionName?: string, categoryName?: string) {
   const normalized = query.trim().toLocaleLowerCase();
   if (!normalized) return true;
@@ -119,6 +124,8 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const openChatMenuRef = useRef<HTMLDivElement | null>(null);
   const deletedChatIdsRef = useRef(new Set<string>());
   const groupDeleteModalRef = useRef<HTMLDialogElement>(null);
+  const groupFilterRef = useRef<HTMLSelectElement>(null);
+  const restoreGroupFilterFocusRef = useRef(false);
 
   const selectedConnection = useMemo(
     () => connections.find((connection) => connection.id === connectionId),
@@ -126,7 +133,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   );
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
-  const selectedGroup = categories.find((category) => category.categoryId === categoryFilter);
+  const selectedGroup = categories.find((category) => sameCategoryId(category.categoryId, categoryFilter));
   const draftKey = chatId ? `chat:${chatId}` : `new:${newChatSequence}:${connectionId}`;
   const { draft, setDraft, clearDraft, moveDraft, restoreDraft } = useConversationDrafts(draftKey);
   const { pending: sending, start: startSend, transfer: transferSend, finish: finishSend } = useConversationPending(draftKey);
@@ -137,16 +144,16 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const filteredChats = useMemo(() => {
     return chats.filter((chat) => {
       if (categoryFilter === "uncategorized" && chat.categoryId) return false;
-      if (categoryFilter !== "all" && categoryFilter !== "uncategorized" && chat.categoryId !== categoryFilter) return false;
+      if (categoryFilter !== "all" && categoryFilter !== "uncategorized" && !sameCategoryId(chat.categoryId, categoryFilter)) return false;
       const connection = connections.find((item) => item.id === chat.connectionId);
-      const category = categories.find((item) => item.categoryId === chat.categoryId);
+      const category = categories.find((item) => sameCategoryId(chat.categoryId, item.categoryId));
       return matchesChatQuery(chat, search, connection?.name, category?.name);
     });
   }, [chats, connections, categories, categoryFilter, search]);
 
   const managedChats = useMemo(() => filteredChats.filter((chat) => {
     const connection = connections.find((item) => item.id === chat.connectionId);
-    const category = categories.find((item) => item.categoryId === chat.categoryId);
+    const category = categories.find((item) => sameCategoryId(chat.categoryId, item.categoryId));
     return matchesChatQuery(chat, managerSearch, connection?.name, category?.name);
   }), [filteredChats, connections, categories, managerSearch]);
 
@@ -190,7 +197,12 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     modal.showModal();
     return () => {
       if (modal.open) modal.close();
-      if (previousFocus?.isConnected) previousFocus.focus();
+      if (restoreGroupFilterFocusRef.current) {
+        restoreGroupFilterFocusRef.current = false;
+        groupFilterRef.current?.focus();
+      } else if (previousFocus?.isConnected) {
+        previousFocus.focus();
+      }
     };
   }, [Boolean(groupDeleteDialog)]);
 
@@ -426,6 +438,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
 
   async function promptDeleteCategory(category: Category) {
     if (groupDeleteOpening || groupDeleteBusy || deletingChats) return;
+    restoreGroupFilterFocusRef.current = false;
     setGroupDeleteOpening(true);
     setNotice(null);
     try {
@@ -434,7 +447,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
       setChats(current.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
       setGroupDeleteDialog({
         category,
-        chatIds: current.filter((chat) => chat.categoryId === category.categoryId)
+        chatIds: current.filter((chat) => sameCategoryId(chat.categoryId, category.categoryId))
           .map((chat) => chat.chatId),
       });
       setGroupDeleteError(null);
@@ -461,7 +474,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     let chatsDeleted = false;
     try {
       const current = await groupDeleteRequest((signal) => apiJson<Chat[]>(apiBase, "/v1/chats", { signal }));
-      const ids = current.filter((chat) => chat.categoryId === dialog.category.categoryId)
+      const ids = current.filter((chat) => sameCategoryId(chat.categoryId, dialog.category.categoryId))
         .map((chat) => chat.chatId);
       // Never silently delete a different set than the one shown in the dialog.
       if (ids.length !== dialog.chatIds.length ||
@@ -503,6 +516,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
 
       if (categoryFilter === dialog.category.categoryId) setCategoryFilter("all");
       if (newChatCategoryId === dialog.category.categoryId) setNewChatCategoryId("");
+      restoreGroupFilterFocusRef.current = true;
       setGroupDeleteDialog(null);
       const noun = ids.length === 1 ? "conversation" : "conversations";
       setNotice(mode === "delete"
@@ -539,6 +553,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
         if (!currentCategories.some((category) => category.categoryId === dialog.category.categoryId)) {
           if (categoryFilter === dialog.category.categoryId) setCategoryFilter("all");
           if (newChatCategoryId === dialog.category.categoryId) setNewChatCategoryId("");
+          restoreGroupFilterFocusRef.current = true;
           setGroupDeleteDialog(null);
           setNotice(chatsDeleted
             ? `Group '${dialog.category.name}' is removed; conversation deletion succeeded.`
@@ -546,7 +561,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
         } else {
           setGroupDeleteDialog({
             ...dialog,
-            chatIds: current.filter((chat) => chat.categoryId === dialog.category.categoryId)
+            chatIds: current.filter((chat) => sameCategoryId(chat.categoryId, dialog.category.categoryId))
               .map((chat) => chat.chatId),
           });
           setGroupDeleteError(chatsDeleted
@@ -762,12 +777,12 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
             </form>
           ) : (
             <>
-              <select aria-label="Filter conversations by group"
+              <select ref={groupFilterRef} aria-label="Filter conversations by group"
                 value={categoryFilter} onChange={(event) => selectCategory(event.target.value)}>
                 <option value="all">All groups ({chats.length})</option>
                 {categories.map((category) => (
                   <option key={category.categoryId} value={category.categoryId}>
-                    {category.name} ({chats.filter((chat) => chat.categoryId === category.categoryId).length})
+                    {category.name} ({chats.filter((chat) => sameCategoryId(chat.categoryId, category.categoryId)).length})
                   </option>
                 ))}
                 <option value="uncategorized">
