@@ -118,10 +118,17 @@ if ($agentCss -notmatch 'agent-sidebar-tools[\s\S]*?gap:\s*6px' -or
     $sharedApp -notmatch 'async function renameChat' -or
     $agentApp -notmatch 'async function renameChat' -or
     $sharedApp -notmatch 'method: "PUT"' -or
-    $agentApp -notmatch 'method: "PUT"' -or
-    $sharedApp -match 'setCategoryFilter\(category\.categoryId\)' -or
-    $agentApp -match 'selectCategoryFilter\(category\.categoryId\)') {
-    throw "Base and Agent chat group controls, rename actions, or non-switching group creation have diverged."
+    $agentApp -notmatch 'method: "PUT"') {
+    throw "Base and Agent chat group controls or rename actions have diverged."
+}
+
+# Base Web selects a freshly created group only after POST and category refresh.
+# Agent Web retains its existing non-switching group creation behavior.
+if ($sharedApp -notmatch '(?s)let createdCategory: Category \| null = null;.*?createdCategory = await apiJson<Category>\(apiBase, "/v1/categories",.*?await loadCategories\(\);\s*if \(createdCategory\) selectCategory\(createdCategory\.categoryId\);') {
+    throw "Base Web group creation must select the returned group ID after category refresh."
+}
+if ($agentApp -match 'selectCategoryFilter\(category\.categoryId\)') {
+    throw "Agent Web group creation unexpectedly switches the category filter."
 }
 
 # Both web surfaces can operate against the Agent host, where group removal also
