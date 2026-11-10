@@ -61,10 +61,10 @@
     "specifications/implemented/agent-stage-timings/plan.md",
     "specifications/implemented/chat-store-sqlite/plan.md",
     "specifications/implemented/rich-model-ui-rendering/plan.md",
+    "specifications/implemented/rich-ui-custom-controls/plan.md",
     "specifications/implemented/standardize-development-workflow/plan.md",
     "specifications/implemented/standardize-development-workflow/verification.md",
     "specifications/planned/agent-policy-foundation/plan.md",
-    "specifications/planned/rich-ui-custom-controls/plan.md",
     "specifications/planned/sandboxed-agent-jobs/plan.md",
     "src/Mezhs.Agent.Api.Client/AgentApiClient.cs",
     "src/Mezhs.Agent.Api.Client/Mezhs.Agent.Api.Client.csproj",
@@ -179,6 +179,7 @@
     "src/Mezhs.Web.Lib/src/RichMarkup.tsx",
     "src/Mezhs.Web.Lib/src/RichQuestion.tsx",
     "src/Mezhs.Web.Lib/src/RichSvg.tsx",
+    "src/Mezhs.Web.Lib/src/RichWritingBlock.tsx",
     "src/Mezhs.Web.Lib/src/api.ts",
     "src/Mezhs.Web.Lib/src/index.ts",
     "src/Mezhs.Web.Lib/src/markdown.css",
@@ -850,7 +851,7 @@
       "raw": "../../docs/architecture.md"
     },
     {
-      "from": 63,
+      "from": 64,
       "to": {
         "type": "file",
         "path": 65
@@ -861,7 +862,7 @@
       "from": 65,
       "to": {
         "type": "file",
-        "path": 63
+        "path": 64
       },
       "raw": "../agent-policy-foundation/plan.md"
     },
@@ -3653,7 +3654,7 @@
       "from": 168,
       "to": {
         "type": "file",
-        "path": 183
+        "path": 184
       },
       "raw": "./providers/contracts",
       "typeOnly": true
@@ -3662,7 +3663,7 @@
       "from": 168,
       "to": {
         "type": "file",
-        "path": 186
+        "path": 187
       },
       "raw": "./useAutoResizeTextArea"
     },
@@ -3678,7 +3679,7 @@
       "from": 169,
       "to": {
         "type": "file",
-        "path": 183
+        "path": 184
       },
       "raw": "./providers/contracts",
       "typeOnly": true
@@ -3776,7 +3777,7 @@
       "from": 171,
       "to": {
         "type": "file",
-        "path": 181
+        "path": 182
       },
       "raw": "./markdown.css"
     },
@@ -3832,7 +3833,7 @@
       "from": 172,
       "to": {
         "type": "file",
-        "path": 179
+        "path": 180
       },
       "raw": "./api"
     },
@@ -3840,7 +3841,7 @@
       "from": 172,
       "to": {
         "type": "file",
-        "path": 183
+        "path": 184
       },
       "raw": "./providers/contracts",
       "typeOnly": true
@@ -3849,7 +3850,7 @@
       "from": 172,
       "to": {
         "type": "file",
-        "path": 184
+        "path": 185
       },
       "raw": "./providers/registry"
     },
@@ -3857,7 +3858,7 @@
       "from": 172,
       "to": {
         "type": "file",
-        "path": 186
+        "path": 187
       },
       "raw": "./useAutoResizeTextArea"
     },
@@ -3865,7 +3866,7 @@
       "from": 172,
       "to": {
         "type": "file",
-        "path": 187
+        "path": 188
       },
       "raw": "./useConversationDrafts"
     },
@@ -3873,7 +3874,7 @@
       "from": 172,
       "to": {
         "type": "file",
-        "path": 188
+        "path": 189
       },
       "raw": "./useConversationPending"
     },
@@ -3950,6 +3951,14 @@
         "path": 178
       },
       "raw": "./RichSvg"
+    },
+    {
+      "from": 176,
+      "to": {
+        "type": "file",
+        "path": 179
+      },
+      "raw": "./RichWritingBlock"
     },
     {
       "from": 177,
@@ -4059,13 +4068,21 @@
     {
       "from": 180,
       "to": {
+        "type": "external",
+        "name": "react"
+      },
+      "raw": "react"
+    },
+    {
+      "from": 181,
+      "to": {
         "type": "file",
         "path": 168
       },
       "raw": "./ChatSurface"
     },
     {
-      "from": 180,
+      "from": 181,
       "to": {
         "type": "file",
         "path": 168
@@ -4074,7 +4091,7 @@
       "typeOnly": true
     },
     {
-      "from": 180,
+      "from": 181,
       "to": {
         "type": "file",
         "path": 169
@@ -4082,7 +4099,7 @@
       "raw": "./ConnectionModelPicker"
     },
     {
-      "from": 180,
+      "from": 181,
       "to": {
         "type": "file",
         "path": 169
@@ -4091,7 +4108,7 @@
       "typeOnly": true
     },
     {
-      "from": 180,
+      "from": 181,
       "to": {
         "type": "file",
         "path": 171
@@ -4099,7 +4116,7 @@
       "raw": "./MarkdownContent"
     },
     {
-      "from": 180,
+      "from": 181,
       "to": {
         "type": "file",
         "path": 172
@@ -4107,7 +4124,7 @@
       "raw": "./MezhsChatApp"
     },
     {
-      "from": 180,
+      "from": 181,
       "to": {
         "type": "file",
         "path": 172
@@ -4116,101 +4133,93 @@
       "typeOnly": true
     },
     {
-      "from": 180,
+      "from": 181,
       "to": {
         "type": "file",
-        "path": 179
+        "path": 180
       },
       "raw": "./api"
     },
     {
-      "from": 180,
+      "from": 181,
       "to": {
         "type": "file",
-        "path": 179
+        "path": 180
       },
       "raw": "./api",
       "typeOnly": true
     },
     {
-      "from": 180,
+      "from": 181,
       "to": {
         "type": "file",
-        "path": 182
+        "path": 183
       },
       "raw": "./providers/apiChatProvider"
     },
     {
-      "from": 180,
-      "to": {
-        "type": "file",
-        "path": 183
-      },
-      "raw": "./providers/contracts"
-    },
-    {
-      "from": 180,
+      "from": 181,
       "to": {
         "type": "file",
         "path": 184
       },
+      "raw": "./providers/contracts"
+    },
+    {
+      "from": 181,
+      "to": {
+        "type": "file",
+        "path": 185
+      },
       "raw": "./providers/registry"
     },
     {
-      "from": 180,
-      "to": {
-        "type": "file",
-        "path": 187
-      },
-      "raw": "./useConversationDrafts"
-    },
-    {
-      "from": 180,
+      "from": 181,
       "to": {
         "type": "file",
         "path": 188
       },
+      "raw": "./useConversationDrafts"
+    },
+    {
+      "from": 181,
+      "to": {
+        "type": "file",
+        "path": 189
+      },
       "raw": "./useConversationPending"
     },
     {
-      "from": 182,
+      "from": 183,
       "to": {
         "type": "file",
-        "path": 179
+        "path": 180
       },
       "raw": "../api"
     },
     {
-      "from": 182,
+      "from": 183,
       "to": {
         "type": "file",
-        "path": 183
+        "path": 184
       },
       "raw": "./contracts"
     },
     {
-      "from": 184,
+      "from": 185,
       "to": {
         "type": "file",
-        "path": 182
+        "path": 183
       },
       "raw": "./apiChatProvider"
     },
     {
-      "from": 184,
+      "from": 185,
       "to": {
         "type": "file",
-        "path": 183
+        "path": 184
       },
       "raw": "./contracts"
-    },
-    {
-      "from": 186,
-      "to": {
-        "type": "external",
-        "name": "react"
-      },
-      "raw": "react"
     },
     {
       "from": 187,
@@ -4229,7 +4238,15 @@
       "raw": "react"
     },
     {
-      "from": 190,
+      "from": 189,
+      "to": {
+        "type": "external",
+        "name": "react"
+      },
+      "raw": "react"
+    },
+    {
+      "from": 191,
       "to": {
         "type": "external",
         "name": "/src/main.tsx"
@@ -4237,7 +4254,7 @@
       "raw": "/src/main.tsx"
     },
     {
-      "from": 193,
+      "from": 194,
       "to": {
         "type": "external",
         "name": "@mezhs/web-lib"
@@ -4245,7 +4262,7 @@
       "raw": "@mezhs/web-lib"
     },
     {
-      "from": 193,
+      "from": 194,
       "to": {
         "type": "external",
         "name": "react"
@@ -4253,7 +4270,7 @@
       "raw": "react"
     },
     {
-      "from": 194,
+      "from": 195,
       "to": {
         "type": "external",
         "name": "@mezhs/web-lib/styles.css"
@@ -4261,7 +4278,7 @@
       "raw": "@mezhs/web-lib/styles.css"
     },
     {
-      "from": 194,
+      "from": 195,
       "to": {
         "type": "external",
         "name": "react"
@@ -4269,7 +4286,7 @@
       "raw": "react"
     },
     {
-      "from": 194,
+      "from": 195,
       "to": {
         "type": "external",
         "name": "react-dom/client"
@@ -4277,15 +4294,15 @@
       "raw": "react-dom/client"
     },
     {
-      "from": 194,
+      "from": 195,
       "to": {
         "type": "file",
-        "path": 193
+        "path": 194
       },
       "raw": "./App"
     },
     {
-      "from": 196,
+      "from": 197,
       "to": {
         "type": "external",
         "name": "@vitejs/plugin-react"
@@ -4293,7 +4310,7 @@
       "raw": "@vitejs/plugin-react"
     },
     {
-      "from": 196,
+      "from": 197,
       "to": {
         "type": "external",
         "name": "vite"
@@ -4301,7 +4318,7 @@
       "raw": "vite"
     },
     {
-      "from": 203,
+      "from": 204,
       "to": {
         "type": "external",
         "name": "node:http"
@@ -4309,7 +4326,7 @@
       "raw": "node:http"
     },
     {
-      "from": 203,
+      "from": 204,
       "to": {
         "type": "external",
         "name": "node:path"
@@ -4317,7 +4334,7 @@
       "raw": "node:path"
     },
     {
-      "from": 203,
+      "from": 204,
       "to": {
         "type": "external",
         "name": "node:url"
@@ -4325,7 +4342,7 @@
       "raw": "node:url"
     },
     {
-      "from": 203,
+      "from": 204,
       "to": {
         "type": "external",
         "name": "qrcode"
@@ -4333,23 +4350,23 @@
       "raw": "qrcode"
     },
     {
-      "from": 203,
+      "from": 204,
       "to": {
         "type": "file",
-        "path": 202
+        "path": 203
       },
       "raw": "./message-store.js"
     },
     {
-      "from": 203,
+      "from": 204,
       "to": {
         "type": "file",
-        "path": 204
+        "path": 205
       },
       "raw": "./whatsapp-account.js"
     },
     {
-      "from": 204,
+      "from": 205,
       "to": {
         "type": "external",
         "name": "@whiskeysockets/baileys"
@@ -4357,7 +4374,7 @@
       "raw": "@whiskeysockets/baileys"
     },
     {
-      "from": 204,
+      "from": 205,
       "to": {
         "type": "external",
         "name": "node:fs/promises"
@@ -4365,36 +4382,12 @@
       "raw": "node:fs/promises"
     },
     {
-      "from": 204,
+      "from": 205,
       "to": {
         "type": "external",
         "name": "node:path"
       },
       "raw": "node:path"
-    },
-    {
-      "from": 205,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 205,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 205,
-      "to": {
-        "type": "file",
-        "path": 202
-      },
-      "raw": "../src/message-store.js"
     },
     {
       "from": 206,
@@ -4408,33 +4401,9 @@
       "from": 206,
       "to": {
         "type": "external",
-        "name": "node:events"
-      },
-      "raw": "node:events"
-    },
-    {
-      "from": 206,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 206,
-      "to": {
-        "type": "external",
         "name": "node:test"
       },
       "raw": "node:test"
-    },
-    {
-      "from": 206,
-      "to": {
-        "type": "file",
-        "path": 202
-      },
-      "raw": "../src/message-store.js"
     },
     {
       "from": 206,
@@ -4442,15 +4411,7 @@
         "type": "file",
         "path": 203
       },
-      "raw": "../src/server.js"
-    },
-    {
-      "from": 206,
-      "to": {
-        "type": "file",
-        "path": 204
-      },
-      "raw": "../src/whatsapp-account.js"
+      "raw": "../src/message-store.js"
     },
     {
       "from": 207,
@@ -4472,22 +4433,6 @@
       "from": 207,
       "to": {
         "type": "external",
-        "name": "node:fs/promises"
-      },
-      "raw": "node:fs/promises"
-    },
-    {
-      "from": 207,
-      "to": {
-        "type": "external",
-        "name": "node:os"
-      },
-      "raw": "node:os"
-    },
-    {
-      "from": 207,
-      "to": {
-        "type": "external",
         "name": "node:path"
       },
       "raw": "node:path"
@@ -4504,7 +4449,7 @@
       "from": 207,
       "to": {
         "type": "file",
-        "path": 202
+        "path": 203
       },
       "raw": "../src/message-store.js"
     },
@@ -4514,18 +4459,82 @@
         "type": "file",
         "path": 204
       },
+      "raw": "../src/server.js"
+    },
+    {
+      "from": 207,
+      "to": {
+        "type": "file",
+        "path": 205
+      },
       "raw": "../src/whatsapp-account.js"
     },
     {
-      "from": 209,
+      "from": 208,
       "to": {
-        "type": "file",
-        "path": 211
+        "type": "external",
+        "name": "node:assert/strict"
       },
-      "raw": "Mezhs.WhatsApp"
+      "raw": "node:assert/strict"
     },
     {
-      "from": 209,
+      "from": 208,
+      "to": {
+        "type": "external",
+        "name": "node:events"
+      },
+      "raw": "node:events"
+    },
+    {
+      "from": 208,
+      "to": {
+        "type": "external",
+        "name": "node:fs/promises"
+      },
+      "raw": "node:fs/promises"
+    },
+    {
+      "from": 208,
+      "to": {
+        "type": "external",
+        "name": "node:os"
+      },
+      "raw": "node:os"
+    },
+    {
+      "from": 208,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 208,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 208,
+      "to": {
+        "type": "file",
+        "path": 203
+      },
+      "raw": "../src/message-store.js"
+    },
+    {
+      "from": 208,
+      "to": {
+        "type": "file",
+        "path": 205
+      },
+      "raw": "../src/whatsapp-account.js"
+    },
+    {
+      "from": 210,
       "to": {
         "type": "file",
         "path": 212
@@ -4533,7 +4542,7 @@
       "raw": "Mezhs.WhatsApp"
     },
     {
-      "from": 209,
+      "from": 210,
       "to": {
         "type": "file",
         "path": 213
@@ -4541,7 +4550,7 @@
       "raw": "Mezhs.WhatsApp"
     },
     {
-      "from": 209,
+      "from": 210,
       "to": {
         "type": "file",
         "path": 214
@@ -4549,36 +4558,12 @@
       "raw": "Mezhs.WhatsApp"
     },
     {
-      "from": 211,
+      "from": 210,
       "to": {
-        "type": "external",
-        "name": "System.Net"
+        "type": "file",
+        "path": 215
       },
-      "raw": "System.Net"
-    },
-    {
-      "from": 211,
-      "to": {
-        "type": "external",
-        "name": "System.Text"
-      },
-      "raw": "System.Text"
-    },
-    {
-      "from": 211,
-      "to": {
-        "type": "external",
-        "name": "System.Text.Json"
-      },
-      "raw": "System.Text.Json"
-    },
-    {
-      "from": 212,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Console"
-      },
-      "raw": "Mezhs.Console"
+      "raw": "Mezhs.WhatsApp"
     },
     {
       "from": 212,
@@ -4613,207 +4598,7 @@
       "raw": "Mezhs.Console"
     },
     {
-      "from": 216,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Browser"
-      },
-      "raw": "Mezhs.Browser"
-    },
-    {
-      "from": 216,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Integrations"
-      },
-      "raw": "Mezhs.Integrations"
-    },
-    {
-      "from": 216,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Integrations.Browser"
-      },
-      "raw": "Mezhs.Integrations.Browser"
-    },
-    {
-      "from": 216,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Integrations.ChatGpt"
-      },
-      "raw": "Mezhs.Integrations.ChatGpt"
-    },
-    {
-      "from": 216,
-      "to": {
-        "type": "external",
-        "name": "System.Diagnostics"
-      },
-      "raw": "System.Diagnostics"
-    },
-    {
-      "from": 216,
-      "to": {
-        "type": "external",
-        "name": "System.Reflection"
-      },
-      "raw": "System.Reflection"
-    },
-    {
-      "from": 218,
-      "to": {
-        "type": "file",
-        "path": 219
-      },
-      "raw": "./shared"
-    },
-    {
-      "from": 220,
-      "to": {
-        "type": "file",
-        "path": 221
-      },
-      "raw": "./shared"
-    },
-    {
-      "from": 223,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Agent.Configuration"
-      },
-      "raw": "Mezhs.Agent.Configuration"
-    },
-    {
-      "from": 223,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Agent.Persistence"
-      },
-      "raw": "Mezhs.Agent.Persistence"
-    },
-    {
-      "from": 223,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Api.Contracts"
-      },
-      "raw": "Mezhs.Api.Contracts"
-    },
-    {
-      "from": 223,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Configuration"
-      },
-      "raw": "Mezhs.Configuration"
-    },
-    {
-      "from": 223,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Models"
-      },
-      "raw": "Mezhs.Models"
-    },
-    {
-      "from": 223,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Services"
-      },
-      "raw": "Mezhs.Services"
-    },
-    {
-      "from": 223,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Sqlite"
-      },
-      "raw": "Mezhs.Sqlite"
-    },
-    {
-      "from": 223,
-      "to": {
-        "type": "external",
-        "name": "Microsoft.Data.Sqlite"
-      },
-      "raw": "Microsoft.Data.Sqlite"
-    },
-    {
-      "from": 223,
-      "to": {
-        "type": "external",
-        "name": "System.Text.Json"
-      },
-      "raw": "System.Text.Json"
-    },
-    {
-      "from": 223,
-      "to": {
-        "type": "external",
-        "name": "System.Text.Json.Serialization"
-      },
-      "raw": "System.Text.Json.Serialization"
-    },
-    {
-      "from": 225,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Common"
-      },
-      "raw": "Mezhs.Common"
-    },
-    {
-      "from": 225,
-      "to": {
-        "type": "external",
-        "name": "System.ComponentModel"
-      },
-      "raw": "System.ComponentModel"
-    },
-    {
-      "from": 225,
-      "to": {
-        "type": "external",
-        "name": "System.Globalization"
-      },
-      "raw": "System.Globalization"
-    },
-    {
-      "from": 227,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Console"
-      },
-      "raw": "Mezhs.Console"
-    },
-    {
-      "from": 227,
-      "to": {
-        "type": "external",
-        "name": "System.Globalization"
-      },
-      "raw": "System.Globalization"
-    },
-    {
-      "from": 229,
-      "to": {
-        "type": "external",
-        "name": "Mezhs"
-      },
-      "raw": "Mezhs"
-    },
-    {
-      "from": 229,
-      "to": {
-        "type": "external",
-        "name": "Mezhs.Configuration"
-      },
-      "raw": "Mezhs.Configuration"
-    },
-    {
-      "from": 229,
+      "from": 213,
       "to": {
         "type": "external",
         "name": "System.Net"
@@ -4821,775 +4606,31 @@
       "raw": "System.Net"
     },
     {
-      "from": 230,
+      "from": 213,
       "to": {
         "type": "external",
-        "name": "json"
+        "name": "System.Text"
       },
-      "raw": "json"
+      "raw": "System.Text"
     },
     {
-      "from": 230,
+      "from": 213,
       "to": {
         "type": "external",
-        "name": "os"
+        "name": "System.Text.Json"
       },
-      "raw": "os"
+      "raw": "System.Text.Json"
     },
     {
-      "from": 230,
+      "from": 214,
       "to": {
         "type": "external",
-        "name": "pathlib"
+        "name": "Mezhs.Console"
       },
-      "raw": "pathlib"
+      "raw": "Mezhs.Console"
     },
     {
-      "from": 230,
-      "to": {
-        "type": "external",
-        "name": "shutil"
-      },
-      "raw": "shutil"
-    },
-    {
-      "from": 230,
-      "to": {
-        "type": "external",
-        "name": "signal"
-      },
-      "raw": "signal"
-    },
-    {
-      "from": 230,
-      "to": {
-        "type": "external",
-        "name": "socket"
-      },
-      "raw": "socket"
-    },
-    {
-      "from": 230,
-      "to": {
-        "type": "external",
-        "name": "subprocess"
-      },
-      "raw": "subprocess"
-    },
-    {
-      "from": 230,
-      "to": {
-        "type": "external",
-        "name": "sys"
-      },
-      "raw": "sys"
-    },
-    {
-      "from": 230,
-      "to": {
-        "type": "external",
-        "name": "tempfile"
-      },
-      "raw": "tempfile"
-    },
-    {
-      "from": 230,
-      "to": {
-        "type": "external",
-        "name": "time"
-      },
-      "raw": "time"
-    },
-    {
-      "from": 230,
-      "to": {
-        "type": "external",
-        "name": "urllib.error"
-      },
-      "raw": "urllib.error"
-    },
-    {
-      "from": 230,
-      "to": {
-        "type": "external",
-        "name": "urllib.request"
-      },
-      "raw": "urllib.request"
-    },
-    {
-      "from": 231,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 231,
-      "to": {
-        "type": "external",
-        "name": "node:module"
-      },
-      "raw": "node:module"
-    },
-    {
-      "from": 231,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 231,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 232,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 232,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 232,
-      "to": {
-        "type": "file",
-        "path": 27
-      },
-      "raw": "../electron/browser-identity"
-    },
-    {
-      "from": 233,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 233,
-      "to": {
-        "type": "external",
-        "name": "node:events"
-      },
-      "raw": "node:events"
-    },
-    {
-      "from": 233,
-      "to": {
-        "type": "external",
-        "name": "node:fs"
-      },
-      "raw": "node:fs"
-    },
-    {
-      "from": 233,
-      "to": {
-        "type": "external",
-        "name": "node:os"
-      },
-      "raw": "node:os"
-    },
-    {
-      "from": 233,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 233,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 234,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 234,
-      "to": {
-        "type": "external",
-        "name": "node:child_process"
-      },
-      "raw": "node:child_process"
-    },
-    {
-      "from": 234,
-      "to": {
-        "type": "external",
-        "name": "node:fs"
-      },
-      "raw": "node:fs"
-    },
-    {
-      "from": 234,
-      "to": {
-        "type": "external",
-        "name": "node:module"
-      },
-      "raw": "node:module"
-    },
-    {
-      "from": 234,
-      "to": {
-        "type": "external",
-        "name": "node:os"
-      },
-      "raw": "node:os"
-    },
-    {
-      "from": 234,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 234,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 235,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 235,
-      "to": {
-        "type": "external",
-        "name": "node:events"
-      },
-      "raw": "node:events"
-    },
-    {
-      "from": 235,
-      "to": {
-        "type": "external",
-        "name": "node:fs"
-      },
-      "raw": "node:fs"
-    },
-    {
-      "from": 235,
-      "to": {
-        "type": "external",
-        "name": "node:os"
-      },
-      "raw": "node:os"
-    },
-    {
-      "from": 235,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 235,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 236,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 236,
-      "to": {
-        "type": "external",
-        "name": "node:fs"
-      },
-      "raw": "node:fs"
-    },
-    {
-      "from": 236,
-      "to": {
-        "type": "external",
-        "name": "node:os"
-      },
-      "raw": "node:os"
-    },
-    {
-      "from": 236,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 236,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 237,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 237,
-      "to": {
-        "type": "external",
-        "name": "node:fs"
-      },
-      "raw": "node:fs"
-    },
-    {
-      "from": 237,
-      "to": {
-        "type": "external",
-        "name": "node:os"
-      },
-      "raw": "node:os"
-    },
-    {
-      "from": 237,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 237,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 238,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 238,
-      "to": {
-        "type": "external",
-        "name": "node:fs"
-      },
-      "raw": "node:fs"
-    },
-    {
-      "from": 238,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 238,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 238,
-      "to": {
-        "type": "external",
-        "name": "node:vm"
-      },
-      "raw": "node:vm"
-    },
-    {
-      "from": 239,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 239,
-      "to": {
-        "type": "external",
-        "name": "node:fs"
-      },
-      "raw": "node:fs"
-    },
-    {
-      "from": 239,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 239,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 239,
-      "to": {
-        "type": "external",
-        "name": "node:vm"
-      },
-      "raw": "node:vm"
-    },
-    {
-      "from": 240,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 240,
-      "to": {
-        "type": "external",
-        "name": "node:events"
-      },
-      "raw": "node:events"
-    },
-    {
-      "from": 240,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 240,
-      "to": {
-        "type": "external",
-        "name": "node:vm"
-      },
-      "raw": "node:vm"
-    },
-    {
-      "from": 240,
-      "to": {
-        "type": "file",
-        "path": 29
-      },
-      "raw": "../electron/diagnostics"
-    },
-    {
-      "from": 241,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 241,
-      "to": {
-        "type": "external",
-        "name": "node:events"
-      },
-      "raw": "node:events"
-    },
-    {
-      "from": 241,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 241,
-      "to": {
-        "type": "file",
-        "path": 29
-      },
-      "raw": "../electron/diagnostics"
-    },
-    {
-      "from": 242,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 242,
-      "to": {
-        "type": "external",
-        "name": "node:events"
-      },
-      "raw": "node:events"
-    },
-    {
-      "from": 242,
-      "to": {
-        "type": "external",
-        "name": "node:fs"
-      },
-      "raw": "node:fs"
-    },
-    {
-      "from": 242,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 242,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 242,
-      "to": {
-        "type": "external",
-        "name": "node:vm"
-      },
-      "raw": "node:vm"
-    },
-    {
-      "from": 243,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 243,
-      "to": {
-        "type": "external",
-        "name": "node:fs"
-      },
-      "raw": "node:fs"
-    },
-    {
-      "from": 243,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 243,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 243,
-      "to": {
-        "type": "external",
-        "name": "node:vm"
-      },
-      "raw": "node:vm"
-    },
-    {
-      "from": 243,
-      "to": {
-        "type": "file",
-        "path": 29
-      },
-      "raw": "../electron/diagnostics"
-    },
-    {
-      "from": 248,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 248,
-      "to": {
-        "type": "external",
-        "name": "node:fs"
-      },
-      "raw": "node:fs"
-    },
-    {
-      "from": 248,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 248,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 249,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 249,
-      "to": {
-        "type": "external",
-        "name": "node:child_process"
-      },
-      "raw": "node:child_process"
-    },
-    {
-      "from": 249,
-      "to": {
-        "type": "external",
-        "name": "node:fs"
-      },
-      "raw": "node:fs"
-    },
-    {
-      "from": 249,
-      "to": {
-        "type": "external",
-        "name": "node:module"
-      },
-      "raw": "node:module"
-    },
-    {
-      "from": 249,
-      "to": {
-        "type": "external",
-        "name": "node:os"
-      },
-      "raw": "node:os"
-    },
-    {
-      "from": 249,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 249,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 250,
-      "to": {
-        "type": "external",
-        "name": "node:assert/strict"
-      },
-      "raw": "node:assert/strict"
-    },
-    {
-      "from": 250,
-      "to": {
-        "type": "external",
-        "name": "node:fs"
-      },
-      "raw": "node:fs"
-    },
-    {
-      "from": 250,
-      "to": {
-        "type": "external",
-        "name": "node:module"
-      },
-      "raw": "node:module"
-    },
-    {
-      "from": 250,
-      "to": {
-        "type": "external",
-        "name": "node:path"
-      },
-      "raw": "node:path"
-    },
-    {
-      "from": 250,
-      "to": {
-        "type": "external",
-        "name": "node:perf_hooks"
-      },
-      "raw": "node:perf_hooks"
-    },
-    {
-      "from": 250,
-      "to": {
-        "type": "external",
-        "name": "node:test"
-      },
-      "raw": "node:test"
-    },
-    {
-      "from": 253,
+      "from": 217,
       "to": {
         "type": "external",
         "name": "Mezhs.Browser"
@@ -5597,7 +4638,31 @@
       "raw": "Mezhs.Browser"
     },
     {
-      "from": 253,
+      "from": 217,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Integrations"
+      },
+      "raw": "Mezhs.Integrations"
+    },
+    {
+      "from": 217,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Integrations.Browser"
+      },
+      "raw": "Mezhs.Integrations.Browser"
+    },
+    {
+      "from": 217,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Integrations.ChatGpt"
+      },
+      "raw": "Mezhs.Integrations.ChatGpt"
+    },
+    {
+      "from": 217,
       "to": {
         "type": "external",
         "name": "System.Diagnostics"
@@ -5605,7 +4670,959 @@
       "raw": "System.Diagnostics"
     },
     {
-      "from": 253,
+      "from": 217,
+      "to": {
+        "type": "external",
+        "name": "System.Reflection"
+      },
+      "raw": "System.Reflection"
+    },
+    {
+      "from": 219,
+      "to": {
+        "type": "file",
+        "path": 220
+      },
+      "raw": "./shared"
+    },
+    {
+      "from": 221,
+      "to": {
+        "type": "file",
+        "path": 222
+      },
+      "raw": "./shared"
+    },
+    {
+      "from": 224,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Agent.Configuration"
+      },
+      "raw": "Mezhs.Agent.Configuration"
+    },
+    {
+      "from": 224,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Agent.Persistence"
+      },
+      "raw": "Mezhs.Agent.Persistence"
+    },
+    {
+      "from": 224,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Api.Contracts"
+      },
+      "raw": "Mezhs.Api.Contracts"
+    },
+    {
+      "from": 224,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Configuration"
+      },
+      "raw": "Mezhs.Configuration"
+    },
+    {
+      "from": 224,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Models"
+      },
+      "raw": "Mezhs.Models"
+    },
+    {
+      "from": 224,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Services"
+      },
+      "raw": "Mezhs.Services"
+    },
+    {
+      "from": 224,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Sqlite"
+      },
+      "raw": "Mezhs.Sqlite"
+    },
+    {
+      "from": 224,
+      "to": {
+        "type": "external",
+        "name": "Microsoft.Data.Sqlite"
+      },
+      "raw": "Microsoft.Data.Sqlite"
+    },
+    {
+      "from": 224,
+      "to": {
+        "type": "external",
+        "name": "System.Text.Json"
+      },
+      "raw": "System.Text.Json"
+    },
+    {
+      "from": 224,
+      "to": {
+        "type": "external",
+        "name": "System.Text.Json.Serialization"
+      },
+      "raw": "System.Text.Json.Serialization"
+    },
+    {
+      "from": 226,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Common"
+      },
+      "raw": "Mezhs.Common"
+    },
+    {
+      "from": 226,
+      "to": {
+        "type": "external",
+        "name": "System.ComponentModel"
+      },
+      "raw": "System.ComponentModel"
+    },
+    {
+      "from": 226,
+      "to": {
+        "type": "external",
+        "name": "System.Globalization"
+      },
+      "raw": "System.Globalization"
+    },
+    {
+      "from": 228,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Console"
+      },
+      "raw": "Mezhs.Console"
+    },
+    {
+      "from": 228,
+      "to": {
+        "type": "external",
+        "name": "System.Globalization"
+      },
+      "raw": "System.Globalization"
+    },
+    {
+      "from": 230,
+      "to": {
+        "type": "external",
+        "name": "Mezhs"
+      },
+      "raw": "Mezhs"
+    },
+    {
+      "from": 230,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Configuration"
+      },
+      "raw": "Mezhs.Configuration"
+    },
+    {
+      "from": 230,
+      "to": {
+        "type": "external",
+        "name": "System.Net"
+      },
+      "raw": "System.Net"
+    },
+    {
+      "from": 231,
+      "to": {
+        "type": "external",
+        "name": "json"
+      },
+      "raw": "json"
+    },
+    {
+      "from": 231,
+      "to": {
+        "type": "external",
+        "name": "os"
+      },
+      "raw": "os"
+    },
+    {
+      "from": 231,
+      "to": {
+        "type": "external",
+        "name": "pathlib"
+      },
+      "raw": "pathlib"
+    },
+    {
+      "from": 231,
+      "to": {
+        "type": "external",
+        "name": "shutil"
+      },
+      "raw": "shutil"
+    },
+    {
+      "from": 231,
+      "to": {
+        "type": "external",
+        "name": "signal"
+      },
+      "raw": "signal"
+    },
+    {
+      "from": 231,
+      "to": {
+        "type": "external",
+        "name": "socket"
+      },
+      "raw": "socket"
+    },
+    {
+      "from": 231,
+      "to": {
+        "type": "external",
+        "name": "subprocess"
+      },
+      "raw": "subprocess"
+    },
+    {
+      "from": 231,
+      "to": {
+        "type": "external",
+        "name": "sys"
+      },
+      "raw": "sys"
+    },
+    {
+      "from": 231,
+      "to": {
+        "type": "external",
+        "name": "tempfile"
+      },
+      "raw": "tempfile"
+    },
+    {
+      "from": 231,
+      "to": {
+        "type": "external",
+        "name": "time"
+      },
+      "raw": "time"
+    },
+    {
+      "from": 231,
+      "to": {
+        "type": "external",
+        "name": "urllib.error"
+      },
+      "raw": "urllib.error"
+    },
+    {
+      "from": 231,
+      "to": {
+        "type": "external",
+        "name": "urllib.request"
+      },
+      "raw": "urllib.request"
+    },
+    {
+      "from": 232,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 232,
+      "to": {
+        "type": "external",
+        "name": "node:module"
+      },
+      "raw": "node:module"
+    },
+    {
+      "from": 232,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 232,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 233,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 233,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 233,
+      "to": {
+        "type": "file",
+        "path": 27
+      },
+      "raw": "../electron/browser-identity"
+    },
+    {
+      "from": 234,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 234,
+      "to": {
+        "type": "external",
+        "name": "node:events"
+      },
+      "raw": "node:events"
+    },
+    {
+      "from": 234,
+      "to": {
+        "type": "external",
+        "name": "node:fs"
+      },
+      "raw": "node:fs"
+    },
+    {
+      "from": 234,
+      "to": {
+        "type": "external",
+        "name": "node:os"
+      },
+      "raw": "node:os"
+    },
+    {
+      "from": 234,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 234,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 235,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 235,
+      "to": {
+        "type": "external",
+        "name": "node:child_process"
+      },
+      "raw": "node:child_process"
+    },
+    {
+      "from": 235,
+      "to": {
+        "type": "external",
+        "name": "node:fs"
+      },
+      "raw": "node:fs"
+    },
+    {
+      "from": 235,
+      "to": {
+        "type": "external",
+        "name": "node:module"
+      },
+      "raw": "node:module"
+    },
+    {
+      "from": 235,
+      "to": {
+        "type": "external",
+        "name": "node:os"
+      },
+      "raw": "node:os"
+    },
+    {
+      "from": 235,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 235,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 236,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 236,
+      "to": {
+        "type": "external",
+        "name": "node:events"
+      },
+      "raw": "node:events"
+    },
+    {
+      "from": 236,
+      "to": {
+        "type": "external",
+        "name": "node:fs"
+      },
+      "raw": "node:fs"
+    },
+    {
+      "from": 236,
+      "to": {
+        "type": "external",
+        "name": "node:os"
+      },
+      "raw": "node:os"
+    },
+    {
+      "from": 236,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 236,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 237,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 237,
+      "to": {
+        "type": "external",
+        "name": "node:fs"
+      },
+      "raw": "node:fs"
+    },
+    {
+      "from": 237,
+      "to": {
+        "type": "external",
+        "name": "node:os"
+      },
+      "raw": "node:os"
+    },
+    {
+      "from": 237,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 237,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 238,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 238,
+      "to": {
+        "type": "external",
+        "name": "node:fs"
+      },
+      "raw": "node:fs"
+    },
+    {
+      "from": 238,
+      "to": {
+        "type": "external",
+        "name": "node:os"
+      },
+      "raw": "node:os"
+    },
+    {
+      "from": 238,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 238,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 239,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 239,
+      "to": {
+        "type": "external",
+        "name": "node:fs"
+      },
+      "raw": "node:fs"
+    },
+    {
+      "from": 239,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 239,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 239,
+      "to": {
+        "type": "external",
+        "name": "node:vm"
+      },
+      "raw": "node:vm"
+    },
+    {
+      "from": 240,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 240,
+      "to": {
+        "type": "external",
+        "name": "node:fs"
+      },
+      "raw": "node:fs"
+    },
+    {
+      "from": 240,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 240,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 240,
+      "to": {
+        "type": "external",
+        "name": "node:vm"
+      },
+      "raw": "node:vm"
+    },
+    {
+      "from": 241,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 241,
+      "to": {
+        "type": "external",
+        "name": "node:events"
+      },
+      "raw": "node:events"
+    },
+    {
+      "from": 241,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 241,
+      "to": {
+        "type": "external",
+        "name": "node:vm"
+      },
+      "raw": "node:vm"
+    },
+    {
+      "from": 241,
+      "to": {
+        "type": "file",
+        "path": 29
+      },
+      "raw": "../electron/diagnostics"
+    },
+    {
+      "from": 242,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 242,
+      "to": {
+        "type": "external",
+        "name": "node:events"
+      },
+      "raw": "node:events"
+    },
+    {
+      "from": 242,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 242,
+      "to": {
+        "type": "file",
+        "path": 29
+      },
+      "raw": "../electron/diagnostics"
+    },
+    {
+      "from": 243,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 243,
+      "to": {
+        "type": "external",
+        "name": "node:events"
+      },
+      "raw": "node:events"
+    },
+    {
+      "from": 243,
+      "to": {
+        "type": "external",
+        "name": "node:fs"
+      },
+      "raw": "node:fs"
+    },
+    {
+      "from": 243,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 243,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 243,
+      "to": {
+        "type": "external",
+        "name": "node:vm"
+      },
+      "raw": "node:vm"
+    },
+    {
+      "from": 244,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 244,
+      "to": {
+        "type": "external",
+        "name": "node:fs"
+      },
+      "raw": "node:fs"
+    },
+    {
+      "from": 244,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 244,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 244,
+      "to": {
+        "type": "external",
+        "name": "node:vm"
+      },
+      "raw": "node:vm"
+    },
+    {
+      "from": 244,
+      "to": {
+        "type": "file",
+        "path": 29
+      },
+      "raw": "../electron/diagnostics"
+    },
+    {
+      "from": 249,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 249,
+      "to": {
+        "type": "external",
+        "name": "node:fs"
+      },
+      "raw": "node:fs"
+    },
+    {
+      "from": 249,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 249,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 250,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 250,
+      "to": {
+        "type": "external",
+        "name": "node:child_process"
+      },
+      "raw": "node:child_process"
+    },
+    {
+      "from": 250,
+      "to": {
+        "type": "external",
+        "name": "node:fs"
+      },
+      "raw": "node:fs"
+    },
+    {
+      "from": 250,
+      "to": {
+        "type": "external",
+        "name": "node:module"
+      },
+      "raw": "node:module"
+    },
+    {
+      "from": 250,
+      "to": {
+        "type": "external",
+        "name": "node:os"
+      },
+      "raw": "node:os"
+    },
+    {
+      "from": 250,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 250,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 251,
+      "to": {
+        "type": "external",
+        "name": "node:assert/strict"
+      },
+      "raw": "node:assert/strict"
+    },
+    {
+      "from": 251,
+      "to": {
+        "type": "external",
+        "name": "node:fs"
+      },
+      "raw": "node:fs"
+    },
+    {
+      "from": 251,
+      "to": {
+        "type": "external",
+        "name": "node:module"
+      },
+      "raw": "node:module"
+    },
+    {
+      "from": 251,
+      "to": {
+        "type": "external",
+        "name": "node:path"
+      },
+      "raw": "node:path"
+    },
+    {
+      "from": 251,
+      "to": {
+        "type": "external",
+        "name": "node:perf_hooks"
+      },
+      "raw": "node:perf_hooks"
+    },
+    {
+      "from": 251,
+      "to": {
+        "type": "external",
+        "name": "node:test"
+      },
+      "raw": "node:test"
+    },
+    {
+      "from": 254,
+      "to": {
+        "type": "external",
+        "name": "Mezhs.Browser"
+      },
+      "raw": "Mezhs.Browser"
+    },
+    {
+      "from": 254,
+      "to": {
+        "type": "external",
+        "name": "System.Diagnostics"
+      },
+      "raw": "System.Diagnostics"
+    },
+    {
+      "from": 254,
       "to": {
         "type": "external",
         "name": "System.Net.Http.Json"
@@ -5613,7 +5630,7 @@
       "raw": "System.Net.Http.Json"
     },
     {
-      "from": 253,
+      "from": 254,
       "to": {
         "type": "external",
         "name": "System.Text.Json"
@@ -5625,7 +5642,7 @@
     "mode": "semantic",
     "backend": "native",
     "parserDegradedFiles": 0,
-    "nativeFilesUsed": 168,
+    "nativeFilesUsed": 169,
     "nativeFilesFellBack": 0,
     "label": "native semantic"
   }
