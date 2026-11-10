@@ -108,6 +108,45 @@ test('accessor globals and accessor push are classified without running their ge
   assert.equal(getters, 0);
 });
 
+test('Array.prototype.push getter is not invoked during page inspection', () => {
+  const context = vm.createContext({});
+  vm.runInContext(`
+    globalThis.webpackChunkExample = [[[1], { a: function factory() {} }]];
+    globalThis.webpackChunkExample.push = function runtimePush() {};
+    globalThis.getterCalls = 0;
+    Object.defineProperty(Array.prototype, 'push', {
+      configurable: true,
+      get() { globalThis.getterCalls++; throw new Error('unexpected getter'); }
+    });
+  `, context);
+  const found = vm.runInContext('(' + rspackRegistryShapePage.toString() + ')()', context);
+  expectSchema(found);
+  expectStages(found);
+  assert.equal(context.getterCalls, 0);
+  assert.equal(found.incomplete, false);
+  assert.equal(found.passedAllPredicates, 1);
+});
+
+test('forged page toString illustrates explicitly accepted best-effort limitation', () => {
+  const context = vm.createContext({});
+  vm.runInContext(`
+    globalThis.webpackChunkExample = [[[1], { a: function factory() {} }]];
+    globalThis.webpackChunkExample.push = function runtimePush() {};
+    globalThis.introspectionCalls = 0;
+    Function.prototype.toString = function forged() {
+      globalThis.introspectionCalls++;
+      return 'function fake() { [native code] }';
+    };
+  `, context);
+  const found = vm.runInContext('(' + rspackRegistryShapePage.toString() + ')()', context);
+  expectSchema(found);
+  // Not a security assertion: same-realm inspection cannot authenticate its built-ins.
+  assert.equal(context.introspectionCalls, 1);
+  assert.equal(found.nativeLookingPush, 1);
+  assert.equal(found.passedAllPredicates, 0);
+  assert.equal(found.incomplete, false);
+});
+
 test('Proxy trap failure and revoked Proxy fail closed with no partial successful counts', () => {
   const throwing = new Proxy(runtime(), {
     getOwnPropertyDescriptor() { throw Error('private-token secret URL'); }
