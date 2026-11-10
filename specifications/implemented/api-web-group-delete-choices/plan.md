@@ -1,38 +1,36 @@
 # API Web UI group deletion choices
 ID: api-web-group-delete-choices
-Level: Standard — destructive bulk deletion, shared Core/Agent chat groups, UI/API sequencing.
+Level: High-risk — permanent bulk deletion with a concurrency edge case; API contracts remain unchanged by owner direction.
 
-## Goal
-In the normal MEŽS API Web UI, replace the one-way browser confirmation on the group delete control with an explicit modal offering **Unassign conversations**, **Delete conversations**, and **Cancel**. Keep the existing non-destructive category DELETE path available.
+## Goal and scope
+The normal MEŽS API Web group delete action offers **Unassign conversations**, **Delete conversations**, and **Cancel**. Show the affected conversation count and clear consequences. Agent Web's separate group deletion control is unchanged.
 
-## Context and ownership
-- Task branch: `api-web-group-delete-choices`, based on `main`. Keep main release-only and do not edit version or changelog during development.
-- `src/Mezhs.Web.Lib/src/MezhsChatApp.tsx` owns the normal API Web UI. Agent Web retains its current group-delete experience in this scoped change.
-- `GET /v1/chats` lists all Core chats, including those backing Agent conversations when running under the Agent API host. Group membership is shared.
-- `DELETE /v1/categories/{categoryId}` currently removes the category and unassigns its chats.
-- Reuse `DELETE /v1/chats/{chatId}` or bulk `DELETE /v1/chats` for destructive deletion, so the Agent host keeps its Agent-first/Core-second cleanup. Delete the category only after successful chat deletion.
-- Keep server endpoints unchanged unless inspection discovers a correctness gap that requires an API change; do not add an alternative chat deletion path or cross-store transaction.
+## Owner direction and scope limit (2026-11-10)
+The owner requires a simple correction using the APIs already in place; do not introduce or redesign endpoints, synchronization mechanisms, cross-store transactions or deletion ownership. This scope does **not** create a guarantee against concurrent group reassignment between the final membership read and chat deletion. Record that remaining destructive race explicitly; do not present the UI recheck as an atomic or server-enforced guarantee.
 
-## Implementation
-1. Add an accessible group-deletion dialog showing the group name and number of conversations from a fresh `GET /v1/chats`, not from the sidebar's current filter.
-2. The explicit choices are:
-   - **Unassign conversations**: existing `DELETE /v1/categories/{id}` request; preserve all conversations (including Agent chats).
-   - **Delete conversations**: delete *all* chats assigned to that category, including Agent chats, using the existing bulk/single chat deletion API; then delete category.
-   - **Cancel**: dismiss with no write requests.
-3. Before executing either action, refresh the chat list. If the set of category chat IDs changed since the dialog was shown, update the count, display a warning, and require the user to choose again rather than operating on a stale selection.
-4. Disable competing delete actions while in flight; prevent dialog dismissal while pending. Reuse the existing stale-chat guard and reset selected chat if removed. Refresh the category/sidebar lists on success.
-5. Show an explicit irreversible deletion disclosure (chat/Agent state removed; legacy backups and historical Executor/file records may remain; shell stop not guaranteed). Report errors inside the dialog; leave retry possible if the first action succeeded and subsequent category deletion failed. Never claim that both steps are atomic.
-6. Style with the existing API Web UI dialog treatment, keyboard Escape/cancel and accessible labels. Do not change Agent Web or unrelated group/manager controls.
+## Existing ownership and API contract
+- Core `GET /v1/chats` enumerates chats, including Agent-backed chats on the Agent host.
+- `DELETE /v1/categories/{categoryId}` unassigns all remaining category members and removes the category.
+- `DELETE /v1/chats/{chatId}` and bulk `DELETE /v1/chats` delete selected IDs. When routed by the Agent host they retain the established Agent-first/Core-second cleanup and partial-failure behavior.
+- There is no group-membership condition on the existing chat DELETE. It is incorrect to claim that concurrent movement of a selected chat to another group is prevented. **No API files are changed.**
+- Version, changelog and main remain release-only.
+
+## Implementation and correction behavior
+1. Open a native accessible modal dialog with the group name and fresh current count. It offers the three explicit choices.
+2. On action, fetch membership again; if the selected set changed, update the count, require a new choice, and issue no DELETE.
+3. For **Unassign**, use existing category DELETE only. For **Delete**, use existing single/bulk chat DELETE first, then existing category DELETE. Preserve all ordinary/Agent deletion semantics.
+4. Bound dialog requests with a cancellation signal and 12-second timeout. A timed-out write may have committed; on failure, reconcile Core chats and categories. Clear a now-deleted selected chat and disable retries when outcome cannot be verified. Cancel and Escape become available once the bounded operation completes.
+5. Use the browser's native `<dialog>.showModal()` for background inertness, tab focus containment, Escape and focus restoration. Keep irreversible deletion and data-retention disclosures.
 
 ## Verification
+Developer checks on revision `d614c8eea0773eb812a0c40a87867dc461461980`:
+- CI run `https://github.com/DreigoUndead/Mezhs/actions/runs/42830601675`: **PASS**, including `dotnet build Mezhs.sln -c Release --nologo`, `pwsh -NoProfile -File tests/agent-web-shared-ui.ps1`, and `node --test tests/agent-web-rich-formatting.test.cjs tests/chat-ui-browser.test.cjs tests/rich-model-ui-rendering.test.cjs tests/rich-model-ui-browser.test.cjs tests/group-delete-browser.test.cjs`.
+- Chromium browser regression exercises focus isolation/restoration, lost DELETE response reconciliation, aborted preflight and Escape. Updated regression additionally covers membership changes discovered at preflight; it must be re-run on the final commit.
+- Independent code review then independent testing remain required. Ensure test evidence uses the final exact SHA. Neither CI nor developer checks count as independent approval.
 
-Developer verification: source-level checks against the committed dialog, ordering, API routes, and CSS passed. A full frontend build and live API/browser smoke tests have not been run in this connector environment; independent code review and independent testing are still required.
-- Add targeted shared-UI source regression assertions for option names, count, operations, and existing data-retention disclosures.
-- Build both Web frontends if available and run `tests/agent-web-shared-ui.ps1` and relevant chat API smoke tests in a full developer workspace.
-- Manually verify group with zero/multiple chats; Agent + normal chats; cancel; unassign; delete; selected conversation deletion; fetch/delete failures; changes to membership while dialog is open; repeat after partial success.
-- Before handoff, move this plan on the same task branch from `specifications/planned/` to `specifications/implemented/`, then request independent code review and independent testing; neither is self-approval.
-
-## Risks and accepted scope
-- This UI orchestrates two API operations, not a distributed transaction. If category deletion fails after chat deletion, the category may remain with zero chats; report and allow retry.
-- A concurrent writer may assign a new chat immediately after the pre-action refresh. The current category DELETE unassigns any such late chat; this UI cannot guarantee concurrent writers' chats are deleted. Fully atomic group-and-chats deletion would require a separate server-side design and review.
+## Risks / remaining limitations
+- **P1 concurrency race remains:** if a conversation moves out of a group after the last GET and before existing ID-based DELETE, it can be deleted anyway. Existing endpoints cannot make a client-side check atomic. Owner-directed scope excludes an API change; flag this risk in review rather than asserting it is fixed.
+- Newly assigned chats after final inventory may be unassigned during category deletion, rather than deleted.
+- Group removal may fail after successful chat removal; reconciliation and retry are best-effort, with no cross-store rollback.
+- Abort/timeout stops the UI wait but cannot prove the server stopped work; a complete page refresh may be needed following an unverifiable result.
 - Never merge to `main` without explicit owner approval.
