@@ -2,6 +2,7 @@ import { ReactNode, CSSProperties } from "react";
 import type { Components } from "react-markdown";
 import { Check, CircleCheck, CircleAlert, CircleX, Info, ArrowDown, ArrowRight, GitBranch, GitPullRequest, ScrollText, ChartNoAxesCombined, Network, Database } from "lucide-react";
 import { RichChart } from "./RichChart";
+import { RichWritingBlock } from "./RichWritingBlock";
 import { prepareSvg, svgComponents } from "./RichSvg";
 
 type MarkupNode = {
@@ -34,6 +35,45 @@ export function remarkRichMarkup(slotOffsets: Record<string, number> = Object.cr
           if (node.name === "svg") {
             // The entire subtree passes one atomic validator before React gets any nodes.
             return prepareSvg(node) ? node : original(node);
+          }
+          if (node.name === "WritingBlock") {
+            // Extract the original Markdown source, not rendered children.
+            // This component is local editing/copy only; no host action authority.
+            const attrs: Record<string, string> = Object.create(null);
+            const allowed = new Set(["variant", "subject", "recipient", "cc", "bcc", "id"]);
+            let safe = (node.attributes || []).length <= 6;
+            for (const attr of node.attributes || []) {
+              if (attr.type !== "mdxJsxAttribute" || !attr.name ||
+                  !allowed.has(attr.name) || Object.prototype.hasOwnProperty.call(attrs, attr.name) ||
+                  typeof attr.value !== "string" || attr.value.length > 256) { safe = false; break; }
+              attrs[attr.name] = attr.value;
+            }
+            if (attrs.variant && !["email", "chat_message", "social_post", "document", "standard"].includes(attrs.variant))
+              safe = false;
+            if (attrs.id && !/^[0-9]{5}$/.test(attrs.id)) safe = false;
+            const start = node.position?.start.offset;
+            const end = node.position?.end.offset;
+            const raw = start !== undefined && end !== undefined && end - start <= 32768
+              ? source.slice(start, end) : "";
+            // The opening tag can contain > inside a quoted metadata value.
+            let openerEnd = -1;
+            let quote = "";
+            for (let i = 0; i < Math.min(raw.length, 1600); i++) {
+              const char = raw[i];
+              if (quote) { if (char === quote) quote = ""; }
+              else if (char === '"' || char === "'") quote = char;
+              else if (char === ">") { openerEnd = i + 1; break; }
+            }
+            const closer = /<\/WritingBlock\s*>$/.exec(raw);
+            const body = closer && openerEnd > 0 ? raw.slice(openerEnd, closer.index).replace(/^\n|\n$/g, "") : "";
+            if (!safe || !raw.startsWith("<WritingBlock") || !closer ||
+                openerEnd < 0 || body.length > 24000 || !body.trim()) return original(node);
+            node.children = [];
+            node.data = { hName: "mezhs-writing-block", hProperties: {
+              "data-mezhs-writing-source": body,
+              ...Object.fromEntries(Object.entries(attrs).map(([key, value]) => ["data-mezhs-" + key, value])),
+            } };
+            return node;
           }
           if (node.name === "Cite") {
             // Source IDs are transient per ChatGPT reply. MEŽS does not
@@ -173,6 +213,14 @@ const icons = {
 export const richComponents = {
   ...svgComponents(),
   "mezhs-chart": (props: RichProps) => <RichChart content={structured(props, "content")} />,
+  "mezhs-writing-block": (props: RichProps) => <RichWritingBlock
+    source={read(props, "writing-source")}
+    variant={read(props, "variant") || "standard"}
+    subject={read(props, "subject")}
+    recipient={read(props, "recipient")}
+    cc={read(props, "cc")}
+    bcc={read(props, "bcc")}
+  />,
   "mezhs-cite": (props: RichProps) => <span className="rich-citation-unavailable" role="note" title="Source reference unavailable in this MEŽS transcript">[source unavailable]</span>,
   "mezhs-row": ({ children, ...props }: RichProps) => <div className="rich-row" style={layout(props)}>{children}</div>,
   "mezhs-col": ({ children, ...props }: RichProps) => <div className="rich-col" style={layout(props)}>{children}</div>,
