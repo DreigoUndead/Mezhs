@@ -166,8 +166,7 @@ if ($groupWorkflow -notmatch 'await apiJson<Chat\[\]>\(apiBase, "/v1/chats"\)' -
 $chatDeleteOffset = $groupWorkflow.IndexOf('if (mode === "delete"')
 $categoryDeleteOffset = $groupWorkflow.IndexOf('/v1/categories/')
 # Source guard: the category delete request must come after the conditional chat delete.
-if ($chatDeleteOffset -lt 0 -or $categoryDeleteOffset -le $chatDeleteOffset -or
-    $categoryDeleteOffset -lt $chatDeleteOffset) {
+if ($chatDeleteOffset -lt 0 -or $categoryDeleteOffset -le $chatDeleteOffset) {
     throw "Group removal must follow completed conversation removal."
 }
 
