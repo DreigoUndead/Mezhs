@@ -6,6 +6,8 @@ import remarkMdx from "remark-mdx";
 import { createContext, useContext, useId, useState } from "react";
 import Markdown, { uriTransformer } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMdx from "remark-mdx";
+import { remarkRichMarkup, richComponents } from "./RichMarkup";
 import { RichActionContext } from "./RichActionContext";
 
 // This is a deliberately finite grammar, not an MDX/DIL interpreter. Acorn only
@@ -16,6 +18,7 @@ export type RichQuestionData = {
   button: string;
   prefix: string;
   suffix: string;
+  messages?: Record<string, string>;
   block?: boolean;
 };
 
@@ -53,7 +56,68 @@ function declaration(code: string) {
   } catch { return null; }
 }
 
-function handler(code: string, state: string) {
+// Read a finite expression tree as inert data. No model-authored function is called.
+function choiceMessages(node: any, state: string, choices: string[]): Record<string, string> | null {
+  let nodes = 0;
+  const valid = (part: any, depth = 0): boolean => {
+    if (!part || depth > 12 || ++nodes > 96) return false;
+    switch (part.type) {
+      case "Literal": return typeof part.value === "string" && part.value.length <= 2000;
+      case "Identifier": return identifierName(part) === state;
+      case "BinaryExpression":
+        return ["===", "!==", "+"].includes(part.operator) &&
+          valid(part.left, depth + 1) && valid(part.right, depth + 1);
+      case "ConditionalExpression":
+        return valid(part.test, depth + 1) &&
+          valid(part.consequent, depth + 1) && valid(part.alternate, depth + 1);
+      case "TemplateLiteral":
+        return part.quasis?.length === part.expressions?.length + 1 &&
+          part.quasis.every((q: any) => typeof q.value?.cooked === "string") &&
+          part.expressions.every((e: any) => valid(e, depth + 1));
+      default: return false;
+    }
+  };
+  if (!valid(node)) return null;
+  const evaluate = (part: any, choice: string, depth = 0): string | boolean => {
+    if (depth > 12) throw Error("Expression depth");
+    switch (part.type) {
+      case "Literal": return part.value;
+      case "Identifier": return choice;
+      case "BinaryExpression": {
+        const left = evaluate(part.left, choice, depth + 1);
+        const right = evaluate(part.right, choice, depth + 1);
+        if (part.operator === "===") return left === right;
+        if (part.operator === "!==") return left !== right;
+        if (typeof left !== "string" || typeof right !== "string") throw Error("Invalid concatenation");
+        return left + right;
+      }
+      case "ConditionalExpression": {
+        const result = evaluate(part.test, choice, depth + 1);
+        if (typeof result !== "boolean") throw Error("Non-boolean condition");
+        return evaluate(result ? part.consequent : part.alternate, choice, depth + 1);
+      }
+      case "TemplateLiteral": {
+        let result = part.quasis[0].value.cooked;
+        for (let i = 0; i < part.expressions.length; i++)
+          result += String(evaluate(part.expressions[i], choice, depth + 1)) +
+            part.quasis[i + 1].value.cooked;
+        return result;
+      }
+    }
+    throw Error("Unknown expression");
+  };
+  try {
+    const messages: Record<string, string> = Object.create(null);
+    for (const choice of choices) {
+      const value = evaluate(node, choice);
+      if (typeof value !== "string" || !value.length || value.length > 2000) return null;
+      messages[choice] = value;
+    }
+    return messages;
+  } catch { return null; }
+}
+
+function handler(code: string, state: string, choices: string[]) {
   if (code.length > 3000) return null;
   try {
     const action: any = parseExpressionAt(code, 0, { ecmaVersion: "latest" });
@@ -67,13 +131,16 @@ function handler(code: string, state: string) {
         expression.callee.computed || identifierName(expression.callee.object) !== "GenUI" ||
         identifierName(expression.callee.property) !== "issueNewTurn") return null;
     const template = expression.arguments[0];
-    if (template?.type !== "TemplateLiteral" || template.expressions.length !== 1 ||
-        identifierName(template.expressions[0]) !== state || template.quasis.length !== 2) return null;
-    const prefix = template.quasis[0].value.cooked;
-    const suffix = template.quasis[1].value.cooked;
-    if (typeof prefix !== "string" || typeof suffix !== "string" ||
-        prefix.length + suffix.length > 2000) return null;
-    return { prefix, suffix };
+    if (template?.type === "TemplateLiteral" && template.expressions.length === 1 &&
+        identifierName(template.expressions[0]) === state && template.quasis.length === 2) {
+      const prefix = template.quasis[0].value.cooked;
+      const suffix = template.quasis[1].value.cooked;
+      if (typeof prefix !== "string" || typeof suffix !== "string" ||
+          prefix.length + suffix.length > 2000) return null;
+      return { prefix, suffix };
+    }
+    const messages = choiceMessages(template, state, choices);
+    return messages ? { prefix: "", suffix: "", messages } : null;
   } catch { return null; }
 }
 
@@ -325,7 +392,7 @@ export function extractRichQuestions(source: string): {
       const children = radio.children || [];
       if (!values || values.size !== 1 || typeof value !== "string" ||
           !/^[A-Za-z0-9_-]{1,64}$/.test(value) || selected.has(value) ||
-          !children.length || children.some(child => !safeLabelNode(child))) {
+          !children.length || children.some(child => !safeQuestionContentNode(child))) {
         validOptions = false; break;
       }
       const first = boundaries(children[0]);
@@ -345,11 +412,15 @@ export function extractRichQuestions(source: string): {
         (buttonAttributes.size === 2 && !buttonAttributes.has("block"))) continue;
     const click = buttonAttributes.get("onClick");
     if (!click || typeof click !== "object") continue;
-    const action = handler(click.value, candidate.state);
+    const action = handler(click.value, candidate.state, options.map(option => option.value));
     const buttonChildren = button.children || [];
-    if (!action || buttonChildren.length !== 1 || buttonChildren[0].type !== "text") continue;
-    const buttonText = buttonChildren[0].value?.trim() || "";
-    if (!buttonText || buttonText.length > 80) continue;
+    if (!action || !buttonChildren.length ||
+        buttonChildren.some(child => !safeQuestionContentNode(child))) continue;
+    const buttonFirst = boundaries(buttonChildren[0]);
+    const buttonLast = boundaries(buttonChildren[buttonChildren.length - 1]);
+    if (!buttonFirst || !buttonLast) continue;
+    const buttonText = source.slice(buttonFirst.start, buttonLast.end).trim();
+    if (!buttonText || buttonText.length > 400) continue;
 
     const id = String(Object.keys(questions).length);
     questions[id] = {
@@ -367,10 +438,38 @@ export function extractRichQuestions(source: string): {
   return escapeUnsupported(source, replacements, questions, slotOffsets, protectedMask);
 }
 
-function safeLabelNode(node: SyntaxNode): boolean {
-  if (node.type.startsWith("mdx") || node.type === "html" ||
-      node.type === "definition" || node.type === "image") return false;
-  return (node.children || []).every(safeLabelNode);
+// Presentation is validated before an action slot can be created. Reject any
+// executable MDX, HTML, unsupported element, expression or attribute atomically.
+function safeQuestionContentNode(node: SyntaxNode): boolean {
+  if (node.type === "html" || node.type === "definition" ||
+      node.type === "image" || node.type === "linkReference") return false;
+  if (node.type.startsWith("mdx")) {
+    if (!jsx(node, "text") && !jsx(node, "icon")) return false;
+    const attrs = attributeMap(node);
+    if (!attrs) return false;
+    const isIcon = jsx(node, "icon");
+    const allowed = isIcon ? new Set(["name", "inline", "size", "color"]) :
+      new Set(["size", "color", "weight", "strong"]);
+    for (const [key, value] of attrs) {
+      if (!allowed.has(key)) return false;
+      if (key === "inline" || key === "strong") {
+        if (value !== null) return false;
+      } else if (typeof value !== "string" || value.length > 64 ||
+          !/^[a-z0-9-]+$/i.test(value)) return false;
+    }
+    if (isIcon && (!attrs.has("name") || (node.children || []).length)) return false;
+  }
+  return (node.children || []).every(safeQuestionContentNode);
+}
+
+function renderQuestionContent(content: string) {
+  return <Markdown
+    remarkPlugins={[remarkGfm, remarkMdx as unknown as typeof remarkGfm,
+      remarkRichMarkup() as unknown as typeof remarkGfm]}
+    components={richComponents}
+    transformLinkUri={uriTransformer} transformImageUri={() => ""}>
+    {content}
+  </Markdown>;
 }
 
 function escapeUnsupported(
@@ -423,12 +522,11 @@ export function RichQuestion({ data }: { data: RichQuestionData }) {
     {data.options.map(option => <label key={option.value} className="rich-question-option">
       <input type="radio" name={groupName} value={option.value}
         checked={choice === option.value} onChange={() => setChoice(option.value)} />
-      <div><Markdown remarkPlugins={[remarkGfm]}
-        transformLinkUri={uriTransformer} transformImageUri={() => ""}>{option.label}</Markdown></div>
+      <div>{renderQuestionContent(option.label)}</div>
     </label>)}
     <button type="button" className={data.block ? "rich-question-block" : undefined} disabled={!enabled} onClick={() => {
-      if (enabled) onIssueNewTurn?.(data.prefix + choice + data.suffix);
-    }}>{data.button}</button>
+      if (enabled) onIssueNewTurn?.(data.messages?.[choice] ?? (data.prefix + choice + data.suffix));
+    }}>{renderQuestionContent(data.button)}</button>
     {!onIssueNewTurn && <small className="rich-question-readonly">Submission unavailable in this view.</small>}
   </fieldset>;
 }
