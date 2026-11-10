@@ -96,6 +96,15 @@ outside this Stage A PR.
 6. Implement targeted unit and diagnostic API tests for empty globals, non-runtime arrays, missing or inherited push, native-looking/bound push classification, valid synthetic runtime, accessor properties, Proxy/revoked-Proxy introspection failure, bounds, cumulative counter semantics, incomplete-result handling, redaction and the opt-in ChatGPT/loopback authorization checks (including rejection for non-ChatGPT sessions). Assert that the diagnostic makes no chunk-push calls, writes, loader captures or Sentinel preparations. Keep existing Account behavior unchanged and all existing tests passing.
 7. On an owner-controlled exact-branch build with an authenticated renderer, first establish that the targeted window belongs to the running branch build (record a nonsecret process/window-to-artifact identity, not merely the checkout branch, an adjacent Debug/Release binary, or a different host). Then run rspackRegistryShape once and record only its aggregate counters plus branch commit and verified build identity. Do not perform an Account turn for this observation. If runtime/build identity or diagnostic access is blocked, record the blocker; do not infer a registry shape from synthetic results.
 
+### Owner-approved Stage A corrections — 2026-11-10
+
+Following independent review, the owner authorized two small repairs without starting Stage B:
+
+1. In the existing shared `BrowserAccountSession` owner, an explicit `OpenBrowserAsync` session may have been initialized with `requireAuthorization: false`. An authorized diagnostic must not reuse that unverified transport: close/reinitialize it with the existing authenticated, hidden transport contract before executing diagnostics. This is a correction of the existing session authorization invariant; it does not change provider Account operations, native requirements, or Sentinel handling.
+2. For the diagnostic's stored chunk ID list, require an actual safe-integer length before numeric comparison, so a malformed own data descriptor cannot trigger object coercion callbacks. Retain the separately owner-accepted page-modified-intrinsics/Proxy-traps limitation.
+
+Add regression coverage for manual-open-first authorized/unauthorized browser paths and forged chunk-length descriptors. Keep the existing diagnostics API, ChatGPT-only opt-in, fixed response schema, and no-push/read-only behavior. Independent code review and independent testing remain mandatory; exact-build authenticated live observation remains blocked until renderer-to-artifact identity is verified.
+
 ### Stage B - explicit evidence and approval gate
 
 - Identify the earliest failing predicate **for observed matching candidates** where the complete Stage A counters establish one. Aggregate counts alone cannot prove which candidate is the real Rspack runtime, and no matching names cannot prove a runtime is absent. If evidence is incomplete, has multiple plausible candidates, or cannot link the rejected candidate to the live runtime, report the root cause as unresolved and request further owner-approved read-only evidence rather than guessing.
