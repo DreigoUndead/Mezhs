@@ -70,7 +70,7 @@ function choiceMessages(node: any, state: string, choices: string[]): Record<str
         return valid(part.test, depth + 1) &&
           valid(part.consequent, depth + 1) && valid(part.alternate, depth + 1);
       case "TemplateLiteral":
-        return part.quasis?.length === part.expressions?.length + 1 &&
+        return part.expressions?.length <= 1 && part.quasis?.length === part.expressions?.length + 1 &&
           part.quasis.every((q: any) => typeof q.value?.cooked === "string") &&
           part.expressions.every((e: any) => valid(e, depth + 1));
       default: return false;
