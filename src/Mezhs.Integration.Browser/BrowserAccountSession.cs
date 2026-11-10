@@ -12,6 +12,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
     private readonly Func<bool, bool, BrowserTransportOptions> _options;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private IChatBrowserTransport? _transport;
+    private bool _transportAuthorizationVerified;
     private CancellationTokenSource? _idleCancellation;
     private Task? _idleTask;
     private bool _disposed;
@@ -182,13 +183,18 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         bool requireAuthorization,
         CancellationToken cancellationToken)
     {
-        if (_transport is not null) return;
+        if (_transport is not null)
+        {
+            if (!requireAuthorization || _transportAuthorizationVerified) return;
+            await DisposeTransportAsync();
+        }
         _transport = _host.CreateBrowserTransport();
         try
         {
             await _transport.InitializeAsync(
                 _options(showBrowser, requireAuthorization),
                 cancellationToken);
+            _transportAuthorizationVerified = requireAuthorization;
         }
         catch
         {
@@ -201,6 +207,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
     {
         var transport = _transport;
         _transport = null;
+        _transportAuthorizationVerified = false;
         return transport?.DisposeAsync() ?? ValueTask.CompletedTask;
     }
 
