@@ -232,8 +232,9 @@ function rspackRegistryShapePage(root = globalThis) {
         const modules = read(entry, '1');
         if (!Array.isArray(ids) || modules === null ||
             (typeof modules !== 'object' && typeof modules !== 'function') ||
-            Array.isArray(modules) || !(read(ids, 'length') >= 1))
-          continue;
+            Array.isArray(modules)) continue;
+        const idCount = read(ids, 'length');
+        if (!Number.isSafeInteger(idCount) || idCount < 1) continue;
         const firstId = read(ids, '0');
         if (typeof firstId === 'string' || typeof firstId === 'number') {
           processed = true;
