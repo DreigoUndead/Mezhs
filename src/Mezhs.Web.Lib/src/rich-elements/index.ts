@@ -15,6 +15,6 @@ import type { RichElement } from "./Element";
 const all: RichElement[] = [
 rowElement, colElement, boxElement, gridElement, gridItemElement, textElement, titleElement, captionElement, dividerElement, badgeElement, iconElement, linkElement, chartElement];
 export const richElementRegistry: Record<string, RichElement> =
-  Object.fromEntries(all.map(element => [element.tag, element]));
+  Object.assign(Object.create(null), Object.fromEntries(all.map(element => [element.tag, element])));
 export const richStaticComponents = Object.fromEntries(all.map(element =>
   ["mezhs-" + element.tag.toLowerCase(), element.component]));

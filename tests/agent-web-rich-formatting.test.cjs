@@ -439,3 +439,11 @@ test("WritingBlock literal metadata cannot turn into handlers", () => {
     assert.doesNotMatch(html(source), /class="rich-writing-block"/);
   }
 });
+
+test("unknown prototype-named DIL tags cannot select host renderer entries", () => {
+  const output = html('<badge color="success">Safe</badge>\n\n<constructor>Inert</constructor>\n\n<__proto__>Also inert</__proto__>');
+  assert.match(output, /class="rich-badge rich-tone-success"/);
+  assert.match(output, /Inert/);
+  assert.match(output, /Also inert/);
+  assert.doesNotMatch(output, /<constructor|<__proto__/);
+});
