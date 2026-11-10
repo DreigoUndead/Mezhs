@@ -361,8 +361,9 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     if (!editingCategory || !name || savingCategory) return;
     setSavingCategory(true);
     try {
+      let createdCategory: Category | null = null;
       if (editingCategory === "new") {
-        await apiJson<Category>(apiBase, "/v1/categories", {
+        createdCategory = await apiJson<Category>(apiBase, "/v1/categories", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name }),
@@ -376,6 +377,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
           });
       }
       await loadCategories();
+      if (createdCategory) selectCategory(createdCategory.categoryId);
       setNewCategoryName("");
       setEditingCategory(null);
     } catch (error) {
