@@ -63,6 +63,16 @@ Only one state declaration, two to twelve literal radio choices, and a button ca
 
 MEŽS interprets the exact form above **as data**. It does not execute the `{@body}` declaration, hooks, template interpolation or arrow function as supplied JavaScript. Unrecognized controls remain inert. Buttons are disabled without a host callback, including in Agent transcripts. Composer drafts/uploads are not used for these sends, which share the host's normal busy/offline/chat ownership checks.
 
+## Rich question content and conditional answers
+
+Radio question labels may now contain bounded static presentation elements, including `<text size="sm" color="secondary">…</text>` and `<icon name="arrow-right" inline/>`, alongside Markdown emphasis and inline code. Confirm buttons may contain the same validated static content. The selected radio value remains the one local state variable, and the host still exclusively controls whether the button can dispatch a turn.
+
+The action argument can be a restricted expression using the selected choice, string literals, `===`/`!==` comparisons, ternaries, string concatenation, and a bounded template literal. The renderer validates the expression and precomputes a separate literal message for every declared radio value. No model-provided JavaScript runs on selection or submission. Complex expressions, additional functions, dynamic lookups, unsupported JSX, HTML event attributes, and malformed controls remain inert.
+
+For the exact four-option example, including all four conditional payloads and an arrow icon, see `tests/fixtures/rich-model-ui/custom-controls-question.md`. The corresponding parser/SSR and Chromium coverage is in `tests/rich-model-ui-rendering.test.cjs` and `tests/rich-model-ui-browser.test.cjs`.
+
+This is **not** an arbitrary custom-component runtime or general DIL interpreter: it extends the single-state radio question and shares existing static rendering and the host callback. Other control types and state operations remain unsupported unless explicitly implemented and validated.
+
 ## Citations
 
 `<Cite ref="turn123search3"/>` or `<Cite refs={["turn123search3","turn123search10"]}/>` accept only bounded literal source IDs. MEŽS currently has **no trusted citation-ID-to-URL provenance metadata** in the shared message contract. These render a compact *[source unavailable]* indicator; they are **not links** and must never be presented as independently verified sources. Use a normal supported Markdown link only when the real URL is known.
