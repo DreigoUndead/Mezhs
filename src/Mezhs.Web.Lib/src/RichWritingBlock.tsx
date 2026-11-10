@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { protectedPositions } from "./RichMarkdownProtection";
-import type { MarkupNode } from "./rich-elements/Element";
 
 const variants: Record<string, string> = {
   email: "Email draft",
@@ -109,7 +108,11 @@ export function extractWritingBlocks(source: string): {
   const opener = /^ {0,3}<WritingBlock(?=[\s>])/gm;
   const closer = /<\/WritingBlock\s*>/g;
   let consumed = 0;
+  let inspected = 0;
   for (const match of source.matchAll(opener)) {
+    // Work is bounded even if hostile input repeats thousands of incomplete
+    // openers and forces each closing-tag scan to search the remaining text.
+    if (++inspected > 32) break;
     const start = match.index!;
     if (start < consumed || mask[start] || replacements.length >= 16) continue;
     // Only the opener attributes are syntax; the body is preserved verbatim.
