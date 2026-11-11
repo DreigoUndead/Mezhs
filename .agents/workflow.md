@@ -52,7 +52,7 @@ Report concisely: **what** became complex, **which requirement causes it**, **si
 - **Small:** same-chat checks and relevant CI can be sufficient.
 - **Standard:** targeted tests; an independent tester when meaningful.
 - **High-risk:** independent testing is mandatory.
-- On failure, return to development, then repeat **affected review and tests**. No unnecessary fresh chat for each minor operation.
+- On FAIL, the reviewer/tester fixes issues and hands off to a **new independent Code Reviewer** before affected tests repeat; on BLOCKED, report the blocker.
 
 ## 6. [Owner approval and release](release.md)
 
