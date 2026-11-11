@@ -1,6 +1,6 @@
 # Rich UI Custom Controls
 ID: rich-ui-custom-controls
-Level: Standard (owner override from initial High-risk classification; retain security regression coverage)
+Level: High-risk for 2026-11-11 architecture/Agent-command-parser redesign (prior Standard override applied to earlier feature scope)
 Base: v0.3.0, dfb6053daf75fbffab7d35e00331b0a2dd2213dd
 
 ## Goal and scope
@@ -70,3 +70,36 @@ the published CLI installed as 1.6.2 and did not implement the required
 graph was not hand-edited. A developer with the repository-compatible
 Codegraph CLI must run `node .agents/codegraph/export.cjs`, commit the
 generated graph, and repeat affected verification before independent review.
+
+## Owner-approved simplification and CodeBlock/box scope (2026-11-11)
+
+**Status:** Design amendment pending independent High-risk plan review before new implementation. The owner explicitly chose a simpler key/control registry and requested that both `CodeBlock` and `box` work. This supersedes the earlier approach *where it introduces model-JavaScript expression interpretation*; historical test and security requirements remain until replaced with equivalent coverage.
+
+### Scope and responsibility
+- Shared Markdown renderer remains the **one** model-response renderer. It finds trusted, known presentational tags and dispatches to fixed host-owned control definitions. Each control owns its attribute validation, local UI state, child-content semantics, and React rendering. No raw HTML insertion or model-authored callback/function execution.
+- Static `box`, `row`, `col`, `text`, `icon` and similar controls recursively render validated static children through the same renderer. Limit depth/size and render unsupported markup inertly. No recursive conditions or nested interactive controls in this phase.
+- `WritingBlock` consumes **literal enclosed source** rather than evaluating child markup; its existing local edit/copy behavior is preserved.
+- Implement `CodeBlock` as a **raw-source** control recognized by its literal opening and closing tags; support bounded literal `language` and boolean `editable` as an initial contract. Static blocks display escaped selectable code; editable blocks can edit locally without host action, script execution, or chat submission. Preserve code content literally, including JSX-looking text, braces, entities, Markdown fences, and command-shaped examples. Decide whether extra existing DIL attributes are needed from actual fixtures rather than inventing support.
+- `Question` owns its radio selection and sends only through the existing host-granted `issueNewTurn` callback, with a literal response per option. Do not interpret model-authored DIL hooks, `onClick` handlers, ternaries or template expressions when the same user-visible behavior can be expressed declaratively. Document any intentional incompatibility with previous authoring syntax.
+- Remove replaced parsing and fallback mechanisms rather than maintaining two parallel interpreters. Preserve existing provenanced control activation, escaping, Markdown/MDX ordinary content and no-authority-in-code behavior.
+
+### Critical Agent-command-parser boundary (observed source)
+- `src/Mezhs.Agent.Api/Commands/Parser.cs` currently examines every standalone uppercase-leading tag. Hence `<CodeBlock language="typescript" editable>` is rejected as a malformed command, while lowercase `box` is already ignored by that rule. **The problem is not only the rich renderer.**
+- Only actual Agent protocol command tags (e.g. `SH`, `ATTACH`, `DONE`, `ABORT`) can be executable; preserve strict malformed known-command rejection, unknown uppercase-command rejection, command ordering, policy checks and opaque valid command bodies. PascalCase presentational tags with attributes must remain visible content, not errors.
+- Most importantly, command-looking lines **inside** literal CodeBlock bodies and Markdown code fences must not be promoted to Agent commands. Establish a simple reliable protected-region rule that honors code fence/markup context before command extraction, without making the Agent interpreter execute or depend on the UI control registry. Do not merely ignore a CodeBlock opening tag and continue scanning its body for `<SH>`.
+- Preserve existing `<escape>` handling, and verify that malformed/incomplete presentational regions do not accidentally enable commands or suppress legitimate top-level commands. Avoid broad ignores that weaken command strictness.
+
+### `box` behavior to verify/repair
+- `src/Mezhs.Web.Lib/src/rich-elements/Box.tsx` already registers `box`, and the telemetry fixture asserts a rendered `rich-box`. Do not add a duplicate implementation.
+- Reproduce the user-facing failure with full Agent transcript integration and representative tags such as `<box border radius="lg" padding={3} gap={2}>…</box>`, nested layout, spacing, and text. Differentiate a stale deployed UI, markdown/MDX parse failure, unsupported attribute, and command-parser rejection based on evidence before changing it.
+- Assert no visible raw `box` tags when valid, no unexpected code-block fallback, and preserved safe rendering of nested Markdown and rich children.
+
+### Acceptance and verification
+- [ ] Agent accepts and preserves a valid top-level `CodeBlock` response with literal language/editable attributes; no malformed command error.
+- [ ] `CodeBlock` renders safely in both normal chat and Agent transcript; fenced examples remain literal; editable draft is local and does not submit a message.
+- [ ] `CodeBlock` with embedded `<SH>`, `<DONE>`, `<ATTACH>` or malformed command-looking text **never executes or claims completion**, including inside Markdown fences; legitimate top-level commands continue working exactly once and with unchanged policy checks.
+- [ ] Valid nested `box` and other static controls render recursively with the expected layout in normal and Agent chat; failing real examples are reproduced and fixed at the actual owner.
+- [ ] Existing WritingBlock source integrity, conditional question behavior (or clearly documented replacement syntax), SVG/citations, standard Markdown, raw-code escaping, and host authorization remain safe.
+- [ ] Regression tests include malformed tags, unmatched delimiters, backticks inside raw blocks, code fences, escaped tags, nested controls, large content, repeated tags, and non-command uppercase markup; no arbitrary model JavaScript runs.
+- [ ] Run targeted Agent protocol tests, rich renderer/SSR and real Chromium suites, both frontend builds, impacted .NET builds, and CI on the exact resulting SHA. Regenerate Codegraph using the compatible CLI, never by hand.
+- [ ] Complete independent plan review **before** architecture implementation, independent code review **before** independent final testing, and obtain explicit owner merge approval. Leave VERSION/CHANGELOG and main unchanged. Proposed release: MINOR if backward-compatible; reassess if authoring syntax breaks.
