@@ -109,3 +109,12 @@
 .markdown-content .rich-writing-metadata { font-size: .88em; color: #625d54; margin-bottom: 8px; overflow-wrap: anywhere; }
 .markdown-content .rich-writing-block textarea { box-sizing: border-box; width: 100%; min-height: 120px; max-height: 420px; padding: 10px; border: 1px solid #cac4b8; border-radius: 7px; background: #fff; color: inherit; font: inherit; line-height: 1.5; resize: vertical; }
 .markdown-content .rich-writing-status { display: block; margin-top: 6px; color: #625d54; font-size: .84em; }
+
+
+/* Literal CodeBlock presentation. Source is text, never executable HTML. */
+.markdown-content .rich-code-block { min-width: 0; margin: .6em 0; overflow: hidden; border: 1px solid #ded9cf; border-radius: 10px; background: #24231f; color: #f0ede5; }
+.markdown-content .rich-code-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 12px; border-bottom: 1px solid #45413a; color: #c6c0b6; font-size: .82em; }
+.markdown-content .rich-code-header button { padding: 4px 9px; background: #3e3a33; color: #f0ede5; border: 1px solid #696359; border-radius: 5px; cursor: pointer; }
+.markdown-content .rich-code-block pre { margin: 0; border: 0; border-radius: 0; background: transparent; color: inherit; }
+.markdown-content .rich-code-block textarea { display: block; box-sizing: border-box; width: 100%; min-height: 110px; resize: vertical; padding: 12px 14px; border: 0; outline-offset: -2px; background: #24231f; color: #f0ede5; font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+.markdown-content .rich-code-status { display: block; padding: 4px 12px 8px; font-size: .8em; color: #c6c0b6; }
