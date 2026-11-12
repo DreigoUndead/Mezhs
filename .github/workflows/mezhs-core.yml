@@ -103,7 +103,8 @@ jobs:
           foreach ($test in @(
             'browser-limits-config.ps1',
             'integration-cancellation-contract.ps1',
-            'account-login-flow.ps1'
+            'account-login-flow.ps1',
+            'grok-account-login-flow.ps1'
           )) {
             pwsh -NoProfile -File (Join-Path tests $test)
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
