@@ -61,11 +61,21 @@ public sealed class Parser
                 continue;
             }
 
-            // Raw presentation controls may contain literal <SH>/<DONE> examples.
-            // Preserve their entire source without interpreting the enclosed text.
+            // Raw editors and static presentation containers are not Agent
+            // command scopes. A command-shaped line nested inside markup is
+            // visible text, never a host-shell action.
             if (TryRawPresentationOpening(text, out var presentationName))
             {
                 var end = FindRawPresentationClosingTag(lines, i + 1, presentationName);
+                var last = end < 0 ? lines.Count - 1 : end;
+                for (var line = i; line <= last; line++)
+                    visible.Add(lines[line].Text);
+                i = last;
+                continue;
+            }
+            if (TryStaticPresentationOpening(text, out var staticName))
+            {
+                var end = FindStaticPresentationClosingTag(lines, i, staticName);
                 var last = end < 0 ? lines.Count - 1 : end;
                 for (var line = i; line <= last; line++)
                     visible.Add(lines[line].Text);
@@ -214,6 +224,148 @@ public sealed class Parser
             }
             i++;
         }
+    }
+
+    // Only host-supported static containers need shielding. Their contents
+    // can include nested layout, raw editors and Markdown examples; none may
+    // lend Agent-command authority to a line inside the container.
+    private static readonly string[] StaticPresentationContainers =
+    [
+        "box", "row", "col", "grid", "grid-item", "text",
+        "title", "badge", "caption", "Link", "svg"
+    ];
+
+    private static bool TryStaticPresentationOpening(string text, out string name)
+    {
+        foreach (var candidate in StaticPresentationContainers)
+        {
+            var prefix = "<" + candidate;
+            if (!text.StartsWith(prefix, StringComparison.Ordinal) ||
+                text.Length <= prefix.Length ||
+                text[prefix.Length] is not ('>' or ' ' or '\t' or '\r' or '\n'))
+                continue;
+            // Self-closing static elements have no body that could hide
+            // executable Agent commands.
+            if (text.EndsWith("/>", StringComparison.Ordinal))
+                break;
+            name = candidate;
+            return true;
+        }
+        name = string.Empty;
+        return false;
+    }
+
+    // Count actual same-name element delimiters, not text within attributes,
+    // fenced Markdown, inline code, comments or raw editors. When a container
+    // is incomplete, the caller fails closed and leaves the rest visible.
+    private static int FindStaticPresentationClosingTag(
+        IReadOnlyList<LineSlice> lines, int start, string name)
+    {
+        var depth = 0;
+        char fenceMarker = '\0';
+        var fenceLength = 0;
+        var insideComment = false;
+        var inlineTicks = 0;
+        for (var i = start; i < lines.Count; i++)
+        {
+            var line = lines[i].Text;
+            if (fenceMarker != '\0')
+            {
+                if (IsClosingFence(line, fenceMarker, fenceLength))
+                    fenceMarker = '\0';
+                continue;
+            }
+            if (!insideComment && inlineTicks == 0 &&
+                TryOpeningFence(line, out fenceMarker, out fenceLength))
+                continue;
+            if (!insideComment && inlineTicks == 0 && i != start &&
+                TryRawPresentationOpening(line.Trim(), out var rawName))
+            {
+                var rawEnd = FindRawPresentationClosingTag(lines, i + 1, rawName);
+                if (rawEnd < 0) return -1;
+                i = rawEnd;
+                continue;
+            }
+
+            for (var p = 0; p < line.Length;)
+            {
+                if (insideComment)
+                {
+                    var end = line.IndexOf("-->", p, StringComparison.Ordinal);
+                    if (end < 0) break;
+                    insideComment = false;
+                    p = end + 3;
+                    continue;
+                }
+                if (line[p] == '`')
+                {
+                    var end = p + 1;
+                    while (end < line.Length && line[end] == '`') end++;
+                    var ticks = end - p;
+                    if (inlineTicks == 0) inlineTicks = ticks;
+                    else if (inlineTicks == ticks) inlineTicks = 0;
+                    p = end;
+                    continue;
+                }
+                if (inlineTicks != 0) { p++; continue; }
+                if (line.AsSpan(p).StartsWith("<!--", StringComparison.Ordinal))
+                {
+                    insideComment = true;
+                    p += 4;
+                    continue;
+                }
+                if (!TryStaticTagAt(line, p, name, out var closing, out var selfClosing, out var endTag))
+                {
+                    p++;
+                    continue;
+                }
+                if (closing)
+                {
+                    depth--;
+                    if (depth == 0) return i;
+                }
+                else if (!selfClosing) depth++;
+                p = endTag;
+            }
+        }
+        return -1;
+    }
+
+    private static bool TryStaticTagAt(string line, int position, string name,
+        out bool closing, out bool selfClosing, out int endTag)
+    {
+        closing = false;
+        selfClosing = false;
+        endTag = position;
+        var opening = "<" + name;
+        var ending = "</" + name;
+        var span = line.AsSpan(position);
+        if (span.StartsWith(ending, StringComparison.Ordinal))
+            closing = true;
+        else if (!span.StartsWith(opening, StringComparison.Ordinal))
+            return false;
+
+        var cursor = position + (closing ? ending.Length : opening.Length);
+        if (cursor >= line.Length || line[cursor] is not ('>' or '/' or ' ' or '\t'))
+            return false;
+        var quote = '\0';
+        for (; cursor < line.Length; cursor++)
+        {
+            var ch = line[cursor];
+            if (quote != '\0')
+            {
+                if (ch == quote) quote = '\0';
+            }
+            else if (ch is '"' or '\'')
+                quote = ch;
+            else if (ch == '>')
+            {
+                selfClosing = !closing && cursor > position && line[cursor - 1] == '/';
+                endTag = cursor + 1;
+                return true;
+            }
+        }
+        return false;
     }
 
     private static bool TryRawPresentationOpening(string text, out string name)
