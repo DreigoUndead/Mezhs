@@ -184,6 +184,7 @@ public sealed class AgentWorker : BackgroundService
     {
         var executionId = execution.ExecutionId;
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        var retainedConversation = false;
         lock (_cancellationSync)
             _cancellations[executionId] = cancellation;
         try
@@ -221,7 +222,8 @@ public sealed class AgentWorker : BackgroundService
                     execution.Environment);
             }
             execution.ChatId = chatId;
-            await _integrations.RetainConversationAsync(chatId);
+            await _integrations.RetainConversationAsync(execution.ConnectionId, chatId);
+            retainedConversation = true;
             _store.ValidateAgentChatRunnable(chatId);
 
             var existingMessages = _chats.GetMessages(chatId);
@@ -293,9 +295,9 @@ public sealed class AgentWorker : BackgroundService
         finally
         {
             // Model-send permits were released after each turn; retire the warm window here.
-            if (!string.IsNullOrWhiteSpace(execution.ChatId))
+            if (retainedConversation && !string.IsNullOrWhiteSpace(execution.ChatId))
             {
-                try { await _integrations.ReleaseConversationAsync(execution.ChatId); }
+                try { await _integrations.ReleaseConversationAsync(execution.ConnectionId, execution.ChatId); }
                 catch (Exception ex) { _logger.LogWarning(ex, "Could not release browser context for {ChatId}", execution.ChatId); }
             }
             // Serialize disposal against concurrent Cancel(), including its synchronous callbacks.
