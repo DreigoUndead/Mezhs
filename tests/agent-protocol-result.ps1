@@ -251,6 +251,32 @@ Check(tabDelimitedWriting.Commands.Count == 1 &&
     tabDelimitedWriting.VisibleContent.Contains("NEVER_EXECUTE_TAB"),
     "A tab-indented WritingBlock delimiter must not expose Agent commands.");
 
+// Static rich layout is presentation: shell-looking lines inside nested
+// containers or raw-editor children do not gain Agent command authority.
+var staticRich = parser.Parse(
+    "<box gap={2}>\n" +
+    "<row gap={1}>\n<SH>\necho NEVER_EXECUTE_STATIC\n</SH>\n</row>\n" +
+    "<box><icon name=\"info\" /></box>\n" +
+    "<CodeBlock language=\"text\">\n</box>\n<SH>\necho NEVER_EXECUTE_RAW\n</SH>\n</CodeBlock>\n" +
+    "</box>\n<SH>\necho AFTER_STATIC\n</SH>\n<DONE>");
+Check(staticRich.Commands.SequenceEqual([new Command("SH", "echo AFTER_STATIC"), new Command("DONE", null)]) &&
+    staticRich.VisibleContent.Contains("NEVER_EXECUTE_STATIC") &&
+    staticRich.VisibleContent.Contains("NEVER_EXECUTE_RAW"),
+    "Nested static rich layout exposed executable Agent commands.");
+var inlineStatic = parser.Parse(
+    "<box><icon name=\"check\" />\n<SH>\necho NEVER_EXECUTE_INLINE_CHILD\n</SH>\n</box>\n<DONE>");
+Check(inlineStatic.Commands.SequenceEqual([new Command("DONE", null)]),
+    "A self-closing inline child caused its static parent to lose command shielding.");
+var closedStatic = parser.Parse("<box gap={1}>Content</box>\n<SH>\necho AFTER_SINGLE_LINE\n</SH>\n<DONE>");
+Check(closedStatic.Commands.SequenceEqual([new Command("SH", "echo AFTER_SINGLE_LINE"), new Command("DONE", null)]),
+    "A complete same-line static element suppressed later legitimate commands.");
+var fencedStatic = parser.Parse(
+    "<box>\n~~~mdx\n</box>\n<SH>\necho NEVER_EXECUTE_FENCED\n</SH>\n~~~\n" +
+    "</box>\n<SH>\necho AFTER_FENCE\n</SH>\n<DONE>");
+Check(fencedStatic.Commands.SequenceEqual([new Command("SH", "echo AFTER_FENCE"), new Command("DONE", null)]),
+    "A faux static closing delimiter inside Markdown code exposed shell commands.");
+Console.WriteLine("PASS: Static rich layout cannot grant command authority; later top-level commands remain valid.");
+
 Console.WriteLine("PASS: Agent raw-block boundaries protect fenced/comment/inline examples, and preserve later top-level commands.");
 
 Console.WriteLine("PASS: CodeBlock, WritingBlock, fenced/indented Markdown examples cannot become Agent commands.");
@@ -329,6 +355,9 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
     Assert-InertPresentation 'inline-code' '`' '`'
     Assert-InertPresentation 'quoted-code-opener' '<CodeBlock language="text" note="</CodeBlock>">' '</CodeBlock>'
     Assert-InertPresentation 'quoted-writing-opener' '<WritingBlock variant="document" subject="</WritingBlock>">' '</WritingBlock>'
+    Assert-InertPresentation 'static-box' '<box gap={2}>' '</box>'
+    Assert-InertPresentation 'static-row' '<row gap={2}>' '</row>'
+    Assert-InertPresentation 'static-svg' '<svg viewBox="0 0 10 10">' '</svg>'
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
