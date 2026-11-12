@@ -17,11 +17,14 @@ jobs:
         with:
           node-version: '22'
       - name: Install repository-compatible Codegraph
-        run: npm install --global @lzehrung/codegraph@3.0.0
+        run: npm install --global @lzehrung/codegraph@3.2.1
+      - name: Diagnose native Codegraph runtime
+        run: codegraph doctor
       - name: Generate portable graph without temporary workflow
         run: |
           rm .github/workflows/codegraph-export-tmp.yml
           node .agents/codegraph/export.cjs
+          node -e 'const a=require("./.agents/codegraph/graph.json").analysis; console.log(a); if(a.nativeFilesFellBack>0) process.exit(1)'
       - name: Transfer generated graph through read-only job log
         run: |
           node - <<'NODE'
