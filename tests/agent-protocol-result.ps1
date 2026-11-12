@@ -145,6 +145,28 @@ var formatted = parser.Parse(displayMarkup);
 if (formatted.Commands.Count != 0 || formatted.VisibleContent != displayMarkup)
     throw new InvalidOperationException("Recorded <box> presentation markup was treated as a command.");
 
+var rawCodeExample = parser.Parse("<CodeBlock language=\\"typescript\\" editable>\\n<SH>\\necho NEVER_EXECUTE\\n</SH>\\n<DONE>\\n</CodeBlock>\\n<DONE>");
+Check(rawCodeExample.Commands.Count == 1 && rawCodeExample.Commands[0] == new Command("DONE", null) &&
+    rawCodeExample.VisibleContent.Contains("<CodeBlock language=\\"typescript\\" editable>") &&
+    rawCodeExample.VisibleContent.Contains("echo NEVER_EXECUTE"),
+    "CodeBlock contents must stay visible and inert; only trailing DONE may execute.");
+
+var rawWritingExample = parser.Parse("<WritingBlock variant=\\"document\\">\\n<SH>\\necho NEVER_EXECUTE\\n</SH>\\n</WritingBlock>\\n<SH>\\necho AFTER\\n</SH>");
+Check(rawWritingExample.Commands.Count == 1 &&
+    rawWritingExample.Commands[0] == new Command("SH", "echo AFTER"),
+    "WritingBlock source may not execute shell examples.");
+
+var fencedCommands = parser.Parse("~~~md\\n<SH>\\necho NEVER_EXECUTE\\n</SH>\\n~~~\\n<DONE>");
+Check(fencedCommands.Commands.Count == 1 && fencedCommands.Commands[0] == new Command("DONE", null),
+    "Markdown fenced code must not execute commands.");
+var indentedCommands = parser.Parse("    <SH>\\n    echo NEVER_EXECUTE\\n    </SH>\\n<DONE>");
+Check(indentedCommands.Commands.Count == 1 && indentedCommands.Commands[0] == new Command("DONE", null),
+    "Indented Markdown code must not execute commands.");
+var unterminatedCode = parser.Parse("<CodeBlock language=\\"text\\">\\n<SH>\\necho NEVER_EXECUTE\\n</SH>");
+Check(unterminatedCode.Commands.Count == 0,
+    "Unterminated raw CodeBlock must not promote body lines into commands.");
+Console.WriteLine("PASS: CodeBlock, WritingBlock, fenced/indented Markdown examples cannot become Agent commands.");
+
 Reject(parser, "<SH extra=\"true\">", "Malformed uppercase SH with attributes was accepted.");
 Reject(parser, "<DONE/>", "Malformed self-closing DONE was accepted.");
 Reject(parser, "</SH>", "Unexpected closing SH was accepted.");
