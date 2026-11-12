@@ -15,7 +15,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
     private CancellationTokenSource? _idleCancellation;
     private Task? _idleTask;
     private int _activeUses;
-    private readonly HashSet<string> _retainedChats = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _retainedChats = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
 
     internal BrowserAccountSession(
@@ -96,7 +96,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         try
         {
             ThrowIfDisposed();
-            _retainedChats.Add(chatId);
+            _retainedChats[chatId] = _retainedChats.GetValueOrDefault(chatId) + 1;
             CancelIdle(); // Keep the same authenticated context through Agent shell/wait cycles.
         }
         finally { _gate.Release(); }
@@ -107,12 +107,17 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         await _gate.WaitAsync();
         try
         {
-            // Cancellation/cleanup is best effort; always drop the local retention.
+            if (!_retainedChats.TryGetValue(chatId, out var count)) return;
+            if (count > 1)
+            {
+                _retainedChats[chatId] = count - 1;
+                return; // An overlapping execution still owns this chat context.
+            }
             _retainedChats.Remove(chatId);
             try
             {
                 if (_transport is not null)
-                    await _transport.ReleaseContextAsync(chatId);
+                    await ReleaseContextBestEffortAsync(_transport, chatId);
             }
             finally
             {
@@ -153,20 +158,47 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             _gate.Release();
         }
 
+        var cancelled = false;
         try
         {
             reportStage?.Invoke("Browser session ready; preparing request.");
             return await action(contextTransport, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            cancelled = true;
+            throw;
         }
         finally
         {
             await _gate.WaitAsync();
             try
             {
+                // Ordinary account turns do not keep Chromium windows indefinitely.
+                // A cancelled send must discard even an Agent-retained context before
+                // a later explicit same-chat send can enter MessageService.
+                if (!ephemeral && chatId is not null &&
+                    (cancelled || !_retainedChats.ContainsKey(chatId)) &&
+                    _transport is not null)
+                    await ReleaseContextBestEffortAsync(_transport, chatId);
                 _activeUses--;
                 if (!_disposed && _activeUses == 0) ScheduleIdle();
             }
             finally { _gate.Release(); }
+        }
+    }
+
+    private static async Task ReleaseContextBestEffortAsync(
+        IChatBrowserTransport transport, string chatId)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await transport.ReleaseContextAsync(chatId, timeout.Token);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Could not release browser context '{chatId}': {ex.Message}");
         }
     }
 
