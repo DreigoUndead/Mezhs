@@ -25,6 +25,38 @@ const svg = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/represe
 const question = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/representative-question.md"), "utf8").replace(/\r\n?/g, "\n");
 const customQuestion = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/custom-controls-question.md"), "utf8").replace(/\r\n?/g, "\n");
 
+test("raw WritingBlock keeps fenced closing examples literal and renders adjacent nested CodeBlock", () => {
+  const source = [
+    '<box border radius="lg" padding={3} gap={2}>',
+    '  <WritingBlock variant="document">',
+    '~~~md',
+    '</WritingBlock>',
+    '<SH>',
+    'echo NEVER_EXECUTE',
+    '</SH>',
+    '~~~',
+    '  </WritingBlock>',
+    '  <CodeBlock language="text">',
+    '    </CodeBlock>',
+    '<SH>',
+    'echo LITERAL_CODE',
+    '</SH>',
+    '  </CodeBlock>',
+    '  <text color="secondary">Agent transcript sibling</text>',
+    '</box>',
+  ].join("\n");
+  const output = html(source, { onIssueNewTurn() {
+    throw Error("Raw source may not submit chat actions");
+  } });
+  assert.match(output, /class="rich-box rich-bordered"/);
+  assert.equal((output.match(/class="rich-writing-block"/g) || []).length, 1);
+  assert.equal((output.match(/class="rich-code-block"/g) || []).length, 1);
+  assert.match(output, /echo NEVER_EXECUTE/);
+  assert.match(output, /echo LITERAL_CODE/);
+  assert.match(output, /Agent transcript sibling/);
+  assert.doesNotMatch(output, /<fieldset class="rich-question"|&lt;box border/);
+});
+
 test("CodeBlock preserves literal source inside a nested box", () => {
   const source = [
     '<box border radius="lg" padding={3} gap={2}>',
