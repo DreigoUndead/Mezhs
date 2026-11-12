@@ -358,6 +358,19 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
     Assert-InertPresentation 'static-box' '<box gap={2}>' '</box>'
     Assert-InertPresentation 'static-row' '<row gap={2}>' '</row>'
     Assert-InertPresentation 'static-svg' '<svg viewBox="0 0 10 10">' '</svg>'
+    Assert-InertPresentation 'inline-static-child' '<box><icon name="info" />' '</box>'
+    $nestedStaticOpening = @'
+<box gap={2}>
+<row gap={1}>
+<CodeBlock language="text">
+</box>
+'@
+    $nestedStaticClosing = @'
+</CodeBlock>
+</row>
+</box>
+'@
+    Assert-InertPresentation 'nested-static-raw' $nestedStaticOpening $nestedStaticClosing
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
