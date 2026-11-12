@@ -140,3 +140,47 @@ generated graph, and repeat affected verification before independent review.
 - Added parser and Agent API regressions for inert nested static commands, later valid top-level commands and zero shell side effects, plus shared renderer regressions for subsequent CodeBlock/WritingBlock activation.
 - **Complexity assessment:** This is a bounded repair in the two existing owners, not a new protocol or UI runtime. The Agent parser must distinguish command authority from static source; a future structural command-channel contract could remove that requirement, but redesigning it is outside this review correction. Independent code review must challenge the complexity and boundary; the owner retains authority to change scope.
 - Developer verification on the final commit must be recorded separately; independent final testing follows a passing independent code review only. No release metadata or main merge.
+
+
+## Owner-directed architecture expansion — structural Agent markup (2026-11-12)
+
+**Status:** Revised High-risk design, awaiting independent review of the changed architecture. The owner requested this redesign and initial implementation rather than another patch to static-container shielding. This supersedes the earlier assumption that Agent commands inside supported UI containers must always be inert. Prior plan-review waiver was for the earlier bounded scope; do not treat it as independent approval of this expanded scope.
+
+### Requirement and compatibility decision
+
+- Treat recognized UI/presentation elements and Agent commands as nodes in one **bounded, recursive, document-order structural reader**. A command may be nested within an otherwise valid static layout container or Markdown list, including a list inside a box. Nested commands mean *commands inside presentation containers*, **not** an executable command nested in another command's opaque body.
+- \`SH\` and \`ATTACH\` retain opaque line-delimited bodies; \`DONE\` is a marker and must still be the **last recognized Agent command across the whole response**, including all nested scopes. Existing Interpreter, policy evaluation, Shell/Executor, attachments, and durable command identity remain the only action authority.
+- A raw \`CodeBlock\`/\`WritingBlock\`, \`escape\`, Markdown fenced/indented/inline code, blockquotes-as-code, and comments are **literal**: command-looking tags within them never become commands. Literal examples must not acquire authority because they are wrapped in layout, lists, or malformed markup.
+- Accepted static containers can contain valid nested presentation or command nodes, with validated opening/closing delimiters and bounded depth/size. Unsupported/invalid attributes, unknown wrappers, mismatched/unclosed markup and ambiguity must fail closed; never execute a command from content that the UI treats as a rejected literal source. Valid standalone commands after a completed scope remain valid. Ordinary Markdown and output appearance stay compatible apart from intentional command extraction.
+- Preserve strict unknown ALL_CAPS command rejection and malformed-command errors in executable contexts. Do not let unknown PascalCase UI text register runtime components. No arbitrary JSX, JavaScript, dynamic callbacks, CSS or generic MDX evaluator.
+- The Web Lib renderer remains the owner of presentation/attribute rendering; Agent API owns structural command extraction and validation; Interpreter/Executor own execution. A fixed **tag semantics contract** bridges them; not a second renderer or shared runtime. Avoid importing React from Agent API or granting commands access to UI callbacks.
+- Existing tests that asserted all commands in static containers were inert must be updated to assert **intentional** execution in valid containers, alongside zero side effects for literal/code/invalid containers.
+
+### Engineering sanity and design decisions
+
+| Question | Decision |
+| --- | --- |
+| Right owner? | Agent API parses protocol authority; Web Lib renders UI; Interpreter/policy/Executor authorize actions. |
+| Duplicate mechanism? | Replace container skipping and ad hoc per-context command shielding with a structural reader using one tag classifier and explicit raw/literal nodes. Do not add a parallel command interpreter. |
+| DOM/JS/async needed? | No. Parsing is synchronous, source-based, and bounded; host action authorization stays asynchronous only at the existing execution boundary. |
+| What can break? | Host shell authority from Markdown examples, malformed parents, unbalanced tags, unknown commands; ordering, CRLF/body fidelity, completion semantics, UI source visibility, list indentation, old fixtures and durable execution retry. |
+| Extra abstraction justified? | A small fixed tag-kind registry is justified by existing duplicated tag decisions; a general DIL/MDX AST/runtime is not. |
+| Security invariant? | Only an explicit, structurally valid command node outside **all** literal/raw contexts can reach Interpreter. Parse and validate the **whole** reply before any action runs. Failure/ambiguity never unlocks subsequent shell text. |
+| Simplicity trade-off? | Markdown list/code classification is unavoidable because tags share a text channel; test actual Markdown-list fences and nested lists rather than adding context-specific regex repairs. If parity with the UI cannot be established safely, escalate toward a separate structured command channel rather than pretending syntax recognition is sufficient. |
+
+### Implementation sequence
+
+1. Introduce bounded tag classification and recursion at the existing Parser boundary; remove obsolete static-container swallow logic once equivalent tests pass. Reuse Command Registry definitions; do not create new command names or action dispatch paths.
+2. Enforce complete scope/attribute validation **before** command activation; protect literal editors and Markdown examples, including list-contained fences, quoted delimiters and malformed/unfinished markup. Ensure nested list/box commands work in document order.
+3. Amend Agent API and parser regression tests for nested SH/ATTACH/DONE, final-command validation, valid command bodies, unmatched parents, invalid attrs, markdown list/blockquote/fence/code, nested code examples and actual zero Executor side effects.
+4. Update \`specifications/current/agent-runtime.md\` and \`docs/supported-rich-ui.md\` only after behavior really changes. Refresh Codegraph through its generator when dependencies change.
+5. Developer verification: Parser/API regression script, affected JS SSR/Chromium suites, both frontends, .NET Release, CI at exact SHA. An independent High-risk plan reviewer must assess this expanded scope before activating nested command execution. Independent code review and independent final testing remain separate stages after developer work.
+6. No version/changelog edits, merge, release or main changes; owner retains final approval. **Suggested bump:** MINOR (expanded Agent command markup contract).
+
+### Acceptance/security matrix
+
+- Valid root-level and nested (including list within box) SH/ATTACH extracted in source order; opaque bodies unchanged, DONE final globally even when visually nested.
+- Code fences at root, inside box, after Markdown list markers, or nested in list indentation cannot expose command-shaped lines or fake container closing tags.
+- Blockquote/indented/inline code, comments, raw editors and escape examples remain visible and inert; command-shaped strings inside quoted attributes are not tag delimiters.
+- Malformed or incomplete UI wrappers and known-command syntax fail closed with zero Shell/attachment side effects; later valid commands are parsed only after unambiguously closed valid scopes.
+- Rendering never executes commands; only Interpreter validates actions and policies, and host read-only Agent transcripts remain read-only for UI callbacks.
