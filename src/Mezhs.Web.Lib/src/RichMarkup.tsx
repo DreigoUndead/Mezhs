@@ -5,7 +5,36 @@ import { RichCodeBlockSlot } from "./RichCodeBlock";
 import { prepareCite, Cite } from "./rich-elements/Cite";
 import { richElementRegistry, richStaticComponents } from "./rich-elements";
 import { prepareStaticElement, type MarkupNode } from "./rich-elements/Element";
-import { restoreRawSlots } from "./RichRawBlocks";
+
+// An unsupported parent must fall back to the author's literal source,
+// not expose host-generated slot markers or discard the extracted body.
+// Only markers at validated full-message offsets can be restored; a
+// model-supplied marker is never allowed to impersonate an extracted block.
+export function restoreRawSlots(
+  source: string, start: number, end: number,
+  writingOffsets: Record<string, number>, codeOffsets: Record<string, number>,
+  rawSources: Record<string, string>
+): string {
+  const replacements: Array<{ start: number; end: number; text: string }> = [];
+  for (const [kind, offsets] of [["writing", writingOffsets], ["code", codeOffsets]] as const) {
+    for (const [id, offset] of Object.entries(offsets)) {
+      const marker = '<mezhs-' + kind + '-slot id="' + id + '" />';
+      const key = kind + ":" + id;
+      if (offset < start || offset + marker.length > end ||
+          !source.startsWith(marker, offset) ||
+          !Object.prototype.hasOwnProperty.call(rawSources, key)) continue;
+      replacements.push({ start: offset, end: offset + marker.length, text: rawSources[key] });
+    }
+  }
+  replacements.sort((a, b) => a.start - b.start);
+  let result = "";
+  let cursor = start;
+  for (const replacement of replacements) {
+    result += source.slice(cursor, replacement.start) + replacement.text;
+    cursor = replacement.end;
+  }
+  return result + source.slice(cursor, end);
+}
 
 // Fixed host-owned dispatch. No MDX compilation, model JS or dynamic imports.
 export function remarkRichMarkup(slotOffsets: Record<string, number> = Object.create(null),
