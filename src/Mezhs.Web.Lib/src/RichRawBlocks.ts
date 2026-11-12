@@ -89,7 +89,7 @@ export function extractRawBlocks(source: string): {
     content += source.slice(cursor, replacement.start) + replacement.text;
     cursor = replacement.end;
   }
-  return { content: content + source.slice(cursor), writingBlocks, codeBlocks };
+  return { content: content + source.slice(cursor), writingBlocks, codeBlocks, rawSources };
 }
 
 // Slots are host-generated. A forged or duplicate marker cannot gain access
