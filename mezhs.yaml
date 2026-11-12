@@ -16,6 +16,11 @@ connections:
     name: ChatGPT Account
     integration: chatgpt-web-account
     workspace: Mezhs
+    # Explicitly enable two simultaneous local model turns on this account.
+    # Omitted limits default to maxParallel: 1 and spacing: 0.
+    limits:
+      maxParallel: 2
+      minIntervalBetweenStartsMs: 0
 
   - id: chatgpt-guest
     name: ChatGPT Guest
