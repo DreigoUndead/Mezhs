@@ -165,6 +165,11 @@ Check(indentedCommands.Commands.Count == 1 && indentedCommands.Commands[0] == ne
 var unterminatedCode = parser.Parse("<CodeBlock language=\"text\">\n<SH>\necho NEVER_EXECUTE\n</SH>");
 Check(unterminatedCode.Commands.Count == 0,
     "Unterminated raw CodeBlock must not promote body lines into commands.");
+var malformedRawExample = parser.Parse("<CodeBlock language={invalid\n<SH>\necho NEVER_EXECUTE\n</SH>\n</CodeBlock>\n<DONE>");
+Check(malformedRawExample.Commands.Count == 1 &&
+    malformedRawExample.Commands[0] == new Command("DONE", null),
+    "Malformed presentation headers may not promote embedded shell text.");
+
 Console.WriteLine("PASS: CodeBlock, WritingBlock, fenced/indented Markdown examples cannot become Agent commands.");
 
 Reject(parser, "<SH extra=\"true\">", "Malformed uppercase SH with attributes was accepted.");
