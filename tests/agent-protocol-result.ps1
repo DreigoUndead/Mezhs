@@ -190,6 +190,17 @@ Check(rawTranscript.Commands.Count == 2 &&
     rawTranscript.VisibleContent.Contains("NEVER_EXECUTE_CODE") &&
     rawTranscript.VisibleContent.Contains("<box border radius=\"lg\" padding={3}>"),
     "The Agent must preserve the complete rich transcript and execute only the top-level command.");
+var tabDelimitedCode = parser.Parse("<CodeBlock language=\"text\">\n\t</CodeBlock>\n<SH>\necho NEVER_EXECUTE_TAB\n</SH>\n</CodeBlock>\n<DONE>");
+Check(tabDelimitedCode.Commands.Count == 1 &&
+    tabDelimitedCode.Commands[0] == new Command("DONE", null) &&
+    tabDelimitedCode.VisibleContent.Contains("NEVER_EXECUTE_TAB"),
+    "A tab-indented raw delimiter must remain CodeBlock source, not expose Agent commands.");
+var tabDelimitedWriting = parser.Parse("<WritingBlock variant=\"document\">\n\t</WritingBlock>\n<SH>\necho NEVER_EXECUTE_TAB\n</SH>\n</WritingBlock>\n<DONE>");
+Check(tabDelimitedWriting.Commands.Count == 1 &&
+    tabDelimitedWriting.Commands[0] == new Command("DONE", null) &&
+    tabDelimitedWriting.VisibleContent.Contains("NEVER_EXECUTE_TAB"),
+    "A tab-indented WritingBlock delimiter must not expose Agent commands.");
+
 Console.WriteLine("PASS: Agent raw-block boundaries protect fenced/comment/inline examples, and preserve later top-level commands.");
 
 Console.WriteLine("PASS: CodeBlock, WritingBlock, fenced/indented Markdown examples cannot become Agent commands.");
