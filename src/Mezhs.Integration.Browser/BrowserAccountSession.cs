@@ -65,9 +65,12 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             CancelIdle();
             await EnsureTransportAsync(cancellationToken);
             await _transport!.EnsureAuthorizedAsync(interactive: true, cancellationToken);
-            if (_activeUses == 0) ScheduleIdle();
         }
-        finally { _gate.Release(); }
+        finally
+        {
+            if (!_disposed && _activeUses == 0) ScheduleIdle();
+            _gate.Release();
+        }
     }
 
     public async Task OpenBrowserAsync(CancellationToken cancellationToken = default)
@@ -79,9 +82,12 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             CancelIdle();
             await EnsureTransportAsync(cancellationToken);
             await _transport!.ShowAsync(cancellationToken);
-            if (_activeUses == 0) ScheduleIdle();
         }
-        finally { _gate.Release(); }
+        finally
+        {
+            if (!_disposed && _activeUses == 0) ScheduleIdle();
+            _gate.Release();
+        }
     }
 
     public async Task RetainConversationAsync(string chatId)
@@ -126,6 +132,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         Action<string>? reportStage = null)
     {
         IChatBrowserTransport contextTransport;
+        var admitted = false;
         reportStage?.Invoke("Checking browser session.");
         await _gate.WaitAsync(cancellationToken);
         try
@@ -138,8 +145,13 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
             contextTransport = chatId is null ? _transport! : _transport!.ForContext(chatId, ephemeral);
             _activeUses++;
+            admitted = true;
         }
-        finally { _gate.Release(); }
+        finally
+        {
+            if (!admitted && !_disposed && _activeUses == 0) ScheduleIdle();
+            _gate.Release();
+        }
 
         try
         {
