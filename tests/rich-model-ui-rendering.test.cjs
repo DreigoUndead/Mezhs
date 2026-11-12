@@ -24,6 +24,54 @@ const html = (content, props = {}) => renderToStaticMarkup(React.createElement(c
 const svg = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/representative-svg.md"), "utf8");
 const question = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/representative-question.md"), "utf8").replace(/\r\n?/g, "\n");
 const customQuestion = fs.readFileSync(path.join(__dirname, "fixtures/rich-model-ui/custom-controls-question.md"), "utf8").replace(/\r\n?/g, "\n");
+
+test("CodeBlock preserves literal source inside a nested box", () => {
+  const source = [
+    '<box border radius="lg" padding={3} gap={2}>',
+    '  <CodeBlock language="typescript" editable>',
+    'const broken = { unexpected: ;',
+    '<SH>',
+    'echo NEVER_EXECUTE',
+    '</SH>',
+    '  </CodeBlock>',
+    '  <text color="secondary">Nested box content</text>',
+    '</box>',
+  ].join("\n");
+  const output = html(source, { onIssueNewTurn() { throw Error("Code may not dispatch"); } });
+  assert.match(output, /class="rich-box rich-bordered"/);
+  assert.match(output, /class="rich-code-block"/);
+  assert.match(output, /aria-label="Edit code block"/);
+  assert.match(output, /&lt;SH&gt;/);
+  assert.match(output, /Nested box content/);
+  assert.doesNotMatch(output, /&lt;box border radius/);
+  assert.doesNotMatch(output, /<fieldset class="rich-question"/);
+});
+
+test("CodeBlock read-only rendering escapes JSX and malformed template source", () => {
+  const source = [
+    '<CodeBlock language="tsx">',
+    'const literal = "<script>doBadThings()</script>";',
+    '{@body const [value,setValue] = DIL.useState("A")',
+    '</CodeBlock>',
+  ].join("\n");
+  const output = html(source, { onIssueNewTurn() { throw Error("Code may not dispatch"); } });
+  assert.match(output, /class="rich-code-block"/);
+  assert.match(output, /<pre><code>/);
+  assert.match(output, /&lt;script&gt;/);
+  assert.doesNotMatch(output, /<script|<textarea/);
+});
+
+test("CodeBlock in Markdown fences and invalid attributes cannot activate", () => {
+  const sample = '<CodeBlock language="typescript">\nconst x = 1;\n</CodeBlock>';
+  const fenced = "~~~mdx\n" + sample + "\n~~~";
+  assert.doesNotMatch(html(fenced), /class="rich-code-block"/);
+  assert.match(html(fenced), /&lt;CodeBlock/);
+  const rejected = '<CodeBlock language="typescript" onClick="attack">\nconst x = 1;\n</CodeBlock>';
+  assert.doesNotMatch(html(rejected), /class="rich-code-block"/);
+  const duplicate = '<mezhs-code-slot id="c0" />\n\n' + sample;
+  assert.doesNotMatch(html(duplicate), /class="rich-code-block"/);
+});
+
 // Exercise the production extractor directly: a full Markdown render would hide
 // scanner regressions behind unrelated Markdown/React parsing work.
 const extractorBundle = esbuild.buildSync({
