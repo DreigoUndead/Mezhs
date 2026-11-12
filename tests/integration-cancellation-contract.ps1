@@ -38,6 +38,7 @@ $referenceXml
 
     @'
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Reflection;
 using Mezhs.Browser;
 using Mezhs.Integrations;
@@ -70,9 +71,11 @@ foreach (var registration in registrations)
 {
     await VerifyPreCancelledAsync(registration, tempRoot);
     await VerifyInFlightCancellationAsync(registration, tempRoot);
+    if (typeof(BrowserIntegrationBase).IsAssignableFrom(registration.Type))
+        await VerifyLimitsAsync(registration, tempRoot);
 }
 
-Console.WriteLine($"PASS: {registrations.Length} integration registrations honor cancellation; browser-backed integrations also discard cancelled transports before reuse.");
+Console.WriteLine($"PASS: {registrations.Length} integration registrations honor cancellation; browser-backed integrations retain a shared host while cancelled operations release capacity.");
 
 static async Task VerifyPreCancelledAsync(Registration registration, string tempRoot)
 {
@@ -101,26 +104,101 @@ static async Task VerifyInFlightCancellationAsync(Registration registration, str
     }
 
     var transportsBeforeCancel = fixture.Host.CreatedCount;
+    if (!browserBacked)
+    {
+        cancellation.Cancel();
+        await ExpectCancelledAsync(send, registration.Name, "in-flight");
+        return;
+    }
+
+    // Different ChatIds overlap even while the first local turn is active.
+    using var peerCancellation = new CancellationTokenSource();
+    var peerSend = fixture.Integration.SendMessageAsync(
+        CreateContext(registration.Name, "chat_peer"), peerCancellation.Token);
+    await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
+    if (peerSend.IsCompleted)
+        throw new InvalidOperationException("Peer browser turn did not remain active.");
+
     cancellation.Cancel();
     await ExpectCancelledAsync(send, registration.Name, "in-flight");
-    fixture.Host.AssertAllTransportsDisposed(registration.Name, "in-flight");
+    if (peerSend.IsCompleted)
+        throw new InvalidOperationException("Cancelling chat A unexpectedly stopped peer chat B.");
+    if (fixture.Host.CreatedCount != transportsBeforeCancel)
+        throw new InvalidOperationException("Cancellation restarted the shared browser host.");
 
-    if (!browserBacked)
-        return;
-
+    // The freed local permit admits a new turn while an unrelated chat runs.
     using var secondCancellation = new CancellationTokenSource();
-    var secondSend = fixture.Integration.SendMessageAsync(CreateContext(registration.Name), secondCancellation.Token);
+    var secondSend = fixture.Integration.SendMessageAsync(
+        CreateContext(registration.Name, "chat_after_cancel"), secondCancellation.Token);
     await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
-    if (fixture.Host.CreatedCount <= transportsBeforeCancel)
-        throw new InvalidOperationException(
-            $"Integration '{registration.Name}' reused a browser transport after cancellation.");
+    if (fixture.Host.CreatedCount != transportsBeforeCancel)
+        throw new InvalidOperationException("Later send did not reuse the warm browser host.");
 
     secondCancellation.Cancel();
     await ExpectCancelledAsync(secondSend, registration.Name, "second in-flight");
-    fixture.Host.AssertAllTransportsDisposed(registration.Name, "second in-flight");
+    if (peerSend.IsCompleted)
+        throw new InvalidOperationException("Cancelling another context stopped the peer.");
+    peerCancellation.Cancel();
+    await ExpectCancelledAsync(peerSend, registration.Name, "peer in-flight");
 }
 
-static Fixture CreateFixture(Registration registration, string tempRoot, string suffix)
+static async Task VerifyLimitsAsync(Registration registration, string root)
+{
+    // Default serial admission blocks a second ChatId, and cancelled waiters do not consume slots.
+    await using (var fixture = CreateFixture(registration, root, "serial",
+        new IntegrationLimits { MaxParallel = 1 }))
+    {
+        using var first = new CancellationTokenSource();
+        using var waiting = new CancellationTokenSource();
+        var a = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "a"), first.Token);
+        await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
+        var b = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "b"), waiting.Token);
+        if (await fixture.Host.TryWaitForInvocationAsync(TimeSpan.FromMilliseconds(180)))
+            throw new InvalidOperationException("MaxParallel=1 admitted an overlapping model send.");
+        waiting.Cancel();
+        await ExpectCancelledAsync(b, registration.Name, "queued waiting");
+        first.Cancel();
+        await ExpectCancelledAsync(a, registration.Name, "serial first");
+        using var third = new CancellationTokenSource();
+        var c = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "c"), third.Token);
+        await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
+        third.Cancel();
+        await ExpectCancelledAsync(c, registration.Name, "after waiter");
+    }
+    // Explicit zero removes the parallel gate.
+    await using (var fixture = CreateFixture(registration, root, "unlimited",
+        new IntegrationLimits { MaxParallel = 0 }))
+    {
+        using var aToken = new CancellationTokenSource();
+        using var bToken = new CancellationTokenSource();
+        var a = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "u1"), aToken.Token);
+        var b = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "u2"), bToken.Token);
+        await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
+        await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
+        aToken.Cancel(); bToken.Cancel();
+        await ExpectCancelledAsync(a, registration.Name, "unlimited first");
+        await ExpectCancelledAsync(b, registration.Name, "unlimited second");
+    }
+    // Monotonic spacing serializes starts, not entire provider turn.
+    await using (var fixture = CreateFixture(registration, root, "spacing",
+        new IntegrationLimits { MaxParallel = 0, MinIntervalBetweenStartsMs = 350 }))
+    {
+        using var aToken = new CancellationTokenSource();
+        using var bToken = new CancellationTokenSource();
+        var a = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "s1"), aToken.Token);
+        await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
+        var b = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "s2"), bToken.Token);
+        await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
+        if (fixture.Host.InvocationGap < TimeSpan.FromMilliseconds(180))
+            throw new InvalidOperationException("MinIntervalBetweenStartsMs did not space admitted sends.");
+        aToken.Cancel(); bToken.Cancel();
+        await ExpectCancelledAsync(a, registration.Name, "spaced first");
+        await ExpectCancelledAsync(b, registration.Name, "spaced second");
+    }
+}
+
+static Fixture CreateFixture(Registration registration, string tempRoot, string suffix,
+    IntegrationLimits? limits = null)
 {
     var root = Path.Combine(tempRoot, Sanitize(registration.Name) + "-" + suffix);
     Directory.CreateDirectory(root);
@@ -129,14 +207,15 @@ static Fixture CreateFixture(Registration registration, string tempRoot, string 
         registration.Name,
         registration.Name,
         registration.Name,
-        new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
+        new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
+        limits ?? new IntegrationLimits { MaxParallel = 2 });
     var integration = Activator.CreateInstance(registration.Type, connection, host) as IChatIntegration
         ?? throw new InvalidOperationException(
             $"Integration '{registration.Name}' must expose the standard (IntegrationConnection, IIntegrationHost) constructor so the integration contract can exercise it.");
     return new Fixture(integration, host);
 }
 
-static IntegrationSendContext CreateContext(string connectionId)
+static IntegrationSendContext CreateContext(string connectionId, string chatId = "chat_contract")
 {
     var message = new IntegrationMessageContext(
         "message_contract",
@@ -145,7 +224,7 @@ static IntegrationSendContext CreateContext(string connectionId)
         Completed: true,
         DateTimeOffset.UtcNow);
     return new IntegrationSendContext(
-        new IntegrationChatContext("chat_contract", connectionId),
+        new IntegrationChatContext(chatId, connectionId),
         message,
         Array.Empty<IntegrationMessageContext>(),
         Array.Empty<IntegrationInputFile>());
@@ -204,6 +283,8 @@ sealed class ProbeHost(string root) : IBrowserIntegrationHost
 {
     private readonly ConcurrentQueue<ProbeTransport> _transports = new();
     private readonly SemaphoreSlim _invocations = new(0);
+    private readonly ConcurrentQueue<long> _times = new();
+    public TimeSpan InvocationGap { get { var values = _times.ToArray(); return values.Length < 2 ? TimeSpan.Zero : Stopwatch.GetElapsedTime(values[0], values[1]); } }
     private int _createdCount;
 
     public int BrowserIdleMinutes => 60;
@@ -238,6 +319,8 @@ sealed class ProbeHost(string root) : IBrowserIntegrationHost
         }
     }
 
+    public Task<bool> TryWaitForInvocationAsync(TimeSpan timeout) => _invocations.WaitAsync(timeout);
+
     public void AssertAllTransportsDisposed(string integrationName, string phase)
     {
         var leaked = _transports.Where(transport => !transport.IsDisposed).ToArray();
@@ -246,7 +329,7 @@ sealed class ProbeHost(string root) : IBrowserIntegrationHost
                 $"Integration '{integrationName}' left {leaked.Length} browser transport(s) alive after {phase} cancellation.");
     }
 
-    internal void MarkInvoked() => _invocations.Release();
+    internal void MarkInvoked() { _times.Enqueue(Stopwatch.GetTimestamp()); _invocations.Release(); }
 }
 
 sealed class ProbeTransport(ProbeHost host) : IChatBrowserTransport

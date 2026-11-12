@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -7,10 +8,17 @@ namespace Mezhs.Integrations.Browser;
 
 public abstract class BrowserIntegrationBase(
     IntegrationConnection connection,
-    IIntegrationHost host) : ChatIntegrationBase(connection)
+    IIntegrationHost host) : ChatIntegrationBase(connection), IConversationContextOwner
 {
     private BrowserAccountSession? _accountSession;
+    private BrowserAccountSession? _guestSession;
+    private readonly object _sessionSync = new();
     private BrowserDiagnosticsModule? _diagnostics;
+    private readonly SemaphoreSlim? _parallelGate = connection.Limits?.MaxParallel is > 0
+        ? new SemaphoreSlim(connection.Limits.MaxParallel)
+        : connection.Limits is null ? new SemaphoreSlim(1) : null;
+    private readonly SemaphoreSlim _startGate = new(1, 1);
+    private long _lastStartTimestamp;
 
     protected IBrowserIntegrationHost Host { get; } = BrowserIntegrationHost.Require(host);
     protected abstract Assembly BrowserModuleAssembly { get; }
@@ -23,76 +31,101 @@ public abstract class BrowserIntegrationBase(
     protected BrowserTransportOptions TransportOptions(
         string profileDirectory,
         bool showBrowser,
-        bool requireAuthorization) => new(
+        bool requireAuthorization,
+        bool guest = false) => new(
             profileDirectory,
             GetBrowserModulePath(),
             showBrowser,
-            requireAuthorization);
+            requireAuthorization,
+        Guest: guest);
 
-    protected BrowserAccountSession CreateAccountSession() => _accountSession ??= new(
+    protected BrowserAccountSession CreateAccountSession()
+    {
+        lock (_sessionSync) return _accountSession ??= new(
         Host,
         (showBrowser, requireAuthorization) => TransportOptions(
             PersistentProfilePath,
             showBrowser,
             requireAuthorization));
+    }
+
+    private BrowserAccountSession CreateGuestSession()
+    {
+        lock (_sessionSync) return _guestSession ??= new(
+        Host,
+        (showBrowser, requireAuthorization) => TransportOptions(
+            Path.Combine(Host.GetConnectionRoot(Connection.Id), "guest"),
+            showBrowser,
+            requireAuthorization,
+            guest: true));
+    }
+
+    public Task RetainConversationAsync(string chatId) =>
+        CreateAccountSession().RetainConversationAsync(chatId);
+
+    public Task ReleaseConversationAsync(string chatId) =>
+        _accountSession?.ReleaseConversationAsync(chatId) ?? Task.CompletedTask;
 
     public override IIntegrationDiagnosticsModule? Diagnostics =>
         _accountSession is null ? null : _diagnostics ??= new BrowserDiagnosticsModule(_accountSession);
 
-    public override ValueTask DisposeAsync() =>
-        _accountSession?.DisposeAsync() ?? ValueTask.CompletedTask;
+    public override async ValueTask DisposeAsync()
+    {
+        if (_accountSession is not null) await _accountSession.DisposeAsync();
+        if (_guestSession is not null) await _guestSession.DisposeAsync();
+    }
+
+    // All browser integrations (account and guest) use the same admission owner.
+    public sealed override async Task<IntegrationSendResult> SendMessageAsync(
+        IntegrationSendContext context,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_parallelGate is not null)
+            await _parallelGate.WaitAsync(cancellationToken);
+        try
+        {
+            await _startGate.WaitAsync(cancellationToken);
+            try
+            {
+                var spacingMs = Connection.Limits?.MinIntervalBetweenStartsMs ?? 0;
+                if (spacingMs > 0 && _lastStartTimestamp != 0)
+                {
+                    var remaining = spacingMs - Stopwatch.GetElapsedTime(_lastStartTimestamp).TotalMilliseconds;
+                    if (remaining > 0)
+                        await Task.Delay(TimeSpan.FromMilliseconds(remaining), cancellationToken);
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                _lastStartTimestamp = Stopwatch.GetTimestamp();
+            }
+            finally
+            {
+                _startGate.Release();
+            }
+            return await SendCoreAsync(context, cancellationToken);
+        }
+        finally
+        {
+            _parallelGate?.Release();
+        }
+    }
+
+    protected abstract Task<IntegrationSendResult> SendCoreAsync(
+        IntegrationSendContext context,
+        CancellationToken cancellationToken);
 
     protected async Task<IntegrationSendResult> SendAnonymousAsync(
         IntegrationSendContext context,
         CancellationToken cancellationToken)
     {
-        var sessionPath = CreateSessionPath();
-        var transport = Host.CreateBrowserTransport();
-        try
+        return await CreateGuestSession().UseGuestAsync(async (transport, token) =>
         {
-            await transport.InitializeAsync(TransportOptions(
-                sessionPath,
-                showBrowser: false,
-                requireAuthorization: false), cancellationToken);
             var response = await transport.InvokeAsync<BrowserSendResult>(
-                "sendPrompt",
-                new { context.Prompt, NewChat = true },
-                cancellationToken);
+                "sendPrompt", new { context.Prompt, NewChat = true }, token);
             if (!response.Ok)
                 throw new InvalidOperationException(response.Error ?? "Anonymous browser request failed.");
             return new IntegrationSendResult(response.Text);
-        }
-        finally
-        {
-            await transport.DisposeAsync();
-            TryDeleteSession(sessionPath);
-        }
-    }
-
-    protected string CreateSessionPath()
-    {
-        var path = Path.Combine(
-            Host.GetConnectionRoot(Connection.Id),
-            "sessions",
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
-        return path;
-    }
-
-    protected static void TryDeleteSession(string sessionPath)
-    {
-        try
-        {
-            var parent = Directory.GetParent(sessionPath)?.FullName;
-            if (parent is not null &&
-                string.Equals(Path.GetFileName(parent), "sessions", StringComparison.OrdinalIgnoreCase) &&
-                Directory.Exists(sessionPath))
-                Directory.Delete(sessionPath, recursive: true);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Could not remove temporary browser session: {ex.Message}");
-        }
+        }, context.Chat.ChatId, cancellationToken);
     }
 
     private string GetBrowserModulePath()

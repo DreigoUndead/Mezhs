@@ -60,19 +60,20 @@ static async Task TestExpiredOperationLoginAsync(string root)
 {
     var host = new FakeHost(root, authorized: true) { AuthorizationFailureOnce = true };
     await using var integration = new ChatGptAccountIntegration(Connection(), host);
-    var now = DateTimeOffset.UtcNow;
-    var result = await integration.SendMessageAsync(new IntegrationSendContext(
-        new IntegrationChatContext("chat", "account"),
-        new IntegrationMessageContext("message", "user", "hello", false, now, null),
-        Array.Empty<IntegrationMessageContext>(),
-        Array.Empty<IntegrationInputFile>()));
+    try
+    {
+        await integration.SendMessageAsync(SimpleContext());
+        throw new InvalidOperationException("An expired authorization was replayed or incorrectly accepted.");
+    }
+    catch (BrowserAuthorizationRequiredException) { }
+    Assert(host.PromptCount == 0, "The first failed operation should not be automatically replayed.");
+    Assert(host.Initializations.Count == 1, "A mid-turn auth failure replaced the shared host.");
 
-    Assert(result.Text == "ok", "message did not continue after operation-time reauthentication");
-    Assert(host.Initializations.Count == 3,
-        $"expected hidden operation + visible login + hidden retry, got {host.Initializations.Count} initializations");
-    Assert(host.Initializations[1].ShowBrowser, "operation-time 401 did not transition to visible login");
-    Assert(!host.Initializations[2].ShowBrowser, "operation-time 401 did not resume hidden after login");
-    Assert(host.PromptCount == 1, $"expected one prompt after reauthentication, got {host.PromptCount}");
+    // A later explicit user attempt may reauthorize and submit a new turn.
+    var result = await integration.SendMessageAsync(SimpleContext());
+    Assert(result.Text == "ok", "Explicit retry after reauthorization failed.");
+    Assert(host.Initializations.Count == 1 && host.PromptCount == 1,
+        "Explicit retry should reuse the one host and submit exactly one turn.");
 }
 
 static async Task TestAutomaticLoginAsync(string root)
@@ -88,16 +89,10 @@ static async Task TestAutomaticLoginAsync(string root)
 
     Assert(result.Text == "ok", "message did not continue after login");
     Assert(result.Model == "served-test", "integration copied the requested model instead of the provider-served model");
-    Assert(host.Initializations.Count == 3,
-        $"expected hidden check + visible login + hidden resume, got {host.Initializations.Count} initializations");
-    Assert(!host.Initializations[0].ShowBrowser, "authorization check unexpectedly started visible");
-    Assert(host.Initializations[0].RequireAuthorization, "hidden account start did not require authorization");
-    Assert(host.Initializations[1].ShowBrowser, "authorization requirement did not transition to visible login");
-    Assert(host.Initializations[1].RequireAuthorization, "visible login did not require authorization");
-    Assert(!host.Initializations[2].ShowBrowser, "post-login account transport did not resume hidden");
-    Assert(host.Initializations[2].RequireAuthorization, "post-login hidden transport did not verify authorization");
-    Assert(host.ActiveTransports == 1, $"expected only hidden transport to remain active, got {host.ActiveTransports}");
-    Assert(host.PromptCount == 1, $"expected one prompt after login, got {host.PromptCount}");
+    Assert(host.Initializations.Count == 1, "Login recreated the browser process instead of authorizing the shared host.");
+    Assert(!host.Initializations[0].ShowBrowser, "Hidden shared host unexpectedly started visible.");
+    Assert(host.ActiveTransports == 1, "Authorized shared host should remain available for further chats.");
+    Assert(host.PromptCount == 1, "Expected exactly one submission after login.");
 }
 
 static async Task TestExplicitLoginAsync(string root)
@@ -105,11 +100,9 @@ static async Task TestExplicitLoginAsync(string root)
     var host = new FakeHost(root, authorized: false);
     await using var integration = new ChatGptAccountIntegration(Connection(), host);
     await integration.Login!.LoginAsync();
-
-    Assert(host.Initializations.Count == 1, $"expected one explicit login initialization, got {host.Initializations.Count}");
-    Assert(host.Initializations[0].ShowBrowser, "explicit login did not start visible");
-    Assert(host.Initializations[0].RequireAuthorization, "explicit login did not require authorization");
-    Assert(host.ActiveTransports == 0, "explicit login browser stayed active after authorization completed");
+    Assert(host.Authorized, "Explicit login did not authorize the shared account session.");
+    Assert(host.Initializations.Count == 1, "Explicit login created more than one host.");
+    Assert(host.ActiveTransports == 1, "Explicit login discarded the warm shared host.");
 }
 
 static async Task TestModelDeduplicationAsync(string root)
@@ -193,8 +186,7 @@ static async Task TestSessionOwnershipAsync(string root)
         var send = await integration.SendMessageAsync(SimpleContext() with { ReportActivity = stages.Add });
         Assert(send.Text == "ok", "normal sending failed after diagnostics and browser show");
         Assert(stages.Select(stage => stage.Detail).SequenceEqual(
-            ["Waiting for shared browser session slot.", "Checking authorized browser session.",
-             "Browser session ready; preparing request."]),
+            ["Checking browser session.", "Browser session ready; preparing request."]),
             "authenticated request did not report the expected session preparation stages");
         await integration.Models!.GetModelsAsync();
         Assert(host.Invocations.Select(x => x.Operation).SequenceEqual(
@@ -222,8 +214,8 @@ static async Task TestAnonymousDiagnosticsAsync(string root)
             "ChatGPT guest diagnostics opened a persistent account session");
         var result = await guest.SendMessageAsync(SimpleContext());
         Assert(result.Text == "guest-ok", "ChatGPT anonymous sending changed");
-        Assert(guest.Diagnostics is null && host.ActiveTransports == 0,
-            "ChatGPT guest left a persistent transport after sending");
+        Assert(guest.Diagnostics is null && host.ActiveTransports == 1,
+            "ChatGPT guest should reuse its host between isolated ephemeral turns");
     }
     await using (var guest = new GeminiWebIntegration(
         new IntegrationConnection("guest-gemini", "Gemini Guest", "gemini-web", settings), host))
@@ -232,10 +224,10 @@ static async Task TestAnonymousDiagnosticsAsync(string root)
             "Gemini guest diagnostics opened a persistent account session");
         var result = await guest.SendMessageAsync(SimpleContext());
         Assert(result.Text == "guest-ok", "Gemini anonymous sending changed");
-        Assert(guest.Diagnostics is null && host.ActiveTransports == 0,
-            "Gemini guest left a persistent transport after sending");
+        Assert(guest.Diagnostics is null && host.ActiveTransports == 1,
+            "Gemini guest should reuse its host between isolated ephemeral turns");
     }
-    Assert(host.Initializations.Count == 2 && host.Initializations.All(x => !x.RequireAuthorization),
+    Assert(host.Initializations.Count == 2 && host.Initializations.All(x => x.Guest && !x.RequireAuthorization),
         "guest transports unexpectedly required account authorization");
 }
 
@@ -285,6 +277,18 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
             throw new BrowserAuthorizationRequiredException("Authorization required.");
         if (options.RequireAuthorization && options.ShowBrowser)
             host.Authorized = true;
+        return Task.CompletedTask;
+    }
+
+    public Task EnsureAuthorizedAsync(bool interactive, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!host.Authorized)
+        {
+            if (!interactive)
+                throw new BrowserAuthorizationRequiredException("Authorization required.");
+            host.Authorized = true;
+        }
         return Task.CompletedTask;
     }
 

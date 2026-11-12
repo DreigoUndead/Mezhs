@@ -28,7 +28,7 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
     public override ILoginModule Login => _login;
     public override IModelModule Models => _models;
 
-    public override Task<IntegrationSendResult> SendMessageAsync(
+    protected override Task<IntegrationSendResult> SendCoreAsync(
         IntegrationSendContext context,
         CancellationToken cancellationToken = default) =>
         CreateAccountSession().UseAsync(async (transport, token) =>
@@ -42,7 +42,7 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
             return new IntegrationSendResult(
                 response.Text,
                 response.ChatUrl);
-        }, cancellationToken);
+        }, cancellationToken, chatId: context.Chat.ChatId);
 
     private static IntegrationConnection Validate(IntegrationConnection connection)
     {

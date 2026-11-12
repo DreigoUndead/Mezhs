@@ -2,11 +2,18 @@ using System.Text.Json;
 
 namespace Mezhs.Integrations;
 
+public sealed class IntegrationLimits
+{
+    public int MaxParallel { get; set; } = 1;
+    public int MinIntervalBetweenStartsMs { get; set; }
+}
+
 public sealed record IntegrationConnection(
     string Id,
     string Name,
     string Type,
-    IReadOnlyDictionary<string, string?> Settings)
+    IReadOnlyDictionary<string, string?> Settings,
+    IntegrationLimits? Limits = null)
 {
     public string? GetSetting(string name) =>
         Settings.TryGetValue(name, out var value) ? value : null;
@@ -56,6 +63,12 @@ public interface IIntegrationDiagnosticsModule
 public sealed class IntegrationAttribute(string type) : Attribute
 {
     public string Type { get; } = type;
+}
+
+public interface IConversationContextOwner
+{
+    Task RetainConversationAsync(string chatId);
+    Task ReleaseConversationAsync(string chatId);
 }
 
 public interface IChatIntegration : IAsyncDisposable

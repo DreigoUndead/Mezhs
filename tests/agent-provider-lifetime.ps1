@@ -44,11 +44,15 @@ if (-not $messageService.Contains('message.Status = MessageStatus.Cancelled;')) 
 }
 
 $browserSession = Read-Source 'src\Mezhs.Integration.Browser\BrowserAccountSession.cs'
-if (-not $browserSession.Contains('catch (OperationCanceledException)')) {
-    throw 'BrowserAccountSession must own cancellation of its transport operation.'
+if ($browserSession.Contains('await DisposeTransportAsync();')) {
+    throw 'One cancelled Agent turn must not dispose the shared browser host.'
 }
-if (-not $browserSession.Contains('await DisposeTransportAsync();')) {
-    throw 'BrowserAccountSession cancellation must discard the possibly still-running transport.'
+if (-not $browserSession.Contains('ForContext(chatId, ephemeral)')) {
+    throw 'BrowserAccountSession must route operations into their own conversation context.'
+}
+$electron = Read-Source 'transports\Mezhs.Browser.Electron\ElectronBrowserTransport.cs'
+if (-not $electron.Contains('CancelOperationBestEffortAsync(operationId)')) {
+    throw 'Electron cancellation must target the affected operation, not its shared host.'
 }
 
 Write-Host 'PASS: Agent/provider lifetime ownership is explicit, Agent turns are unbounded, and cancellation reaches the provider boundary.'

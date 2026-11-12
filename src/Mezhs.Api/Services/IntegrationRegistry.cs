@@ -29,6 +29,14 @@ public sealed class IntegrationRegistry : IAsyncDisposable
             ? integration
             : throw new ResourceNotFoundException($"Connection '{connectionId}' was not found.");
 
+    public Task RetainConversationAsync(string chatId) =>
+        Task.WhenAll(_integrations.Values.OfType<IConversationContextOwner>()
+            .Select(owner => owner.RetainConversationAsync(chatId)));
+
+    public Task ReleaseConversationAsync(string chatId) =>
+        Task.WhenAll(_integrations.Values.OfType<IConversationContextOwner>()
+            .Select(owner => owner.ReleaseConversationAsync(chatId)));
+
     public object[] GetConnections() => _integrations.Values.Select(integration => new
     {
         id = integration.Connection.Id,
@@ -62,7 +70,8 @@ public sealed class IntegrationRegistry : IAsyncDisposable
             configured.Id,
             configured.Name,
             configured.Integration,
-            settings);
+            settings,
+            configured.Limits);
 
         if (!registrations.TryGetValue(connection.Type, out var integrationType))
             throw new InvalidOperationException(
