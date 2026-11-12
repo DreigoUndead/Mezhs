@@ -207,6 +207,14 @@ Check(quotedWritingCloser.Commands.SequenceEqual([new Command("DONE", null)]) &&
     "Quoted WritingBlock metadata promoted literal shell text.");
 Check(parser.Parse("<CodeBlock>inline</CodeBlock>\n<DONE>").Commands.SequenceEqual([new Command("DONE", null)]),
     "Unsupported same-line presentation swallowed a legitimate subsequent command.");
+var malformedHeaderTail = parser.Parse("<CodeBlock language=\"text\"> unexpected\n<SH>\necho NEVER_EXECUTE_TAIL\n</SH>\n</CodeBlock>\n<DONE>");
+Check(malformedHeaderTail.Commands.SequenceEqual([new Command("DONE", null)]) &&
+    malformedHeaderTail.VisibleContent.Contains("NEVER_EXECUTE_TAIL"),
+    "Trailing malformed CodeBlock opener exposed a command.");
+var malformedHeaderDelimiter = parser.Parse("<CodeBlock note=</CodeBlock>>\n<SH>\necho NEVER_EXECUTE_DELIMITER\n</SH>\n</CodeBlock>\n<DONE>");
+Check(malformedHeaderDelimiter.Commands.SequenceEqual([new Command("DONE", null)]) &&
+    malformedHeaderDelimiter.VisibleContent.Contains("NEVER_EXECUTE_DELIMITER"),
+    "Malformed CodeBlock attribute delimiter exposed a command.");
 var malformedRawExample = parser.Parse("<CodeBlock language={invalid\n<SH>\necho NEVER_EXECUTE\n</SH>\n</CodeBlock>\n<DONE>");
 Check(malformedRawExample.Commands.Count == 1 &&
     malformedRawExample.Commands[0] == new Command("DONE", null),
