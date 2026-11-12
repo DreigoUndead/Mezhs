@@ -187,8 +187,10 @@ foreach (var unclosed in new[] { "<!--\n<SH>\necho NEVER_EXECUTE\n</SH>\n<DONE>"
         "Unclosed Markdown literal context exposed an executable command.");
 Check(parser.Parse("Text with `inline code`\n<DONE>").Commands.SequenceEqual([new Command("DONE", null)]),
     "Closed single-line Markdown code blocked a valid command.");
-Reject(parser, "<!--\n<SH>\necho INERT\n</SH>\n-->\n<UNKNOWN>",
-    "Strict unknown-command validation was lost after an HTML comment.");
+var unknownAfterComment = parser.Parse("<!--\n<SH>\necho INERT\n</SH>\n-->\n<UNKNOWN>");
+Check(unknownAfterComment.Commands.SequenceEqual([new Command("UNKNOWN", null)]) &&
+    !Registry.TryGet("UNKNOWN", out _),
+    "Unknown commands after a comment must reach the Interpreter for strict registry rejection.");
 Console.WriteLine("PASS: Top-level HTML comments and multiline code spans are inert; later commands remain strict.");
 
 var unterminatedCode = parser.Parse("<CodeBlock language=\"text\">\n<SH>\necho NEVER_EXECUTE\n</SH>");
