@@ -73,6 +73,22 @@ For the exact four-option example, including all four conditional payloads and a
 
 This is **not** an arbitrary custom-component runtime or general DIL interpreter: it extends the single-state radio question and shares existing static rendering and the host callback. Other control types and state operations remain unsupported unless explicitly implemented and validated.
 
+## Literal CodeBlock
+
+A standalone, bounded CodeBlock is interpreted as a raw source editor or source viewer, not executable MDX. Its opening and closing tags must each be on their own line (up to three leading spaces). Supported attributes are a literal code language (letters, numbers, and common punctuation) and optional boolean editable. The contents are preserved as text even when they contain JSX-like tags, braces, Markdown fences, or strings that would otherwise be invalid MDX.
+
+Example (the fenced sample below is documentation and is not interactive):
+
+~~~mdx
+<CodeBlock language="typescript" editable>
+const item = { label: "<box>literal text</box>" };
+</CodeBlock>
+~~~
+
+The component renders escaped selectable source; with editable it renders a local editor. Copy uses the browser clipboard and reports failure. It does **not** execute code, send chat messages, or grant model-defined callbacks. An invalid opening tag, excess content, or unsupported attributes do not activate the control. The closing tag is a standalone delimiter; to show the delimiter itself inside source, escape it rather than placing an unescaped standalone closing line.
+
+Nested static layout such as box/row/col/text continues to render through the same fixed registry. For example, a CodeBlock inside a valid box is displayed as code while sibling text remains normal rich content. Agent command parsing separately protects code examples and never treats raw CodeBlock or WritingBlock bodies as executable Agent commands.
+
 ## Editable WritingBlock
 
 A bounded `WritingBlock` renders model-authored Markdown as source in a local editable text area, with a **Copy** button. The supported literal attributes are `variant` (`email`, `chat_message`, `social_post`, `document`, `standard`), `recipient`, `cc`, `bcc`, `subject`, and optional five-digit `id`. Email metadata appears as labels above the editor. The Markdown is editable text, **not** rendered HTML, and no model-authored scripts or callbacks execute.
