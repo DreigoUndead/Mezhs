@@ -286,6 +286,27 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
     Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"
     Assert-RejectedBatch 'done-body' "<DONE>`nbody`n</DONE>"
 
+    function Assert-InertPresentation([string]$label, [string]$open, [string]$close) {
+        $marker = Join-Path $temp "inert-$label.txt"
+        $shellText = "echo UNEXPECTED>>`"$marker`""
+        $taskText = "$open`n<SH>`n$shellText`n</SH>`n$close`n<DONE>"
+        $run = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
+            -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $taskText })
+        $outcome = Wait-Execution $run.executionId 20
+        if ($outcome.status -ne 'Completed') {
+            throw "Literal $label example did not finish: $($outcome.status), $($outcome.error)"
+        }
+        $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/executions")
+        $shells = @($history | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+        if ((Test-Path -LiteralPath $marker) -or $shells.Count -ne 0) {
+            throw "Literal $label example started a shell command. Shell count=$($shells.Count), marker=$(Test-Path -LiteralPath $marker)"
+        }
+        Write-Host "PASS: Literal $label example created no Shell record or filesystem side effect."
+    }
+
+    Assert-InertPresentation 'html-comment' '<!--' '-->'
+    Assert-InertPresentation 'inline-code' '`' '`'
+
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
     $orderedCreated = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
