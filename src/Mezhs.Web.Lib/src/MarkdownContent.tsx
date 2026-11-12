@@ -3,13 +3,13 @@ import Markdown, { uriTransformer } from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMdx from "remark-mdx";
-import { remarkRichMarkup, richComponents } from "./RichMarkup";
+import { remarkRichMarkup, richComponents, restoreRawSlots } from "./RichMarkup";
 import { expandRichTemplates } from "./RichExpression";
 import { extractRichQuestions, RichQuestionSlot, RichQuestionsContext, RichQuestionData } from "./RichQuestion";
 import { RichActionContext } from "./RichActionContext";
 import { WritingBlocksContext } from "./RichWritingBlock";
 import { CodeBlocksContext } from "./RichCodeBlock";
-import { extractRawBlocks, rawSlotOffsets, restoreRawSlots } from "./RichRawBlocks";
+import { extractRawBlocks, rawSlotOffsets } from "./RichRawBlocks";
 import "./markdown.css";
 
 // Keep react-markdown protocol validation without emitting a javascript: placeholder.
