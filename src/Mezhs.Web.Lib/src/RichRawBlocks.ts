@@ -9,10 +9,12 @@ export function extractRawBlocks(source: string): {
   content: string;
   writingBlocks: Record<string, WritingBlockData>;
   codeBlocks: Record<string, CodeBlockData>;
+  rawSources: Record<string, string>;
 } {
   const writingBlocks: Record<string, WritingBlockData> = Object.create(null);
   const codeBlocks: Record<string, CodeBlockData> = Object.create(null);
-  const unchanged = () => ({ content: source, writingBlocks, codeBlocks });
+  const rawSources: Record<string, string> = Object.create(null);
+  const unchanged = () => ({ content: source, writingBlocks, codeBlocks, rawSources });
   if (source.length > 180000 || (!source.includes("<WritingBlock") && !source.includes("<CodeBlock")))
     return unchanged();
 
@@ -71,10 +73,12 @@ export function extractRawBlocks(source: string): {
     if (kind === "CodeBlock") {
       const id = "c" + Object.keys(codeBlocks).length;
       codeBlocks[id] = { ...(metadata as Omit<CodeBlockData, "source">), source: body };
+      rawSources["code:" + id] = source.slice(start, end);
       replacements.push({ start, end, text: '<mezhs-code-slot id="' + id + '" />' });
     } else {
       const id = "w" + Object.keys(writingBlocks).length;
       writingBlocks[id] = { ...(metadata as Omit<WritingBlockData, "source">), source: body };
+      rawSources["writing:" + id] = source.slice(start, end);
       replacements.push({ start, end, text: '<mezhs-writing-slot id="' + id + '" />' });
     }
     consumed = end;
@@ -99,4 +103,35 @@ export function rawSlotOffsets(content: string, blocks: Record<string, unknown>,
       offsets[id] = index;
   }
   return offsets;
+}
+
+
+// An unsupported parent must fall back to the author's literal source,
+// not expose host-generated slot markers or discard the extracted body.
+// Only markers at validated full-message offsets can be restored; a
+// model-supplied marker is never allowed to impersonate an extracted block.
+export function restoreRawSlots(
+  source: string, start: number, end: number,
+  writingOffsets: Record<string, number>, codeOffsets: Record<string, number>,
+  rawSources: Record<string, string>
+): string {
+  const replacements: Replacement[] = [];
+  for (const [kind, offsets] of [["writing", writingOffsets], ["code", codeOffsets]] as const) {
+    for (const [id, offset] of Object.entries(offsets)) {
+      const marker = '<mezhs-' + kind + '-slot id="' + id + '" />';
+      const key = kind + ":" + id;
+      if (offset < start || offset + marker.length > end ||
+          !source.startsWith(marker, offset) ||
+          !Object.prototype.hasOwnProperty.call(rawSources, key)) continue;
+      replacements.push({ start: offset, end: offset + marker.length, text: rawSources[key] });
+    }
+  }
+  replacements.sort((a, b) => a.start - b.start);
+  let result = "";
+  let cursor = start;
+  for (const replacement of replacements) {
+    result += source.slice(cursor, replacement.start) + replacement.text;
+    cursor = replacement.end;
+  }
+  return result + source.slice(cursor, end);
 }
