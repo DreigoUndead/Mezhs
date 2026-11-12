@@ -35,6 +35,7 @@ Directory.CreateDirectory(root);
 try
 {
     await TestSessionOwnershipAsync(Path.Combine(root, "ownership"));
+    await TestContextLifetimeAsync(Path.Combine(root, "lifetimes"));
     await TestAnonymousDiagnosticsAsync(Path.Combine(root, "guests"));
     Console.WriteLine("PASS: T2 browser session ownership and diagnostics regressions");
     if (args.Contains("--ownership-only")) return;
@@ -152,8 +153,8 @@ static async Task TestStaleConversationRecoveryAsync(string root)
     Assert(fallback.Contains("new question", StringComparison.Ordinal), "fallback prompt lost current message");
 }
 
-static IntegrationSendContext SimpleContext() => new(
-    new IntegrationChatContext("chat", "account"),
+static IntegrationSendContext SimpleContext(string chatId = "chat") => new(
+    new IntegrationChatContext(chatId, "account"),
     new IntegrationMessageContext("message", "user", "hello", false, DateTimeOffset.UtcNow),
     Array.Empty<IntegrationMessageContext>(),
     Array.Empty<IntegrationInputFile>());
@@ -203,6 +204,51 @@ static async Task TestSessionOwnershipAsync(string root)
     await integration.DisposeAsync();
 }
 
+static async Task TestContextLifetimeAsync(string root)
+{
+    var host = new FakeHost(root, authorized: true);
+    await using var integration = new ChatGptAccountIntegration(Connection(), host);
+    var owner = (IConversationContextOwner)integration;
+
+    // Ordinary chats retire their own windows even when host idle shutdown is disabled.
+    await integration.SendMessageAsync(SimpleContext("ordinary-a"));
+    await integration.SendMessageAsync(SimpleContext("ordinary-b"));
+    Assert(host.ReleasedContexts.SequenceEqual(["ordinary-a", "ordinary-b"]),
+        "Ordinary account chats must release each context without stopping the shared host.");
+    Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
+        "Retiring ordinary chat contexts unexpectedly restarted the shared host.");
+
+    // Two overlapping Agent owners must keep one context until both release it.
+    await owner.RetainConversationAsync("agent-chat");
+    await owner.RetainConversationAsync("agent-chat");
+    await integration.SendMessageAsync(SimpleContext("agent-chat"));
+    Assert(!host.ReleasedContexts.Contains("agent-chat"),
+        "An Agent model turn released a context needed for shell follow-up.");
+    await owner.ReleaseConversationAsync("agent-chat");
+    Assert(!host.ReleasedContexts.Contains("agent-chat"),
+        "The first of two overlapping Agent executions retired the other's context.");
+    await owner.ReleaseConversationAsync("agent-chat");
+    Assert(host.ReleasedContexts.Count(id => id == "agent-chat") == 1,
+        "The final Agent owner should release its context exactly once.");
+
+    // Cancellation must retire even a retained Agent context before the local send returns.
+    await owner.RetainConversationAsync("cancelled-agent");
+    host.HangNextPrompt = true;
+    using var cancellation = new CancellationTokenSource();
+    var send = integration.SendMessageAsync(SimpleContext("cancelled-agent"), cancellation.Token);
+    await host.PromptStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    cancellation.Cancel();
+    try
+    {
+        await send.WaitAsync(TimeSpan.FromSeconds(5));
+        throw new InvalidOperationException("Cancelled Agent model send unexpectedly succeeded.");
+    }
+    catch (OperationCanceledException) { }
+    Assert(host.ReleasedContexts.Contains("cancelled-agent"),
+        "Cancelled Agent context was not discarded before the send returned.");
+    await owner.ReleaseConversationAsync("cancelled-agent");
+}
+
 static async Task TestAnonymousDiagnosticsAsync(string root)
 {
     var host = new FakeHost(root, authorized: true);
@@ -210,6 +256,9 @@ static async Task TestAnonymousDiagnosticsAsync(string root)
     await using (var guest = new ChatGptWebIntegration(
         new IntegrationConnection("guest-chatgpt", "ChatGPT Guest", "chatgpt-web", settings), host))
     {
+        await ((IConversationContextOwner)guest).RetainConversationAsync("guest-chat");
+        Assert(host.ActiveTransports == 0,
+            "Retaining a guest turn must not create an authenticated browser session.");
         Assert(guest.Diagnostics is null && host.ActiveTransports == 0,
             "ChatGPT guest diagnostics opened a persistent account session");
         var result = await guest.SendMessageAsync(SimpleContext());
@@ -245,6 +294,10 @@ sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
     public int PromptCount { get; set; }
     public int ActiveTransports { get; set; }
     public int ShowCount { get; set; }
+    public List<string> ReleasedContexts { get; } = [];
+    public bool HangNextPrompt { get; set; }
+    public TaskCompletionSource<bool> PromptStarted { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     public bool Authorized { get; set; } = authorized;
     public bool AuthorizationFailureOnce { get; set; }
     public bool UnavailableContinuationOnce { get; set; }
@@ -318,6 +371,12 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 
         if (operation is "newChat" or "send")
         {
+            if (host.HangNextPrompt)
+            {
+                host.HangNextPrompt = false;
+                host.PromptStarted.TrySetResult(true);
+                return WaitForCancellation<TResult>(cancellationToken);
+            }
             host.PromptCount++;
             if (operation == "send" && host.UnavailableContinuationOnce)
             {
@@ -338,6 +397,18 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         }
 
         throw new InvalidOperationException($"Unexpected fake browser operation '{operation}'.");
+    }
+
+    private static async Task<TResult> WaitForCancellation<TResult>(CancellationToken cancellationToken)
+    {
+        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        throw new InvalidOperationException("Cancellation probe unexpectedly resumed.");
+    }
+
+    public Task ReleaseContextAsync(string chatId, CancellationToken cancellationToken = default)
+    {
+        host.ReleasedContexts.Add(chatId);
+        return Task.CompletedTask;
     }
 
     private static Task<TResult> Result<TResult>(object value)
