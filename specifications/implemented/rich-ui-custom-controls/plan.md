@@ -73,7 +73,7 @@ generated graph, and repeat affected verification before independent review.
 
 ## Owner-approved simplification and CodeBlock/box scope (2026-11-11)
 
-**Status:** Design amendment pending independent High-risk plan review before new implementation. The owner explicitly chose a simpler key/control registry and requested that both `CodeBlock` and `box` work. This supersedes the earlier approach *where it introduces model-JavaScript expression interpretation*; historical test and security requirements remain until replaced with equivalent coverage.
+**Status:** On 2026-11-12 the owner explicitly authorized continuing development without the separate independent plan review. This override applies to the plan-review stage only; High-risk independent code review, independent testing, and separate merge approval remain required. The owner chose a simpler key/control registry and requested that both `CodeBlock` and `box` work. The existing DIL radio-question parser is retained for backward compatibility in the current development increment; replacing it with a declarative literal-choice contract is not yet complete.
 
 ### Scope and responsibility
 - Shared Markdown renderer remains the **one** model-response renderer. It finds trusted, known presentational tags and dispatches to fixed host-owned control definitions. Each control owns its attribute validation, local UI state, child-content semantics, and React rendering. No raw HTML insertion or model-authored callback/function execution.
@@ -103,3 +103,10 @@ generated graph, and repeat affected verification before independent review.
 - [ ] Regression tests include malformed tags, unmatched delimiters, backticks inside raw blocks, code fences, escaped tags, nested controls, large content, repeated tags, and non-command uppercase markup; no arbitrary model JavaScript runs.
 - [ ] Run targeted Agent protocol tests, rich renderer/SSR and real Chromium suites, both frontend builds, impacted .NET builds, and CI on the exact resulting SHA. Regenerate Codegraph using the compatible CLI, never by hand.
 - [ ] Complete independent plan review **before** architecture implementation, independent code review **before** independent final testing, and obtain explicit owner merge approval. Leave VERSION/CHANGELOG and main unchanged. Proposed release: MINOR if backward-compatible; reassess if authoring syntax breaks.
+
+## Developer implementation progress (2026-11-12)
+- Extracted CodeBlock and WritingBlock source through one bounded source scanner, with separate host-owned control components and generated-slot provenance in the existing rich renderer. Added literal CodeBlock viewer/editor and local copy; nested static boxes still use the existing renderer.
+- Updated the Agent command parser so PascalCase presentation tags and raw CodeBlock/WritingBlock bodies are visible, not executable commands. Added Markdown-fence and indented-code exclusions while retaining strict uppercase command validation.
+- Added CodeBlock/box SSR and Chromium regression scenarios, Agent command-protocol regression cases, and documentation updates. Developer CI must be evaluated at the final SHA; manual source inspection is not a substitute for tests.
+- Remaining design debt: legacy RichQuestion Acorn expression grammar is still supported, so the complete declarative-question simplification described above is **not finished**. Reassess its compatibility and replacement in development; do not claim this increment completed the architectural redesign.
+- Codegraph regeneration with the repository-compatible CLI remains outstanding. Do not hand-edit generated graph. No version/changelog changes or main merge before independent stages and owner approval.
