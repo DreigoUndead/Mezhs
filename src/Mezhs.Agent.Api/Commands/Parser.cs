@@ -16,6 +16,8 @@ public sealed class Parser
         var commands = new List<Command>();
         var visible = new List<string>();
         var insideEscape = false;
+        char fenceMarker = '\0';
+        var fenceLength = 0;
 
         for (var i = 0; i < lines.Count; i++)
         {
@@ -27,6 +29,36 @@ public sealed class Parser
             {
                 visible.Add(lines[i].Text);
                 insideEscape = !text.Contains("</escape>", StringComparison.Ordinal);
+                continue;
+            }
+            // A fenced/indented Markdown example is presentation, never an Agent command.
+            if (fenceMarker != '\0')
+            {
+                visible.Add(lines[i].Text);
+                if (IsClosingFence(lines[i].Text, fenceMarker, fenceLength))
+                    fenceMarker = '\0';
+                continue;
+            }
+            if (TryOpeningFence(lines[i].Text, out fenceMarker, out fenceLength))
+            {
+                visible.Add(lines[i].Text);
+                continue;
+            }
+            if (lines[i].Text.StartsWith("    ", StringComparison.Ordinal) || lines[i].Text.StartsWith("\t", StringComparison.Ordinal))
+            {
+                visible.Add(lines[i].Text);
+                continue;
+            }
+
+            // Raw presentation controls may contain literal <SH>/<DONE> examples.
+            // Preserve their entire source without interpreting the enclosed text.
+            if (TryRawPresentationOpening(text, out var presentationName))
+            {
+                var end = FindClosingTag(lines, i + 1, presentationName);
+                var last = end < 0 ? lines.Count - 1 : end;
+                for (var line = i; line <= last; line++)
+                    visible.Add(lines[line].Text);
+                i = last;
                 continue;
             }
             if (!TryTag(text, out var name, out var closing))
@@ -68,6 +100,46 @@ public sealed class Parser
         return -1;
     }
 
+    private static bool TryRawPresentationOpening(string text, out string name)
+    {
+        name = string.Empty;
+        foreach (var candidate in new[] { "CodeBlock", "WritingBlock" })
+        {
+            if (!text.StartsWith("<" + candidate, StringComparison.Ordinal)) continue;
+            var remainder = text.AsSpan(candidate.Length + 1);
+            if (remainder.Length == 0 || (remainder[0] != '>' && !char.IsWhiteSpace(remainder[0])) ||
+                !text.EndsWith('>') || text.EndsWith("/>", StringComparison.Ordinal) ||
+                text.IndexOf('>') != text.Length - 1) return false;
+            name = candidate;
+            return true;
+        }
+        return false;
+    }
+
+    private static bool TryOpeningFence(string line, out char marker, out int count)
+    {
+        marker = '\0';
+        count = 0;
+        var indent = 0;
+        while (indent < line.Length && indent < 4 && line[indent] == ' ') indent++;
+        if (indent > 3 || indent >= line.Length || line[indent] is not ('\x60' or '~')) return false;
+        var candidate = line[indent];
+        while (indent + count < line.Length && line[indent + count] == candidate) count++;
+        if (count < 3) return false;
+        marker = candidate;
+        return true;
+    }
+
+    private static bool IsClosingFence(string line, char marker, int requiredLength)
+    {
+        var indent = 0;
+        while (indent < line.Length && indent < 4 && line[indent] == ' ') indent++;
+        if (indent > 3) return false;
+        var count = 0;
+        while (indent + count < line.Length && line[indent + count] == marker) count++;
+        return count >= requiredLength && line.AsSpan(indent + count).Trim().IsEmpty;
+    }
+
     private static bool TryTag(string text, out string name, out bool closing)
     {
         name = string.Empty;
@@ -85,6 +157,9 @@ public sealed class Parser
         // Only command-shaped uppercase tags participate in the Agent protocol.
         if (value.Length == 0 || value[0] is < 'A' or > 'Z')
             return false;
+        // PascalCase UI controls are not Agent commands. Strict ALL_CAPS
+        // commands (including unknown ones) retain their existing rejection path.
+        if (value.Length > 1 && value[1] is >= 'a' and <= 'z') return false;
         if (!TryCommandName(value, out name))
             throw new CommandParseException($"Malformed command tag '{text}'.");
         return true;
