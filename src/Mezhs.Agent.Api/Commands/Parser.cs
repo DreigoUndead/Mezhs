@@ -149,11 +149,17 @@ public sealed class Parser
         while (indent < line.Length && indent < 4 && line[indent] == ' ')
             indent++;
         if (indent > 3) return false;
-        var value = line.AsSpan(indent).Trim();
+        // Do not trim leading tabs or other indentation: the UI's regex
+        // permits only zero to three spaces before this raw delimiter.
+        var value = line.AsSpan(indent);
+        while (value.Length > 0 && value[^1] is ' ' or '\t')
+            value = value[..^1];
         var prefix = $"</{name}";
         if (!value.StartsWith(prefix.AsSpan(), StringComparison.Ordinal))
             return false;
-        value = value[prefix.Length..].TrimStart();
+        value = value[prefix.Length..];
+        while (value.Length > 0 && value[0] is ' ' or '\t')
+            value = value[1..];
         return value.SequenceEqual(">".AsSpan());
     }
 
