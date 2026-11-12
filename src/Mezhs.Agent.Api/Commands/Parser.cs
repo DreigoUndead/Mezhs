@@ -224,8 +224,31 @@ public sealed class Parser
             if (!text.StartsWith("<" + candidate, StringComparison.Ordinal)) continue;
             var remainder = text.AsSpan(candidate.Length + 1);
             if (remainder.Length == 0 || (remainder[0] != '>' && !char.IsWhiteSpace(remainder[0])) ||
-                text.EndsWith("/>", StringComparison.Ordinal) ||
-                text.Contains("</" + candidate + ">", StringComparison.Ordinal)) return false;
+                text.EndsWith("/>", StringComparison.Ordinal)) return false;
+
+            // An apparent </CodeBlock> inside a quoted attribute is not an
+            // inline closing delimiter. Find the first unquoted '>' so that
+            // a legitimate standalone raw opener still shields its body.
+            var quote = '\0';
+            for (var i = candidate.Length + 1; i < text.Length; i++)
+            {
+                var ch = text[i];
+                if (quote != '\0')
+                {
+                    if (ch == quote) quote = '\0';
+                }
+                else if (ch is '"' or '\'')
+                {
+                    quote = ch;
+                }
+                else if (ch == '>')
+                {
+                    // An actual same-line body/closer is not a supported raw
+                    // region and must not consume later top-level commands.
+                    if (!text.AsSpan(i + 1).Trim().IsEmpty) return false;
+                    break;
+                }
+            }
             // Even malformed opening metadata is inert. Do not let an invalid
             // presentation tag expose its literal shell examples to the Agent.
             name = candidate;
