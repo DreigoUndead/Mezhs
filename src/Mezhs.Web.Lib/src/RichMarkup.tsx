@@ -5,11 +5,13 @@ import { RichCodeBlockSlot } from "./RichCodeBlock";
 import { prepareCite, Cite } from "./rich-elements/Cite";
 import { richElementRegistry, richStaticComponents } from "./rich-elements";
 import { prepareStaticElement, type MarkupNode } from "./rich-elements/Element";
+import { restoreRawSlots } from "./RichRawBlocks";
 
 // Fixed host-owned dispatch. No MDX compilation, model JS or dynamic imports.
 export function remarkRichMarkup(slotOffsets: Record<string, number> = Object.create(null),
   writingOffsets: Record<string, number> = Object.create(null),
-  codeOffsets: Record<string, number> = Object.create(null)) {
+  codeOffsets: Record<string, number> = Object.create(null),
+  rawSources: Record<string, string> = Object.create(null)) {
   return (tree: MarkupNode, file: { value: unknown }) => {
     const hostSlots: Record<string, { offsets: Record<string, number>; tag: string; idProp: string }> =
       Object.assign(Object.create(null), {
@@ -21,7 +23,7 @@ export function remarkRichMarkup(slotOffsets: Record<string, number> = Object.cr
     const original = (node: MarkupNode) => {
       const start = node.position?.start.offset ?? 0;
       const end = node.position?.end.offset ?? start;
-      return { type: "text", value: source.slice(start, end) };
+      return { type: "text", value: restoreRawSlots(source, start, end, writingOffsets, codeOffsets, rawSources) };
     };
     function visit(parent: MarkupNode) {
       if (!parent.children) return;
