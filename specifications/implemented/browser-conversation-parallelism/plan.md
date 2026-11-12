@@ -128,3 +128,16 @@ Implementation changes on the task branch include connection-level limits, per-c
 2. After any code-review fixes, a separate independent **Tester** runs final technical and live checks, including realistic overlapping account sends, cancellation isolation, auth and guest behavior where credentials/browser environments permit. Report untested live scenarios explicitly.
 3. The owner separately approves any merge. `main` is release-only; do not update `VERSION` or `CHANGELOG.md` on this task branch.
 
+
+## 7. Post-review lifecycle corrections (2026-11-13)
+
+After the first independent code review, four concrete lifetime/ownership issues were corrected on the same task branch:
+
+- Ordinary authenticated chat windows now retire when each local send settles, even if the shared host's idle shutdown is disabled; the authenticated Electron process remains warm under its existing host policy. Agent executions retain their selected chat context between model turns and shell work.
+- Agent retention/release resolves `execution.ConnectionId` through `IntegrationRegistry`, rather than broadcasting to all browser connections. Counts preserve a context while another overlapping Agent execution still retains the same ChatId.
+- Electron's bounded best-effort cancellation request is awaited before the cancelled local send returns. The account-session owner also retires the cancelled context before a later explicit same-chat send is admitted. Remote provider cancellation and exactly-once behavior are **not** claimed.
+- The Agent status-dot border-radius declaration was corrected.
+
+Regression additions: `tests/account-login-flow.ps1` exercises ordinary retirement, overlapping Agent retention and retained-context cancellation; `tests/electron-conversation-contexts.test.js` uses the actual Electron context functions with mock windows/sessions to check account isolation, guest ephemerality, cancellation isolation and release-after-busy behavior; `tests/agent-provider-lifetime.ps1` checks connection-scoped ownership and ordered cancellation. `tests/diagnostics-architecture.ps1` was updated to recognize the existing account/guest host split without relaxing diagnostic capability checks.
+
+These are targeted local-lifecycle guarantees, not an expansion of the owner-approved remote cancellation contract. The reviewer/tester should still perform independent confirmation of provider behavior, same-chat explicit retry, resource usage and concurrent model/effort selection. The post-review Codegraph refresh requires the full local repository/export tool and was not performed through the GitHub-only correction environment; do not treat the existing graph as source truth.
