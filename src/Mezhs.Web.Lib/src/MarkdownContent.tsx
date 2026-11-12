@@ -9,7 +9,7 @@ import { extractRichQuestions, RichQuestionSlot, RichQuestionsContext, RichQuest
 import { RichActionContext } from "./RichActionContext";
 import { WritingBlocksContext } from "./RichWritingBlock";
 import { CodeBlocksContext } from "./RichCodeBlock";
-import { extractRawBlocks, rawSlotOffsets } from "./RichRawBlocks";
+import { extractRawBlocks, rawSlotOffsets, restoreRawSlots } from "./RichRawBlocks";
 import "./markdown.css";
 
 // Keep react-markdown protocol validation without emitting a javascript: placeholder.
@@ -23,8 +23,9 @@ const safeUri = (value: string) => {
 const components = { ...richComponents, "mezhs-question": RichQuestionSlot } as Components;
 
 function renderRich(content: string, slotOffsets: Record<string, number>,
-  writingOffsets: Record<string, number>, codeOffsets: Record<string, number>) {
-  const parseMarkup = () => remarkRichMarkup(slotOffsets, writingOffsets, codeOffsets);
+  writingOffsets: Record<string, number>, codeOffsets: Record<string, number>,
+  rawSources: Record<string, string>) {
+  const parseMarkup = () => remarkRichMarkup(slotOffsets, writingOffsets, codeOffsets, rawSources);
   return Markdown({
     children: content,
     remarkPlugins: [remarkGfm, remarkMdx as unknown as typeof remarkGfm, parseMarkup as unknown as typeof remarkGfm],
@@ -35,14 +36,16 @@ function renderRich(content: string, slotOffsets: Record<string, number>,
 }
 
 function renderChunk(content: string, slotOffsets: Record<string, number>,
-  writingOffsets: Record<string, number>, codeOffsets: Record<string, number>) {
+  writingOffsets: Record<string, number>, codeOffsets: Record<string, number>,
+  rawSources: Record<string, string>) {
   try {
     // Only action slots provenanced from full-message parsing are eligible.
     // Never extract new questions from a recovery fragment: the original
     // Markdown fence/indentation context may no longer be present.
-    return renderRich(content, slotOffsets, writingOffsets, codeOffsets);
+    return renderRich(content, slotOffsets, writingOffsets, codeOffsets, rawSources);
   } catch {
-    return <Markdown remarkPlugins={[remarkGfm]} transformLinkUri={safeUri} transformImageUri={safeUri}>{content}</Markdown>;
+    const literal = restoreRawSlots(content, 0, content.length, writingOffsets, codeOffsets, rawSources);
+    return <Markdown remarkPlugins={[remarkGfm]} transformLinkUri={safeUri} transformImageUri={safeUri}>{literal}</Markdown>;
   }
 }
 
@@ -93,7 +96,7 @@ export function MarkdownContent({ content, verbatim = false, onIssueNewTurn }: {
       <WritingBlocksContext.Provider value={prepared.writingBlocks}>
       <RichActionContext.Provider value={onIssueNewTurn}>
       <RichQuestionsContext.Provider value={prepared.questions}>
-        <div className="markdown-content">{renderRich(prepared.content, prepared.slotOffsets, prepared.writingOffsets, prepared.codeOffsets)}</div>
+        <div className="markdown-content">{renderRich(prepared.content, prepared.slotOffsets, prepared.writingOffsets, prepared.codeOffsets, prepared.rawSources)}</div>
       </RichQuestionsContext.Provider>
       </RichActionContext.Provider>
     </WritingBlocksContext.Provider>
@@ -107,7 +110,7 @@ export function MarkdownContent({ content, verbatim = false, onIssueNewTurn }: {
       <RichActionContext.Provider value={onIssueNewTurn}>
       <RichQuestionsContext.Provider value={prepared.questions}>
         <div className="markdown-content">{recoveryChunks(prepared.content, prepared.slotOffsets, prepared.writingOffsets, prepared.codeOffsets).map((chunk, i) =>
-          <div key={i}>{renderChunk(chunk.content, chunk.slotOffsets, chunk.writingOffsets, chunk.codeOffsets)}</div>
+          <div key={i}>{renderChunk(chunk.content, chunk.slotOffsets, chunk.writingOffsets, chunk.codeOffsets, prepared.rawSources)}</div>
         )}</div>
       </RichQuestionsContext.Provider>
       </RichActionContext.Provider>
