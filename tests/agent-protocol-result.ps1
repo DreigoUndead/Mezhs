@@ -170,6 +170,28 @@ Check(malformedRawExample.Commands.Count == 1 &&
     malformedRawExample.Commands[0] == new Command("DONE", null),
     "Malformed presentation headers may not promote embedded shell text.");
 
+// Renderer and Agent parser must agree on what is still literal WritingBlock
+// source, even when a Markdown fence or comment contains a closing-looking tag.
+var rawTranscript = parser.Parse(
+    "<box border radius=\"lg\" padding={3}>\n" +
+    "<WritingBlock variant=\"document\">\n" +
+    "~~~md\n</WritingBlock>\n<SH>\necho NEVER_EXECUTE_FENCE\n</SH>\n~~~\n" +
+    "<!--\n</WritingBlock>\n<SH>\necho NEVER_EXECUTE_COMMENT\n</SH>\n-->\n" +
+    "`\n</WritingBlock>\n<SH>\necho NEVER_EXECUTE_INLINE\n</SH>\n`\n" +
+    "</WritingBlock>\n" +
+    "<CodeBlock language=\"text\">\n    </CodeBlock>\n<SH>\necho NEVER_EXECUTE_CODE\n</SH>\n</CodeBlock>\n" +
+    "</box>\n<SH>\necho AFTER_RAW\n</SH>\n<DONE>");
+Check(rawTranscript.Commands.Count == 2 &&
+    rawTranscript.Commands[0] == new Command("SH", "echo AFTER_RAW") &&
+    rawTranscript.Commands[1] == new Command("DONE", null) &&
+    rawTranscript.VisibleContent.Contains("NEVER_EXECUTE_FENCE") &&
+    rawTranscript.VisibleContent.Contains("NEVER_EXECUTE_COMMENT") &&
+    rawTranscript.VisibleContent.Contains("NEVER_EXECUTE_INLINE") &&
+    rawTranscript.VisibleContent.Contains("NEVER_EXECUTE_CODE") &&
+    rawTranscript.VisibleContent.Contains("<box border radius=\"lg\" padding={3}>"),
+    "The Agent must preserve the complete rich transcript and execute only the top-level command.");
+Console.WriteLine("PASS: Agent raw-block boundaries protect fenced/comment/inline examples, and preserve later top-level commands.");
+
 Console.WriteLine("PASS: CodeBlock, WritingBlock, fenced/indented Markdown examples cannot become Agent commands.");
 
 Reject(parser, "<SH extra=\"true\">", "Malformed uppercase SH with attributes was accepted.");
