@@ -162,6 +162,35 @@ Check(fencedCommands.Commands.Count == 1 && fencedCommands.Commands[0] == new Co
 var indentedCommands = parser.Parse("    <SH>\n    echo NEVER_EXECUTE\n    </SH>\n<DONE>");
 Check(indentedCommands.Commands.Count == 1 && indentedCommands.Commands[0] == new Command("DONE", null),
     "Indented Markdown code must not execute commands.");
+// Commands in standalone Markdown comments and multiline inline-code spans
+// are never executable, even when the enclosing text is not a raw editor.
+var commented = "<!--\n<SH>\necho NEVER_EXECUTE_COMMENT\n</SH>\n<DONE>\n<ATTACH>\nC:/never-attach\n</ATTACH>\n-->\n<SH>\necho AFTER_COMMENT\n</SH>\n<DONE>";
+var commentedBatch = parser.Parse(commented);
+Check(commentedBatch.Commands.Count == 2 &&
+    commentedBatch.Commands[0] == new Command("SH", "echo AFTER_COMMENT") &&
+    commentedBatch.Commands[1] == new Command("DONE", null) &&
+    commentedBatch.VisibleContent.Contains("NEVER_EXECUTE_COMMENT") &&
+    commentedBatch.VisibleContent.Contains("<ATTACH>"),
+    "HTML-comment command examples gained execution authority.");
+
+var codeSpan = "`\n<SH>\necho NEVER_EXECUTE_INLINE\n</SH>\n<DONE>\n`\n<SH>\necho AFTER_INLINE\n</SH>\n<DONE>";
+var codeSpanBatch = parser.Parse(codeSpan);
+Check(codeSpanBatch.Commands.Count == 2 &&
+    codeSpanBatch.Commands[0] == new Command("SH", "echo AFTER_INLINE") &&
+    codeSpanBatch.Commands[1] == new Command("DONE", null) &&
+    codeSpanBatch.VisibleContent.Contains("NEVER_EXECUTE_INLINE"),
+    "Multiline inline-code command examples gained execution authority.");
+
+foreach (var unclosed in new[] { "<!--\n<SH>\necho NEVER_EXECUTE\n</SH>\n<DONE>",
+                                  "`\n<SH>\necho NEVER_EXECUTE\n</SH>\n<DONE>" })
+    Check(parser.Parse(unclosed).Commands.Count == 0,
+        "Unclosed Markdown literal context exposed an executable command.");
+Check(parser.Parse("Text with `inline code`\n<DONE>").Commands.SequenceEqual([new Command("DONE", null)]),
+    "Closed single-line Markdown code blocked a valid command.");
+Reject(parser, "<!--\n<SH>\necho INERT\n</SH>\n-->\n<UNKNOWN>",
+    "Strict unknown-command validation was lost after an HTML comment.");
+Console.WriteLine("PASS: Top-level HTML comments and multiline code spans are inert; later commands remain strict.");
+
 var unterminatedCode = parser.Parse("<CodeBlock language=\"text\">\n<SH>\necho NEVER_EXECUTE\n</SH>");
 Check(unterminatedCode.Commands.Count == 0,
     "Unterminated raw CodeBlock must not promote body lines into commands.");
