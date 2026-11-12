@@ -244,10 +244,11 @@ public sealed class Parser
                 text.Length <= prefix.Length ||
                 text[prefix.Length] is not ('>' or ' ' or '\t' or '\r' or '\n'))
                 continue;
-            // Self-closing static elements have no body that could hide
-            // executable Agent commands.
-            if (text.EndsWith("/>", StringComparison.Ordinal))
-                break;
+            // Only the root opener can be self-closing. An inline child
+            // ending in "/>" does not close the containing static element.
+            if (TryStaticTagAt(text, 0, candidate, out _, out var selfClosing, out _) &&
+                selfClosing)
+                continue;
             name = candidate;
             return true;
         }
