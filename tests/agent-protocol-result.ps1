@@ -80,6 +80,25 @@ static void Reject(Parser parser, string content, string message)
     catch (CommandParseException) { return; }
     throw new InvalidOperationException(message);
 }
+// Sanity guard for the structural refactor: parser tag classification must
+// reuse the existing command definitions, not shadow them with new authority.
+foreach (var command in Registry.All)
+{
+    Check(MarkupRegistry.TryGet(command.Name, out var tag) &&
+          tag.Kind == MarkupKind.Command &&
+          ReferenceEquals(tag.Command, command),
+          "Agent markup registry diverged from executable command definitions.");
+}
+Check(MarkupRegistry.TryGet("box", out var boxTag) &&
+      boxTag.Kind == MarkupKind.Container, "Box must be a container node.");
+Check(MarkupRegistry.TryGet("CodeBlock", out var codeTag) &&
+      codeTag.Kind == MarkupKind.RawSource, "CodeBlock must remain literal raw source.");
+Check(MarkupRegistry.TryGet("WritingBlock", out var writingTag) &&
+      writingTag.Kind == MarkupKind.RawSource, "WritingBlock must remain literal raw source.");
+Check(MarkupRegistry.TryGet("icon", out var iconTag) &&
+      iconTag.Kind == MarkupKind.Leaf, "Icon cannot own command descendants.");
+Check(!MarkupRegistry.TryGet("UNKNOWN", out _), "Unknown tags must not be registered.");
+
 const string content = "before\n<SH>\necho first\n<DONE>\n<ABC>\necho last\n</SH>\n<DONE>\nafter";
 var parsed = parser.Parse(content);
 if (parsed.Commands.Count != 2)
