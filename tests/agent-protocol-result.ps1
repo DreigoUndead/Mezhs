@@ -196,6 +196,17 @@ Console.WriteLine("PASS: Top-level HTML comments and multiline code spans are in
 var unterminatedCode = parser.Parse("<CodeBlock language=\"text\">\n<SH>\necho NEVER_EXECUTE\n</SH>");
 Check(unterminatedCode.Commands.Count == 0,
     "Unterminated raw CodeBlock must not promote body lines into commands.");
+// A closing delimiter inside quoted metadata must never end the raw region.
+var quotedCodeCloser = parser.Parse("<CodeBlock language=\\"text\\" note=\\"</CodeBlock>\\">\n<SH>\necho NEVER_EXECUTE_QUOTED\n</SH>\n</CodeBlock>\n<DONE>");
+Check(quotedCodeCloser.Commands.SequenceEqual([new Command("DONE", null)]) &&
+    quotedCodeCloser.VisibleContent.Contains("NEVER_EXECUTE_QUOTED"),
+    "Quoted CodeBlock metadata promoted literal shell text.");
+var quotedWritingCloser = parser.Parse("<WritingBlock variant=\\"document\\" subject='</WritingBlock>'>\n<SH>\necho NEVER_EXECUTE_WRITING_QUOTED\n</SH>\n</WritingBlock>\n<DONE>");
+Check(quotedWritingCloser.Commands.SequenceEqual([new Command("DONE", null)]) &&
+    quotedWritingCloser.VisibleContent.Contains("NEVER_EXECUTE_WRITING_QUOTED"),
+    "Quoted WritingBlock metadata promoted literal shell text.");
+Check(parser.Parse("<CodeBlock>inline</CodeBlock>\n<DONE>").Commands.SequenceEqual([new Command("DONE", null)]),
+    "Unsupported same-line presentation swallowed a legitimate subsequent command.");
 var malformedRawExample = parser.Parse("<CodeBlock language={invalid\n<SH>\necho NEVER_EXECUTE\n</SH>\n</CodeBlock>\n<DONE>");
 Check(malformedRawExample.Commands.Count == 1 &&
     malformedRawExample.Commands[0] == new Command("DONE", null),
@@ -308,6 +319,8 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
 
     Assert-InertPresentation 'html-comment' '<!--' '-->'
     Assert-InertPresentation 'inline-code' '`' '`'
+    Assert-InertPresentation 'quoted-code-opener' '<CodeBlock language="text" note="</CodeBlock>">' '</CodeBlock>'
+    Assert-InertPresentation 'quoted-writing-opener' '<WritingBlock variant="document" subject="</WritingBlock>">' '</WritingBlock>'
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
