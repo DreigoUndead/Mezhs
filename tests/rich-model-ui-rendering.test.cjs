@@ -159,6 +159,22 @@ test("CodeBlock read-only rendering escapes JSX and malformed template source", 
   assert.doesNotMatch(output, /<script|<textarea/);
 });
 
+test("raw editor openers must occupy their own line", () => {
+  for (const [opening, kind] of [
+    ['<CodeBlock language="text">', "code"],
+    ['<WritingBlock variant="document">', "writing"],
+  ]) {
+    for (const tail of [" trailing text", " <icon name=\"info\" />"]) {
+      const source = [opening + tail, "NEVER_ACTIVATE", "</" +
+        (kind === "code" ? "CodeBlock" : "WritingBlock") + ">"].join("\n");
+      const output = html(source);
+      assert.doesNotMatch(output, /class="rich-(?:code|writing)-block"/,
+        kind + " activated from a non-standalone opener");
+      assert.match(output, /NEVER_ACTIVATE/, kind + " lost rejected source");
+    }
+  }
+});
+
 test("CodeBlock in Markdown fences and invalid attributes cannot activate", () => {
   const sample = '<CodeBlock language="typescript">\nconst x = 1;\n</CodeBlock>';
   const fenced = "~~~mdx\n" + sample + "\n~~~";
@@ -583,6 +599,28 @@ test("custom rich controls render allowed label text, arrow icon and inert read-
   assert.match(rendered, /aria-label="arrow-right"/);
   assert.match(rendered, /Submission unavailable in this view/);
   assert.match(rendered, /<button[^>]*disabled/);
+});
+
+test("invalid rich box cannot conceal an active question slot", () => {
+  const marker = '<radio-group value={choice} onChange={setChoice}>';
+  for (const opening of [
+    '<box onClick="unsupported">',
+    '<box gap={unknownValue}>',
+  ]) {
+    const source = question.replace(marker, opening + "\n" + marker)
+      .replace("</button>", "</button>\n</box>");
+    assert.notEqual(source, question, "Question wrapper fixture was not constructed");
+    const parsed = extractRichQuestions(source);
+    assert.deepEqual(Object.keys(parsed.questions), [],
+      "Rejected parent must not grant an actionable question");
+    const output = html(source, { onIssueNewTurn() {
+      throw Error("Rejected parent must never send");
+    } });
+    assert.doesNotMatch(output, /<fieldset class="rich-question"|mezhs-question-slot/,
+      "Question source was lost or activated under an invalid parent");
+    assert.match(output, /One provider, two instances/,
+      "Original radio question content must remain readable");
+  }
 });
 
 test("unsupported content nested in custom controls rejects action authority", () => {
