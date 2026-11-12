@@ -18,6 +18,8 @@ public sealed class Parser
         var insideEscape = false;
         char fenceMarker = '\0';
         var fenceLength = 0;
+        var insideComment = false;
+        var inlineTicks = 0;
 
         for (var i = 0; i < lines.Count; i++)
         {
@@ -37,6 +39,15 @@ public sealed class Parser
                 visible.Add(lines[i].Text);
                 if (IsClosingFence(lines[i].Text, fenceMarker, fenceLength))
                     fenceMarker = '\0';
+                continue;
+            }
+            // Multiline comments and code spans in normal Markdown must also
+            // remain presentation. This is the same tracker used for raw
+            // WritingBlock closers, but has no effect on opaque command bodies.
+            if (insideComment || inlineTicks != 0)
+            {
+                visible.Add(lines[i].Text);
+                TrackInlineMarkdown(lines[i].Text, ref insideComment, ref inlineTicks);
                 continue;
             }
             if (TryOpeningFence(lines[i].Text, out fenceMarker, out fenceLength))
@@ -59,6 +70,12 @@ public sealed class Parser
                 for (var line = i; line <= last; line++)
                     visible.Add(lines[line].Text);
                 i = last;
+                continue;
+            }
+            TrackInlineMarkdown(lines[i].Text, ref insideComment, ref inlineTicks);
+            if (insideComment || inlineTicks != 0)
+            {
+                visible.Add(lines[i].Text);
                 continue;
             }
             if (!TryTag(text, out var name, out var closing))
