@@ -226,18 +226,12 @@ public sealed class Parser
         }
     }
 
-    // Only host-supported static containers need shielding. Their contents
-    // can include nested layout, raw editors and Markdown examples; none may
-    // lend Agent-command authority to a line inside the container.
-    private static readonly string[] StaticPresentationContainers =
-    [
-        "box", "row", "col", "grid", "grid-item", "text",
-        "title", "badge", "caption", "Link", "svg"
-    ];
-
+    // The command reader and the presentation shielding code use one
+    // classifier. During the architecture transition, these scopes remain
+    // non-executable until the recursive reader is independently reviewed.
     private static bool TryStaticPresentationOpening(string text, out string name)
     {
-        foreach (var candidate in StaticPresentationContainers)
+        foreach (var candidate in MarkupRegistry.Containers)
         {
             var prefix = "<" + candidate;
             if (!text.StartsWith(prefix, StringComparison.Ordinal) ||
@@ -372,7 +366,7 @@ public sealed class Parser
     private static bool TryRawPresentationOpening(string text, out string name)
     {
         name = string.Empty;
-        foreach (var candidate in new[] { "CodeBlock", "WritingBlock" })
+        foreach (var candidate in MarkupRegistry.RawSources)
         {
             if (!text.StartsWith("<" + candidate, StringComparison.Ordinal)) continue;
             var remainder = text.AsSpan(candidate.Length + 1);
