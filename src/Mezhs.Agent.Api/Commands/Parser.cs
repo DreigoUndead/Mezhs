@@ -54,7 +54,7 @@ public sealed class Parser
             // Preserve their entire source without interpreting the enclosed text.
             if (TryRawPresentationOpening(text, out var presentationName))
             {
-                var end = FindClosingTag(lines, i + 1, presentationName);
+                var end = FindRawPresentationClosingTag(lines, i + 1, presentationName);
                 var last = end < 0 ? lines.Count - 1 : end;
                 for (var line = i; line <= last; line++)
                     visible.Add(lines[line].Text);
@@ -98,6 +98,99 @@ public sealed class Parser
                 return i;
         }
         return -1;
+    }
+
+    // Match the UI's raw-block closing contract: CodeBlock uses the first
+    // standalone delimiter; WritingBlock ignores delimiters in Markdown
+    // fences, inline code spans, and HTML comments. Never release a command
+    // from content that the renderer still considers literal source.
+    private static int FindRawPresentationClosingTag(
+        IReadOnlyList<LineSlice> lines, int start, string name)
+    {
+        char fenceMarker = '\0';
+        var fenceLength = 0;
+        var insideComment = false;
+        var inlineTicks = 0;
+
+        for (var i = start; i < lines.Count; i++)
+        {
+            var line = lines[i].Text;
+            if (name == "WritingBlock")
+            {
+                if (fenceMarker != '\0')
+                {
+                    if (IsClosingFence(line, fenceMarker, fenceLength))
+                        fenceMarker = '\0';
+                    continue;
+                }
+                if (!insideComment && inlineTicks == 0 &&
+                    TryOpeningFence(line, out var openingMarker, out var openingLength))
+                {
+                    fenceMarker = openingMarker;
+                    fenceLength = openingLength;
+                    continue;
+                }
+                if (!insideComment && inlineTicks == 0 &&
+                    IsStandaloneRawClosingTag(line, name))
+                    return i;
+                TrackInlineMarkdown(line, ref insideComment, ref inlineTicks);
+            }
+            else if (IsStandaloneRawClosingTag(line, name))
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static bool IsStandaloneRawClosingTag(string line, string name)
+    {
+        var indent = 0;
+        while (indent < line.Length && indent < 4 && line[indent] == ' ')
+            indent++;
+        if (indent > 3) return false;
+        var value = line.AsSpan(indent).Trim();
+        var prefix = $"</{name}";
+        if (!value.StartsWith(prefix.AsSpan(), StringComparison.Ordinal))
+            return false;
+        value = value[prefix.Length..].TrimStart();
+        return value.SequenceEqual(">".AsSpan());
+    }
+
+    // The WritingBlock body is Markdown source. An unmatched backtick or
+    // HTML comment conservatively keeps subsequent lines inert.
+    private static void TrackInlineMarkdown(
+        string line, ref bool insideComment, ref int inlineTicks)
+    {
+        for (var i = 0; i < line.Length;)
+        {
+            if (insideComment)
+            {
+                var end = line.IndexOf("-->", i, StringComparison.Ordinal);
+                if (end < 0) return;
+                insideComment = false;
+                i = end + 3;
+                continue;
+            }
+            if (line[i] == '\x60')
+            {
+                var end = i + 1;
+                while (end < line.Length && line[end] == '\x60') end++;
+                var length = end - i;
+                if (inlineTicks == 0) inlineTicks = length;
+                else if (inlineTicks == length) inlineTicks = 0;
+                i = end;
+                continue;
+            }
+            if (inlineTicks == 0 &&
+                line.AsSpan(i).StartsWith("<!--", StringComparison.Ordinal))
+            {
+                insideComment = true;
+                i += 4;
+                continue;
+            }
+            i++;
+        }
     }
 
     private static bool TryRawPresentationOpening(string text, out string name)
