@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { protectedPositions } from "./RichMarkdownProtection";
 
 const variants: Record<string, string> = {
   email: "Email draft",
@@ -68,7 +67,7 @@ export function RichWritingBlockSlot(props: Record<string, unknown>) {
   return block ? <RichWritingBlock {...block} /> : null;
 }
 
-function openingMetadata(raw: string): Omit<WritingBlockData, "source"> | null {
+export function writingBlockMetadata(raw: string): Omit<WritingBlockData, "source"> | null {
   if (!raw.startsWith("<WritingBlock") || !raw.endsWith(">")) return null;
   const attrs: Record<string, string> = Object.create(null);
   let rest = raw.slice("<WritingBlock".length, -1);
@@ -89,76 +88,4 @@ function openingMetadata(raw: string): Omit<WritingBlockData, "source"> | null {
     variant: attrs.variant || "standard", subject: attrs.subject || "",
     recipient: attrs.recipient || "", cc: attrs.cc || "", bcc: attrs.bcc || "",
   };
-}
-
-// Before the MDX/template parsers run, shield a complete standalone
-// WritingBlock. Its raw Markdown can contain otherwise invalid MDX source.
-export function extractWritingBlocks(source: string): {
-  content: string; blocks: Record<string, WritingBlockData>;
-} {
-  const blocks: Record<string, WritingBlockData> = Object.create(null);
-  if (!source.includes("<WritingBlock") || source.length > 180000)
-    return { content: source, blocks };
-  const mask = protectedPositions(source);
-  if (!mask) return { content: source, blocks };
-  // HTML comments cannot create interactive source editing surfaces.
-  for (const comment of source.matchAll(/<!--[\s\S]*?(?:-->|$)/g))
-    mask.fill(1, comment.index!, comment.index! + comment[0].length);
-  const replacements: Array<{ start: number; end: number; value: string }> = [];
-  const opener = /^ {0,3}<WritingBlock(?=[\s>])/gm;
-  const closer = /<\/WritingBlock\s*>/g;
-  let consumed = 0;
-  let inspected = 0;
-  for (const match of source.matchAll(opener)) {
-    // Work is bounded even if hostile input repeats thousands of incomplete
-    // openers and forces each closing-tag scan to search the remaining text.
-    if (++inspected > 32) break;
-    const start = match.index!;
-    if (start < consumed || mask[start] || replacements.length >= 16) continue;
-    // Only the opener attributes are syntax; the body is preserved verbatim.
-    let quote = "";
-    let openEnd = -1;
-    for (let i = start + match[0].length; i < source.length && i - start < 1600; i++) {
-      const char = source[i];
-      if (char === "\n" || char === "\r") break;
-      if (quote) { if (char === quote) quote = ""; }
-      else if (char === '"' || char === "'") quote = char;
-      else if (char === ">") { openEnd = i + 1; break; }
-    }
-    if (openEnd < 0) continue;
-    const metadata = openingMetadata(source.slice(start, openEnd).trimStart());
-    if (!metadata) continue;
-    closer.lastIndex = openEnd;
-    let close: RegExpExecArray | null;
-    while ((close = closer.exec(source)) && mask[close.index]) { /* skip quoted code */ }
-    if (!close) continue;
-    const end = close.index + close[0].length;
-    if (end - start > 32768) continue;
-    const body = source.slice(openEnd, close.index).replace(/^\r?\n|\r?\n$/g, "");
-    if (!body.trim() || body.length > 24000) continue;
-    const id = "w" + replacements.length;
-    blocks[id] = { ...metadata, source: body };
-    replacements.push({ start, end, value: '<mezhs-writing-slot id="' + id + '" />' });
-    consumed = end;
-  }
-  let output = "";
-  let cursor = 0;
-  for (const replacement of replacements) {
-    output += source.slice(cursor, replacement.start) + replacement.value;
-    cursor = replacement.end;
-  }
-  return { content: output + source.slice(cursor), blocks };
-}
-
-// Check the exact post-expansion source location, never text alone. A fake
-// model-authored slot with the same id makes that id ineligible.
-export function writingSlotOffsets(content: string, blocks: Record<string, WritingBlockData>) {
-  const offsets: Record<string, number> = Object.create(null);
-  for (const id of Object.keys(blocks)) {
-    const marker = '<mezhs-writing-slot id="' + id + '" />';
-    const at = content.indexOf(marker);
-    if (at >= 0 && content.indexOf(marker, at + marker.length) === -1)
-      offsets[id] = at;
-  }
-  return offsets;
 }
