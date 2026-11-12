@@ -173,7 +173,7 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             if (operationId is not null)
-                _ = CancelOperationBestEffortAsync(operationId);
+                await CancelOperationBestEffortAsync(operationId);
             throw;
         }
     }
