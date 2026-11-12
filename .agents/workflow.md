@@ -62,6 +62,8 @@ Report concisely: **what** became complex, **which requirement causes it**, **si
 
 ### Handoffs and evidence
 
+When working inside MEŽS, follow [MEŽS Agent Handoff](mezhs-agent-handoff.md) to start required new agents directly instead of providing prompts for manual chat creation.
+
 Every next-role prompt must start with `<Task name> — <Role>` on its **first line**, which MEŽS uses as the chat title. Keep prompts generic by default: include only task-specific references needed to locate the work, without repeating instructions already in `AGENTS.md` or `.agents/`. For independent code reviewers, do not include earlier findings, fixes, or suggested areas of focus.
 
 A new chat is required for independent checks, not for every edit. Request a fresh chat if context quality becomes doubtful. **No agent PASS or plan approval grants merge permission.**
