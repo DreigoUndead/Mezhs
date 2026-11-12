@@ -57,6 +57,32 @@ test("raw WritingBlock keeps fenced closing examples literal and renders adjacen
   assert.doesNotMatch(output, /<fieldset class="rich-question"|&lt;box border/);
 });
 
+test("comment markers inside Markdown code cannot mask subsequent raw editors", () => {
+  for (const [context, example] of [
+    ["fenced source", "~~~html\n<!--\n~~~"],
+    ["inline code", "\u0060<!--\u0060"],
+    ["indented source", "    <!--"],
+    ["fenced source with apparent closer", "~~~html\n<!-- something -->\n~~~"],
+  ]) {
+    const source = [
+      example,
+      "",
+      '<CodeBlock language="text">',
+      "literal <SH> remains source",
+      "</CodeBlock>",
+      "",
+      '<WritingBlock variant="document">',
+      "**Editable draft**",
+      "</WritingBlock>",
+    ].join("\n");
+    const output = html(source);
+    assert.match(output, /class="rich-code-block"/, context + " hid CodeBlock");
+    assert.match(output, /class="rich-writing-block"/, context + " hid WritingBlock");
+    assert.match(output, /literal &lt;SH&gt; remains source/, context + " lost literal code");
+    assert.match(output, /\*\*Editable draft\*\*/, context + " lost editable Markdown");
+  }
+});
+
 test("tab-indented raw closers remain literal in both editor types", () => {
   for (const [kind, opening, css] of [
     ["CodeBlock", '<CodeBlock language="text">', "rich-code-block"],
