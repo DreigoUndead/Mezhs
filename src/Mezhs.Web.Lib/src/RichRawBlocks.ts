@@ -61,6 +61,10 @@ export function extractRawBlocks(source: string): {
       }
     }
     if (openEnd < 0) continue;
+    // Raw editors require a standalone opening tag, not a partial line.
+    // Do not activate a block with trailing prose or another element.
+    const lineEnd = source.indexOf("\n", openEnd);
+    if (source.slice(openEnd, lineEnd < 0 ? source.length : lineEnd).trim()) continue;
     const opening = source.slice(start, openEnd).trimStart();
     const metadata = kind === "CodeBlock" ? codeBlockMetadata(opening) : writingBlockMetadata(opening);
     if (!metadata) continue;
