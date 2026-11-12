@@ -71,6 +71,32 @@ test("tab-indented raw closers remain literal in both editor types", () => {
   }
 });
 
+test("rejected enclosing markup restores original raw editors as inert readable text", () => {
+  for (const [open, close] of [
+    ['<box onClick="unsupported">', '</box>'],
+    ['<row unknown="unsupported">', '</row>'],
+  ]) {
+    const source = [
+      open,
+      '  <CodeBlock language="text">',
+      'const display = "<SH>literal</SH>";',
+      '  </CodeBlock>',
+      '  <WritingBlock variant="document">',
+      '**Important raw prose** with {unmatched',
+      '  </WritingBlock>',
+      close,
+    ].join("\n");
+    const output = html(source, { onIssueNewTurn() {
+      throw Error("Rejected parent must remain inert");
+    } });
+    assert.match(output, /&lt;CodeBlock language=/);
+    assert.match(output, /&lt;WritingBlock variant=/);
+    assert.match(output, /Important raw prose/);
+    assert.match(output, /&lt;SH&gt;literal&lt;\/SH&gt;/);
+    assert.doesNotMatch(output, /class="rich-code-block"|class="rich-writing-block"|mezhs-(?:code|writing)-slot|<script\b/i);
+  }
+});
+
 test("CodeBlock preserves literal source inside a nested box", () => {
   const source = [
     '<box border radius="lg" padding={3} gap={2}>',
