@@ -124,8 +124,10 @@ module in `src/Mezhs.Web.Lib/src/rich-elements/` with its own allowed attributes
 registry; model text cannot register modules or run JavaScript. Question, SVG,
 citation, chart and writing controls retain their specialized owners.
 
-WritingBlock metadata must be literal and its opening tag must begin its own
-Markdown line (up to three leading spaces). The source editor can preserve
+WritingBlock metadata must be literal; its opening and closing tags must each occupy
+an entire Markdown line (up to three leading spaces). A closing-looking tag inside a
+Markdown fence, inline code span, or HTML comment remains literal; to include a
+standalone closing delimiter in editable source, escape it. The source editor can preserve
 otherwise invalid MDX-like text (such as an unmatched `{`), Markdown fences,
 and template examples verbatim. Content inside fences, inline code and HTML
 comments is never activated. Unsupported/malformed blocks remain inert source.
