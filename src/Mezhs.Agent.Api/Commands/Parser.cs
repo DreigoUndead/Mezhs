@@ -243,9 +243,12 @@ public sealed class Parser
                 }
                 else if (ch == '>')
                 {
-                    // An actual same-line body/closer is not a supported raw
-                    // region and must not consume later top-level commands.
-                    if (!text.AsSpan(i + 1).Trim().IsEmpty) return false;
+                    // Only a complete same-line close is self-contained.
+                    // Arbitrary trailing/malformed opener text must remain
+                    // fail-closed rather than exposing command-shaped lines.
+                    var tail = text.AsSpan(i + 1).Trim();
+                    if (tail.EndsWith(("</" + candidate + ">").AsSpan(),
+                        StringComparison.Ordinal)) return false;
                     break;
                 }
             }
