@@ -61,12 +61,12 @@
     "specifications/implemented/agent-stage-timings/plan.md",
     "specifications/implemented/api-web-group-delete-choices/plan.md",
     "specifications/implemented/api-web-select-created-group/plan.md",
+    "specifications/implemented/browser-conversation-parallelism/plan.md",
     "specifications/implemented/chat-store-sqlite/plan.md",
     "specifications/implemented/rich-model-ui-rendering/plan.md",
     "specifications/implemented/standardize-development-workflow/plan.md",
     "specifications/implemented/standardize-development-workflow/verification.md",
     "specifications/planned/agent-policy-foundation/plan.md",
-    "specifications/planned/browser-conversation-parallelism/plan.md",
     "specifications/planned/sandboxed-agent-jobs/plan.md",
     "src/Mezhs.Agent.Api.Client/AgentApiClient.cs",
     "src/Mezhs.Agent.Api.Client/Mezhs.Agent.Api.Client.csproj",
@@ -852,7 +852,7 @@
       "raw": "../../docs/architecture.md"
     },
     {
-      "from": 65,
+      "from": 66,
       "to": {
         "type": "file",
         "path": 67
@@ -863,7 +863,7 @@
       "from": 67,
       "to": {
         "type": "file",
-        "path": 65
+        "path": 66
       },
       "raw": "../agent-policy-foundation/plan.md"
     },
