@@ -2,6 +2,14 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.4.1] — 2026-11-13
+
+### Changed
+- Instruct MEŽS agents to prefer the internal GitHub tool when available for the task.
+- Remove the overlapping GitHub-tool clause from general coding guidance while preserving local working-tree instructions.
+
+No application runtime changes were made by this release.
+
 ## [0.4.0] — 2026-11-10
 
 ### Added
