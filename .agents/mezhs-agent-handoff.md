@@ -1,5 +1,7 @@
 # MEŽS Agent Handoff
 
+For GitHub operations, prefer the internal GitHub tool when it is available for the task.
+
 When the development workflow requires a new agent, start it directly through the MEŽS Agent API using `SH`. Do not give the owner a prompt to copy manually.
 
 1. Prepare the handoff prompt according to the existing workflow.
