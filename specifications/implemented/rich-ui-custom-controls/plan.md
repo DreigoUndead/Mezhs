@@ -125,3 +125,10 @@ generated graph, and repeat affected verification before independent review.
 - Repair: reuse `TrackInlineMarkdown` at the top-level command boundary, after fenced/indented/raw regions have been handled. Comments and code spans stay visible and inert until their delimiters close; later legitimate command markers and opaque command bodies retain the existing behavior.
 - Regression coverage: parser cases for HTML comments, multiline inline-code spans, unmatched literal delimiters, a later valid SH/DONE pair, and strict rejection after a closed comment; API integration cases assert no Shell execution history or filesystem side effects for inert examples.
 - Developer verification and independent review are required for the updated branch SHA. No version/changelog change, independent final testing, or main merge is performed here.
+
+## Developer corrections after independent review FAIL (2026-11-12)
+
+- The owner requested repair and continued workflow. Reassessed repeated raw-boundary corrections: retain the existing single Agent protocol parser and host-owned rich renderer; repair their specific boundary contracts rather than adding another interpreter or command-authority layer.
+- Agent raw opening detection now distinguishes an actual unquoted opening-tag terminator from delimiter-shaped strings within quoted attributes, retaining fail-closed treatment of malformed/incomplete headers. A same-line close is unsupported and cannot consume a later top-level command. Parser and API integration regressions cover quoted false closers and actual Shell side effects.
+- When the rich renderer rejects an enclosing static element, its literal-source fallback restores validated raw editors from the exact full-message slot offsets. Neither invalid parents nor parser recovery may replace the original enclosed source with internal slot tokens. SSR regression tests cover both raw control types in invalid parents.
+- Developer checks and GitHub CI at the final SHA are required; they do not substitute for a fresh independent code review or independent final testing. No version/changelog edits and no merge to main.
