@@ -7,6 +7,8 @@ import Markdown, { uriTransformer } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMdx from "remark-mdx";
 import { remarkRichMarkup, richComponents } from "./RichMarkup";
+import { prepareStaticElement } from "./rich-elements/Element";
+import { richElementRegistry } from "./rich-elements";
 import { RichActionContext } from "./RichActionContext";
 
 // This is a deliberately finite grammar, not an MDX/DIL interpreter. Acorn only
@@ -264,7 +266,10 @@ export function extractRichQuestions(source: string): {
     const wrapped = jsx(parent, "box");
     if ((!wrapped && parent.type !== "root") || (wrapped && index !== 0)) continue;
     const parentPos = wrapped ? boundaries(parent) : null;
-    if (wrapped && !parentPos) continue;
+    // A question cannot gain a host action beneath a static wrapper that
+    // the shared renderer would reject and display as literal source.
+    if (wrapped && (!parentPos || !prepareStaticElement(parent, richElementRegistry.box)))
+      continue;
     const sibling = parent.children?.[index + 1];
     const button = sibling?.type === "paragraph" && sibling.children?.length === 1
       ? sibling.children[0]
