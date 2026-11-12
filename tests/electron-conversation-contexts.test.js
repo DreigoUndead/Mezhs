@@ -89,7 +89,7 @@ test("guest turns receive fresh nonpersistent sessions even for one ChatId", asy
   assert.ok(a.session.partition.startsWith("mezhs-guest-"));
   assert.ok(b.session.partition.startsWith("mezhs-guest-"));
   assert.equal(h.contexts.size, 0);
-  await assert.rejects(h.contextPromise("guest-chat", false), /ephemeral browser context/);
+  assert.throws(() => h.contextPromise("guest-chat", false), /ephemeral browser context/);
 });
 
 test("cancelled chat context cannot destroy a different active ChatId", async () => {
