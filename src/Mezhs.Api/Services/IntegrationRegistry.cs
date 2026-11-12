@@ -29,13 +29,15 @@ public sealed class IntegrationRegistry : IAsyncDisposable
             ? integration
             : throw new ResourceNotFoundException($"Connection '{connectionId}' was not found.");
 
-    public Task RetainConversationAsync(string chatId) =>
-        Task.WhenAll(_integrations.Values.OfType<IConversationContextOwner>()
-            .Select(owner => owner.RetainConversationAsync(chatId)));
+    public Task RetainConversationAsync(string connectionId, string chatId) =>
+        Get(connectionId) is IConversationContextOwner owner
+            ? owner.RetainConversationAsync(chatId)
+            : Task.CompletedTask;
 
-    public Task ReleaseConversationAsync(string chatId) =>
-        Task.WhenAll(_integrations.Values.OfType<IConversationContextOwner>()
-            .Select(owner => owner.ReleaseConversationAsync(chatId)));
+    public Task ReleaseConversationAsync(string connectionId, string chatId) =>
+        Get(connectionId) is IConversationContextOwner owner
+            ? owner.ReleaseConversationAsync(chatId)
+            : Task.CompletedTask;
 
     public object[] GetConnections() => _integrations.Values.Select(integration => new
     {
