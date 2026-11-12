@@ -21,8 +21,21 @@ export function extractRawBlocks(source: string): {
   // This Markdown prepass is for locating code examples, never for executing MDX.
   const mask = protectedPositions(source);
   if (!mask) return unchanged();
-  for (const comment of source.matchAll(/<!--[\s\S]*?(?:-->|$)/g))
-    mask.fill(1, comment.index!, comment.index! + comment[0].length);
+  // A comment marker shown inside Markdown code is literal source, not the
+  // start of an HTML comment covering subsequent rich controls. Match both
+  // endpoints outside pre-protected code, preserving that code's original mask.
+  for (let i = 0; i < source.length;) {
+    if (mask[i] || !source.startsWith("<!--", i)) {
+      i++;
+      continue;
+    }
+    const start = i;
+    i += 4;
+    while (i < source.length && (mask[i] || !source.startsWith("-->", i)))
+      i++;
+    i = Math.min(source.length, i + 3);
+    mask.fill(1, start, i);
+  }
 
   const replacements: Replacement[] = [];
   const opener = /^ {0,3}<(WritingBlock|CodeBlock)(?=[\s>])/gm;
