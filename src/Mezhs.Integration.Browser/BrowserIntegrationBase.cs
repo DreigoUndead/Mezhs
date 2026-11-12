@@ -61,7 +61,7 @@ public abstract class BrowserIntegrationBase(
     }
 
     public Task RetainConversationAsync(string chatId) =>
-        CreateAccountSession().RetainConversationAsync(chatId);
+        Login is null ? Task.CompletedTask : CreateAccountSession().RetainConversationAsync(chatId);
 
     public Task ReleaseConversationAsync(string chatId) =>
         _accountSession?.ReleaseConversationAsync(chatId) ?? Task.CompletedTask;
