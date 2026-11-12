@@ -57,6 +57,20 @@ test("raw WritingBlock keeps fenced closing examples literal and renders adjacen
   assert.doesNotMatch(output, /<fieldset class="rich-question"|&lt;box border/);
 });
 
+test("tab-indented raw closers remain literal in both editor types", () => {
+  for (const [kind, opening, css] of [
+    ["CodeBlock", '<CodeBlock language="text">', "rich-code-block"],
+    ["WritingBlock", '<WritingBlock variant="document">', "rich-writing-block"],
+  ]) {
+    const source = [opening, '\t</' + kind + '>', '<SH>',
+      'echo NEVER_EXECUTE_TAB', '</SH>', '</' + kind + '>'].join("\n");
+    const output = html(source);
+    assert.match(output, new RegExp('class="' + css + '"'));
+    assert.match(output, /NEVER_EXECUTE_TAB/);
+    assert.doesNotMatch(output, /<fieldset class="rich-question"/);
+  }
+});
+
 test("CodeBlock preserves literal source inside a nested box", () => {
   const source = [
     '<box border radius="lg" padding={3} gap={2}>',
