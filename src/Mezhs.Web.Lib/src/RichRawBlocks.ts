@@ -52,9 +52,11 @@ export function extractRawBlocks(source: string): {
 
     // CodeBlock has a standalone closing delimiter. The source may contain
     // malformed Markdown or JSX; do not parse its body as executable syntax.
+    // Both controls use a standalone closing delimiter. WritingBlock also
+    // excludes closers inside Markdown code/comments through the source mask.
     const closer = kind === "CodeBlock"
       ? /^ {0,3}<\/CodeBlock\s*>[ \t]*$/gm
-      : /<\/WritingBlock\s*>/g;
+      : /^ {0,3}<\/WritingBlock\s*>[ \t]*$/gm;
     closer.lastIndex = openEnd;
     let close: RegExpExecArray | null = null;
     while ((close = closer.exec(source))) {
