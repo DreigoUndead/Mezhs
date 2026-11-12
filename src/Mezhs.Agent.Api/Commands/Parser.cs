@@ -108,8 +108,10 @@ public sealed class Parser
             if (!text.StartsWith("<" + candidate, StringComparison.Ordinal)) continue;
             var remainder = text.AsSpan(candidate.Length + 1);
             if (remainder.Length == 0 || (remainder[0] != '>' && !char.IsWhiteSpace(remainder[0])) ||
-                !text.EndsWith('>') || text.EndsWith("/>", StringComparison.Ordinal) ||
-                text.IndexOf('>') != text.Length - 1) return false;
+                text.EndsWith("/>", StringComparison.Ordinal) ||
+                text.Contains("</" + candidate + ">", StringComparison.Ordinal)) return false;
+            // Even malformed opening metadata is inert. Do not let an invalid
+            // presentation tag expose its literal shell examples to the Agent.
             name = candidate;
             return true;
         }
