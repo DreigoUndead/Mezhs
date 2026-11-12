@@ -87,7 +87,7 @@ const item = { label: "<box>literal text</box>" };
 
 The component renders escaped selectable source; with editable it renders a local editor. Copy uses the browser clipboard and reports failure. It does **not** execute code, send chat messages, or grant model-defined callbacks. An invalid opening tag, excess content, or unsupported attributes do not activate the control. The closing tag is a standalone delimiter; to show the delimiter itself inside source, escape it rather than placing an unescaped standalone closing line.
 
-Nested static layout such as box/row/col/text continues to render through the same fixed registry. For example, a CodeBlock inside a valid box is displayed as code while sibling text remains normal rich content. Agent command parsing separately protects code examples and never treats raw CodeBlock or WritingBlock bodies as executable Agent commands.
+Nested static layout such as box/row/col/text continues to render through the same fixed registry. For example, a CodeBlock inside a valid box is displayed as code while sibling text remains normal rich content. Agent command parsing separately protects code examples and never treats raw CodeBlock or WritingBlock bodies as executable Agent commands. Static rich-layout containers also remain presentation-only in Agent replies: a command-shaped line nested in a box, row, SVG or other supported static container has no Agent execution authority. Genuine top-level commands outside a complete container retain their normal policy checks.
 
 ## Editable WritingBlock
 
