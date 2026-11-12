@@ -1,0 +1,34 @@
+name: Temporary Codegraph export
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    if: github.head_ref == 'rich-ui-custom-controls' && github.event.pull_request.head.repo.full_name == 'DreigoUndead/Mezhs'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install repository-compatible Codegraph
+        run: npm install --global @lzehrung/codegraph@3.0.0
+      - name: Generate portable graph without temporary workflow
+        run: |
+          rm .github/workflows/codegraph-export-tmp.yml
+          node .agents/codegraph/export.cjs
+      - name: Transfer generated graph through read-only job log
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const base64 = fs.readFileSync('.agents/codegraph/graph.json').toString('base64');
+          console.log('GRAPH_B64_BEGIN');
+          for (let i = 0; i < base64.length; i += 1000)
+            console.log('CGDATA:' + base64.slice(i, i + 1000));
+          console.log('GRAPH_B64_END');
+          NODE
