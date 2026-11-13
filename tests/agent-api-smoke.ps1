@@ -195,7 +195,7 @@ try {
         $listedAgent.executionStatusId -ne $completed.executionId -or
         $singleAgent.executionStatus -ne "Completed" -or
         $singleAgent.executionStatusId -ne $completed.executionId) {
-        throw "Agent chat list/detail status does not identify the matching completed root execution."
+        throw "Agent chat list/detail status mismatch: expected=$($completed.executionId); listStatus=$($listedAgent.executionStatus); listId=$($listedAgent.executionStatusId); detailStatus=$($singleAgent.executionStatus); detailId=$($singleAgent.executionStatusId); matchingCount=$(@($agentList | Where-Object { $_.chatId -eq $completed.chatId }).Count); listCount=$($agentList.Count)."
     }
 
     $initialMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
