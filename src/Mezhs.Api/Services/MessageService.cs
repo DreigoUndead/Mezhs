@@ -1,3 +1,4 @@
+using Mezhs.Common.RichUi;
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Mezhs;
@@ -490,7 +491,10 @@ public sealed class MessageService(
             message.ActivityDetail,
             message.Analysis,
             message.ActivityAt,
-            message.ActivityHistory);
+            message.ActivityHistory,
+            string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
+            message.Status == MessageStatus.Completed
+                ? new RichDocumentParser().Parse(message.Content).Document : null);
     }
 
     private static string NormalizeStoredOrigin(StoredMessage message)

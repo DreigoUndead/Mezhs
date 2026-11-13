@@ -7,6 +7,7 @@ Level: **High-risk — cross-runtime parser/renderer redesign and host command a
 State: **PLANNED — independent plan review required before further implementation**
 Dependency: existing Rich UI Custom Controls work on this branch; old incremental plan versions remain in Git history (last archived plan at 54686a1d591be4a806a1f3e17d559aa8175736b2).
 Owner decision (2026-11-12): adopt one canonical **C#** document/parser/validation model; React renders typed validated data and owns only local interactive state; commands can occur inside valid containers/lists.
+Owner clarification (2026-11-13): **Do not preserve legacy UI parsing/handling.** All supported old and new tags use the one canonical C# parser, DTO and typed React renderer. Remove the old frontend extraction, expression and markup paths instead of a compatibility fallback. Retire or migrate raw-text frontend tests to validate canonical DTOs and the inert provisional fallback; treat unsupported expression constructs as inert until explicitly added to the canonical grammar. Security/command boundary tests remain mandatory.
 Earlier owner waiver of independent plan review applied only to the previous bounded implementation, **not** this expanded architecture.
 
 ## Why this redesign is needed
@@ -27,6 +28,19 @@ Earlier owner waiver of independent plan review applied only to the previous bou
 - **React**: map already-validated display node kinds/normalized props to known components; render text, Markdown, tables, layout, SVG, citations, raw editors and question controls. Retain React-only ephemeral selection, editing, focus, copy and host-approved send callbacks. It must never reparse model-authored raw JSX/Markdown to discover **new** actionable controls. URL, HTML, DOM and style sinks retain last-mile safe handling even with trusted DTOs.
 - **Agent Interpreter**: receive document-derived command nodes in strict source order; validate command forms, policy, completion order and all actions **before** executing any. Existing `Shell`/`Executor`, attachment staging, policy, durable execution IDs and cancellation remain the sole execution path. UI render nodes and frontend callbacks cannot invoke Agent commands.
 - **No general DIL runtime**: no evaluation of model-authored JavaScript, callbacks, imports, hooks, dynamic components, arbitrary CSS, external SVG references or arbitrary HTML.
+
+## Owner feasibility decision (2026-11-12)
+
+Independent plan review passed. Following the Markdig spike and complexity discussion, the owner explicitly approved architecture A: one authoritative C# document parser for UI and Agent commands.
+
+- Opaque bodies: escape, SH and ATTACH do not recursively parse their content. escape is inert; SH and ATTACH are executable only in validated command contexts. Preserve exact command body text and original line endings. An unmatched opener fails closed.
+- DONE is a bodyless marker and must be the final Agent command globally.
+- Normal static containers and Markdown lists parse recursively. Markdown fences, indented code, inline code and comments remain inert automatically without requiring escape.
+- Validate all scopes and the entire command sequence before dispatch. Invalid structures must never expose internal command-shaped text.
+- Preserve existing supported UI behavior without executing model-authored JavaScript. The finite radio choice grammar must be interpreted as data, with an owner escalation if compatibility requires disproportionate complexity.
+- The observed accidental execution of example commands (execution IDs 6429-6431) requires negative-side-effect regression coverage; the observation does not establish the specific defect mechanism.
+
+The Stage 1 spike established that Markdig 1.6.0 provides UTF-16 source spans and Markdown literal contexts, but its Markdown AST alone does not build rich-tag nesting or radio expression values. Extend its grammar in bounded C# rather than retaining two independent parsers.
 
 ## Parsing contract
 

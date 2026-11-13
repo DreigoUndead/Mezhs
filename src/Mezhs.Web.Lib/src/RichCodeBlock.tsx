@@ -1,32 +1,10 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 export type CodeBlockData = {
   source: string;
   language: string;
   editable: boolean;
 };
-
-// Only literal metadata is accepted. No model-authored functions or HTML.
-export function codeBlockMetadata(raw: string): Omit<CodeBlockData, "source"> | null {
-  if (!raw.startsWith("<CodeBlock") || !raw.endsWith(">")) return null;
-  const attributes: Record<string, string> = Object.create(null);
-  let remaining = raw.slice("<CodeBlock".length, -1);
-  while (remaining.trim()) {
-    const match = /^\s+(language|editable)(?=\s|=|$)(?:\s*=\s*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|\{(true|false)\}))?/.exec(remaining);
-    if (!match || Object.prototype.hasOwnProperty.call(attributes, match[1])) return null;
-    const name = match[1];
-    const value = match[2] ?? match[3] ?? match[4];
-    if (name === "language") {
-      if (!value || !/^[a-z0-9_+#.-]{1,32}$/i.test(value)) return null;
-      attributes.language = value;
-    } else {
-      if (value !== undefined && value !== "true" && value !== "false") return null;
-      attributes.editable = value ?? "true";
-    }
-    remaining = remaining.slice(match[0].length);
-  }
-  return { language: attributes.language || "text", editable: attributes.editable === "true" };
-}
 
 export function RichCodeBlock({ source, language, editable }: CodeBlockData) {
   const [draft, setDraft] = useState(source);
@@ -56,14 +34,4 @@ export function RichCodeBlock({ source, language, editable }: CodeBlockData) {
       : <pre><code>{source}</code></pre>}
     {copyStatus && <span role="status" className="rich-code-status">{copyStatus}</span>}
   </section>;
-}
-
-export const CodeBlocksContext = createContext<Record<string, CodeBlockData>>(Object.create(null));
-
-export function RichCodeBlockSlot(props: Record<string, unknown>) {
-  const blocks = useContext(CodeBlocksContext);
-  const id = props["data-mezhs-code-id"];
-  const block = typeof id === "string" &&
-    Object.prototype.hasOwnProperty.call(blocks, id) ? blocks[id] : undefined;
-  return block ? <RichCodeBlock {...block} /> : null;
 }

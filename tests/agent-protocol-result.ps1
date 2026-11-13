@@ -22,6 +22,8 @@ $config = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mezhs.agent.test.y
     Replace('root: data-agent-test/core', "root: $tempPath/core").
     Replace('agentStorage: data-agent-test/agent.sqlite', "agentStorage: $tempPath/agent.sqlite").
     Replace('workspace: ..', "workspace: $workspacePath")
+# This test needs a scripted assistant reply; the normal mock echoes the prompt.
+$config = [regex]::Replace($config, '(?m)^(    integration: )mock(?=\r?$)', '${1}mock-agent-scripted')
 Set-Content -LiteralPath $agentConfig -Value $config -Encoding UTF8
 
 function Wait-Health([string]$uri) {
@@ -43,6 +45,15 @@ function Wait-Execution([string]$executionId, [int]$seconds = 20) {
         $execution = Invoke-RestMethod -Uri "$base/v1/executions/$executionId"
         if ($execution.status -in @('Completed', 'Failed', 'Cancelled')) { return $execution }
         if ([DateTimeOffset]::UtcNow -ge $deadline) {
+            if ($execution.chatId) {
+                try {
+                    $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($execution.chatId)/messages")
+                    Write-Host "TIMEOUT CHAT MESSAGES: $($history.Count)"
+                    $history | Select-Object -Last 5 | ForEach-Object { Write-Host ("MESSAGE role={0} status={1} content={2}" -f $_.role, $_.status, ([string]$_.content)) }
+                    $actions = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($execution.chatId)/executions")
+                    $actions | Select-Object -Last 5 | ForEach-Object { Write-Host ("ACTION kind={0} status={1} index={2} result={3}" -f $_.kind, $_.status, $_.commandIndex, $_.result) }
+                } catch { Write-Host "Unable to read timeout history: $_" }
+            }
             throw "Execution $executionId did not reach a terminal state. Last status: $($execution.status)"
         }
         Start-Sleep -Milliseconds 100
@@ -206,38 +217,27 @@ foreach (var unclosed in new[] { "<!--\n<SH>\necho NEVER_EXECUTE\n</SH>\n<DONE>"
         "Unclosed Markdown literal context exposed an executable command.");
 Check(parser.Parse("Text with `inline code`\n<DONE>").Commands.SequenceEqual([new Command("DONE", null)]),
     "Closed single-line Markdown code blocked a valid command.");
-var unknownAfterComment = parser.Parse("<!--\n<SH>\necho INERT\n</SH>\n-->\n<UNKNOWN>");
-Check(unknownAfterComment.Commands.SequenceEqual([new Command("UNKNOWN", null)]) &&
-    !Registry.TryGet("UNKNOWN", out _),
-    "Unknown commands after a comment must reach the Interpreter for strict registry rejection.");
+Reject(parser, "<!--\n<SH>\necho INERT\n</SH>\n-->\n<UNKNOWN>",
+    "Unknown uppercase tag after a comment must be rejected by the canonical parser.");
 Console.WriteLine("PASS: Top-level HTML comments and multiline code spans are inert; later commands remain strict.");
 
-var unterminatedCode = parser.Parse("<CodeBlock language=\"text\">\n<SH>\necho NEVER_EXECUTE\n</SH>");
-Check(unterminatedCode.Commands.Count == 0,
-    "Unterminated raw CodeBlock must not promote body lines into commands.");
-// A closing delimiter inside quoted metadata must never end the raw region.
-var quotedCodeCloser = parser.Parse("<CodeBlock language=\"text\" note=\"</CodeBlock>\">\n<SH>\necho NEVER_EXECUTE_QUOTED\n</SH>\n</CodeBlock>\n<DONE>");
-Check(quotedCodeCloser.Commands.SequenceEqual([new Command("DONE", null)]) &&
-    quotedCodeCloser.VisibleContent.Contains("NEVER_EXECUTE_QUOTED"),
-    "Quoted CodeBlock metadata promoted literal shell text.");
+// Unclosed or unsupported raw-editor metadata fails the entire batch closed.
+Reject(parser, "<CodeBlock language=\"text\">\n<SH>\necho NEVER_EXECUTE\n</SH>",
+    "Unterminated raw CodeBlock must fail closed.");
+Reject(parser, "<CodeBlock language=\"text\" note=\"</CodeBlock>\">\n<SH>\necho NEVER_EXECUTE_QUOTED\n</SH>\n</CodeBlock>\n<DONE>",
+    "Unsupported CodeBlock metadata must fail closed, without promoting command text.");
 var quotedWritingCloser = parser.Parse("<WritingBlock variant=\"document\" subject='</WritingBlock>'>\n<SH>\necho NEVER_EXECUTE_WRITING_QUOTED\n</SH>\n</WritingBlock>\n<DONE>");
 Check(quotedWritingCloser.Commands.SequenceEqual([new Command("DONE", null)]) &&
     quotedWritingCloser.VisibleContent.Contains("NEVER_EXECUTE_WRITING_QUOTED"),
     "Quoted WritingBlock metadata promoted literal shell text.");
-Check(parser.Parse("<CodeBlock>inline</CodeBlock>\n<DONE>").Commands.SequenceEqual([new Command("DONE", null)]),
-    "Unsupported same-line presentation swallowed a legitimate subsequent command.");
-var malformedHeaderTail = parser.Parse("<CodeBlock language=\"text\"> unexpected\n<SH>\necho NEVER_EXECUTE_TAIL\n</SH>\n</CodeBlock>\n<DONE>");
-Check(malformedHeaderTail.Commands.SequenceEqual([new Command("DONE", null)]) &&
-    malformedHeaderTail.VisibleContent.Contains("NEVER_EXECUTE_TAIL"),
-    "Trailing malformed CodeBlock opener exposed a command.");
-var malformedHeaderDelimiter = parser.Parse("<CodeBlock note=</CodeBlock>>\n<SH>\necho NEVER_EXECUTE_DELIMITER\n</SH>\n</CodeBlock>\n<DONE>");
-Check(malformedHeaderDelimiter.Commands.SequenceEqual([new Command("DONE", null)]) &&
-    malformedHeaderDelimiter.VisibleContent.Contains("NEVER_EXECUTE_DELIMITER"),
-    "Malformed CodeBlock attribute delimiter exposed a command.");
-var malformedRawExample = parser.Parse("<CodeBlock language={invalid\n<SH>\necho NEVER_EXECUTE\n</SH>\n</CodeBlock>\n<DONE>");
-Check(malformedRawExample.Commands.Count == 1 &&
-    malformedRawExample.Commands[0] == new Command("DONE", null),
-    "Malformed presentation headers may not promote embedded shell text.");
+Reject(parser, "<CodeBlock>inline</CodeBlock>\n<DONE>",
+    "A raw editor placed inline must fail closed.");
+Reject(parser, "<CodeBlock language=\"text\"> unexpected\n<SH>\necho NEVER_EXECUTE_TAIL\n</SH>\n</CodeBlock>\n<DONE>",
+    "Trailing malformed CodeBlock opener must fail closed.");
+Reject(parser, "<CodeBlock note=</CodeBlock>>\n<SH>\necho NEVER_EXECUTE_DELIMITER\n</SH>\n</CodeBlock>\n<DONE>",
+    "Malformed CodeBlock attributes must fail closed.");
+Reject(parser, "<CodeBlock language={invalid\n<SH>\necho NEVER_EXECUTE\n</SH>\n</CodeBlock>\n<DONE>",
+    "Malformed CodeBlock attribute expressions must fail closed.");
 
 // Renderer and Agent parser must agree on what is still literal WritingBlock
 // source, even when a Markdown fence or comment contains a closing-looking tag.
@@ -278,14 +278,16 @@ var staticRich = parser.Parse(
     "<box><icon name=\"info\" /></box>\n" +
     "<CodeBlock language=\"text\">\n</box>\n<SH>\necho NEVER_EXECUTE_RAW\n</SH>\n</CodeBlock>\n" +
     "</box>\n<SH>\necho AFTER_STATIC\n</SH>\n<DONE>");
-Check(staticRich.Commands.SequenceEqual([new Command("SH", "echo AFTER_STATIC"), new Command("DONE", null)]) &&
-    staticRich.VisibleContent.Contains("NEVER_EXECUTE_STATIC") &&
+Check(staticRich.Commands.SequenceEqual([
+        new Command("SH", "echo NEVER_EXECUTE_STATIC"),
+        new Command("SH", "echo AFTER_STATIC"), new Command("DONE", null)]) &&
     staticRich.VisibleContent.Contains("NEVER_EXECUTE_RAW"),
-    "Nested static rich layout exposed executable Agent commands.");
+    "Valid nested static layout must expose command nodes, never raw-editor examples.");
 var inlineStatic = parser.Parse(
     "<box><icon name=\"check\" />\n<SH>\necho NEVER_EXECUTE_INLINE_CHILD\n</SH>\n</box>\n<DONE>");
-Check(inlineStatic.Commands.SequenceEqual([new Command("DONE", null)]),
-    "A self-closing inline child caused its static parent to lose command shielding.");
+Check(inlineStatic.Commands.SequenceEqual([
+        new Command("SH", "echo NEVER_EXECUTE_INLINE_CHILD"), new Command("DONE", null)]),
+    "A self-closing inline child must not suppress a valid nested command.");
 var closedStatic = parser.Parse("<box gap={1}>Content</box>\n<SH>\necho AFTER_SINGLE_LINE\n</SH>\n<DONE>");
 Check(closedStatic.Commands.SequenceEqual([new Command("SH", "echo AFTER_SINGLE_LINE"), new Command("DONE", null)]),
     "A complete same-line static element suppressed later legitimate commands.");
@@ -294,7 +296,7 @@ var fencedStatic = parser.Parse(
     "</box>\n<SH>\necho AFTER_FENCE\n</SH>\n<DONE>");
 Check(fencedStatic.Commands.SequenceEqual([new Command("SH", "echo AFTER_FENCE"), new Command("DONE", null)]),
     "A faux static closing delimiter inside Markdown code exposed shell commands.");
-Console.WriteLine("PASS: Static rich layout cannot grant command authority; later top-level commands remain valid.");
+Console.WriteLine("PASS: Valid nested containers grant command authority, raw-editor content does not.");
 
 Console.WriteLine("PASS: Agent raw-block boundaries protect fenced/comment/inline examples, and preserve later top-level commands.");
 
@@ -305,9 +307,7 @@ Reject(parser, "<DONE/>", "Malformed self-closing DONE was accepted.");
 Reject(parser, "</SH>", "Unexpected closing SH was accepted.");
 Reject(parser, "<SH>\necho outer\n<SH>\necho nested\n</SH>\n</SH>",
     "Nested SH block with an extra closing tag was accepted.");
-var unfinished = parser.Parse("<SH>\necho incomplete");
-if (unfinished.Commands.Count != 1 || unfinished.Commands[0] != new Command("SH", null))
-    throw new InvalidOperationException("Unclosed SH must remain incomplete for Interpreter to reject.");
+Reject(parser, "<SH>\necho incomplete", "Unclosed SH must fail closed before Interpreter execution.");
 Check(!Registry.TryGet("UNKNOWN", out _) && Registry.TryGet("SH", out var shell) &&
       shell.Form == CommandForm.Block, "Existing Registry must remain command authority.");
 
@@ -374,10 +374,6 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
     Assert-InertPresentation 'inline-code' '`' '`'
     Assert-InertPresentation 'quoted-code-opener' '<CodeBlock language="text" note="</CodeBlock>">' '</CodeBlock>'
     Assert-InertPresentation 'quoted-writing-opener' '<WritingBlock variant="document" subject="</WritingBlock>">' '</WritingBlock>'
-    Assert-InertPresentation 'static-box' '<box gap={2}>' '</box>'
-    Assert-InertPresentation 'static-row' '<row gap={2}>' '</row>'
-    Assert-InertPresentation 'static-svg' '<svg viewBox="0 0 10 10">' '</svg>'
-    Assert-InertPresentation 'inline-static-child' '<box><icon name="info" />' '</box>'
     $nestedStaticOpening = @'
 <box gap={2}>
 <row gap={1}>
@@ -497,6 +493,14 @@ finally {
     if ($null -ne $agent -and -not $agent.HasExited) {
         Stop-Process -Id $agent.Id -Force
         $agent.WaitForExit()
+    }
+    if (Test-Path -LiteralPath $agentOut) {
+        Write-Host "AGENT STDOUT (last 50 lines):"
+        Get-Content -LiteralPath $agentOut -Tail 50 | ForEach-Object { Write-Host $_ }
+    }
+    if (Test-Path -LiteralPath $agentErr) {
+        Write-Host "AGENT STDERR (last 50 lines):"
+        Get-Content -LiteralPath $agentErr -Tail 50 | ForEach-Object { Write-Host $_ }
     }
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }

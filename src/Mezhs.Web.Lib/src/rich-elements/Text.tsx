@@ -1,7 +1,6 @@
-import { defineElement, type RichProps } from "./Element";
+import type { RichProps } from "./Element";
 import { read, tone } from "./Style";
-export const textElement = defineElement("text", ["weight","strong","size","color","textAlign","tabularNums","inline"],
-  ({ children, ...props }: RichProps) => {
+export const textComponent = ({ children, ...props }: RichProps) => {
     const weight = read(props, "weight");
     const size = read(props, "size");
     return <span className={tone(props).trim()} style={{
@@ -10,4 +9,4 @@ export const textElement = defineElement("text", ["weight","strong","size","colo
       textAlign: read(props, "textAlign") === "center" ? "center" : undefined,
       fontVariantNumeric: read(props, "tabularNums") === "true" ? "tabular-nums" : undefined,
     }}>{children}</span>;
-  });
+  };
