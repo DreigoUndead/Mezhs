@@ -105,6 +105,53 @@ public sealed class RichDocumentParser
             for (var j = i; j < until; j++) mask[j] = true;
             i = until - 1;
         }
+        // HTML-block recognition can swallow Markdown fences when an outer
+        // rich container resembles an HTML tag. Mark fenced lines conservatively
+        // as literal before interpreting any rich closing tags. This supplements
+        // the Markdig AST, which remains the sole Markdown structure authority.
+        var fenceStart = -1;
+        var fenceMarker = '\u005c0';
+        var fenceWidth = 0;
+        for (var lineStart = 0; lineStart < source.Length;)
+        {
+            var newline = source.IndexOf('\u005cn', lineStart);
+            var lineEnd = newline < 0 ? source.Length : newline;
+            var nextLine = newline < 0 ? source.Length : newline + 1;
+            var contentEnd = lineEnd > lineStart && source[lineEnd - 1] == '\u005cr'
+                ? lineEnd - 1 : lineEnd;
+            var at = lineStart;
+            while (at < contentEnd && at - lineStart < 4 && source[at] == ' ') at++;
+            if (at - lineStart <= 3 && at < contentEnd &&
+                source[at] is '`' or '~')
+            {
+                var marker = source[at];
+                var runEnd = at;
+                while (runEnd < contentEnd && source[runEnd] == marker) runEnd++;
+                var width = runEnd - at;
+                if (width >= 3)
+                {
+                    var suffix = source.AsSpan(runEnd, contentEnd - runEnd);
+                    if (fenceStart < 0 &&
+                        (marker == '~' || !suffix.Contains('`')))
+                    {
+                        fenceStart = lineStart;
+                        fenceMarker = marker;
+                        fenceWidth = width;
+                    }
+                    else if (marker == fenceMarker && width >= fenceWidth &&
+                             suffix.Trim().IsEmpty)
+                    {
+                        for (var i = fenceStart; i < nextLine; i++) mask[i] = true;
+                        fenceStart = -1;
+                        fenceMarker = '\u005c0';
+                        fenceWidth = 0;
+                    }
+                }
+            }
+            lineStart = nextLine;
+        }
+        if (fenceStart >= 0)
+            for (var i = fenceStart; i < source.Length; i++) mask[i] = true;
         // Markdig masks completed code spans. Conservatively mask a dangling
         // backtick run through EOF: unmatched Markdown literals must not grant
         // command authority to later command-shaped text. One linear pass.
