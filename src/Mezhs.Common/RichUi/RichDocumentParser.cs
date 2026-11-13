@@ -110,14 +110,14 @@ public sealed class RichDocumentParser
         // as literal before interpreting any rich closing tags. This supplements
         // the Markdig AST, which remains the sole Markdown structure authority.
         var fenceStart = -1;
-        var fenceMarker = '\u005c0';
+        var fenceMarker = '\0';
         var fenceWidth = 0;
         for (var lineStart = 0; lineStart < source.Length;)
         {
-            var newline = source.IndexOf('\u005cn', lineStart);
+            var newline = source.IndexOf('\n', lineStart);
             var lineEnd = newline < 0 ? source.Length : newline;
             var nextLine = newline < 0 ? source.Length : newline + 1;
-            var contentEnd = lineEnd > lineStart && source[lineEnd - 1] == '\u005cr'
+            var contentEnd = lineEnd > lineStart && source[lineEnd - 1] == '\r'
                 ? lineEnd - 1 : lineEnd;
             var at = lineStart;
             while (at < contentEnd && at - lineStart < 4 && source[at] == ' ') at++;
@@ -143,7 +143,7 @@ public sealed class RichDocumentParser
                     {
                         for (var i = fenceStart; i < nextLine; i++) mask[i] = true;
                         fenceStart = -1;
-                        fenceMarker = '\u005c0';
+                        fenceMarker = '\0';
                         fenceWidth = 0;
                     }
                 }
