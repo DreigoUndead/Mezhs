@@ -15,7 +15,7 @@ function section(start, end) {
 const contextSource = section("function closeContext(", "\nasync function initialize(");
 const operationSource = section("function queueProviderOperation(", "\nasync function start(");
 
-function harness({ guest = false } = {}) {
+function harness({ guest = false, deferWindowReady = false } = {}) {
   const contexts = new Map();
   const providerOperations = new Map();
   const sessions = [];
@@ -35,13 +35,16 @@ function harness({ guest = false } = {}) {
       }
     },
     configureSessionBrowserIdentity(session) { session.identityConfigured = true; },
-    async createWindow(session) {
+    async createWindow(session, _visible, _management, onCreated) {
       const window = {
         session, destroyed: false,
         isDestroyed() { return this.destroyed; },
         destroy() { this.destroyed = true; }
       };
       windows.push(window);
+      onCreated?.(window); // Mirrors the Electron callback before navigation.
+      if (deferWindowReady)
+        await new Promise(resolve => { window.finishLoading = resolve; });
       return window;
     },
     invokeProvider(context, request, reportProgress) {
@@ -129,4 +132,74 @@ test("releasing a busy context lets its active call finish, then closes the wind
   await flush();
   assert.equal(op.context.window.destroyed, true);
   assert.equal(h.providerOperations.get(id).status, "completed");
+});
+
+test("cancel destroys an account window immediately even when navigation never completes", async () => {
+  const h = harness({ deferWindowReady: true });
+  const cancelled = h.queueProviderOperation({ contextId: "loading-a", operation: "send" });
+  const peer = h.queueProviderOperation({ contextId: "loading-b", operation: "send" });
+  assert.equal(h.windows.length, 2);
+  assert.equal(h.operations.length, 0); // Both are still navigating.
+
+  assert.equal(h.cancelProviderOperation(cancelled), true);
+  assert.equal(h.windows[0].destroyed, true);
+  assert.equal(h.windows[1].destroyed, false);
+  assert.equal(h.contexts.has("loading-a"), false);
+
+  h.windows[0].finishLoading();
+  h.windows[1].finishLoading();
+  await flush();
+  assert.equal(h.operations.length, 1); // Never dispatch the cancelled request.
+  assert.equal(h.operations[0].request.contextId, "loading-b");
+  h.operations[0].resolve({ answer: "peer" });
+  await flush();
+  assert.equal(h.providerOperations.get(peer).status, "completed");
+  assert.equal(h.windows[1].destroyed, false);
+});
+
+test("guest cancellation and ordinary release also close still-loading windows", async () => {
+  const guest = harness({ guest: true, deferWindowReady: true });
+  const id = guest.queueProviderOperation({ contextId: "guest-loading", ephemeral: true, operation: "send" });
+  assert.equal(guest.cancelProviderOperation(id), true);
+  assert.equal(guest.windows[0].destroyed, true);
+
+  const account = harness({ deferWindowReady: true });
+  const pending = account.contextPromise("ordinary-loading", false);
+  account.releaseContext("ordinary-loading");
+  assert.equal(account.windows[0].destroyed, true);
+  account.windows[0].finishLoading();
+  await assert.rejects(pending, /closed while loading/);
+});
+
+test("closing the login window ends the current attempt instead of reopening it", async () => {
+  const authSource = section("async function checkAuthorization(", "\nfunction invokeProvider(");
+  let authorized = false, shown = 0;
+  const auth = vm.runInNewContext(
+    authSource + "\n({ authorizeRequest, dismiss: () => { managementAuthorizationDismissed = true; } })",
+    {
+      managementAuthorizationDismissed: false,
+      management: { window: { show() { shown++; }, focus() {} } },
+      browserModule: { name: "Fake", isAuthorized: async () => authorized },
+      authenticatedSession: {
+        flushStorageData: async () => {},
+        cookies: { flushStore: async () => {} }
+      }
+    }
+  );
+  const started = await auth.authorizeRequest(true, true);
+  assert.equal(started.authorized, false);
+  assert.equal(started.dismissed, false);
+  assert.equal(shown, 1);
+
+  auth.dismiss();
+  const stopped = await auth.authorizeRequest(true, false);
+  assert.equal(stopped.dismissed, true);
+  assert.equal(shown, 1);
+
+  // A later explicit attempt resets the dismissed flag.
+  const retried = await auth.authorizeRequest(true, true);
+  assert.equal(retried.dismissed, false);
+  assert.equal(shown, 2);
+  authorized = true;
+  assert.equal((await auth.authorizeRequest(true, false)).authorized, true);
 });
