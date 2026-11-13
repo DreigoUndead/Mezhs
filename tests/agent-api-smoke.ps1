@@ -187,15 +187,18 @@ try {
 
     # The Agent list projects root execution status and matching ID in one batch.
     # An unread browser dot must identify a completed run, not infer one from UpdatedAt.
-    $agentList = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats")
-    $listedAgent = @($agentList | Where-Object { $_.chatId -eq $completed.chatId })[0]
+    # Invoke-RestMethod can emit a JSON array as one pipeline object; avoid
+    # wrapping that array again before filtering individual Agent chat rows.
+    $agentList = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats"
+    $listedAgents = @($agentList | Where-Object { $_.chatId -eq $completed.chatId })
+    $listedAgent = $listedAgents[0]
     $singleAgent = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)"
-    if ($null -eq $listedAgent -or
+    if ($listedAgents.Count -ne 1 -or $null -eq $listedAgent -or
         $listedAgent.executionStatus -ne "Completed" -or
         $listedAgent.executionStatusId -ne $completed.executionId -or
         $singleAgent.executionStatus -ne "Completed" -or
         $singleAgent.executionStatusId -ne $completed.executionId) {
-        throw "Agent chat list/detail status mismatch: expected=$($completed.executionId); listStatus=$($listedAgent.executionStatus); listId=$($listedAgent.executionStatusId); detailStatus=$($singleAgent.executionStatus); detailId=$($singleAgent.executionStatusId); matchingCount=$(@($agentList | Where-Object { $_.chatId -eq $completed.chatId }).Count); listCount=$($agentList.Count)."
+        throw "Agent chat list/detail status mismatch: expected=$($completed.executionId); listStatus=$($listedAgent.executionStatus); listId=$($listedAgent.executionStatusId); detailStatus=$($singleAgent.executionStatus); detailId=$($singleAgent.executionStatusId); matchingCount=$($listedAgents.Count); listCount=$(@($agentList).Count)."
     }
 
     $initialMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
@@ -230,9 +233,10 @@ try {
         $changedModelCompleted.model -ne "mock-deep") {
         throw "Agent execution did not persist an explicit model change on the selected connection."
     }
-    $newStatus = @((Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats") |
-        Where-Object { $_.chatId -eq $completed.chatId })[0]
-    if ($null -eq $newStatus -or $newStatus.executionStatus -ne "Completed" -or
+    $updatedAgentList = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats"
+    $newStatuses = @($updatedAgentList | Where-Object { $_.chatId -eq $completed.chatId })
+    $newStatus = $newStatuses[0]
+    if ($newStatuses.Count -ne 1 -or $null -eq $newStatus -or $newStatus.executionStatus -ne "Completed" -or
         $newStatus.executionStatusId -ne $changedModelCompleted.executionId -or
         $newStatus.executionStatusId -eq $completed.executionId) {
         throw "Agent list status ID was not refreshed for the next completed root execution."
