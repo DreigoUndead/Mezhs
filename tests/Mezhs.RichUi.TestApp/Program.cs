@@ -73,7 +73,7 @@ Console.WriteLine($"{(radioPass ? "PASS" : "FAIL")}: Real radio fixture; valid={
 if (!radioPass) failures++;
 var svgTests = new (string Name, string Source, bool Valid, Func<RichParseResult, bool> Extra)[]
 {
-    ("Representative SVG", File.ReadAllText(Path.Combine("tests","fixtures","rich-model-ui","representative-svg.md")), true, r => r.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "svg" && n.Children?.Any(c => c.Name == "text") == true)),
+    ("Representative SVG", File.ReadAllText(Path.Combine("tests","fixtures","rich-model-ui","representative-svg.md")), true, r => r.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "svg" && n.Children?.Any(c => c.Name == "text") == true && n.Children?.Any(c => c.Name == "g" && c.Children?.Any(x => x.Name == "rect") == true && c.Children?.Any(x => x.Name == "text" && x.Children?.Any(t => t.Text?.Contains("Collector") == true) == true) == true) == true)),
     ("SVG embedded commands rejected", "<svg viewBox=\"0 0 100 100\"><SH>\necho NEVER\n</SH></svg>", false, r => r.Commands.Count == 0),
     ("SVG injected event rejected", "<svg onload=\"alert(1)\"></svg>", false, r => r.Commands.Count == 0),
     ("SVG forbidden url rejected", "<svg><rect x=\"1\" fill=\"url(#evil)\" /></svg>", false, r => r.Commands.Count == 0),
