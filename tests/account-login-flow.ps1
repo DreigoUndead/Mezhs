@@ -36,6 +36,7 @@ try
 {
     await TestSessionOwnershipAsync(Path.Combine(root, "ownership"));
     await TestContextLifetimeAsync(Path.Combine(root, "lifetimes"));
+    await TestConcurrentLoginDoesNotBlockCancellationAsync(Path.Combine(root, "login-cancel"));
     await TestAnonymousDiagnosticsAsync(Path.Combine(root, "guests"));
     Console.WriteLine("PASS: T2 browser session ownership and diagnostics regressions");
     if (args.Contains("--ownership-only")) return;
@@ -51,11 +52,12 @@ finally
     try { Directory.Delete(root, recursive: true); } catch { }
 }
 
-static IntegrationConnection Connection() => new(
+static IntegrationConnection Connection(int? maxParallel = null) => new(
     "account",
     "Account",
     "chatgpt-web-account",
-    new Dictionary<string, string?>());
+    new Dictionary<string, string?>(),
+    maxParallel is null ? null : new IntegrationLimits { MaxParallel = maxParallel.Value });
 
 static async Task TestExpiredOperationLoginAsync(string root)
 {
@@ -249,6 +251,57 @@ static async Task TestContextLifetimeAsync(string root)
     await owner.ReleaseConversationAsync("cancelled-agent");
 }
 
+static async Task TestConcurrentLoginDoesNotBlockCancellationAsync(string root)
+{
+    var host = new FakeHost(root, authorized: true);
+    await using var integration = new ChatGptAccountIntegration(Connection(maxParallel: 3), host);
+
+    // A has already submitted. B waits for a user to log in, while C must
+    // wait for that same attempt rather than opening another login dialog.
+    host.HangNextPrompt = true;
+    using var cancelA = new CancellationTokenSource();
+    var sendA = integration.SendMessageAsync(SimpleContext("active-a"), cancelA.Token);
+    await host.PromptStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+    host.Authorized = false;
+    host.HangAuthorization = true;
+    var sendB = integration.SendMessageAsync(SimpleContext("login-b"));
+    await host.AuthorizationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    var sendC = integration.SendMessageAsync(SimpleContext("login-c"));
+
+    cancelA.Cancel();
+    try
+    {
+        await sendA.WaitAsync(TimeSpan.FromSeconds(2));
+        throw new InvalidOperationException("Active send did not cancel.");
+    }
+    catch (OperationCanceledException) { }
+    Assert(host.ReleasedContexts.Contains("active-a"),
+        "Active chat cancellation was blocked behind an interactive login.");
+    Assert(!sendB.IsCompleted && !sendC.IsCompleted,
+        "A waiting login attempt must not complete before the dialog is dismissed.");
+
+    // Dismiss the single login dialog without a cookie. Both waiting sends
+    // fail explicitly; the second may only recheck, not prompt the user again.
+    host.FinishAuthorization.TrySetResult(false);
+    await ExpectAuthRequiredAsync(sendB);
+    await ExpectAuthRequiredAsync(sendC);
+    Assert(host.InteractiveAuthorizationAttempts == 1,
+        "Concurrent chats started multiple interactive login attempts.");
+    Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
+        "Login or cancellation restarted the shared browser host.");
+}
+
+static async Task ExpectAuthRequiredAsync(Task send)
+{
+    try
+    {
+        await send.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+    catch (BrowserAuthorizationRequiredException) { return; }
+    throw new InvalidOperationException("Dismissed login did not fail with authorization required.");
+}
+
 static async Task TestAnonymousDiagnosticsAsync(string root)
 {
     var host = new FakeHost(root, authorized: true);
@@ -299,6 +352,12 @@ sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
     public TaskCompletionSource<bool> PromptStarted { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     public bool Authorized { get; set; } = authorized;
+    public bool HangAuthorization { get; set; }
+    public int InteractiveAuthorizationAttempts;
+    public TaskCompletionSource<bool> AuthorizationStarted { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource<bool> FinishAuthorization { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     public bool AuthorizationFailureOnce { get; set; }
     public bool UnavailableContinuationOnce { get; set; }
 
@@ -333,16 +392,22 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         return Task.CompletedTask;
     }
 
-    public Task EnsureAuthorizedAsync(bool interactive, CancellationToken cancellationToken = default)
+    public async Task EnsureAuthorizedAsync(bool interactive, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!host.Authorized)
         {
             if (!interactive)
                 throw new BrowserAuthorizationRequiredException("Authorization required.");
+            Interlocked.Increment(ref host.InteractiveAuthorizationAttempts);
+            if (host.HangAuthorization)
+            {
+                host.AuthorizationStarted.TrySetResult(true);
+                if (!await host.FinishAuthorization.Task.WaitAsync(cancellationToken))
+                    throw new BrowserAuthorizationRequiredException("Login was dismissed.");
+            }
             host.Authorized = true;
         }
-        return Task.CompletedTask;
     }
 
     public Task<TResult> InvokeAsync<TResult>(
