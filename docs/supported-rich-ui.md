@@ -1,10 +1,12 @@
 # Supported rich UI in MEŽS model replies
 
-The shared MEŽS renderer uses **safe subsets** of Markdown, DIL-like JSX and SVG. This document describes **supported rendering**, not an instruction to execute JSX, arbitrary JavaScript, or model-supplied callbacks. Ordinary Markdown, GFM tables, links and fenced code continue to work. All providers share the same renderer; Agent transcripts are read-only for model-authored actions.
+MEŽS uses **one authoritative C# `RichDocumentParser`** (in `Mezhs.Common`) for Markdown, supported rich tags and Agent protocol commands. The server serializes a validated, versioned typed document; the shared React `RichDocumentView` renders only those typed nodes. No frontend parser, legacy markup fallback, or model-authored JavaScript executes. Ordinary Markdown, pipe tables, links and fenced code remain supported. During provisional/streamed content, the frontend displays inert source until the server supplies a validated document. Agent transcripts are read-only for model-authored new-turn actions.
+
+The v1 document includes `version`, `valid`, `nodes` and `diagnostics`; nodes carry `kind`, stable `id`, `sourceSpan` (zero-based UTF-16 source positions, exclusive end), text, optional known tag name, scalar attributes, and children. Agent command records are host-only and never serialized as frontend actions. On validation failure, the whole source is shown inertly; **no Agent commands are returned or executed**.
 
 ## Static layout
 
-The following inert elements support bounded literal or numeric attributes: `box`, `row`, `col`, `grid`, `grid-item`, `text`, `title`, `badge`, `divider`, `caption`, `icon`, `Link` (only verified http(s)/mailto URL syntax), and declarative `Chart` content. The rich layout respects nesting and regular Markdown between elements.
+The supported inert elements are `box`, `row`, `col`, `grid`, `grid-item`, `text`, `title`, `badge`, `divider`, `caption`, `icon`, `Link` (safe `http`, `https`, `mailto` destinations) and `Chart` (only a literal `json:` URI-encoded object payload, not JavaScript object expressions). Attributes are quoted strings, standalone booleans, or bounded numeric/boolean `{...}` literals. Dynamic `{expression}`, event handlers and arbitrary props are not supported. Ordinary Markdown is parsed as typed nodes between valid rich elements.
 
 ```mdx
 <box gap={3}>
@@ -29,7 +31,7 @@ The explicit icon subset includes `scroll-text`, `git-branch`, `chart-no-axes-co
 
 ## Inline SVG diagrams
 
-Validated `svg` elements support bounded native drawing tags: `g`, `rect`, `path`, `line`, `polyline`, `polygon`, `circle`, `ellipse`, `text`, and `tspan`. Use numeric geometry, `viewBox`, `width="100%"`, and a plain accessible label. Static `fill`, `stroke`, `strokeWidth`, `fillOpacity`, `fontSize`, `fontWeight`, and `textAnchor` are supported. A restricted literal `{#each}` template for static data and safe numeric expressions can be expanded before rendering; dynamic arbitrary JS is not supported.
+Validated `svg` elements support bounded native drawing tags: `g`, `rect`, `path`, `line`, `polyline`, `polygon`, `circle`, `ellipse`, `text`, and `tspan`. Use numeric geometry, `viewBox`, `width="100%"`, and a plain accessible label. Static `fill`, `stroke`, `strokeWidth`, `fillOpacity`, `fontSize`, `fontWeight`, and `textAnchor` are supported. All SVG geometry must be **literal**. `{#each}`, `{#if}`, variables, formulas and arbitrary JavaScript are **not** expanded. SVG child elements use the validated SVG grammar (including nested `<g>`), not Markdown indentation rules.
 
 ```mdx
 <svg viewBox="0 0 340 100" width="100%" aria-label="Telemetry flow">
@@ -67,7 +69,7 @@ MEŽS interprets the exact form above **as data**. It does not execute the `{@bo
 
 Radio question labels may now contain bounded static presentation elements, including `<text size="sm" color="secondary">…</text>` and `<icon name="arrow-right" inline/>`, alongside Markdown emphasis and inline code. Confirm buttons may contain the same validated static content. The selected radio value remains the one local state variable, and the host still exclusively controls whether the button can dispatch a turn.
 
-The action argument can be a restricted expression using the selected choice, string literals, `===`/`!==` comparisons, ternaries, string concatenation, and a bounded template literal. The renderer validates the expression and precomputes a separate literal message for every declared radio value. No model-provided JavaScript runs on selection or submission. Complex expressions, additional functions, dynamic lookups, unsupported JSX, HTML event attributes, and malformed controls remain inert.
+The finite C# action grammar supports only two forms: one literal template interpolation of the declared radio state (for example, `` `Choice: ${answer}` ``), or the existing **strict-equality ternary chain** with one string literal per radio choice, ending with a literal fallback. MEŽS precomputes one literal message for each choice. It does **not** evaluate the expression. `!==`, concatenation, nested templates, other variable references, additional functions and general JavaScript remain unsupported. Malformed controls are inert.
 
 For the exact four-option example, including all four conditional payloads and an arrow icon, see `tests/fixtures/rich-model-ui/custom-controls-question.md`. The corresponding parser/SSR and Chromium coverage is in `tests/rich-model-ui-rendering.test.cjs` and `tests/rich-model-ui-browser.test.cjs`.
 
@@ -87,7 +89,7 @@ const item = { label: "<box>literal text</box>" };
 
 The component renders escaped selectable source; with editable it renders a local editor. Copy uses the browser clipboard and reports failure. It does **not** execute code, send chat messages, or grant model-defined callbacks. An invalid opening tag, excess content, or unsupported attributes do not activate the control. The closing tag is a standalone delimiter; to show the delimiter itself inside source, escape it rather than placing an unescaped standalone closing line.
 
-Nested static layout such as box/row/col/text continues to render through the same fixed registry. For example, a CodeBlock inside a valid box is displayed as code while sibling text remains normal rich content. Agent command parsing separately protects code examples and never treats raw CodeBlock or WritingBlock bodies as executable Agent commands. Static rich-layout containers also remain presentation-only in Agent replies: a command-shaped line nested in a box, row, SVG or other supported static container has no Agent execution authority. Genuine top-level commands outside a complete container retain their normal policy checks.
+Nested static layout such as box/row/col/text continues to render through the same fixed registry. For example, a CodeBlock inside a valid box is displayed as code while sibling text remains normal rich content. Agent command parsing separately protects code examples and never treats raw CodeBlock or WritingBlock bodies as executable Agent commands. **Agent execution authority is structural, not necessarily top-level.** Valid standalone `SH`, `ATTACH` and final `DONE` commands may appear inside validated `box`, `row`, `col`, `grid`, `grid-item` and Markdown lists as well as at the root. Commands inside display-only elements (`text`, `title`, `badge`, `caption`, `Link`), SVG, inline/fenced/indented code, comments, `escape`, `WritingBlock` or `CodeBlock` bodies have **no authority**; command-shaped tags in forbidden scopes invalidate the entire document. Existing Agent Registry, policy, command ordering and all-or-nothing validation remain mandatory.
 
 ## Editable WritingBlock
 
@@ -108,11 +110,11 @@ The Copy button copies the current edited body only, not the email headers. It r
 
 ## Citations
 
-`<Cite ref="turn123search3"/>` or `<Cite refs={["turn123search3","turn123search10"]}/>` accept only bounded literal source IDs. MEŽS currently has **no trusted citation-ID-to-URL provenance metadata** in the shared message contract. These render a compact *[source unavailable]* indicator; they are **not links** and must never be presented as independently verified sources. Use a normal supported Markdown link only when the real URL is known.
+`<Cite ref="turn123search3"/>` accepts a literal source ID; arrays such as `refs={["turn123search3","turn123search10"]}` are not part of the canonical v1 attribute grammar. MEŽS currently has **no trusted citation-ID-to-URL provenance metadata** in the shared message contract. These render a compact *[source unavailable]* indicator; they are **not links** and must never be presented as independently verified sources. Use a normal supported Markdown link only when the real URL is known.
 
 ## Safety and compatibility
 
-Fenced and inline code samples always remain literal. Escaped markup and unrecognized expressions remain inert. Model-authored scripts, arbitrary DIL hooks/components, event handlers, external SVG assets, remote citation IDs as URLs, dynamic code execution, and arbitrary CSS are **not supported**. The render pipeline bounds source size, AST depth, state/action grammar, SVG complexity and literal template expansion.
+Fenced and inline code samples always remain literal. Escaped markup and unrecognized expressions remain inert. Model-authored scripts, arbitrary DIL hooks/components, event handlers, external SVG assets, remote citation IDs as URLs, dynamic code execution, and arbitrary CSS are **not supported**. The render pipeline bounds source size, AST depth, scalar attributes, radio state/action grammar and SVG complexity. Unsupported DIL templates remain visible inert text; no template expansion occurs.
 
 The actual sanitized telemetry fixture and adversarial tests are in `tests/fixtures/rich-model-ui/` and `tests/rich-model-ui-rendering.test.cjs`. Rendering a model response does not imply those claims are verified facts.
 
@@ -120,9 +122,7 @@ The actual sanitized telemetry fixture and adversarial tests are in `tests/fixtu
 
 Each static supported render element has a separate host-owned implementation
 module in `src/Mezhs.Web.Lib/src/rich-elements/` with its own allowed attributes.
-`RichMarkup` only dispatches validated inert Markdown/MDX nodes through a fixed
-registry; model text cannot register modules or run JavaScript. Question, SVG,
-citation, chart and writing controls retain their specialized owners.
+`RichDocumentParser` and `RichTagRegistry` in `Mezhs.Common` validate source into a typed DTO. The React `RichDocumentView` dispatches **only server-validated symbolic names** to fixed host-owned components; model text cannot register modules or run JavaScript. Radio, SVG, citation, chart and writing controls retain their bounded specialized renderers. Agent `Parser` consumes the **same C# parsed command candidates**, with policy checks remaining Agent-owned.
 
 WritingBlock metadata must be literal; its opening and closing tags must each occupy
 an entire Markdown line (up to three leading spaces). A closing-looking tag inside a
