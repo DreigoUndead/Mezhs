@@ -30,6 +30,7 @@ public sealed class RichDocumentParser
     private int _count;
     private int _svgCount;
     private int _svgChars;
+    private int _markdownScanChars;
 
     public RichParseResult Parse(string source)
     {
@@ -40,6 +41,7 @@ public sealed class RichDocumentParser
         _count = 0;
         _svgCount = 0;
         _svgChars = 0;
+        _markdownScanChars = 0;
         try
         {
             // Markdown establishes code/escaped/comment semantics. Rich tags
@@ -233,17 +235,17 @@ public sealed class RichDocumentParser
             }
             else
             {
-                // Markdown scopes must be reparsed to protect indented/list code
-                // examples from Agent command discovery. SVG, however, has its
-                // own validated element grammar and no command authority at all:
-                // Markdig would mistake four-space SVG geometry for code blocks.
+                // Reparse Markdown only through this container's own matching
+                // close. Parsing every remaining suffix for every sibling box
+                // was quadratic in document width and exposed API/history reads
+                // to excessive CPU work. SVG has an independent literal grammar.
+                var childEnd = end;
                 if (!svgScope && tag.Name != "svg")
                 {
-                    var scoped = MarkdownLiteralMask(_source[cursor..end]);
-                    for (var i = 0; i < scoped.Length; i++)
-                        if (scoped[i]) _literal[cursor + i] = true;
+                    var closing = FindContainerClose(tag.Name, cursor, end);
+                    childEnd = closing + tag.Name.Length + 3;
                 }
-                var children = ReadChildren(cursor, end, tag.Name, depth + 1, out var after,
+                var children = ReadChildren(cursor, childEnd, tag.Name, depth + 1, out var after,
                     svgScope || tag.Name == "svg",
                     commandsAllowed && ExecutableContainers.Contains(tag.Name));
                 Add(result, new RichNode("element", $"{from}:element", new RichSourceSpan(from, after),
@@ -257,6 +259,66 @@ public sealed class RichDocumentParser
         AppendMarkdown(result, plainFrom, end, svgScope);
         position = end;
         return result;
+    }
+
+    // Locate a bounded matching rich-container closing delimiter before
+    // reparsing Markdown. Recognized opaque bodies are skipped, and candidate
+    // closers inside Markdown code are ignored. Repeated ambiguous closers
+    // have a strict retry limit; malformed input fails closed.
+    private int FindContainerClose(string name, int from, int end)
+    {
+        var ignored = new HashSet<int>();
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var nesting = 1;
+            var candidate = -1;
+            for (var pos = from; pos < end;)
+            {
+                if (_source[pos] != '<' || IsEscaped(pos) ||
+                    !TryTag(pos, end, out var tag))
+                {
+                    pos++;
+                    continue;
+                }
+                if (!tag.Closing && RichTagRegistry.TryGet(tag.Name, out var definition) &&
+                    definition.Role is RichTagRole.OpaqueLiteral or RichTagRole.RawEditor or RichTagRole.Command)
+                {
+                    var close = _source.IndexOf("</" + tag.Name + ">", tag.End, StringComparison.Ordinal);
+                    if (close >= 0 && close < end)
+                    {
+                        pos = close + tag.Name.Length + 3;
+                        continue;
+                    }
+                }
+                if (tag.Name == name)
+                {
+                    if (tag.Closing && !ignored.Contains(pos) && --nesting == 0)
+                    {
+                        candidate = pos;
+                        break;
+                    }
+                    if (!tag.Closing && !tag.SelfClosing) nesting++;
+                }
+                pos = tag.End;
+            }
+            if (candidate < 0)
+                throw new RichDocumentException($"Unclosed {name} container.");
+            var spanEnd = candidate + name.Length + 3;
+            var length = spanEnd - from;
+            _markdownScanChars += length;
+            if (_markdownScanChars > 8_000_000)
+                throw new RichDocumentException("Markdown validation work budget exceeded.");
+            var mask = MarkdownLiteralMask(_source[from..spanEnd]);
+            if (mask[candidate - from])
+            {
+                ignored.Add(candidate);
+                continue;
+            }
+            for (var i = 0; i < mask.Length; i++)
+                if (mask[i]) _literal[from + i] = true;
+            return candidate;
+        }
+        throw new RichDocumentException("Ambiguous rich container closing delimiters.");
     }
 
     private void Add(List<RichNode> nodes, RichNode node)
