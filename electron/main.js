@@ -12,6 +12,7 @@ let browserModule = null;
 let authenticatedSession = null;
 let management = null;
 let keepVisible = false;
+let managementAuthorizationDismissed = false;
 let shuttingDown = false;
 const guest = process.env.MEZHS_GUEST === "1";
 const contexts = new Map(); // local ChatId -> Promise<context>
@@ -97,7 +98,7 @@ function invokePageOperation(targetWindow, operation, args, timeoutMs = 0) {
   });
 }
 
-async function createWindow(browserSession, visible, isManagement = false) {
+async function createWindow(browserSession, visible, isManagement = false, onCreated) {
   const target = new BrowserWindow({
     width: 1200,
     height: 850,
@@ -125,6 +126,7 @@ async function createWindow(browserSession, visible, isManagement = false) {
   if (isManagement) {
     target.on("close", event => {
       if (shuttingDown) return;
+      managementAuthorizationDismissed = true;
       event.preventDefault();
       target.hide();
     });
@@ -142,6 +144,8 @@ async function createWindow(browserSession, visible, isManagement = false) {
       target.focus();
     }
   });
+  // Conversation owners can close the window even while loadURL is pending.
+  onCreated?.(target);
   try {
     await target.loadURL(browserModule.homeUrl);
     if (typeof browserModule.afterInitialize === "function")
@@ -157,10 +161,10 @@ async function createWindow(browserSession, visible, isManagement = false) {
 function closeContext(context) {
   if (!context || context.closed) return;
   context.closed = true;
-  if (!context.window.isDestroyed()) context.window.destroy();
+  if (context.window && !context.window.isDestroyed()) context.window.destroy();
 }
 
-async function createContext(ephemeral) {
+function createContext(ephemeral) {
   const browserSession = ephemeral
     ? session.fromPartition(`mezhs-guest-${randomUUID()}`) // no "persist:" prefix
     : authenticatedSession;
@@ -168,8 +172,16 @@ async function createContext(ephemeral) {
     throw new Error("Authenticated browser session is unavailable.");
   if (ephemeral)
     configureSessionBrowserIdentity(browserSession);
-  const target = await createWindow(browserSession, false);
-  return { window: target, session: browserSession, ephemeral, busy: 0, retire: false, closed: false };
+  const context = { window: null, session: browserSession, ephemeral, busy: 0, retire: false, closed: false };
+  const pending = createWindow(browserSession, false, false, window => {
+    context.window = window;
+  }).then(() => {
+    if (context.closed) throw new Error("Browser context closed while loading.");
+    return context;
+  });
+  // Expose the window before navigation resolves, not after.
+  pending.context = context;
+  return pending;
 }
 
 function contextPromise(contextId, ephemeral) {
@@ -194,18 +206,25 @@ function contextPromise(contextId, ephemeral) {
 function discardContext(contextId, pending) {
   if (contextId && contexts.get(contextId) === pending)
     contexts.delete(contextId);
-  // This also handles cancellation while a window is still navigating.
-  void pending.then(closeContext).catch(() => {});
+  // Close the actual window now, even if navigation never resolves.
+  if (pending.context) closeContext(pending.context);
+  else void pending.then(closeContext).catch(() => {});
 }
 
 function releaseContext(contextId) {
   const pending = contexts.get(contextId);
   if (!pending) return;
   contexts.delete(contextId); // A later explicit send gets a new context.
-  void pending.then(context => {
+  const context = pending.context;
+  if (context) {
     context.retire = true;
     if (context.busy === 0) closeContext(context);
-  }).catch(() => {});
+  } else {
+    void pending.then(ready => {
+      ready.retire = true;
+      if (ready.busy === 0) closeContext(ready);
+    }).catch(() => {});
+  }
 }
 
 async function initialize({ profileDirectory, showBrowser, modulePath, requireAuthorization }) {
@@ -238,11 +257,19 @@ async function checkAuthorization(interactive) {
   if (authorized) {
     await authenticatedSession.flushStorageData();
     await authenticatedSession.cookies.flushStore();
-  } else if (interactive) {
+  } else if (interactive && !managementAuthorizationDismissed) {
     management.window.show();
     management.window.focus();
   }
   return authorized;
+}
+
+async function authorizeRequest(interactive, first) {
+  if (interactive && first) managementAuthorizationDismissed = false;
+  if (interactive && managementAuthorizationDismissed)
+    return { authorized: false, dismissed: true };
+  const authorized = await checkAuthorization(interactive);
+  return { authorized, dismissed: interactive && managementAuthorizationDismissed };
 }
 
 function invokeProvider(context, { operation, arguments: args }, reportProgress) {
@@ -350,8 +377,10 @@ function cancelProviderOperation(operationId) {
   providerOperations.delete(operationId);
   if (state.pending) {
     // Only the cancelled operation's browser context is destroyed. Never stop the shared host.
-    if (state.ephemeral) void state.pending.then(closeContext).catch(() => {});
-    else if (state.contextId) discardContext(state.contextId, state.pending);
+    if (state.ephemeral) {
+      if (state.pending.context) closeContext(state.pending.context);
+      else void state.pending.then(closeContext).catch(() => {});
+    } else if (state.contextId) discardContext(state.contextId, state.pending);
   }
   return true;
 }
@@ -388,7 +417,7 @@ async function start() {
         writeJson(response, 200, { released: true });
       } else if (request.method === "POST" && requestUrl.pathname === "/authorize") {
         const body = await readJson(request);
-        writeJson(response, 200, { authorized: await checkAuthorization(body.interactive === true) });
+        writeJson(response, 200, await authorizeRequest(body.interactive === true, body.first === true));
       } else if (request.method === "POST" && requestUrl.pathname === "/show") {
         management?.window.show();
         management?.window.focus();
