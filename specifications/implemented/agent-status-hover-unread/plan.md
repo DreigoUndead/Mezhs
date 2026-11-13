@@ -25,3 +25,7 @@
 - Move plan to `specifications/implemented/agent-status-hover-unread/plan.md` before independent review.
 - Independent code review and targeted verification are required for Standard; owner approval is separate for merge.
 - Leave `VERSION`, `CHANGELOG.md` and `main` untouched. A PATCH bump is the tentative release proposal.
+
+## Implementation note
+
+Completed on the task branch. The typed Agent chat list now exposes the root execution ID alongside the status from the existing batch query, so unread tracking does not depend on modification timestamps or add list N+1 requests. Standard independent code review and verification are still required before owner merge approval.

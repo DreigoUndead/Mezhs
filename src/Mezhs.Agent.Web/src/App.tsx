@@ -37,6 +37,7 @@ type AgentChat = {
   updatedAt: string;
   categoryId?: string | null;
   executionStatus?: string | null;
+  executionStatusId?: string | null;
 };
 
 type AgentCategory = {
@@ -203,14 +204,38 @@ function agentStatus(chat: AgentChat) {
     ? "Paused" : state;
 }
 
-function AgentStatus({ chat }: { chat: AgentChat }) {
+const agentReadStorageKey = "mezhs.agent.read-executions.v1";
+
+function loadReadExecutions(): Record<string, string> {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(agentReadStorageKey) ?? "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([, id]) => typeof id === "string")) as Record<string, string>;
+  } catch {
+    // Browser storage may be disabled or contain an old/corrupt value.
+    return {};
+  }
+}
+
+function isUnreadCompletion(chat: AgentChat, readExecutions: Record<string, string>) {
+  return agentStatus(chat) === "Completed" && !!chat.executionStatusId &&
+    readExecutions[chat.chatId] !== chat.executionStatusId;
+}
+
+function AgentStatus({ chat, readExecutions, focusable = false }: {
+  chat: AgentChat;
+  readExecutions: Record<string, string>;
+  focusable?: boolean;
+}) {
   const state = agentStatus(chat);
-  const label = state === "CancelRequested" ? "Stopping" : state;
+  const unread = isUnreadCompletion(chat, readExecutions);
+  const label = (state === "CancelRequested" ? "Stopping" : state) + (unread ? " — unread" : "");
   return (
-    <span className={`agent-status agent-status-${state.toLowerCase()}`}
-      role="img" aria-label={`Agent status: ${label}`} title={`Agent status: ${label}`}>
+    <span className={`agent-status agent-status-${state.toLowerCase()}${unread ? " agent-status-unread" : ""}`}
+      role="img" aria-label={`Agent status: ${label}`} title={`Agent status: ${label}`}
+      tabIndex={focusable ? 0 : undefined}>
       <span className="agent-status-dot" aria-hidden="true" />
-      <span>{label}</span>
+      <span className="agent-status-label" aria-hidden="true">{label}</span>
     </span>
   );
 }
@@ -452,6 +477,7 @@ export default function App() {
   const [modelId, setModelId] = useState("");
   const [modelSpecified, setModelSpecified] = useState(false);
   const [chats, setChats] = useState<AgentChat[]>([]);
+  const [readExecutions, setReadExecutions] = useState<Record<string, string>>(loadReadExecutions);
   const [categories, setCategories] = useState<AgentCategory[]>([]);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [newChatCategoryId, setNewChatCategoryId] = useState("");
@@ -530,7 +556,6 @@ export default function App() {
     execution.kind === "Agent" && !execution.isTerminal);
   const activeShellExecution = executions.find((execution) =>
     execution.kind === "Shell" && !execution.isTerminal);
-  const latestAgentExecution = executions.find((execution) => execution.kind === "Agent");
   const activeMessage = findActiveUserMessage(messages);
   const agentBusyLabel = activeShellExecution
     ? activeShellExecution.status === "KillRequested"
@@ -614,6 +639,23 @@ export default function App() {
   }, []);
 
   useEffect(() => () => providerRegistry.current.dispose(), []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(agentReadStorageKey, JSON.stringify(readExecutions));
+    } catch {
+      // Ephemeral state still works when browser storage is unavailable.
+    }
+  }, [readExecutions]);
+
+  useEffect(() => {
+    if (creating || !selectedChatId) return;
+    const chat = chats.find((item) => item.chatId === selectedChatId);
+    if (chat?.executionStatus !== "Completed" || !chat.executionStatusId) return;
+    const id = chat.executionStatusId;
+    setReadExecutions((current) =>
+      current[selectedChatId] === id ? current : { ...current, [selectedChatId]: id });
+  }, [chats, selectedChatId, creating]);
 
   useEffect(() => {
     if (!chatMenuId) return;
@@ -1381,7 +1423,7 @@ useEffect(() => {
                 onClick={() => selectChat(chat.chatId)}>
                 <span className="agent-chat-title">{displayTitle(chat)}</span>
                 <span className="agent-chat-meta">
-                  <span className="agent-chat-context"><AgentStatus chat={chat} /> · {policyNames.get(chat.policyId) ?? chat.policyId} · {chat.originSource}</span>
+                  <span className="agent-chat-context"><AgentStatus chat={chat} readExecutions={readExecutions} /> · {policyNames.get(chat.policyId) ?? chat.policyId} · {chat.originSource}</span>
                   <time dateTime={chat.updatedAt} title={new Date(chat.updatedAt).toLocaleString()}>
                     {activityLabel(chat.updatedAt)}
                   </time>
@@ -1515,15 +1557,10 @@ useEffect(() => {
                 <span className="eyebrow">{selectedChat.originSource} · {selectedPolicy?.name ?? selectedChat.policyId}</span>
                 <h1>{displayTitle(selectedChat)}</h1>
                 <div className="agent-header-meta">
-                  <AgentStatus chat={selectedChat} />
+                  <AgentStatus chat={selectedChat} readExecutions={readExecutions} focusable />
                   <span>{selectedChat.connectionId || selectedPolicy?.connectionId || "connection unavailable"}</span>
                   <span>·</span>
                   <span>{shortId(selectedChat.chatId)}</span>
-                  {latestAgentExecution && (
-                    <span className={`agent-execution-status ${statusTone(latestAgentExecution)}`}>
-                      {latestAgentExecution.status}
-                    </span>
-                  )}
                   {activeShellExecution && (
                     <span className="agent-active-command">
                       SH {activeShellExecution.status === "KillRequested" ? "stopping" : activeShellExecution.status.toLocaleLowerCase()} {elapsedLabel(activeShellExecution) ?? ""}
