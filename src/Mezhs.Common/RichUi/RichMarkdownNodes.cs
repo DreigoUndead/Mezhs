@@ -1,4 +1,6 @@
 using Markdig;
+using Markdig.Extensions.Tables;
+using Markdig.Extensions.TaskLists;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 
@@ -10,7 +12,7 @@ internal static class RichMarkdownNodes
 {
     // Use the same bounded Markdown extensions as RichDocumentParser. Generic
     // attributes are deliberately unsupported: braces remain visible text.
-    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().UsePipeTables().UseEmphasisExtras().Build();
+    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().UsePipeTables().UseEmphasisExtras().UseTaskLists().Build();
 
     public static IReadOnlyList<RichNode> Convert(string source, int offset)
     {
@@ -44,7 +46,9 @@ internal static class RichMarkdownNodes
             "EmphasisInline" => input is EmphasisInline e && e.DelimiterChar == '~'
                 ? "strikethrough" : input is EmphasisInline strong && strong.DelimiterCount >= 2
                     ? "strong" : "emphasis",
-            "LinkInline" or "AutolinkInline" => "link",
+            "LinkInline" => input is LinkInline { IsImage: true } ? "image" : "link",
+            "AutolinkInline" => "link",
+            "TaskList" => "taskCheckbox",
             "LineBreakInline" => "lineBreak",
             "Table" => "table",
             "TableRow" => "tableRow",
@@ -54,16 +58,23 @@ internal static class RichMarkdownNodes
         var attributes = new Dictionary<string, string>(StringComparer.Ordinal);
         if (input is HeadingBlock heading) attributes.Add("level", heading.Level.ToString());
         if (input is ListBlock list) attributes.Add("ordered", list.IsOrdered ? "true" : "false");
+        if (input is TableRow row && row.IsHeader) attributes.Add("header", "true");
+        if (input is TableCell { Parent: TableRow { IsHeader: true } }) attributes.Add("header", "true");
+        if (input is TaskList task) attributes.Add("checked", task.Checked ? "true" : "false");
         if (input is LinkInline link && !string.IsNullOrEmpty(link.Url) &&
             Uri.TryCreate(link.Url, UriKind.Absolute, out var uri) &&
-            uri.Scheme is "https" or "http" or "mailto")
+            link.Url.Length <= 2_048 &&
+            (uri.Scheme is "https" or "http" ||
+             !link.IsImage && uri.Scheme == "mailto"))
             attributes.Add("url", link.Url);
-        if (kind == "link" && !attributes.ContainsKey("url")) kind = "literal";
+        if (kind is "link" or "image" && !attributes.ContainsKey("url")) kind = "literal";
 
         string? text = null;
         if (input is LiteralInline literal) text = literal.Content.ToString();
         else if (input is CodeInline code) text = code.Content;
-        else if (kind is "code" or "literal") text = source[start..end];
+        else if (kind == "code" && input is LeafBlock codeBlock)
+            text = codeBlock.Lines.ToString();
+        else if (kind == "literal") text = source[start..end];
 
         var children = new List<RichNode>();
         if (kind != "literal" && kind != "code")
