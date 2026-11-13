@@ -71,6 +71,32 @@ var radioPass = parsedQuestion.Document.Valid && parsedQuestion.Commands.Count =
     choices[3].Attributes!["message"].Contains("different semantics");
 Console.WriteLine($"{(radioPass ? "PASS" : "FAIL")}: Real radio fixture; valid={parsedQuestion.Document.Valid}; choices={choices.Length}; diagnostics={string.Join(",", parsedQuestion.Document.Diagnostics.Select(d => d.Code))}");
 if (!radioPass) failures++;
+var wrappedFixture = File.ReadAllText(Path.Combine("tests", "fixtures", "rich-model-ui", "wrapped-question.md"));
+var wrappedResult = new RichDocumentParser().Parse(wrappedFixture);
+var wrappedQuestion = wrappedResult.Document.Nodes.SingleOrDefault(n => n.Kind == "question");
+var wrappedPass = wrappedResult.Document.Valid && wrappedResult.Commands.Count == 0 &&
+    wrappedQuestion?.Attributes?.GetValueOrDefault("initial") == "A" &&
+    wrappedQuestion.Attributes.GetValueOrDefault("box") == "true" &&
+    wrappedQuestion.Attributes.GetValueOrDefault("box.radius") == "xl" &&
+    wrappedQuestion.Children?.Count(n => n.Kind == "questionOption") == 2 &&
+    wrappedQuestion.Children.Any(n => n.Kind == "questionOption" &&
+        n.Attributes?.GetValueOrDefault("message") == "Choice: A");
+Console.WriteLine($"{(wrappedPass ? "PASS" : "FAIL")}: Original boxed radio fixture; valid={wrappedResult.Document.Valid}; diagnostics={string.Join("|", wrappedResult.Document.Diagnostics.Select(d => d.Code))}");
+if (!wrappedPass) failures++;
+
+var rejectedBox = new RichDocumentParser().Parse(wrappedFixture.Replace("<box border", "<box onClick=\"unsafe()\" border"));
+var rejectedBoxPass = !rejectedBox.Document.Valid && rejectedBox.Commands.Count == 0;
+Console.WriteLine($"{(rejectedBoxPass ? "PASS" : "FAIL")}: Unsafe radio box wrapper remains inert");
+if (!rejectedBoxPass) failures++;
+
+var staticStyle = new RichDocumentParser().Parse("<text textAlign=\"center\" tabularNums>42</text><title textAlign=\"center\" tabularNums>Title</title>");
+var staticStylePass = staticStyle.Document.Valid &&
+    staticStyle.Document.Nodes.Count(n => n.Kind == "element" &&
+        n.Attributes?.GetValueOrDefault("textAlign") == "center" &&
+        n.Attributes.GetValueOrDefault("tabularNums") == "true") == 2;
+Console.WriteLine($"{(staticStylePass ? "PASS" : "FAIL")}: Previously supported text/title static attributes");
+if (!staticStylePass) failures++;
+
 var svgTests = new (string Name, string Source, bool Valid, Func<RichParseResult, bool> Extra)[]
 {
     ("Representative SVG", File.ReadAllText(Path.Combine("tests","fixtures","rich-model-ui","representative-svg.md")), true, r => r.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "svg" && n.Children?.Any(c => c.Name == "text") == true && n.Children?.Any(c => c.Name == "g" && c.Children?.Any(x => x.Name == "rect") == true && c.Children?.Any(x => x.Name == "text" && x.Children?.Any(t => t.Text?.Contains("Collector") == true) == true) == true) == true)),
@@ -119,5 +145,5 @@ var deepPass = deepParsed.Document.Valid && deepParsed.Commands.Count == 0 &&
 Console.WriteLine($"{(deepPass ? "PASS" : "FAIL")}: Nested protected code bounded in {timer.ElapsedMilliseconds} ms");
 if (!deepPass) failures++;
 
-Console.WriteLine($"{checks.Length + svgTests.Length + 3 - failures}/{checks.Length + svgTests.Length + 3} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + 6 - failures}/{checks.Length + svgTests.Length + 6} passed");
 return failures == 0 ? 0 : 1;
