@@ -206,21 +206,25 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
     public async Task EnsureAuthorizedAsync(bool interactive, CancellationToken cancellationToken = default)
     {
         EnsureRunning();
+        var first = true;
         while (true)
         {
             using var response = await _http.PostAsJsonAsync(
-                "authorize", new { interactive }, JsonOptions, cancellationToken);
+                "authorize", new { interactive, first }, JsonOptions, cancellationToken);
+            first = false;
             if (!response.IsSuccessStatusCode)
                 throw new InvalidOperationException(await response.Content.ReadAsStringAsync(cancellationToken));
             var state = await response.Content.ReadFromJsonAsync<AuthorizationState>(JsonOptions, cancellationToken);
             if (state?.Authorized == true) return;
+            if (state?.Dismissed == true)
+                throw new BrowserAuthorizationRequiredException("Browser login was closed before authorization completed.");
             if (!interactive)
                 throw new BrowserAuthorizationRequiredException("Browser authorization is required.");
             await Task.Delay(1000, cancellationToken);
         }
     }
 
-    private sealed record AuthorizationState(bool Authorized);
+    private sealed record AuthorizationState(bool Authorized, bool Dismissed = false);
 
     private sealed class ContextView(ElectronBrowserTransport owner, string chatId, bool ephemeral)
         : IChatBrowserTransport
