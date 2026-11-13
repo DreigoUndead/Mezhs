@@ -89,5 +89,35 @@ foreach (var (name, source, valid, extra) in svgTests)
     Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; errors={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
     if (!pass) failures++;
 }
-Console.WriteLine($"{checks.Length + svgTests.Length - failures}/{checks.Length + svgTests.Length} passed");
+var nestedScope = "<box>\n~~~md\n</box>\n~~~\n<box><text>Nested sibling</text></box>\n</box>";
+var nestedParsed = new RichDocumentParser().Parse(nestedScope);
+var nestedPass = nestedParsed.Document.Valid && nestedParsed.Commands.Count == 0 &&
+    nestedParsed.Document.Nodes.Any(n => n.Name == "box" &&
+        n.Children?.Any(c => c.Name == "box" && c.Children?.Any(x => x.Name == "text") == true) == true);
+Console.WriteLine($"{(nestedPass ? "PASS" : "FAIL")}: Fenced false closing delimiter inside nested layout");
+if (!nestedPass) failures++;
+
+var wideSource = string.Concat(Enumerable.Range(0, 900)
+    .Select(i => $"<box><text>Label {i}</text></box>\\n")).Replace("\\n", "\n");
+var timer = System.Diagnostics.Stopwatch.StartNew();
+var wideParsed = new RichDocumentParser().Parse(wideSource);
+timer.Stop();
+var widePass = wideParsed.Document.Valid && wideParsed.Commands.Count == 0 &&
+    wideParsed.Document.Nodes.Count(n => n.Name == "box") == 900 &&
+    timer.Elapsed < TimeSpan.FromSeconds(8);
+Console.WriteLine($"{(widePass ? "PASS" : "FAIL")}: 900 sibling containers bounded in {timer.ElapsedMilliseconds} ms");
+if (!widePass) failures++;
+
+var deepSource = string.Concat(Enumerable.Repeat("<box>\n", 20)) +
+    "~~~\n<SH>\necho NEVER\n</SH>\n~~~\n" +
+    string.Concat(Enumerable.Repeat("</box>\n", 20));
+timer.Restart();
+var deepParsed = new RichDocumentParser().Parse(deepSource);
+timer.Stop();
+var deepPass = deepParsed.Document.Valid && deepParsed.Commands.Count == 0 &&
+    timer.Elapsed < TimeSpan.FromSeconds(8);
+Console.WriteLine($"{(deepPass ? "PASS" : "FAIL")}: Nested protected code bounded in {timer.ElapsedMilliseconds} ms");
+if (!deepPass) failures++;
+
+Console.WriteLine($"{checks.Length + svgTests.Length + 3 - failures}/{checks.Length + svgTests.Length + 3} passed");
 return failures == 0 ? 0 : 1;
