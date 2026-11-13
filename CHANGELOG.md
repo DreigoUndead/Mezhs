@@ -2,6 +2,27 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.5.0] — 2026-11-13
+
+### Added
+- Parallel local model sends for separate browser-backed ChatIds, with independent authenticated Electron windows inside one shared connection-owned host and fresh isolated guest sessions for each turn.
+- Per-connection browser limits: `maxParallel` (default 1; 0 unlimited) and `minInterval` (milliseconds; default 0), enforced by a cancellation-aware admission gate.
+- Accessible Agent execution status indicators in the sidebar and selected-chat header, backed by batched existing execution state.
+
+### Changed
+- Share account authentication without serializing entire model turns; deduplicate interactive login attempts and retain per-chat cancellation and progress routing.
+- Retain an Agent's browser conversation context through model-to-shell-to-model cycles and release it at execution end; retire ordinary chat windows after sends.
+- Configure ChatGPT Account for two concurrent local sends spaced by at least 5 seconds; explicitly retain 1/0 defaults for ChatGPT Guest, Gemini Guest and Grok Account.
+- Rename the unreleased `minIntervalBetweenStartsMs` setting to `minInterval`; the old key is not accepted.
+
+### Tests
+- Independent high-risk review and automated testing of the implementation prior to the final configuration follow-up, followed by targeted limits, cancellation, Electron context, Agent lifetime and Release solution checks on the final candidate; CI passed on the final candidate.
+
+### Known limitations
+- Real authenticated concurrent provider responses, simultaneous different served models/efforts, and full Electron GUI/resource measurements were not independently verified.
+- Browser cancellation stops local work best-effort; remote provider processing may continue. Dead Electron hosts are not automatically restarted.
+- Existing account-level ChatGPT model-preference mutation remains until live provider evidence warrants changing it.
+
 ## [0.4.1] — 2026-11-13
 
 ### Changed
