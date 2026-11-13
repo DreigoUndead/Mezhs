@@ -3169,6 +3169,22 @@
       "raw": "Markdig"
     },
     {
+      "from": 130,
+      "to": {
+        "type": "external",
+        "name": "Markdig.Extensions.Tables"
+      },
+      "raw": "Markdig.Extensions.Tables"
+    },
+    {
+      "from": 130,
+      "to": {
+        "type": "external",
+        "name": "Markdig.Extensions.TaskLists"
+      },
+      "raw": "Markdig.Extensions.TaskLists"
+    },
+    {
       "from": 129,
       "to": {
         "type": "external",
