@@ -50,18 +50,20 @@ Only one state declaration, two to twelve literal radio choices, and a button ca
 
 ```mdx
 {@body const [answer,setAnswer] = DIL.useState("A")}
-<radio-group direction="col" value={answer} onChange={setAnswer}>
+<box border radius="xl" padding={3} gap={3}>
+  <radio-group direction="col" value={answer} onChange={setAnswer}>
   <radio value="A">
     **A — Send to the collector.** One pipeline, one endpoint.
   </radio>
   <radio value="B">
     **B — Separate exporters.** Independently configurable destinations.
   </radio>
-</radio-group>
-<button block onClick={() => GenUI.issueNewTurn(`Choice: ${answer}`)}>Confirm</button>
+  </radio-group>
+  <button block onClick={() => GenUI.issueNewTurn(`Choice: ${answer}`)}>Confirm</button>
+</box>
 ```
 
-The `{@body}` declaration, `radio-group` and `button` must occur consecutively as this bounded grammar. A wrapping `box` between the declaration and radio group is **not supported**; use the standalone question as shown.
+The `{@body}` declaration must be followed by the `radio-group` and `button`, optionally wrapped together in **one** statically validated `box`, as shown. No other intervening elements or nested interactive wrappers are supported. The same question also works without that `box`.
 
 MEŽS interprets the exact form above **as data**. It does not execute the `{@body}` declaration, hooks, template interpolation or arrow function as supplied JavaScript. Unrecognized controls remain inert. Buttons are disabled without a host callback, including in Agent transcripts. Composer drafts/uploads are not used for these sends, which share the host's normal busy/offline/chat ownership checks.
 
