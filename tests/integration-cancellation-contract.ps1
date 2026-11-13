@@ -181,7 +181,7 @@ static async Task VerifyLimitsAsync(Registration registration, string root)
     }
     // Monotonic spacing serializes starts, not entire provider turn.
     await using (var fixture = CreateFixture(registration, root, "spacing",
-        new IntegrationLimits { MaxParallel = 0, MinIntervalBetweenStartsMs = 350 }))
+        new IntegrationLimits { MaxParallel = 0, MinInterval = 350 }))
     {
         using var aToken = new CancellationTokenSource();
         using var bToken = new CancellationTokenSource();
@@ -190,7 +190,7 @@ static async Task VerifyLimitsAsync(Registration registration, string root)
         var b = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "s2"), bToken.Token);
         await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
         if (fixture.Host.InvocationGap < TimeSpan.FromMilliseconds(180))
-            throw new InvalidOperationException("MinIntervalBetweenStartsMs did not space admitted sends.");
+            throw new InvalidOperationException("MinInterval did not space admitted sends.");
         aToken.Cancel(); bToken.Cancel();
         await ExpectCancelledAsync(a, registration.Name, "spaced first");
         await ExpectCancelledAsync(b, registration.Name, "spaced second");

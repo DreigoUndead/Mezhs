@@ -88,7 +88,7 @@ public abstract class BrowserIntegrationBase(
             await _startGate.WaitAsync(cancellationToken);
             try
             {
-                var spacingMs = Connection.Limits?.MinIntervalBetweenStartsMs ?? 0;
+                var spacingMs = Connection.Limits?.MinInterval ?? 0;
                 if (spacingMs > 0 && _lastStartTimestamp != 0)
                 {
                     var remaining = spacingMs - Stopwatch.GetElapsedTime(_lastStartTimestamp).TotalMilliseconds;

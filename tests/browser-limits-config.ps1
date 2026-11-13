@@ -55,27 +55,27 @@ void Reject(string limits, string reason)
 
 var defaults = Read("");
 Assert(defaults.Connections[0].Limits.MaxParallel == 1 &&
-       defaults.Connections[0].Limits.MinIntervalBetweenStartsMs == 0,
+       defaults.Connections[0].Limits.MinInterval == 0,
     "Omitted browser limits must default to maxParallel=1, spacing=0.");
 
 var unlimited = Read("""
     
         limits:
           maxParallel: 0
-          minIntervalBetweenStartsMs: 0
+          minInterval: 0
     """);
 Assert(unlimited.Connections[0].Limits.MaxParallel == 0 &&
-       unlimited.Connections[0].Limits.MinIntervalBetweenStartsMs == 0,
+       unlimited.Connections[0].Limits.MinInterval == 0,
     "Explicit zero must disable both browser limits.");
 
 var bounded = Read("""
     
         limits:
           maxParallel: 3
-          minIntervalBetweenStartsMs: 250
+          minInterval: 250
     """);
 Assert(bounded.Connections[0].Limits.MaxParallel == 3 &&
-       bounded.Connections[0].Limits.MinIntervalBetweenStartsMs == 250,
+       bounded.Connections[0].Limits.MinInterval == 250,
     "Configured browser limits were not parsed.");
 
 Reject("""
@@ -86,18 +86,35 @@ Reject("""
 Reject("""
     
         limits:
-          minIntervalBetweenStartsMs: -1
+          minInterval: -1
     """, "Negative spacing was accepted.");
 Reject("""
     
         limits:
           maxParallel: unlimited
     """, "Nonnumeric limits were accepted.");
+Reject("""
+    
+        limits:
+          minIntervalBetweenStartsMs: 100
+    """, "Legacy minIntervalBetweenStartsMs must not be silently accepted.");
 
-Console.WriteLine("PASS: Browser YAML limits defaults, explicit unlimited, bounded values and invalid values.");
+var sample = MezhsConfigLoader.Load(Path.Combine(args[1], "mezhs.yaml"));
+Assert(sample.Connections.Count == 4, "Sample configuration should define four browser providers.");
+var account = sample.Connections.Single(connection => connection.Id == "chatgpt-sub");
+Assert(account.Limits.MaxParallel == 2 && account.Limits.MinInterval == 5000,
+    "ChatGPT account must allow two sends spaced by five seconds.");
+foreach (var id in new[] { "chatgpt-guest", "gemini-guest", "grok-account" })
+{
+    var connection = sample.Connections.Single(item => item.Id == id);
+    Assert(connection.Limits.MaxParallel == 1 && connection.Limits.MinInterval == 0,
+        $"Connection '{id}' must explicitly preserve default limits.");
+}
+
+Console.WriteLine("PASS: Browser YAML limits defaults, explicit unlimited, bounded values, invalid values and configured provider limits.");
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
-    dotnet run --project (Join-Path $temp 'Test.csproj') -c Release -- $temp
+    dotnet run --project (Join-Path $temp 'Test.csproj') -c Release -- $temp $root
     if ($LASTEXITCODE -ne 0) { throw 'Browser limits config test failed.' }
 }
 finally {

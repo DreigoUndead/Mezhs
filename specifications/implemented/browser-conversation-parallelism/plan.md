@@ -33,14 +33,14 @@ The intended cancellation contract is:
 
 ### BrowserIntegrationBase: configuration and admission
 
-- Parse typed nested `connections[].limits`: `maxParallel` (omitted default **1**; explicit **0** unlimited) and `minIntervalBetweenStartsMs` (omitted/default **0** no spacing). Nonnegative integers; reject invalid values at startup. Example:
+- Parse typed nested `connections[].limits`: `maxParallel` (omitted default **1**; explicit **0** unlimited) and `minInterval` (nonnegative integer **milliseconds**; omitted/default **0** no spacing). Nonnegative integers; reject invalid values at startup. Example:
 
   ```yaml
   connections:
     - id: chatgpt
       limits:
         maxParallel: 0
-        minIntervalBetweenStartsMs: 0
+        minInterval: 0
   ```
 
 - `BrowserIntegrationBase` constructs/owns/applies the connection limits through **one common send path** used by all browser providers, including guest sends. Do not rely on each provider remembering to acquire a slot; do not add a second limiter in AccountSession, Electron, Agent or MessageService.
@@ -160,3 +160,7 @@ The independent code review of commit `cdab039921f74f1d1a519e239f227159fc19373e`
 
 **Guidance for subsequent independent reviewers:** Analyze the code and complete diff on their merits, but **before assigning a blocking severity** reconcile candidate findings with the owner-approved design, accepted failure modes and dispositions already recorded in this plan/PR. Do not re-open the same concern merely by restating a previously accepted hypothetical or by demanding a stronger guarantee. If a new revision exposes a *materially different, concrete* impact or violates an existing invariant, report that new evidence and identify the changed assumption. Assess severity against actual user impact, existing recovery, likelihood, security implications and the cost of the proposed safeguard; technical possibility alone does not make an edge case a blocker. Escalate any proposed stronger guarantee to the owner under `.agents/workflow.md` rather than silently adding it.
 
+
+## 10. Configuration follow-up (2026-11-13)
+
+Owner requested a clearer `connections[].limits.minInterval` key, replacing `minIntervalBetweenStartsMs` (the numeric value remains **milliseconds**, no legacy alias). The sample `mezhs.yaml` sets ChatGPT Account to `maxParallel: 2`, `minInterval: 5000` (five seconds between local send admissions), while ChatGPT Guest, Gemini Guest and Grok Account explicitly declare `maxParallel: 1`, `minInterval: 0` to retain their former default behavior. Code, config validation, regression tests and current documentation use the same name. This intentionally spaces starts; it does **not** prohibit two long-running ChatGPT turns from overlapping. The prior independent testing predates this follow-up and is not evidence that this revised SHA was tested or reviewed.

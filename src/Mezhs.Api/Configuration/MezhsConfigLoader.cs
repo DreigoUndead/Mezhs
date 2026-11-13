@@ -68,7 +68,7 @@ public static partial class MezhsConfigLoader
             connection.DefaultModel = NormalizeOptional(connection.DefaultModel);
             if (connection.Limits is null ||
                 connection.Limits.MaxParallel < 0 ||
-                connection.Limits.MinIntervalBetweenStartsMs < 0)
+                connection.Limits.MinInterval < 0)
                 throw new InvalidOperationException(
                     $"Connection '{connection.Id}' limits must be nonnegative integers.");
         }

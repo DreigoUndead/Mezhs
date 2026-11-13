@@ -5,7 +5,7 @@ namespace Mezhs.Integrations;
 public sealed class IntegrationLimits
 {
     public int MaxParallel { get; set; } = 1;
-    public int MinIntervalBetweenStartsMs { get; set; }
+    public int MinInterval { get; set; }
 }
 
 public sealed record IntegrationConnection(
