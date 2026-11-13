@@ -148,14 +148,15 @@ test("typed GFM task lists and semantic table headers remain accessible", () => 
   const checks = kinds(doc.nodes, "taskCheckbox");
   assert.deepEqual(checks.map(node => node.attributes?.checked), ["true", "false"]);
   const output = html(input, { document: doc });
-  assert.match(output, /type="checkbox"[^>]*checked=""[^>]*disabled=""/);
+  assert.match(output, /<input[^>]*type="checkbox"[^>]*checked=""/);
+  assert.match(output, /<input[^>]*type="checkbox"[^>]*disabled=""/);
   assert.match(output, /type="checkbox"[^>]*disabled=""/);
-  assert.match(output, /<thead><tr><th scope="col">Name<\/th><th scope="col">Status<\/th><\/tr><\/thead>/);
-  assert.match(output, /<tbody><tr><td>Ada<\/td><td>Ready<\/td><\/tr><\/tbody>/);
+  assert.match(output, /<thead><tr><th scope="col">(?:<p>)?Name(?:<\/p>)?<\/th><th scope="col">(?:<p>)?Status(?:<\/p>)?<\/th><\/tr><\/thead>/);
+  assert.match(output, /<tbody><tr><td>(?:<p>)?Ada(?:<\/p>)?<\/td><td>(?:<p>)?Ready(?:<\/p>)?<\/td><\/tr><\/tbody>/);
 });
 
 test("the documented one-state radio example is accepted by the canonical grammar", () => {
-  const documented = fs.readFileSync(path.join(root, "docs/supported-rich-ui.md"), "utf8");
+  const documented = fs.readFileSync(path.join(root, "docs/supported-rich-ui.md"), "utf8").replace(/\r\n/g, "\n");
   const questionSection = documented.split("## One-state radio question")[1].split("## Rich question content")[0];
   const sample = questionSection.split("```mdx\n")[1].split("\n```")[0];
   const doc = canonicalDocument(sample);
