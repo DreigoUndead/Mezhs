@@ -3,6 +3,9 @@ using Mezhs.Common.RichUi;
 
 if (args.Contains("--parse-stdin"))
 {
+    // The Windows host console may default to an OEM code page, even when
+    // Node feeds UTF-8 JSON bytes. Preserve non-ASCII radio choice payloads.
+    Console.InputEncoding = System.Text.Encoding.UTF8;
     var inputs = JsonSerializer.Deserialize<string[]>(Console.In.ReadToEnd()) ?? [];
     var results = inputs.Select(source => new RichDocumentParser().Parse(source).Document).ToArray();
     Console.Write(JsonSerializer.Serialize(results, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
