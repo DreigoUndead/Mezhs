@@ -36,8 +36,11 @@ const response = data => new Response(JSON.stringify(data), {
   status: 200, headers: { "Content-Type": "application/json" },
 });
 window.fetch = async input => {
-  const url = new URL(String(input), location.href);
-  const pathname = url.pathname;
+  const requestUrl = String(input);
+  // App API uses root-relative paths; file:// pages resolve "/health" to "/C:/health".
+  const pathname = requestUrl.startsWith("/")
+    ? requestUrl.split("?")[0]
+    : new URL(requestUrl, location.href).pathname;
   if (pathname === "/health") return response({ status: "ok" });
   if (pathname === "/v1/policies") return response([{
     id: "high", name: "High", connectionId: "mock", defaultModel: null,
