@@ -117,23 +117,70 @@ internal static class RichQuestionGrammar
                 !AllowedLiteralTag.IsMatch(value[at..(close + 1)])) return false;
             at = close;
         }
-        var parsed = new RichDocumentParser().Parse(value);
+        // Radio bodies are indented relative to <radio>, but four leading
+        // spaces mean an indented Markdown code block. Remove only the common
+        // visual indent before canonical parsing, retaining original source
+        // offsets for every surviving UTF-16 code unit.
+        var (normalized, positions) = NormalizeLabel(value, from);
+        var parsed = new RichDocumentParser().Parse(normalized);
         if (!parsed.Document.Valid || parsed.Commands.Count != 0) return false;
         bool Allowed(RichNode n) =>
             (n.Kind != "element" || n.Name is "text" or "icon") &&
             n.Kind is not ("question" or "raw") &&
             (n.Children is null || n.Children.All(Allowed));
         if (!parsed.Document.Nodes.All(Allowed)) return false;
-        nodes = parsed.Document.Nodes.Select(n => Shift(n, from)).ToArray();
+        nodes = parsed.Document.Nodes.Select(n => Shift(n, positions)).ToArray();
         return true;
     }
 
-    private static RichNode Shift(RichNode n, int offset) => n with
+    private static (string Text, int[] Positions) NormalizeLabel(string value, int offset)
     {
-        Id = $"{offset + n.SourceSpan.Start}:{n.Kind}",
-        SourceSpan = new RichSourceSpan(offset + n.SourceSpan.Start, offset + n.SourceSpan.End),
-        Children = n.Children?.Select(c => Shift(c, offset)).ToArray()
-    };
+        var minIndent = int.MaxValue;
+        for (var start = 0; start < value.Length;)
+        {
+            var next = value.IndexOf('\n', start);
+            var finish = next < 0 ? value.Length : next;
+            if (!string.IsNullOrWhiteSpace(value[start..finish]))
+            {
+                var spaces = 0;
+                while (start + spaces < finish && value[start + spaces] == ' ') spaces++;
+                minIndent = Math.Min(minIndent, spaces);
+            }
+            start = next < 0 ? value.Length : next + 1;
+        }
+        if (minIndent == int.MaxValue) minIndent = 0;
+        var text = new StringBuilder(value.Length);
+        var positions = new List<int>(value.Length + 1);
+        for (var start = 0; start < value.Length;)
+        {
+            var next = value.IndexOf('\n', start);
+            var finish = next < 0 ? value.Length : next + 1;
+            var skip = 0;
+            while (start + skip < finish && skip < minIndent && value[start + skip] == ' ') skip++;
+            for (var i = start + skip; i < finish; i++)
+            {
+                text.Append(value[i]);
+                positions.Add(offset + i);
+            }
+            start = finish;
+        }
+        positions.Add(offset + value.Length);
+        return (text.ToString(), positions.ToArray());
+    }
+
+    private static RichNode Shift(RichNode n, int[] positions)
+    {
+        var start = positions[Math.Clamp(n.SourceSpan.Start, 0, positions.Length - 1)];
+        var end = n.SourceSpan.End > n.SourceSpan.Start
+            ? positions[Math.Clamp(n.SourceSpan.End - 1, 0, positions.Length - 2)] + 1
+            : start;
+        return n with
+        {
+            Id = $"{start}:{n.Kind}",
+            SourceSpan = new RichSourceSpan(start, end),
+            Children = n.Children?.Select(c => Shift(c, positions)).ToArray()
+        };
+    }
 
     // Accept only the original single-state literal template or bounded ternary. No model JS runs.
     // The final option is its default; all other branches are strict equality tests.
