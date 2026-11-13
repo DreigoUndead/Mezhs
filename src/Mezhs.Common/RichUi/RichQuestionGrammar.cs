@@ -38,6 +38,26 @@ internal static class RichQuestionGrammar
         var initial = decl.Groups["initial"].Value;
         if (state == setter || state is "constructor" or "prototype" or "__proto__" or "globalThis") return false;
         var at = SkipSpace(source, lineEnd + 1, limit);
+        // The previously supported one-box radio question is a finite
+        // presentation wrapper around the same restricted question grammar.
+        // Validate its attributes with the canonical parser, not a second
+        // attribute grammar or model-authored expression evaluator.
+        IReadOnlyDictionary<string, string>? boxAttributes = null;
+        if (Prefix(source, at, "<box") && at + 4 < limit &&
+            char.IsWhiteSpace(source[at + 4]))
+        {
+            var boxEnd = HeaderEnd(source, at, limit, 512);
+            if (boxEnd < 0) return false;
+            var wrapperSource = source[at..boxEnd] + "</box>";
+            var verified = new RichDocumentParser().Parse(wrapperSource);
+            var parsedBox = verified.Document.Nodes.Count == 1
+                ? verified.Document.Nodes[0] : null;
+            if (!verified.Document.Valid || verified.Commands.Count != 0 ||
+                parsedBox?.Kind != "element" || parsedBox.Name != "box" ||
+                parsedBox.Attributes is null) return false;
+            boxAttributes = parsedBox.Attributes;
+            at = SkipSpace(source, boxEnd, limit);
+        }
         if (!Prefix(source, at, "<radio-group") || literal[at]) return false;
         var groupEnd = HeaderEnd(source, at, limit, 512);
         if (groupEnd < 0) return false;
@@ -98,8 +118,21 @@ internal static class RichQuestionGrammar
             Attributes: new Dictionary<string, string> { ["block"] = button.Groups["block"].Success ? "true" : "false" },
             Children: buttonDisplay));
         after = buttonClose + 9;
+        var attributes = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["initial"] = initial
+        };
+        if (boxAttributes is not null)
+        {
+            var closeAt = SkipSpace(source, after, limit);
+            if (!Prefix(source, closeAt, "</box>") || literal[closeAt]) return false;
+            after = closeAt + "</box>".Length;
+            attributes["box"] = "true";
+            foreach (var (key, value) in boxAttributes)
+                attributes["box." + key] = value;
+        }
         node = new RichNode("question", $"{from}:question", new RichSourceSpan(from, after),
-            Attributes: new Dictionary<string, string> { ["initial"] = initial }, Children: options);
+            Attributes: attributes, Children: options);
         return true;
     }
 
