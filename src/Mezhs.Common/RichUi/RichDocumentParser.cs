@@ -16,6 +16,10 @@ public sealed class RichDocumentParser
     private const int MaxDepth = 32;
     private const int MaxTagLength = 4_096;
     private const int MaxAttributes = 16;
+    // Only structural layout scopes may contain Agent command nodes.
+    // Display-only tags (text, badge, title, caption, Link, etc.) never grant authority.
+    private static readonly IReadOnlySet<string> ExecutableContainers =
+        new HashSet<string>(["box", "row", "col", "grid", "grid-item"], StringComparer.Ordinal);
     private readonly MarkdownPipeline _markdown = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
     private string _source = "";
     private bool[] _literal = [];
@@ -131,7 +135,7 @@ public sealed class RichDocumentParser
     }
 
     private IReadOnlyList<RichNode> ReadChildren(int start, int end, string? expected,
-        int depth, out int position, bool svgScope = false)
+        int depth, out int position, bool svgScope = false, bool commandsAllowed = true)
     {
         if (depth > MaxDepth) throw new RichDocumentException("Document nesting exceeds limit.");
         var result = new List<RichNode>();
@@ -139,7 +143,7 @@ public sealed class RichDocumentParser
         var plainFrom = start;
         while (cursor < end)
         {
-            if (!svgScope && _source[cursor] == '{' && !_literal[cursor] && !IsEscaped(cursor) &&
+            if (!svgScope && commandsAllowed && _source[cursor] == '{' && !_literal[cursor] && !IsEscaped(cursor) &&
                 RichQuestionGrammar.TryParse(_source, cursor, end, _literal, out var question, out var questionEnd))
             {
                 AppendMarkdown(result, plainFrom, cursor, svgScope);
@@ -164,8 +168,9 @@ public sealed class RichDocumentParser
             }
             if (!RichTagRegistry.TryGet(tag.Name, svgScope, out var definition))
                 throw new RichDocumentException($"Unsupported tag: {tag.Name}.");
-            if (svgScope && definition.Role is RichTagRole.Command or RichTagRole.Marker)
-                throw new RichDocumentException("Agent protocol commands are forbidden inside SVG.");
+            if (definition.Role is RichTagRole.Command or RichTagRole.Marker && !commandsAllowed ||
+                svgScope && definition.Role is RichTagRole.Command or RichTagRole.Marker)
+                throw new RichDocumentException("Agent protocol commands are forbidden inside display-only elements.");
             var attributes = ParseAttributes(tag, definition);
             if ((svgScope || tag.Name == "svg") &&
                 (svgScope && !RichSvgValidation.AllowsChild(expected, tag.Name) ||
@@ -232,7 +237,9 @@ public sealed class RichDocumentParser
                 var scoped = MarkdownLiteralMask(_source[cursor..end]);
                 for (var i = 0; i < scoped.Length; i++)
                     if (scoped[i]) _literal[cursor + i] = true;
-                var children = ReadChildren(cursor, end, tag.Name, depth + 1, out var after, svgScope || tag.Name == "svg");
+                var children = ReadChildren(cursor, end, tag.Name, depth + 1, out var after,
+                    svgScope || tag.Name == "svg",
+                    commandsAllowed && ExecutableContainers.Contains(tag.Name));
                 Add(result, new RichNode("element", $"{from}:element", new RichSourceSpan(from, after),
                     Name: tag.Name, Attributes: attributes, Children: children));
                 cursor = after;
