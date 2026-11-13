@@ -94,7 +94,7 @@ var nestedParsed = new RichDocumentParser().Parse(nestedScope);
 var nestedPass = nestedParsed.Document.Valid && nestedParsed.Commands.Count == 0 &&
     nestedParsed.Document.Nodes.Any(n => n.Name == "box" &&
         n.Children?.Any(c => c.Name == "box" && c.Children?.Any(x => x.Name == "text") == true) == true);
-Console.WriteLine($"{(nestedPass ? "PASS" : "FAIL")}: Fenced false closing delimiter inside nested layout");
+Console.WriteLine($"{(nestedPass ? "PASS" : "FAIL")}: Fenced false closing delimiter inside nested layout; valid={nestedParsed.Document.Valid}; diagnostics={string.Join("|", nestedParsed.Document.Diagnostics.Select(d => d.Code))}; root={string.Join(",", nestedParsed.Document.Nodes.Select(n => n.Kind + ":" + n.Name))}");
 if (!nestedPass) failures++;
 
 var wideSource = string.Concat(Enumerable.Range(0, 900)
