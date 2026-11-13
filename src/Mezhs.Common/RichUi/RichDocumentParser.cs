@@ -155,7 +155,7 @@ public sealed class RichDocumentParser
                 plainFrom = cursor;
                 continue;
             }
-            if (_source[cursor] != '<' || _literal[cursor] || IsEscaped(cursor) ||
+            if (_source[cursor] != '<' || (!svgScope && _literal[cursor]) || IsEscaped(cursor) ||
                 !TryTag(cursor, end, out var tag))
             {
                 cursor++;
@@ -233,13 +233,16 @@ public sealed class RichDocumentParser
             }
             else
             {
-                // Markdig treats an opening rich tag as an HTML block, hiding Markdown
-                // fences in nested lists. Reparse the contents as Markdown independently
-                // before any descendant is eligible to become a command candidate.
-                // Use a monotonic union: a nested context may only reduce authority.
-                var scoped = MarkdownLiteralMask(_source[cursor..end]);
-                for (var i = 0; i < scoped.Length; i++)
-                    if (scoped[i]) _literal[cursor + i] = true;
+                // Markdown scopes must be reparsed to protect indented/list code
+                // examples from Agent command discovery. SVG, however, has its
+                // own validated element grammar and no command authority at all:
+                // Markdig would mistake four-space SVG geometry for code blocks.
+                if (!svgScope && tag.Name != "svg")
+                {
+                    var scoped = MarkdownLiteralMask(_source[cursor..end]);
+                    for (var i = 0; i < scoped.Length; i++)
+                        if (scoped[i]) _literal[cursor + i] = true;
+                }
                 var children = ReadChildren(cursor, end, tag.Name, depth + 1, out var after,
                     svgScope || tag.Name == "svg",
                     commandsAllowed && ExecutableContainers.Contains(tag.Name));
