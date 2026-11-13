@@ -20,7 +20,10 @@ public sealed class RichDocumentParser
     // Display-only tags (text, badge, title, caption, Link, etc.) never grant authority.
     private static readonly IReadOnlySet<string> ExecutableContainers =
         new HashSet<string>(["box", "row", "col", "grid", "grid-item"], StringComparer.Ordinal);
-    private readonly MarkdownPipeline _markdown = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+    // Keep the syntax used for literal masking aligned with typed Markdown lowering.
+    // AdvancedExtensions includes GenericAttributes, which swallows literal
+    // "{item.property}" model text as Markdown metadata. It is intentionally off.
+    private readonly MarkdownPipeline _markdown = new MarkdownPipelineBuilder().UsePipeTables().UseEmphasisExtras().Build();
     private string _source = "";
     private bool[] _literal = [];
     private List<RichCommandCandidate> _commands = [];
