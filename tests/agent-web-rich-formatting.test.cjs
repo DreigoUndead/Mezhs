@@ -156,7 +156,7 @@ test("invalid rich elements fail closed for the entire document", () => {
     const output = html(input, { document });
     assert.match(output, /class="prompt-text"/);
     assert.doesNotMatch(output, /class="rich-box|class="rich-writing-block|class="rich-badge"/);
-    assert.doesNotMatch(output, /<script|onClick=/);
+    assert.doesNotMatch(output, /<script\b|<[a-z][^>]*\bonClick=/i);
   }
 });
 
@@ -195,7 +195,7 @@ test("literal HTML and prototype-like renderer names cannot select host componen
     '<text onMouseOver="alert(1)">unsafe</text>',
   ]) {
     const output = html(input);
-    assert.doesNotMatch(output, /onMouseOver=|<constructor|class="rich-text"/);
+    assert.doesNotMatch(output, /<[a-z][^>]*\bonMouseOver=|<constructor\b|class="rich-text"/i);
   }
 });
 
