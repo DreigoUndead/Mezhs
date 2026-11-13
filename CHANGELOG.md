@@ -2,6 +2,22 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.5.1] — 2026-11-14
+
+### Changed
+- Compact Agent execution-status dots in the sidebar and selected-chat header reveal their text on hover or keyboard focus, with accessible labels/tooltips and reduced-motion support; remove the duplicate static header execution badge.
+- Show completed Agent executions as unread (blue) until their conversation is opened (green). Track the last viewed root execution ID per chat in browser-local storage; automatically mark a completion read while its conversation is selected.
+- Extend the existing batched Agent chat projection with the matching root execution ID without new per-chat status requests; preserve active/paused/terminal status precedence. Regular API Web remains unchanged.
+
+### Tests
+- Independent Standard code review and targeted verification PASS on PR #56 at `4c43b0897999072675cc7f81999d9852b9b67f3c`, including Chromium unread/focus checks, shared UI regressions, live Agent API smoke, frontend and .NET builds.
+- MEŽS Core CI passed at the tested commit.
+
+### Known limitations
+- Read markers are local to each browser origin; they are not synchronized between devices or tabs, and concurrent tabs may overwrite the stored marker map.
+- A related group-deletion Chromium test failed once in a parallel run, then passed in isolated runs, on the unchanged base, and in the final sequential suite; the intermittent cause was not established.
+- Unread UI Chromium tests use mock API responses and reduced-motion mode; the live Agent API projection was verified separately.
+
 ## [0.5.0] — 2026-11-13
 
 ### Added
