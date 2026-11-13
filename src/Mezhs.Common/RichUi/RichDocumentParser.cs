@@ -168,8 +168,8 @@ public sealed class RichDocumentParser
             }
             if (!RichTagRegistry.TryGet(tag.Name, svgScope, out var definition))
                 throw new RichDocumentException($"Unsupported tag: {tag.Name}.");
-            if (definition.Role is RichTagRole.Command or RichTagRole.Marker && !commandsAllowed ||
-                svgScope && definition.Role is RichTagRole.Command or RichTagRole.Marker)
+            if ((definition.Role is RichTagRole.Command or RichTagRole.Marker) &&
+                (!commandsAllowed || svgScope))
                 throw new RichDocumentException("Agent protocol commands are forbidden inside display-only elements.");
             var attributes = ParseAttributes(tag, definition);
             if ((svgScope || tag.Name == "svg") &&
