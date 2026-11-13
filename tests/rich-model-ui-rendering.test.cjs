@@ -162,7 +162,32 @@ test("the documented one-state radio example is accepted by the canonical gramma
   const doc = canonicalDocument(sample);
   assert.equal(doc.valid, true, doc.diagnostics?.[0]?.code || "invalid");
   assert.equal(kinds(doc.nodes, "question").length, 1);
-  assert.match(html(sample, { document: doc }), /class="rich-question"/);
+  const output = html(sample, { document: doc });
+  assert.match(output, /class="rich-question"/);
+  assert.match(output, /class="rich-box rich-bordered"/);
+  assert.equal(kinds(doc.nodes, "question")[0].attributes?.box, "true");
+});
+
+test("the original wrapped question works from the canonical C# document", () => {
+  const input = fixtures("wrapped-question.md");
+  const doc = canonicalDocument(input);
+  assert.equal(doc.valid, true, doc.diagnostics?.[0]?.code || "invalid");
+  const options = kinds(doc.nodes, "questionOption");
+  assert.deepEqual(options.map(x => x.attributes.message), ["Choice: A", "Choice: B"]);
+  const output = html(input, { document: doc, onIssueNewTurn() { throw new Error("Should only send on click"); } });
+  assert.match(output, /class="rich-box rich-bordered"/);
+  assert.match(output, /class="rich-question"/);
+  assert.doesNotMatch(output, /<button[^>]*disabled/);
+});
+
+test("text and title preserve previously supported static alignment and numerals", () => {
+  const input = '<text textAlign="center" tabularNums>42</text>\n<title textAlign="center" tabularNums>Score</title>';
+  const doc = canonicalDocument(input);
+  assert.equal(doc.valid, true);
+  const output = html(input, { document: doc });
+  assert.match(output, /text-align:center/);
+  assert.match(output, /font-variant-numeric:tabular-nums/);
+  assert.match(output, /Score/);
 });
 
 test("valid bounded SVG is mounted as native accessible geometry", () => {
