@@ -160,7 +160,9 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
       '</head><body><div id="root"></div><script src="' + path.basename(script.path) + '"></script></body></html>';
     fs.writeFileSync(path.join(folder, "index.html"), html);
     const result = spawnSync(chrome, [
-      "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-background-networking",
+      // Test the completed hover/focus state without virtual-clock-dependent CSS transitions.
+      // Normal-motion transitions remain in the application; reduced-motion is a user-supported mode.
+      "--headless=new", "--force-prefers-reduced-motion", "--no-sandbox", "--disable-gpu", "--disable-background-networking",
       "--no-first-run", "--user-data-dir=" + path.join(folder, "profile"),
       "--virtual-time-budget=32000", "--dump-dom",
       "file:///" + path.join(folder, "index.html").replace(/\\/g, "/"),
