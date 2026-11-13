@@ -1297,7 +1297,7 @@
   transition: max-width .2s ease, opacity .15s ease, margin-left .2s ease, transform .2s ease;
 }
 .agent-status:hover .agent-status-label,
-.agent-status:focus-visible .agent-status-label,
+.agent-status:focus .agent-status-label,
 .agent-chat-row:focus-visible .agent-status-label {
   max-width: 120px;
   opacity: 1;
