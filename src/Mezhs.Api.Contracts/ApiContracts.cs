@@ -1,3 +1,4 @@
+using Mezhs.Common.RichUi;
 using System.Text.Json.Serialization;
 
 namespace Mezhs.Api.Contracts;
@@ -111,7 +112,8 @@ public sealed record ApiMessage(
     string? ActivityDetail = null,
     string? Analysis = null,
     DateTimeOffset? ActivityAt = null,
-    IReadOnlyList<MessageActivity>? ActivityHistory = null);
+    IReadOnlyList<MessageActivity>? ActivityHistory = null,
+    RichDocument? Document = null);
 
 public sealed record ApiChatHistoryMessage(
     string MessageId,
@@ -134,4 +136,5 @@ public sealed record ApiChatHistoryMessage(
     string? ActivityDetail = null,
     string? Analysis = null,
     DateTimeOffset? ActivityAt = null,
-    IReadOnlyList<MessageActivity>? ActivityHistory = null);
+    IReadOnlyList<MessageActivity>? ActivityHistory = null,
+    RichDocument? Document = null);

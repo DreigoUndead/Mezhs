@@ -22,6 +22,8 @@ $config = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mezhs.agent.test.y
     Replace('root: data-agent-test/core', "root: $tempPath/core").
     Replace('agentStorage: data-agent-test/agent.sqlite', "agentStorage: $tempPath/agent.sqlite").
     Replace('workspace: ..', "workspace: $workspacePath")
+# This test needs a scripted assistant reply; the normal mock echoes the prompt.
+$config = [regex]::Replace($config, '(?m)^(    integration: )mock(?=\r?$)', '${1}mock-agent-scripted')
 Set-Content -LiteralPath $agentConfig -Value $config -Encoding UTF8
 
 function Wait-Health([string]$uri) {
@@ -43,6 +45,15 @@ function Wait-Execution([string]$executionId, [int]$seconds = 20) {
         $execution = Invoke-RestMethod -Uri "$base/v1/executions/$executionId"
         if ($execution.status -in @('Completed', 'Failed', 'Cancelled')) { return $execution }
         if ([DateTimeOffset]::UtcNow -ge $deadline) {
+            if ($execution.chatId) {
+                try {
+                    $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($execution.chatId)/messages")
+                    Write-Host "TIMEOUT CHAT MESSAGES: $($history.Count)"
+                    $history | Select-Object -Last 5 | ForEach-Object { Write-Host ("MESSAGE role={0} status={1} content={2}" -f $_.role, $_.status, ([string]$_.content)) }
+                    $actions = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($execution.chatId)/executions")
+                    $actions | Select-Object -Last 5 | ForEach-Object { Write-Host ("ACTION kind={0} status={1} index={2} result={3}" -f $_.kind, $_.status, $_.commandIndex, $_.result) }
+                } catch { Write-Host "Unable to read timeout history: $_" }
+            }
             throw "Execution $executionId did not reach a terminal state. Last status: $($execution.status)"
         }
         Start-Sleep -Milliseconds 100
@@ -68,6 +79,7 @@ try {
 
     @'
 using Mezhs.Agent.Commands;
+using Mezhs.Common.RichUi;
 
 var parser = new Parser();
 static void Check(bool ok, string message)
@@ -80,6 +92,25 @@ static void Reject(Parser parser, string content, string message)
     catch (CommandParseException) { return; }
     throw new InvalidOperationException(message);
 }
+// Canonical rich tag grammar defines syntax. Agent Registry defines executable
+// authority; every executable command must have exactly one canonical tag role.
+foreach (var command in Registry.All)
+{
+    Check(RichTagRegistry.TryGet(command.Name, out var tag) &&
+          tag.Role == (command.Form == CommandForm.Block
+              ? RichTagRole.Command : RichTagRole.Marker),
+          "Canonical rich tags diverged from Agent command definitions.");
+}
+Check(RichTagRegistry.TryGet("box", out var boxTag) &&
+      boxTag.Role == RichTagRole.Container, "Box must be a container node.");
+Check(RichTagRegistry.TryGet("CodeBlock", out var codeTag) &&
+      codeTag.Role == RichTagRole.RawEditor, "CodeBlock must remain literal raw source.");
+Check(RichTagRegistry.TryGet("WritingBlock", out var writingTag) &&
+      writingTag.Role == RichTagRole.RawEditor, "WritingBlock must remain literal raw source.");
+Check(RichTagRegistry.TryGet("icon", out var iconTag) &&
+      iconTag.Role == RichTagRole.Leaf, "Icon cannot own command descendants.");
+Check(!RichTagRegistry.TryGet("UNKNOWN", out _), "Unknown tags must not be registered.");
+
 const string content = "before\n<SH>\necho first\n<DONE>\n<ABC>\necho last\n</SH>\n<DONE>\nafter";
 var parsed = parser.Parse(content);
 if (parsed.Commands.Count != 2)
@@ -145,14 +176,139 @@ var formatted = parser.Parse(displayMarkup);
 if (formatted.Commands.Count != 0 || formatted.VisibleContent != displayMarkup)
     throw new InvalidOperationException("Recorded <box> presentation markup was treated as a command.");
 
+var rawCodeExample = parser.Parse("<CodeBlock language=\"typescript\" editable>\n<SH>\necho NEVER_EXECUTE\n</SH>\n<DONE>\n</CodeBlock>\n<DONE>");
+Check(rawCodeExample.Commands.Count == 1 && rawCodeExample.Commands[0] == new Command("DONE", null) &&
+    rawCodeExample.VisibleContent.Contains("<CodeBlock language=\"typescript\" editable>") &&
+    rawCodeExample.VisibleContent.Contains("echo NEVER_EXECUTE"),
+    "CodeBlock contents must stay visible and inert; only trailing DONE may execute.");
+
+var rawWritingExample = parser.Parse("<WritingBlock variant=\"document\">\n<SH>\necho NEVER_EXECUTE\n</SH>\n</WritingBlock>\n<SH>\necho AFTER\n</SH>");
+Check(rawWritingExample.Commands.Count == 1 &&
+    rawWritingExample.Commands[0] == new Command("SH", "echo AFTER"),
+    "WritingBlock source may not execute shell examples.");
+
+var fencedCommands = parser.Parse("~~~md\n<SH>\necho NEVER_EXECUTE\n</SH>\n~~~\n<DONE>");
+Check(fencedCommands.Commands.Count == 1 && fencedCommands.Commands[0] == new Command("DONE", null),
+    "Markdown fenced code must not execute commands.");
+var indentedCommands = parser.Parse("    <SH>\n    echo NEVER_EXECUTE\n    </SH>\n<DONE>");
+Check(indentedCommands.Commands.Count == 1 && indentedCommands.Commands[0] == new Command("DONE", null),
+    "Indented Markdown code must not execute commands.");
+// Commands in standalone Markdown comments and multiline inline-code spans
+// are never executable, even when the enclosing text is not a raw editor.
+var commented = "<!--\n<SH>\necho NEVER_EXECUTE_COMMENT\n</SH>\n<DONE>\n<ATTACH>\nC:/never-attach\n</ATTACH>\n-->\n<SH>\necho AFTER_COMMENT\n</SH>\n<DONE>";
+var commentedBatch = parser.Parse(commented);
+Check(commentedBatch.Commands.Count == 2 &&
+    commentedBatch.Commands[0] == new Command("SH", "echo AFTER_COMMENT") &&
+    commentedBatch.Commands[1] == new Command("DONE", null) &&
+    commentedBatch.VisibleContent.Contains("NEVER_EXECUTE_COMMENT") &&
+    commentedBatch.VisibleContent.Contains("<ATTACH>"),
+    "HTML-comment command examples gained execution authority.");
+
+var codeSpan = "`\n<SH>\necho NEVER_EXECUTE_INLINE\n</SH>\n<DONE>\n`\n<SH>\necho AFTER_INLINE\n</SH>\n<DONE>";
+var codeSpanBatch = parser.Parse(codeSpan);
+Check(codeSpanBatch.Commands.Count == 2 &&
+    codeSpanBatch.Commands[0] == new Command("SH", "echo AFTER_INLINE") &&
+    codeSpanBatch.Commands[1] == new Command("DONE", null) &&
+    codeSpanBatch.VisibleContent.Contains("NEVER_EXECUTE_INLINE"),
+    "Multiline inline-code command examples gained execution authority.");
+
+foreach (var unclosed in new[] { "<!--\n<SH>\necho NEVER_EXECUTE\n</SH>\n<DONE>",
+                                  "`\n<SH>\necho NEVER_EXECUTE\n</SH>\n<DONE>" })
+    Check(parser.Parse(unclosed).Commands.Count == 0,
+        "Unclosed Markdown literal context exposed an executable command.");
+Check(parser.Parse("Text with `inline code`\n<DONE>").Commands.SequenceEqual([new Command("DONE", null)]),
+    "Closed single-line Markdown code blocked a valid command.");
+Reject(parser, "<!--\n<SH>\necho INERT\n</SH>\n-->\n<UNKNOWN>",
+    "Unknown uppercase tag after a comment must be rejected by the canonical parser.");
+Console.WriteLine("PASS: Top-level HTML comments and multiline code spans are inert; later commands remain strict.");
+
+// Unclosed or unsupported raw-editor metadata fails the entire batch closed.
+Reject(parser, "<CodeBlock language=\"text\">\n<SH>\necho NEVER_EXECUTE\n</SH>",
+    "Unterminated raw CodeBlock must fail closed.");
+Reject(parser, "<CodeBlock language=\"text\" note=\"</CodeBlock>\">\n<SH>\necho NEVER_EXECUTE_QUOTED\n</SH>\n</CodeBlock>\n<DONE>",
+    "Unsupported CodeBlock metadata must fail closed, without promoting command text.");
+var quotedWritingCloser = parser.Parse("<WritingBlock variant=\"document\" subject='</WritingBlock>'>\n<SH>\necho NEVER_EXECUTE_WRITING_QUOTED\n</SH>\n</WritingBlock>\n<DONE>");
+Check(quotedWritingCloser.Commands.SequenceEqual([new Command("DONE", null)]) &&
+    quotedWritingCloser.VisibleContent.Contains("NEVER_EXECUTE_WRITING_QUOTED"),
+    "Quoted WritingBlock metadata promoted literal shell text.");
+Reject(parser, "<CodeBlock>inline</CodeBlock>\n<DONE>",
+    "A raw editor placed inline must fail closed.");
+Reject(parser, "<CodeBlock language=\"text\"> unexpected\n<SH>\necho NEVER_EXECUTE_TAIL\n</SH>\n</CodeBlock>\n<DONE>",
+    "Trailing malformed CodeBlock opener must fail closed.");
+Reject(parser, "<CodeBlock note=</CodeBlock>>\n<SH>\necho NEVER_EXECUTE_DELIMITER\n</SH>\n</CodeBlock>\n<DONE>",
+    "Malformed CodeBlock attributes must fail closed.");
+Reject(parser, "<CodeBlock language={invalid\n<SH>\necho NEVER_EXECUTE\n</SH>\n</CodeBlock>\n<DONE>",
+    "Malformed CodeBlock attribute expressions must fail closed.");
+
+// Renderer and Agent parser must agree on what is still literal WritingBlock
+// source, even when a Markdown fence or comment contains a closing-looking tag.
+var rawTranscript = parser.Parse(
+    "<box border radius=\"lg\" padding={3}>\n" +
+    "<WritingBlock variant=\"document\">\n" +
+    "~~~md\n</WritingBlock>\n<SH>\necho NEVER_EXECUTE_FENCE\n</SH>\n~~~\n" +
+    "<!--\n</WritingBlock>\n<SH>\necho NEVER_EXECUTE_COMMENT\n</SH>\n-->\n" +
+    "`\n</WritingBlock>\n<SH>\necho NEVER_EXECUTE_INLINE\n</SH>\n`\n" +
+    "</WritingBlock>\n" +
+    "<CodeBlock language=\"text\">\n    </CodeBlock>\n<SH>\necho NEVER_EXECUTE_CODE\n</SH>\n</CodeBlock>\n" +
+    "</box>\n<SH>\necho AFTER_RAW\n</SH>\n<DONE>");
+Check(rawTranscript.Commands.Count == 2 &&
+    rawTranscript.Commands[0] == new Command("SH", "echo AFTER_RAW") &&
+    rawTranscript.Commands[1] == new Command("DONE", null) &&
+    rawTranscript.VisibleContent.Contains("NEVER_EXECUTE_FENCE") &&
+    rawTranscript.VisibleContent.Contains("NEVER_EXECUTE_COMMENT") &&
+    rawTranscript.VisibleContent.Contains("NEVER_EXECUTE_INLINE") &&
+    rawTranscript.VisibleContent.Contains("NEVER_EXECUTE_CODE") &&
+    rawTranscript.VisibleContent.Contains("<box border radius=\"lg\" padding={3}>"),
+    "The Agent must preserve the complete rich transcript and execute only the top-level command.");
+var tabDelimitedCode = parser.Parse("<CodeBlock language=\"text\">\n\t</CodeBlock>\n<SH>\necho NEVER_EXECUTE_TAB\n</SH>\n</CodeBlock>\n<DONE>");
+Check(tabDelimitedCode.Commands.Count == 1 &&
+    tabDelimitedCode.Commands[0] == new Command("DONE", null) &&
+    tabDelimitedCode.VisibleContent.Contains("NEVER_EXECUTE_TAB"),
+    "A tab-indented raw delimiter must remain CodeBlock source, not expose Agent commands.");
+var tabDelimitedWriting = parser.Parse("<WritingBlock variant=\"document\">\n\t</WritingBlock>\n<SH>\necho NEVER_EXECUTE_TAB\n</SH>\n</WritingBlock>\n<DONE>");
+Check(tabDelimitedWriting.Commands.Count == 1 &&
+    tabDelimitedWriting.Commands[0] == new Command("DONE", null) &&
+    tabDelimitedWriting.VisibleContent.Contains("NEVER_EXECUTE_TAB"),
+    "A tab-indented WritingBlock delimiter must not expose Agent commands.");
+
+// Static rich layout is presentation: shell-looking lines inside nested
+// containers or raw-editor children do not gain Agent command authority.
+var staticRich = parser.Parse(
+    "<box gap={2}>\n" +
+    "<row gap={1}>\n<SH>\necho NEVER_EXECUTE_STATIC\n</SH>\n</row>\n" +
+    "<box><icon name=\"info\" /></box>\n" +
+    "<CodeBlock language=\"text\">\n</box>\n<SH>\necho NEVER_EXECUTE_RAW\n</SH>\n</CodeBlock>\n" +
+    "</box>\n<SH>\necho AFTER_STATIC\n</SH>\n<DONE>");
+Check(staticRich.Commands.SequenceEqual([
+        new Command("SH", "echo NEVER_EXECUTE_STATIC"),
+        new Command("SH", "echo AFTER_STATIC"), new Command("DONE", null)]) &&
+    staticRich.VisibleContent.Contains("NEVER_EXECUTE_RAW"),
+    "Valid nested static layout must expose command nodes, never raw-editor examples.");
+var inlineStatic = parser.Parse(
+    "<box><icon name=\"check\" />\n<SH>\necho NEVER_EXECUTE_INLINE_CHILD\n</SH>\n</box>\n<DONE>");
+Check(inlineStatic.Commands.SequenceEqual([
+        new Command("SH", "echo NEVER_EXECUTE_INLINE_CHILD"), new Command("DONE", null)]),
+    "A self-closing inline child must not suppress a valid nested command.");
+var closedStatic = parser.Parse("<box gap={1}>Content</box>\n<SH>\necho AFTER_SINGLE_LINE\n</SH>\n<DONE>");
+Check(closedStatic.Commands.SequenceEqual([new Command("SH", "echo AFTER_SINGLE_LINE"), new Command("DONE", null)]),
+    "A complete same-line static element suppressed later legitimate commands.");
+var fencedStatic = parser.Parse(
+    "<box>\n~~~mdx\n</box>\n<SH>\necho NEVER_EXECUTE_FENCED\n</SH>\n~~~\n" +
+    "</box>\n<SH>\necho AFTER_FENCE\n</SH>\n<DONE>");
+Check(fencedStatic.Commands.SequenceEqual([new Command("SH", "echo AFTER_FENCE"), new Command("DONE", null)]),
+    "A faux static closing delimiter inside Markdown code exposed shell commands.");
+Console.WriteLine("PASS: Valid nested containers grant command authority, raw-editor content does not.");
+
+Console.WriteLine("PASS: Agent raw-block boundaries protect fenced/comment/inline examples, and preserve later top-level commands.");
+
+Console.WriteLine("PASS: CodeBlock, WritingBlock, fenced/indented Markdown examples cannot become Agent commands.");
+
 Reject(parser, "<SH extra=\"true\">", "Malformed uppercase SH with attributes was accepted.");
 Reject(parser, "<DONE/>", "Malformed self-closing DONE was accepted.");
 Reject(parser, "</SH>", "Unexpected closing SH was accepted.");
 Reject(parser, "<SH>\necho outer\n<SH>\necho nested\n</SH>\n</SH>",
     "Nested SH block with an extra closing tag was accepted.");
-var unfinished = parser.Parse("<SH>\necho incomplete");
-if (unfinished.Commands.Count != 1 || unfinished.Commands[0] != new Command("SH", null))
-    throw new InvalidOperationException("Unclosed SH must remain incomplete for Interpreter to reject.");
+Reject(parser, "<SH>\necho incomplete", "Unclosed SH must fail closed before Interpreter execution.");
 Check(!Registry.TryGet("UNKNOWN", out _) && Registry.TryGet("SH", out var shell) &&
       shell.Form == CommandForm.Block, "Existing Registry must remain command authority.");
 
@@ -196,6 +352,41 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
     Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"
     Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"
     Assert-RejectedBatch 'done-body' "<DONE>`nbody`n</DONE>"
+
+    function Assert-InertPresentation([string]$label, [string]$open, [string]$close) {
+        $marker = Join-Path $temp "inert-$label.txt"
+        $shellText = "echo UNEXPECTED>>`"$marker`""
+        $taskText = "$open`n<SH>`n$shellText`n</SH>`n$close`n<DONE>"
+        $run = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
+            -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $taskText })
+        $outcome = Wait-Execution $run.executionId 20
+        if ($outcome.status -ne 'Completed') {
+            throw "Literal $label example did not finish: $($outcome.status), $($outcome.error)"
+        }
+        $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/executions")
+        $shells = @($history | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+        if ((Test-Path -LiteralPath $marker) -or $shells.Count -ne 0) {
+            throw "Literal $label example started a shell command. Shell count=$($shells.Count), marker=$(Test-Path -LiteralPath $marker)"
+        }
+        Write-Host "PASS: Literal $label example created no Shell record or filesystem side effect."
+    }
+
+    Assert-InertPresentation 'html-comment' '<!--' '-->'
+    Assert-InertPresentation 'inline-code' '`' '`'
+    Assert-InertPresentation 'quoted-code-opener' '<CodeBlock language="text" note="</CodeBlock>">' '</CodeBlock>'
+    Assert-InertPresentation 'quoted-writing-opener' '<WritingBlock variant="document" subject="</WritingBlock>">' '</WritingBlock>'
+    $nestedStaticOpening = @'
+<box gap={2}>
+<row gap={1}>
+<CodeBlock language="text">
+</box>
+'@
+    $nestedStaticClosing = @'
+</CodeBlock>
+</row>
+</box>
+'@
+    Assert-InertPresentation 'nested-static-raw' $nestedStaticOpening $nestedStaticClosing
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
@@ -303,6 +494,14 @@ finally {
     if ($null -ne $agent -and -not $agent.HasExited) {
         Stop-Process -Id $agent.Id -Force
         $agent.WaitForExit()
+    }
+    if (Test-Path -LiteralPath $agentOut) {
+        Write-Host "AGENT STDOUT (last 50 lines):"
+        Get-Content -LiteralPath $agentOut -Tail 50 | ForEach-Object { Write-Host $_ }
+    }
+    if (Test-Path -LiteralPath $agentErr) {
+        Write-Host "AGENT STDERR (last 50 lines):"
+        Get-Content -LiteralPath $agentErr -Tail 50 | ForEach-Object { Write-Host $_ }
     }
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }

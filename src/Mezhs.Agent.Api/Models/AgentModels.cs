@@ -1,3 +1,4 @@
+using Mezhs.Common.RichUi;
 using System.Text.Json.Serialization;
 
 namespace Mezhs.Agent.Models;
@@ -107,7 +108,8 @@ public sealed record AgentChatMessageView(
     string? Analysis,
     DateTimeOffset? ActivityAt,
     IReadOnlyList<AgentProtocolCommandView> Commands,
-    bool CompletionClaimed);
+    bool CompletionClaimed,
+    RichDocument? Document = null);
 
 public sealed class ExecutionRecord
 {

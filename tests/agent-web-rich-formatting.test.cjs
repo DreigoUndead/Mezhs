@@ -1,367 +1,206 @@
+"use strict";
+
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
-const { createRequire } = Module;
 const { test } = require("node:test");
+const { canonicalDocument } = require("./helpers/canonical-rich-document.cjs");
 
 const root = path.resolve(__dirname, "..");
 const frontend = path.join(root, "src/Mezhs.Agent.Web");
-const resolveFrontend = createRequire(path.join(frontend, "package.json"));
-const esbuild = resolveFrontend("esbuild");
-const React = resolveFrontend("react");
-const { renderToStaticMarkup } = resolveFrontend("react-dom/server");
-
-const output = esbuild.buildSync({
+const requireFrontend = Module.createRequire(path.join(frontend, "package.json"));
+const esbuild = requireFrontend("esbuild");
+const React = requireFrontend("react");
+const { renderToStaticMarkup } = requireFrontend("react-dom/server");
+const code = esbuild.buildSync({
   entryPoints: [path.join(frontend, "node_modules/@mezhs/web-lib/src/MarkdownContent.tsx")],
-  preserveSymlinks: true,
-  bundle: true,
-  platform: "node",
-  format: "cjs",
-  jsx: "automatic",
-  write: false,
-  loader: { ".css": "text" },
+  preserveSymlinks: true, bundle: true, platform: "node", format: "cjs",
+  jsx: "automatic", write: false, loader: { ".css": "text" },
   external: ["react", "react/jsx-runtime", "react-dom"],
 }).outputFiles[0].text;
-
-const file = path.join(frontend, "rich-formatting-tests.cjs");
-const compiled = new Module(file);
-compiled.filename = file;
+const moduleFile = path.join(frontend, "rich-formatting-tests.cjs");
+const compiled = new Module(moduleFile);
+compiled.filename = moduleFile;
 compiled.paths = Module._nodeModulePaths(frontend);
-compiled._compile(output, file);
-const html = (value, props = {}) => renderToStaticMarkup(React.createElement(compiled.exports.MarkdownContent, { content: value, ...props }));
+compiled._compile(code, moduleFile);
 
-test("GFM tables, cell alignment, and escaped pipes", () => {
-  const output = html("| Name | Result |\n| :--- | ---: |\n| A \\| B | **PASS** |");
-  assert.match(output, /<table>/);
-  assert.match(output, /text-align:left/);
-  assert.match(output, /text-align:right/);
-  assert.match(output, /A \| B/);
-  assert.match(output, /<strong>PASS<\/strong>/);
-  assert.doesNotMatch(output, /\| :---/);
+function html(content, props = {}) {
+  const document = props.document === undefined ? canonicalDocument(content) : props.document;
+  return renderToStaticMarkup(React.createElement(compiled.exports.MarkdownContent,
+    { content, ...props, document }));
+}
+function fixture(name) {
+  return fs.readFileSync(path.join(root, "tests/fixtures/rich-model-ui", name), "utf8");
+}
+
+test("WritingBlock is rendered from the C# typed document, with escaped metadata and raw edit source", () => {
+  const input = '<WritingBlock variant="email" recipient="alex@example.com" subject="Hello">\n**Hi Alex,**\n\n- First item\n</WritingBlock>';
+  const output = html(input);
+  assert.match(output, /class="rich-writing-block"/);
+  assert.match(output, /Email draft/);
+  assert.match(output, /alex@example\.com/);
+  assert.match(output, /aria-label="Edit writing block"/);
+  assert.match(output, /\*\*Hi Alex,\*\*/);
+  assert.match(output, /aria-label="Copy writing block"/);
 });
 
-test("GFM formatting is owned by the library", () => {
-  const output = html("# Heading\n\n- ~~Removed~~\n- [x] Done\n\n**Bold** and *italic*");
-  assert.match(output, /<h1>Heading<\/h1>/);
-  assert.match(output, /<del>Removed<\/del>/);
-  assert.match(output, /<input[^>]*checked/);
-  assert.match(output, /<strong>Bold<\/strong>/);
-  assert.match(output, /<em>italic<\/em>/);
+test("raw CodeBlock receives literal source, never executable descendants", () => {
+  const input = '<box border>\n<CodeBlock language="typescript" editable>\nconst x = "<SH>not a command</SH>";\n</CodeBlock>\n</box>';
+  const output = html(input);
+  assert.match(output, /class="rich-code-block"/);
+  assert.match(output, /aria-label="Edit code block"/);
+  assert.match(output, /&lt;SH&gt;not a command&lt;\/SH&gt;/);
+  assert.doesNotMatch(output, /class="rich-question"/);
 });
 
-test("standard Markdown links, blockquotes and fenced code render normally", () => {
-  const output = html(
-    "> A **quoted** point\n\n" +
-    "[Website](https://example.com)\n\n" +
-    "```js\nconst message = '<box>text</box>';\n```"
-  );
-  assert.match(output, /<blockquote>/);
-  assert.match(output, /<strong>quoted<\/strong>/);
+test("Markdown fences protect apparent rich tags", () => {
+  const output = html('~~~mdx\n<WritingBlock variant="document">\nHidden\n</WritingBlock>\n~~~');
+  assert.doesNotMatch(output, /class="rich-writing-block"/);
+  assert.match(output, /&lt;WritingBlock/);
+});
+
+test("GFM is converted by Markdig on the server", () => {
+  const output = html("| Type | Value |\n|:---|---:|\n| **Logs** | 42 |");
+  assert.match(output, /<table/);
+  assert.match(output, /<strong>Logs<\/strong>/);
+  assert.match(output, /42/);
+});
+
+test("common Markdown blocks and inline formatting survive the typed AST", () => {
+  const output = html("# Heading\n\n> A **bold** note with `inline` code.\n\n- First\n- Second");
+  assert.match(output, /<h1/);
+  assert.match(output, /<blockquote/);
+  assert.match(output, /<strong>bold<\/strong>/);
+  assert.match(output, /<code>inline<\/code>/);
+  assert.match(output, /<ul/);
+});
+
+test("safe Markdown links retain their destination", () => {
+  const output = html("[Docs](https://example.com)");
   assert.match(output, /href="https:\/\/example\.com"/);
-  assert.match(output, /<pre><code/);
-  assert.match(output, /&lt;box&gt;text&lt;\/box&gt;/);
 });
 
-test("ChatGPT rich markup from an Agent reply renders a real row and icon", () => {
-  const output = html('<row align="center" gap={2}><icon name="check-circle" color="success" size="lg"/> **Removal completed successfully.** </row>\n\nThe changes are applied.');
-  assert.match(output, /class="rich-row"/);
-  assert.match(output, /gap:8px/);
-  assert.match(output, /<svg[^>]*class="[^"]*lucide/);
-  assert.match(output, /<strong>Removal completed successfully\.<\/strong>/);
-  assert.match(output, /The changes are applied/);
-  assert.doesNotMatch(output, /&lt;row|&lt;icon/);
+test("unsafe Markdown destinations never become navigable", () => {
+  const output = html("[Do not open](javascript:alert(1))");
+  assert.doesNotMatch(output, /href="javascript:/);
 });
 
-test("unsupported and executable MDX remains visible, not executable", () => {
-  const output = html('<unknown>Keep me</unknown>\n\n<row gap={globalThis.hack()}>Unsafe expression</row>');
-  assert.match(output, /Keep me/);
-  assert.match(output, /Unsafe expression/);
-  assert.match(output, /&lt;row gap=\{globalThis\.hack\(\)\}/);
-  assert.doesNotMatch(output, /class="rich-row"|<unknown>/);
-});
-
-test("unsafe links and HTML event handlers are not activated", () => {
-  const output = html('[Unsafe](javascript:alert(1))\n\n<img src="x" onerror="alert(1)">');
-  assert.doesNotMatch(output, /javascript:alert\(1\)/i);
-  assert.match(output, /href=""/);
-  assert.doesNotMatch(output, /javascript:/i);
-  assert.doesNotMatch(output, /<img\b/i);
-  assert.match(output, /&lt;img/);
-});
-
-test("incomplete custom markup is displayed without crashing", () => {
-  const output = html('<row><badge>Unclosed');
-  assert.match(output, /Unclosed/);
-  assert.doesNotMatch(output, /class="rich-/);
-});
-
-
-
-
-
-
-
-
-
-
-test("APUS trace card renders titles, divider, and compact nested layout structure", () => {
-  const input = [
-    '<box border radius="lg" padding={3} gap={2}>',
-    '  <row justify="between" align="center"><text weight="bold">APUS.Web — GET /</text><badge color="success">18 spans</badge></row>',
-    '  <grid columns={3} gap={2}>',
-    '    <grid-item><col gap={1}><text size="xs">Request duration</text><title size="xl" tabularNums>120 ms</title></col></grid-item>',
-    '    <grid-item><col gap={1}><text size="xs">Trace depth</text><title size="xl" tabularNums>6</title></col></grid-item>',
-    '    <grid-item><col gap={1}><text size="xs">Resources</text><title size="xl" tabularNums>1</title></col></grid-item>',
-    '  </grid>',
-    '  <divider color="subtle"/>',
-    '  <text>Selected operations in this request</text>',
-    '  <col gap={2}>',
-    '    {#each [{name:"GET /",time:"120 ms"},{name:"LoggingMiddleware.InvokeAsync",time:"120 ms"},',
-    '     {name:"MVC Home.Index",time:"110 ms"}] as s,i}',
-    '      <row key={i} align="center" gap={2}><text>{s.name}</text><text color="secondary" size="xs">{s.time}</text></row>',
-    '    {/each}',
-    '  </col>',
-    '</box>',
-  ].join("\n");
-  const output = html(input);
-  assert.equal((output.match(/class="rich-title"/g) || []).length, 3);
-  assert.match(output, /class="rich-title"[^>]*font-size:1\.55em[^>]*font-variant-numeric:tabular-nums/);
-  assert.match(output, /<hr class="rich-divider"\/>/);
-  assert.match(output, /120 ms/);
-  assert.equal((output.match(/class="rich-row"/g) || []).length, 4);
-  assert.doesNotMatch(output, /&lt;title|&lt;divider|&lt;row|\{#each/);
-});
-
-test("DIL telemetry example expands three entries into a styled grid", () => {
-  const sample = [
-    '<box border radius="lg" padding={3} gap={2}>',
-    '  <box background="surface-secondary" radius="md" padding={3} align="center">**eFlex Application**</box>',
-    '  <grid columns={3} gap={2}>',
-    '    {#each [{name:"Logs",source:"LogProvider",path:"/v1/logs"},',
-    '            {name:"Traces",source:"Initialize.cs",path:"/v1/traces"},',
-    '            {name:"Metrics",source:"Initialize.cs",path:"/v1/metrics"}] as signal}',
-    '      <grid-item><col align="center" gap={2}>',
-    '        <icon name="arrow-down" color="secondary"/>',
-    '        <box border radius="md" padding={2} width="100%" align="center" gap={1}>',
-    '          <text weight="medium" size="sm">{signal.name}</text>',
-    '          <text size="2xs" color="secondary" textAlign="center">{signal.source}</text>',
-    '        </box>',
-    '        <text>{signal.path}</text>',
-    '      </col></grid-item>',
-    '    {/each}',
-    '  </grid>',
-    '</box>',
-  ].join("\n");
-  const output = html(sample);
-  assert.match(output, /class="rich-grid"/);
-  assert.match(output, /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
-  assert.equal((output.match(/class="rich-grid-item"/g) || []).length, 3);
-  assert.match(output, /Logs/);
+test("nested layout nodes render using the single canonical validation pipeline", () => {
+  const output = html('<box border radius="lg" padding={3}>\n<row gap={2}>\n<icon name="git-branch" />\n<text color="secondary">Traces</text>\n</row>\n<divider/>\n</box>');
+  assert.match(output, /class="rich-box/);
+  assert.match(output, /rich-row/);
   assert.match(output, /Traces/);
-  assert.match(output, /Metrics/);
-  assert.match(output, /\/v1\/logs/);
-  assert.match(output, /\/v1\/traces/);
-  assert.match(output, /\/v1\/metrics/);
-  assert.match(output, /background:#eeebe5/);
+  assert.doesNotMatch(output, /&lt;row/);
+});
+
+test("representative SVG is mounted only after server validation", () => {
+  const input = fixture("representative-svg.md");
+  const document = canonicalDocument(input);
+  assert.equal(document.valid, true);
+  const output = html(input, { document });
   assert.match(output, /<svg/);
-  assert.doesNotMatch(output, /\{#each|\{signal\.|&lt;grid/);
+  assert.match(output, /<rect/);
+  assert.match(output, /Application/);
+  assert.match(output, /Collector/);
 });
 
-test("template values cannot inject HTML or execute JavaScript", () => {
-  const source = '<grid>{#each [{name:"<img src=x onerror=alert(1)>"}] as signal}<grid-item>{signal.name}</grid-item>{/each}</grid>';
-  const output = html(source);
-  assert.match(output, /&lt;img/);
-  assert.doesNotMatch(output, /<img\b|onerror="/);
-  assert.match(output, /class="rich-grid-item"/);
-});
-
-test("unsafe loop expressions remain literal instead of being evaluated", () => {
-  const source = '<grid>{#each [globalThis.alert("bad")] as signal}<grid-item>{signal}</grid-item>{/each}</grid>';
-  const output = html(source);
-  assert.doesNotMatch(output, /class="rich-grid-item"/);
-  assert.match(output, /globalThis\.alert/);
-});
-
-test("nested loops only read own data fields and support literal values", () => {
-  const source = [
-    '<grid>{#each [{label:"A",children:[{text:"One"},{text:"Two"}]}] as outer}',
-    '<grid-item>{outer.label}',
-    '{#each [{label:"inside"}] as item}<text>{item.label}</text>{/each}',
-    '</grid-item>{/each}</grid>'
-  ].join("");
-  const output = html(source);
-  assert.match(output, /inside/);
-  assert.match(output, /A/);
-  assert.equal((output.match(/class="rich-grid-item"/g) || []).length, 1);
-});
-
-test("fenced DIL examples stay code and do not expand", () => {
-  const source = ['~~~dil', '{#each [{name:"Foo"}] as signal}', '{signal.name}', '{/each}', '~~~'].join("\n");
-  const output = html(source);
-  assert.match(output, /<pre><code/);
-  assert.match(output, /#each/);
-  assert.match(output, /signal\.name/);
-});
-
-
-test("indexed tracing DIL loops render computed indent, border, and tabular spans", () => {
-  const input = [
-    "## Tracing fix completed and validated",
-    "",
-    '<badge color="success">PASS — Connected HTTP tracing</badge>',
-    "",
-    "The isolated integration test confirms one HTTP trace.",
-    "",
-    '<box border radius="lg" padding={3} gap={2}>',
-    '<text color="secondary" size="xs" weight="medium">Measured integration-test trace</text>',
-    '<box gap={2}>',
-    '{#each [{name:"HTTP GET /traceprobe",time:"210.85 ms",depth:0},',
-    '{name:"HTTP middleware",time:"154.39 ms",depth:1},',
-    '{name:"MVC TraceProbe.Get",time:"99.17 ms",depth:2},',
-    '{name:"Controller.Get",time:"55.09 ms",depth:3},',
-    '{name:"Query (simulated)",time:"23.36 ms",depth:4}] as s,i}',
-    '<row key={i} align="center" gap={2}>',
-    '<box width={`${s.depth*13}px`}/>',
-    '<box flex="1" border={{left:{size:2,color:i===0?"strong":"subtle"}}} padding={{left:2}}>',
-    '<row justify="between" align="center">',
-    '<text size="sm">{s.name}</text>',
-    '<text color="secondary" size="xs" tabularNums>{s.time}</text>',
-    '</row></box></row>',
-    '{/each}</box></box>',
-    "",
-    "## Changes made",
-  ].join("\n");
+test("two-choice canonical radio question renders disabled without host callback", () => {
+  const input = fixture("representative-question.md");
   const output = html(input);
-  assert.match(output, /<h2>Tracing fix completed and validated<\/h2>/);
-  assert.match(output, /class="rich-badge rich-tone-success"/);
-  assert.match(output, /PASS — Connected HTTP tracing/);
-  for (const value of ["HTTP GET /traceprobe", "HTTP middleware", "MVC TraceProbe.Get",
-    "Controller.Get", "Query (simulated)", "210.85 ms", "23.36 ms", "Changes made"])
-    assert.ok(output.includes(value), "missing " + value);
-  assert.equal((output.match(/class="rich-row"/g) || []).length, 10);
-  assert.match(output, /width:52px/);
-  assert.match(output, /border-left:2px solid/);
-  assert.match(output, /padding-left:8px/);
-  assert.match(output, /font-variant-numeric:tabular-nums/);
-  assert.doesNotMatch(output, /\{#each|\{s\.name\}|\{s\.time\}|&lt;box|&lt;row/);
+  assert.match(output, /class="rich-question"/);
+  assert.match(output, /type="radio"/);
+  assert.match(output, /Two configured exporters/);
+  assert.match(output, /disabled=""/);
 });
 
-test("bad rich block cannot disable earlier supported badges", () => {
-  const input = '<badge color="success">PASS</badge>\n\n<box border={{left:{size:2,color:evil()}}}>Unsafe fragment';
+test("four-choice canonical question preserves each visible answer and host-only submission", () => {
+  const input = fixture("custom-controls-question.md");
+  let called = false;
+  const output = html(input, { onIssueNewTurn() { called = true; } });
+  assert.equal(called, false);
+  assert.equal((output.match(/type="radio"/g) || []).length, 4);
+  assert.match(output, /Minimum interval between request starts/);
+  assert.match(output, /Different semantics/);
+  assert.doesNotMatch(output, /disabled=""/);
+});
+
+test("verbatim content stays inert even when typed nodes are present", () => {
+  const input = '<box><text>Never activate</text></box>';
+  const output = html(input, { verbatim: true });
+  assert.doesNotMatch(output, /class="rich-box/);
+  assert.match(output, /&lt;box/);
+});
+
+test("unparsed provisional content remains inert Markdown, never rich UI", () => {
+  const input = '<box><text>Still streaming</text></box>';
+  const output = html(input, { document: null });
+  assert.doesNotMatch(output, /class="rich-box/);
+});
+
+test("invalid rich elements fail closed for the entire document", () => {
+  const cases = [
+    '<badge>Valid</badge>\n<script>alert(1)</script>',
+    '<box onClick="alert(1)">Unsafe</box>',
+    '<box gap={globalThis.alert(1)}>Unsafe</box>',
+    '<box gap={2} gap={3}>Unsafe</box>',
+    '<box {...danger}>Unsafe</box>',
+    '<box>Missing closer',
+    '<row><text>Wrong closer</row></text>',
+    '<Chart content={globalThis.alert(1)} />',
+    '<WritingBlock variant="email" onClick="alert(1)">Unsafe</WritingBlock>',
+  ];
+  for (const input of cases) {
+    const document = canonicalDocument(input);
+    assert.equal(document.valid, false, input);
+    const output = html(input, { document });
+    assert.match(output, /class="prompt-text"/);
+    assert.doesNotMatch(output, /class="rich-box|class="rich-writing-block|class="rich-badge"/);
+    assert.doesNotMatch(output, /<script\b|<[a-z][^>]*\bonClick=/i);
+  }
+});
+
+test("inline fenced examples cannot grant control or command authority", () => {
+  const input = '`<SH>echo NEVER</SH>`\n\n~~~mdx\n<box><icon name="check"/></box>\n~~~';
   const output = html(input);
-  assert.match(output, /class="rich-badge rich-tone-success"/);
-  assert.match(output, /evil\(\)/);
-  assert.doesNotMatch(output, /<script|onerror=/);
+  assert.doesNotMatch(output, /class="rich-box/);
+  assert.match(output, /&lt;SH&gt;/);
 });
 
-test("template expression calls and prototype access stay inert", () => {
-  const input = [
-    '<box>{#each [{name:"ok", depth:1}] as s,i}',
-    '<row key={i}><box width={`${s.depth.constructor(200)}px`}/><text>{s.name}</text></row>',
-    '{/each}</box>'
-  ].join("\n");
-  const output = html(input);
-  assert.doesNotMatch(output, /width:200px/);
-  assert.match(output, /constructor/);
+test("unsupported DIL loop syntax cannot execute or expand", () => {
+  const input = '<box>\n{#each [{label:"Alice"}] as item}\n<text>{item.label}</text>\n{/each}\n</box>';
+  const document = canonicalDocument(input);
+  assert.equal(document.valid, true);
+  const output = html(input, { document });
+  assert.doesNotMatch(output, />Alice</);
+  assert.match(output, /item\.label/);
 });
 
-
-test("standalone object-valued layout properties use the restricted evaluator", () => {
-  const output = html('<box border={{left:{size:2,color:"subtle"}}} padding={{left:2}}>Standalone</box>');
-  assert.match(output, /class="rich-box"/);
-  assert.match(output, /border-left:2px solid/);
-  assert.match(output, /padding-left:8px/);
-  assert.match(output, /Standalone/);
-  assert.doesNotMatch(output, /&lt;box/);
+test("SVG event attributes and external resources fail closed", () => {
+  for (const input of [
+    '<svg viewBox="0 0 100 100"><rect width="10" height="10" onload="alert(1)"/></svg>',
+    '<svg viewBox="0 0 100 100"><image href="https://example.com/x.svg"/></svg>',
+    '<svg viewBox="0 0 100 100"><path d="M0 0 L10 10" stroke="url(#evil)"/></svg>',
+  ]) {
+    const document = canonicalDocument(input);
+    assert.equal(document.valid, false);
+    assert.doesNotMatch(html(input, { document }), /<svg/);
+  }
 });
 
-
-
-
-
-
-test("inline code samples do not expand loops or JSX attribute expressions", () => {
-  const source = [
-    'Example: \`{#each [{name:"Sample"}] as s}{s.name}{/each}\`.',
-    '',
-    'Example: \`<box padding={{left:2}}>literal</box>\`.',
-    '',
-    '<badge color="success">Actual badge</badge>',
-  ].join("\n");
-  const output = html(source);
-  assert.match(output, /<code>\{#each \[\{name:&quot;Sample&quot;\}\] as s\}\{s\.name\}\{\/each\}<\/code>/);
-  assert.match(output, /<code>&lt;box padding=\{\{left:2\}\}&gt;literal&lt;\/box&gt;<\/code>/);
-  assert.match(output, /class="rich-badge rich-tone-success"/);
+test("literal HTML and prototype-like renderer names cannot select host components", () => {
+  for (const input of [
+    '<constructor>unsafe</constructor>',
+    '<__proto__>unsafe</__proto__>',
+    '<text onMouseOver="alert(1)">unsafe</text>',
+  ]) {
+    const output = html(input);
+    assert.doesNotMatch(output, /<[a-z][^>]*\bonMouseOver=|<constructor\b|class="rich-text"/i);
+  }
 });
 
-test("caption markup renders as styled caption instead of literal tags", () => {
-  const output = html('<box border><text>Measured example</text><caption>Isolated test, not the original request.</caption></box>');
-  assert.match(output, /class="rich-caption"/);
-  assert.match(output, /Isolated test, not the original request/);
-  assert.doesNotMatch(output, /&lt;caption|&lt;\/caption/);
-});
-
-test("verbatim prompt text retains exact numbering and line breaks", () => {
-  const prompt = "2. First line\n4. Second line\n\n  Indented note  ";
-  const output = html(prompt, { verbatim: true });
-  assert.match(output, /class="prompt-text"/);
-  assert.ok(output.includes(prompt));
-  assert.doesNotMatch(output, /<ol|<li|<p>/);
-});
-
-test("performance panel renders inline titles and a declarative bar chart", () => {
-  const input = [
-    "## Performance results",
-    "",
-    "Memory allocated by 20,000 disabled Debug calls",
-    "",
-    '<row gap={3}>',
-    '  <col><text color="secondary">Before</text><title size="xl" color="default" tabularNums>955,224 B</title></col>',
-    '  <col><text color="secondary">After</text><title size="xl" color="success" tabularNums>3,440 B</title></col>',
-    '</row>',
-    "",
-    '<Chart content={{"chartType":"bar","meta":{"footer":"Measured allocations; lower is better."},',
-    ' "xKey":"method","series":[{"dataKey":"bytes","label":"Allocated bytes","valueFormat":"integer"}],',
-    ' "yAxisMin":0,"data":[{"method":"Before","bytes":955224},{"method":"After","bytes":3440},',
-    ' {"method":"Typed template","bytes":3224}]}}/>',
-    "",
-    "That's roughly **99.6% fewer allocations**.",
-  ].join("\n");
-  const output = html(input);
-  assert.equal((output.match(/class="rich-title/g) || []).length, 2);
-  assert.match(output, /class="rich-title rich-tone-success"/);
-  assert.match(output, /font-variant-numeric:tabular-nums/);
-  assert.match(output, /class="rich-chart"/);
-  assert.match(output, /class="rich-chart-bar rich-chart-series-0"/);
-  assert.match(output, /Before/);
-  assert.match(output, /After/);
-  assert.match(output, /Typed template/);
-  assert.match(output, /955,224/);
-  assert.match(output, /3,440/);
-  assert.match(output, /Measured allocations; lower is better/);
-  assert.doesNotMatch(output, /&lt;title|&lt;Chart|&lt;\/title|chartType|dataKey/);
-});
-
-test("mixed inline text and titles remain supported", () => {
-  const output = html('Before <title size="xl" color="default" tabularNums>955,224 B</title> After');
-  assert.match(output, /class="rich-title"/);
-  assert.match(output, /Before/);
-  assert.match(output, /After/);
-  assert.doesNotMatch(output, /&lt;title/);
-});
-
-test("chart expressions cannot execute functions or inject HTML", () => {
-  const input = '<Chart content={{chartType:"bar",xKey:"method",series:[{dataKey:"bytes",label:"Allocated"}],data:[{method:"A",bytes:globalThis.alert(1)}]}}/>';
-  const output = html(input);
-  assert.doesNotMatch(output, /class="rich-chart"/);
-  assert.match(output, /globalThis.alert/);
-  assert.doesNotMatch(output, /<script|onerror=|<iframe/);
-});
-
-test("valid chart labels are React-escaped", () => {
-  const input = '<Chart content={{chartType:"bar",xKey:"method",series:[{dataKey:"bytes",label:"Allocated"}],data:[{method:"<img src=x onerror=alert(1)>",bytes:40}]}}/>';
-  const output = html(input);
-  assert.match(output, /class="rich-chart"/);
-  assert.match(output, /&lt;img/);
-  assert.doesNotMatch(output, /<img\b|onerror="/);
+test("incomplete rich markup never crashes the renderer", () => {
+  const output = html('<box><row>broken');
+  assert.match(output, /broken/);
+  assert.doesNotMatch(output, /class="rich-box/);
 });
