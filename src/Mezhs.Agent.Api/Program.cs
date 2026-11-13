@@ -273,13 +273,14 @@ static AgentChatView ToView(
     AgentChatRecord record,
     AgentStore store,
     ChatStore chats,
-    IReadOnlyDictionary<string, string>? statuses = null)
+    IReadOnlyDictionary<string, AgentChatExecutionStatus>? statuses = null)
 {
     statuses ??= store.GetLatestAgentStatuses();
     var chat = chats.TryGetListState(record.ChatId);
     var core = chats.GetChat(record.ChatId);
     var lastActivity = core?.UpdatedAt > record.UpdatedAt ? core.UpdatedAt : record.UpdatedAt;
     var firstTask = store.GetFirstRootExecutionRequest(record.ChatId);
+    var latestStatus = statuses.GetValueOrDefault(record.ChatId);
     var savedTitle = core?.Title;
     return new AgentChatView(
         record.ChatId,
@@ -294,7 +295,8 @@ static AgentChatView ToView(
         record.CreatedAt,
         lastActivity,
         core?.CategoryId,
-        statuses.GetValueOrDefault(record.ChatId));
+        latestStatus?.Status,
+        latestStatus?.ExecutionId);
 }
 
 static string SafeFilePart(string value)
