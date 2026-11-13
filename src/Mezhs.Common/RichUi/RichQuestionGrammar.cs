@@ -135,11 +135,26 @@ internal static class RichQuestionGrammar
         Children = n.Children?.Select(c => Shift(c, offset)).ToArray()
     };
 
-    // Exactly the bounded ternary expression of the supported radio fixture.
+    // Accept only the original single-state literal template or bounded ternary. No model JS runs.
     // The final option is its default; all other branches are strict equality tests.
     private static bool Messages(string action, string state, string[] values, out string[] messages)
     {
         messages = [];
+        // A single interpolation of the declared state is finite data, not JS.
+        // Reject escapes and any other interpolation or dynamic expression.
+        var template = Regex.Match(action,
+            @"^\s*\(\s*\)\s*=>\s*GenUI\.issueNewTurn\(\s*\x60(?<prefix>[^\x60\\$\r\n]*)\$\{(?<state>[A-Za-z_$][\w$]*)\}(?<suffix>[^\x60\\$\r\n]*)\x60\s*\)\s*$",
+            RegexOptions.CultureInvariant, RegexTimeout);
+        if (template.Success && template.Groups["state"].Value == state)
+        {
+            var prefix = template.Groups["prefix"].Value;
+            var suffix = template.Groups["suffix"].Value;
+            var interpolated = values.Select(value => prefix + value + suffix).ToArray();
+            if (!interpolated.All(message => message.Length is >= 1 and <= 2_000))
+                return false;
+            messages = interpolated;
+            return true;
+        }
         var cursor = new Cursor(action);
         if (!cursor.Take("()=>GenUI.issueNewTurn(")) return false;
         var result = new List<string>();
