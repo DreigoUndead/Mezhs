@@ -226,7 +226,7 @@ test("unknown tags and event handlers cannot reach the host renderer", () => {
   ];
   for(const input of inputs){
     const out=html(input);
-    assert.doesNotMatch(out, /<script|onClick=|href="javascript:/);
+    assert.doesNotMatch(out, /<script\b|<[a-z][^>]*\bonClick=|href="javascript:/i);
   }
 });
 
