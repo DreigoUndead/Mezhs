@@ -4,7 +4,7 @@ ID: rich-ui-custom-controls
 Branch: rich-ui-custom-controls
 PR: https://github.com/DreigoUndead/Mezhs/pull/53
 Level: **High-risk — cross-runtime parser/renderer redesign and host command authority**
-State: **IMPLEMENTED — developer verification passed; independent code review and independent tester pending**
+State: **IMPLEMENTED — developer verification passed; independent code review re-review pending after corrections; independent tester pending**
 Dependency: existing Rich UI Custom Controls work on this branch; old incremental plan versions remain in Git history (last archived plan at 54686a1d591be4a806a1f3e17d559aa8175736b2).
 Owner decision (2026-11-12): adopt one canonical **C#** document/parser/validation model; React renders typed validated data and owns only local interactive state; commands can occur inside valid containers/lists.
 Owner clarification (2026-11-13): **Do not preserve legacy UI parsing/handling.** All supported old and new tags use the one canonical C# parser, DTO and typed React renderer. Remove the old frontend extraction, expression and markup paths instead of a compatibility fallback. Retire or migrate raw-text frontend tests to validate canonical DTOs and the inert provisional fallback; treat unsupported expression constructs as inert until explicitly added to the canonical grammar. Security/command boundary tests remain mandatory.
@@ -105,6 +105,30 @@ The development agent must present a concrete feasibility result and stop for ow
 - Developer checks: canonical C# parser 32/32; typed SSR 43/43; real Chromium integration PASS; Agent protocol/Executor integration including rejected-batch negative side effects PASS; Agent Web shared UI PASS; Agent architecture PASS; `Mezhs.Agent.Api` Release build PASS; `Mezhs.Agent.Web` production build PASS. Portable Codegraph regenerated (280 files, 726 edges). These are developer checks **not** an independent code review or independent testing.
 - Updated `docs/supported-rich-ui.md`, `specifications/current/agent-runtime.md`, and generated `.agents/codegraph/graph.json`. The planned compatibility rule remains explicit: unsupported old expression syntax renders as inert source; no duplicate legacy frontend parser is retained.
 - Proposed release category: **MINOR** for the coordinated UI/Agent architectural change. Do **not** update VERSION or CHANGELOG until separately approved merge/release.
+
+## Independent code review FAIL and correction record (2026-11-13)
+
+A separate High-risk reviewer assessed the full PR diff at `ae5da658a6d5769ae517b06db231f20ff206b77a` against main `179c0da50a17e7024d76eaa2571cb6ee2498348e` and returned **FAIL**: execution `exec_d739b825ab8a45959ae63614dbc7a359`, chat `chat_870a802521134703ad66b61300eda6c1`. The reviewer did not edit files or perform independent testing.
+
+Findings and same-branch dispositions:
+
+1. **P1 — quadratic repeated Markdown suffix scans.** Parsing every sibling's entire remaining suffix was replaced with a bounded matching rich-container closing scan, Markdig literal protection scoped to that container, and an explicit cumulative Markdown-work budget. Added C# wide/deep cases; **900 sibling containers parsed in 55 ms** in the developer verification run. The container lookup now also protects false closing tags inside fenced Markdown. Corrective commits include `1dadbe5`, `3904bfd`, `8311ea2`.
+2. **P1 — lost Markdown image parity.** Markdig `LinkInline.IsImage` now lowers to typed `image` nodes (HTTP/HTTPS validated, URL length bounded); React renders inert, lazy `img` with escaped alt text, referrer suppression and no script URL sink. Added SSR regression for safe/unsafe sources. Commits `caafd84`, `f9e3254`, `70457de`.
+3. **P2 — Markdown fences visible inside code blocks.** Code-node text comes from Markdig code lines rather than the source range containing fences/language info. Added fenced, indented, and CRLF rendering regressions. Commits `caafd84`, `70457de`.
+4. **P2 — documentation example wrapped the radio grammar in unsupported `box`.** Corrected `docs/supported-rich-ui.md` to show the actual finite flat one-state grammar and its limitation; added a test that extracts and parses the documented example. This is a documentation correction, not a new UI grammar or change to the approved architecture. Commits `7c857d1`, `70457de`.
+5. **P2 — missing GFM task checkboxes and table header semantics.** Added typed Markdig task-list checkbox nodes and header table-row/cell flags; React displays disabled checkboxes and semantic `thead`/`th scope="col"` with corresponding test coverage. Commits `caafd84`, `f9e3254`, `70457de`.
+
+Developer verification of these corrections at `8311ea2fe1376341d23c809b365ea4d1c599006c`:
+
+- C# parser/security: **35/35 PASS**, including wide/deep and code-fenced false closing tag.
+- Typed React SSR and Chromium: **48/48 PASS**.
+- Agent protocol/Executor integration: **PASS**, including real two-shell batches and negative filesystem/command side-effects.
+- Agent Web shared UI integration: **PASS**, plus 19 tests.
+- Agent architecture checks: **PASS**.
+- Agent API .NET Release: **PASS (0 warnings/errors)**; Agent Web TypeScript/Vite production build: **PASS**.
+- Regenerated portable Codegraph: **286 tracked files, 743 dependency edges**, including new GFM references.
+
+The PR metadata has been updated from obsolete planning/failed-plan-review text to the implemented work. **These are developer checks only.** A fresh independent code-review verdict against the corrected HEAD is required; on PASS, hand off to a different independent tester. No owner approval to merge/release has been granted.
 
 ## Workflow, release and pending decisions
 
