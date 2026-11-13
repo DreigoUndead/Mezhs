@@ -1,4 +1,5 @@
 using Mezhs.Api.Contracts;
+using Mezhs.Common.RichUi;
 using Mezhs.Integrations;
 using Mezhs.Models;
 
@@ -92,6 +93,9 @@ public sealed class ChatService(
             message.ActivityDetail,
             message.Analysis,
             message.ActivityAt,
-            message.ActivityHistory);
+            message.ActivityHistory,
+            string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
+            message.Status == MessageStatus.Completed
+                ? new RichDocumentParser().Parse(message.Content).Document : null);
     }
 }

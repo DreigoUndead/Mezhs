@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 const variants: Record<string, string> = {
   email: "Email draft",
@@ -48,44 +48,4 @@ export function RichWritingBlock({ source, variant, subject, recipient, cc, bcc 
     }} rows={Math.max(5, Math.min(18, draft.split("\n").length + 2))} spellCheck />
     {copyStatus && <span className="rich-writing-status" role="status">{copyStatus}</span>}
   </section>;
-}
-
-
-export type WritingBlockData = {
-  source: string; variant: string; subject: string;
-  recipient: string; cc: string; bcc: string;
-};
-
-export const WritingBlocksContext =
-  createContext<Record<string, WritingBlockData>>(Object.create(null));
-
-export function RichWritingBlockSlot(props: Record<string, unknown>) {
-  const blocks = useContext(WritingBlocksContext);
-  const id = props["data-mezhs-writing-id"];
-  const block = typeof id === "string" &&
-    Object.prototype.hasOwnProperty.call(blocks, id) ? blocks[id] : undefined;
-  return block ? <RichWritingBlock {...block} /> : null;
-}
-
-export function writingBlockMetadata(raw: string): Omit<WritingBlockData, "source"> | null {
-  if (!raw.startsWith("<WritingBlock") || !raw.endsWith(">")) return null;
-  const attrs: Record<string, string> = Object.create(null);
-  let rest = raw.slice("<WritingBlock".length, -1);
-  const allowed = new Set(["variant", "subject", "recipient", "cc", "bcc", "id"]);
-  while (rest.trim()) {
-    const match = /^\s+([a-zA-Z][a-zA-Z0-9]*)\s*=\s*(?:"([^"\n\r]*)"|'([^'\n\r]*)')/.exec(rest);
-    if (!match || !allowed.has(match[1]) || Object.prototype.hasOwnProperty.call(attrs, match[1]))
-      return null;
-    const value = match[2] ?? match[3];
-    if (value.length > 256) return null;
-    attrs[match[1]] = value;
-    rest = rest.slice(match[0].length);
-  }
-  if (attrs.variant && !["email", "chat_message", "social_post", "document", "standard"].includes(attrs.variant))
-    return null;
-  if (attrs.id && !/^[0-9]{5}$/.test(attrs.id)) return null;
-  return {
-    variant: attrs.variant || "standard", subject: attrs.subject || "",
-    recipient: attrs.recipient || "", cc: attrs.cc || "", bcc: attrs.bcc || "",
-  };
 }

@@ -1,5 +1,5 @@
 import { Check, CircleCheck, CircleAlert, CircleX, Info, ArrowDown, ArrowRight, GitBranch, GitPullRequest, ScrollText, ChartNoAxesCombined, Network, Database } from "lucide-react";
-import { defineElement, type RichProps } from "./Element";
+import type { RichProps } from "./Element";
 import { read, tone } from "./Style";
 const icons = {
   check: Check, "check-circle": CircleCheck, "circle-check": CircleCheck,
@@ -10,8 +10,7 @@ const icons = {
 };
 
 
-export const iconElement = defineElement("icon", ["name","size","color","inline"],
-  (props: RichProps) => {
+export const iconComponent = (props: RichProps) => {
     const name = read(props, "name");
     const Icon = Object.prototype.hasOwnProperty.call(icons, name)
       ? icons[name as keyof typeof icons] : undefined;
@@ -19,4 +18,4 @@ export const iconElement = defineElement("icon", ["name","size","color","inline"
     return <span className={"rich-icon" + tone(props)} role="img" aria-label={name || "icon"}>
       {Icon ? <Icon size={size} aria-hidden="true" /> : name}
     </span>;
-  });
+  };
