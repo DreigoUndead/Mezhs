@@ -29,3 +29,10 @@
 ## Implementation note
 
 Completed on the task branch. The typed Agent chat list now exposes the root execution ID alongside the status from the existing batch query, so unread tracking does not depend on modification timestamps or add list N+1 requests. Standard independent code review and verification are still required before owner merge approval.
+
+## Independent code review — 2026-11-13
+
+- **Initial verdict: FAIL** at candidate `ab89858f81d71dd351534e1760d8170a40c91371` vs base `179c0da50a17e7024d76eaa2571cb6ee2498348e`; see [PR #56 review](https://github.com/DreigoUndead/Mezhs/pull/56#pullrequestreview-5898615213) and [Core CI run 43514409019](https://github.com/DreigoUndead/Mezhs/actions/runs/43514409019).
+- **Finding:** The new PowerShell smoke assertions incorrectly treated the Agent list JSON array as a single pipeline object, producing multiple `executionStatus` and `executionStatusId` values when querying one chat. CI showed two list values and one matching detail value. This was a test collection-shape defect; the CI log did not establish an API status/ID pairing defect.
+- **Reviewer fix:** Commit `83755f79e86fe6207649d3a137d2c1fc9e24cb18` on this branch: assign REST list response without an enclosing `@(...)`, enumerate the resulting collection through the filter, and require exactly one matching Agent chat for both initial and subsequent completed root executions. Production code and original status precedence remain unchanged.
+- **Continuity:** New independent Code Reviewer must review the updated branch and CI evidence before a PASS. Standard targeted verification follows review PASS; owner merge approval remains separate. No VERSION/CHANGELOG or main changes.
