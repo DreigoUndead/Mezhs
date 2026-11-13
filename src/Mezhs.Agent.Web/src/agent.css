@@ -1282,3 +1282,17 @@
     max-height: 200px;
   }
 }
+
+/* The sidebar and selected header share the same Agent execution status projection. */
+.agent-status { display: inline-flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 600; white-space: nowrap; }
+.agent-status-dot { display: inline-block; width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: #85827a; }
+.agent-status-running .agent-status-dot { background: #7ba329; }
+.agent-status-completed .agent-status-dot { background: #41a36a; }
+.agent-status-failed .agent-status-dot { background: #cf5656; }
+.agent-status-cancelrequested .agent-status-dot { background: #d4a451; }
+.agent-status-paused .agent-status-dot, .agent-status-cancelled .agent-status-dot { background: #777; }
+.agent-status-queued .agent-status-dot, .agent-status-unknown .agent-status-dot { background: #999; }
+@media (prefers-reduced-motion: no-preference) {
+  .agent-status-running .agent-status-dot { animation: agent-status-pulse 1.4s ease-in-out infinite; }
+}
+@keyframes agent-status-pulse { 50% { opacity: .45; transform: scale(.8); } }

@@ -10,7 +10,7 @@ Testing follows **code review** (or a Small-change self-review). Read [the workf
 2. Run acceptance, regression, failure-path and integration checks appropriate to the change. Record commands, exit codes, outcomes and limitations. CI, developer checks and independent testing are different kinds of evidence.
 3. Record **PASS / FAIL / BLOCKED** with the tested SHA and base branch revision. Keep evidence in `verification.md` or the PR, so the next agent can check it.
 
-On FAIL/BLOCKED, send findings to development on the same branch. Re-run affected review and tests after fixes. A fresh tester is mandatory only when the level requires independent testing; start a fresh chat if context quality deteriorates.
+On FAIL, the tester fixes issues on the same branch, runs checks, commits/pushes and prompts a **new independent Code Reviewer**; after review PASS, repeat affected tests with a fresh tester when required. On BLOCKED, report the blocker.
 
 If local tooling is unavailable, prefer existing CI. When needed, a temporary validation workflow on the review branch may self-report a sanitized PASS/FAIL file. Remove the temporary workflow/result before owner review; do not include secrets. Never claim an unrun test passed.
 

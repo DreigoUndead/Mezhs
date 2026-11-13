@@ -44,11 +44,27 @@ if (-not $messageService.Contains('message.Status = MessageStatus.Cancelled;')) 
 }
 
 $browserSession = Read-Source 'src\Mezhs.Integration.Browser\BrowserAccountSession.cs'
-if (-not $browserSession.Contains('catch (OperationCanceledException)')) {
-    throw 'BrowserAccountSession must own cancellation of its transport operation.'
+if ($browserSession.Contains('await DisposeTransportAsync();')) {
+    throw 'One cancelled Agent turn must not dispose the shared browser host.'
 }
-if (-not $browserSession.Contains('await DisposeTransportAsync();')) {
-    throw 'BrowserAccountSession cancellation must discard the possibly still-running transport.'
+if (-not $browserSession.Contains('ForContext(chatId, ephemeral)')) {
+    throw 'BrowserAccountSession must route operations into their own conversation context.'
+}
+if (-not $browserSession.Contains('_retainedChats.GetValueOrDefault(chatId) + 1') -or
+    -not $browserSession.Contains('ReleaseContextBestEffortAsync(_transport, chatId)')) {
+    throw 'Agent retention must be counted and ordinary/cancelled contexts must be retired locally.'
+}
+$registry = Read-Source 'src\Mezhs.Api\Services\IntegrationRegistry.cs'
+if (-not $registry.Contains('Get(connectionId) is IConversationContextOwner owner') -or
+    $registry.Contains('Task.WhenAll(_integrations.Values.OfType<IConversationContextOwner>()')) {
+    throw 'Agent context retention/release must target only the selected browser connection.'
+}
+if (-not $agentWorker.Contains('ReleaseConversationAsync(execution.ConnectionId, execution.ChatId)')) {
+    throw 'Agent execution finalization must release only its selected connection.'
+}
+$electron = Read-Source 'transports\Mezhs.Browser.Electron\ElectronBrowserTransport.cs'
+if (-not $electron.Contains('await CancelOperationBestEffortAsync(operationId)')) {
+    throw 'Electron cancellation must be ordered before a later same-chat local send.'
 }
 
 Write-Host 'PASS: Agent/provider lifetime ownership is explicit, Agent turns are unbounded, and cancellation reaches the provider boundary.'

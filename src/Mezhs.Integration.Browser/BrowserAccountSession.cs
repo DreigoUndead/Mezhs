@@ -3,17 +3,20 @@ using Mezhs.Browser;
 namespace Mezhs.Integrations.Browser;
 
 /// <summary>
-/// Owns one authenticated browser transport: serialized use, interactive login,
-/// hidden continuation, passive authorized access, idle shutdown, and disposal.
+/// Owns a shared browser host, short transport-state critical sections,
+/// per-account authorization, active sends, and warm-host idle shutdown.
 /// </summary>
 public sealed class BrowserAccountSession : IAsyncDisposable
 {
     private readonly IBrowserIntegrationHost _host;
     private readonly Func<bool, bool, BrowserTransportOptions> _options;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SemaphoreSlim _loginGate = new(1, 1);
     private IChatBrowserTransport? _transport;
     private CancellationTokenSource? _idleCancellation;
     private Task? _idleTask;
+    private int _activeUses;
+    private readonly Dictionary<string, int> _retainedChats = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
 
     internal BrowserAccountSession(
@@ -27,8 +30,17 @@ public sealed class BrowserAccountSession : IAsyncDisposable
     public Task<TResult> UseAsync<TResult>(
         Func<IChatBrowserTransport, CancellationToken, Task<TResult>> action,
         CancellationToken cancellationToken = default,
-        Action<string>? reportStage = null) =>
-        UseCoreAsync(action, allowInteractiveLogin: true, cancellationToken, reportStage);
+        Action<string>? reportStage = null,
+        string? chatId = null) =>
+        UseCoreAsync(action, authorize: true, interactive: true, ephemeral: false,
+            chatId, cancellationToken, reportStage);
+
+    public Task<TResult> UseGuestAsync<TResult>(
+        Func<IChatBrowserTransport, CancellationToken, Task<TResult>> action,
+        string chatId,
+        CancellationToken cancellationToken = default) =>
+        UseCoreAsync(action, authorize: false, interactive: false, ephemeral: true,
+            chatId, cancellationToken);
 
     public async Task<TResult> UseAuthorizedAsync<TResult>(
         Func<IChatBrowserTransport, CancellationToken, Task<TResult>> action,
@@ -36,7 +48,8 @@ public sealed class BrowserAccountSession : IAsyncDisposable
     {
         try
         {
-            return await UseCoreAsync(action, allowInteractiveLogin: false, cancellationToken);
+            return await UseCoreAsync(action, authorize: true, interactive: false,
+                ephemeral: false, chatId: null, cancellationToken);
         }
         catch (BrowserAuthorizationRequiredException ex)
         {
@@ -44,175 +57,172 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         }
     }
 
-    public async Task LoginAsync(CancellationToken cancellationToken = default)
-    {
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            ThrowIfDisposed();
-            CancelIdle();
-            await EnsureInteractiveLoginAsync(cancellationToken);
-            await DisposeTransportAsync();
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
+    public async Task LoginAsync(CancellationToken cancellationToken = default) =>
+        await UseCoreAsync(
+            static (_, _) => Task.FromResult(0),
+            authorize: true, interactive: true, ephemeral: false,
+            chatId: null, cancellationToken);
 
-    public async Task OpenBrowserAsync(CancellationToken cancellationToken = default)
-    {
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            ThrowIfDisposed();
-            CancelIdle();
-            if (_transport is null)
-                await EnsureTransportAsync(
-                    showBrowser: true,
-                    requireAuthorization: false,
-                    cancellationToken);
-            else
-                await _transport.ShowAsync(cancellationToken);
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
+    public async Task OpenBrowserAsync(CancellationToken cancellationToken = default) =>
+        await UseCoreAsync(
+            static async (transport, token) =>
+            {
+                await transport.ShowAsync(token);
+                return 0;
+            },
+            authorize: false, interactive: false, ephemeral: false,
+            chatId: null, cancellationToken);
 
-    public async ValueTask DisposeAsync()
+    public async Task RetainConversationAsync(string chatId)
     {
-        if (_disposed) return;
-        _disposed = true;
-        var idleTask = _idleTask;
-        CancelIdle();
-        if (idleTask is not null)
-            await idleTask;
-        _idleTask = null;
-
         await _gate.WaitAsync();
         try
         {
-            await DisposeTransportAsync();
+            ThrowIfDisposed();
+            _retainedChats[chatId] = _retainedChats.GetValueOrDefault(chatId) + 1;
+            CancelIdle(); // Keep the same authenticated context through Agent shell/wait cycles.
         }
-        finally
+        finally { _gate.Release(); }
+    }
+
+    public async Task ReleaseConversationAsync(string chatId)
+    {
+        await _gate.WaitAsync();
+        try
         {
-            _gate.Release();
-            _gate.Dispose();
+            if (!_retainedChats.TryGetValue(chatId, out var count)) return;
+            if (count > 1)
+            {
+                _retainedChats[chatId] = count - 1;
+                return; // An overlapping execution still owns this chat context.
+            }
+            _retainedChats.Remove(chatId);
+            try
+            {
+                if (_transport is not null)
+                    await ReleaseContextBestEffortAsync(_transport, chatId);
+            }
+            finally
+            {
+                if (!_disposed && _activeUses == 0) ScheduleIdle();
+            }
         }
+        finally { _gate.Release(); }
     }
 
     private async Task<TResult> UseCoreAsync<TResult>(
         Func<IChatBrowserTransport, CancellationToken, Task<TResult>> action,
-        bool allowInteractiveLogin,
+        bool authorize,
+        bool interactive,
+        bool ephemeral,
+        string? chatId,
         CancellationToken cancellationToken,
         Action<string>? reportStage = null)
     {
-        reportStage?.Invoke("Waiting for shared browser session slot.");
+        IChatBrowserTransport transport;
+        reportStage?.Invoke("Checking browser session.");
         await _gate.WaitAsync(cancellationToken);
         try
         {
             ThrowIfDisposed();
             CancelIdle();
-            reportStage?.Invoke("Checking authorized browser session.");
-            if (allowInteractiveLogin)
-                await EnsureAuthorizedTransportAsync(cancellationToken);
-            else
-                await EnsureTransportAsync(
-                    showBrowser: false,
-                    requireAuthorization: true,
-                    cancellationToken);
-
-            reportStage?.Invoke("Browser session ready; preparing request.");
-            try
-            {
-                return await action(_transport!, cancellationToken);
-            }
-            catch (BrowserAuthorizationRequiredException) when (allowInteractiveLogin)
-            {
-                await EnsureInteractiveLoginAsync(cancellationToken);
-                await DisposeTransportAsync();
-                await EnsureTransportAsync(
-                    showBrowser: false,
-                    requireAuthorization: true,
-                    cancellationToken);
-                return await action(_transport!, cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                await DisposeTransportAsync();
-                throw;
-            }
+            await EnsureTransportAsync(cancellationToken);
+            transport = _transport!;
+            _activeUses++; // Keep the shared host alive, including during interactive login.
         }
         finally
         {
-            if (!_disposed)
-                ScheduleIdle();
+            if (!_disposed && _activeUses == 0) ScheduleIdle();
             _gate.Release();
         }
+
+        var cancelled = false;
+        var contextReady = false;
+        try
+        {
+            // Do not hold the shared transport lock while the user signs in.
+            if (authorize)
+                await EnsureAuthorizedForUseAsync(transport, interactive, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            var contextTransport = chatId is null ? transport : transport.ForContext(chatId, ephemeral);
+            contextReady = true;
+            reportStage?.Invoke("Browser session ready; preparing request.");
+            return await action(contextTransport, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            cancelled = true;
+            throw;
+        }
+        finally
+        {
+            await _gate.WaitAsync();
+            try
+            {
+                // Ordinary account turns do not keep Chromium windows indefinitely.
+                // A cancelled send must discard even an Agent-retained context before
+                // a later explicit same-chat send can enter MessageService.
+                if (contextReady && !ephemeral && chatId is not null &&
+                    (cancelled || !_retainedChats.ContainsKey(chatId)) &&
+                    _transport is not null)
+                    await ReleaseContextBestEffortAsync(_transport, chatId);
+                _activeUses--;
+                if (!_disposed && _activeUses == 0) ScheduleIdle();
+            }
+            finally { _gate.Release(); }
+        }
     }
 
-    private async Task EnsureAuthorizedTransportAsync(CancellationToken cancellationToken)
+    private async Task EnsureAuthorizedForUseAsync(
+        IChatBrowserTransport transport, bool interactive, CancellationToken cancellationToken)
+    {
+        // Only the first request opens the login UI. Requests already waiting for
+        // that attempt recheck cookies, then proceed or report authorization required.
+        var first = await _loginGate.WaitAsync(0, cancellationToken);
+        if (!first)
+            await _loginGate.WaitAsync(cancellationToken);
+        try
+        {
+            await transport.EnsureAuthorizedAsync(interactive && first, cancellationToken);
+        }
+        finally { _loginGate.Release(); }
+    }
+
+    private static async Task ReleaseContextBestEffortAsync(
+        IChatBrowserTransport transport, string chatId)
     {
         try
         {
-            await EnsureTransportAsync(
-                showBrowser: false,
-                requireAuthorization: true,
-                cancellationToken);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await transport.ReleaseContextAsync(chatId, timeout.Token);
         }
-        catch (BrowserAuthorizationRequiredException)
+        catch (Exception ex)
         {
-            await EnsureInteractiveLoginAsync(cancellationToken);
-            await DisposeTransportAsync();
-            await EnsureTransportAsync(
-                showBrowser: false,
-                requireAuthorization: true,
-                cancellationToken);
+            Console.Error.WriteLine($"Could not release browser context '{chatId}': {ex.Message}");
         }
     }
 
-    private async Task EnsureInteractiveLoginAsync(CancellationToken cancellationToken)
-    {
-        await DisposeTransportAsync();
-        await EnsureTransportAsync(
-            showBrowser: true,
-            requireAuthorization: true,
-            cancellationToken);
-    }
-
-    private async Task EnsureTransportAsync(
-        bool showBrowser,
-        bool requireAuthorization,
-        CancellationToken cancellationToken)
+    private async Task EnsureTransportAsync(CancellationToken cancellationToken)
     {
         if (_transport is not null) return;
-        _transport = _host.CreateBrowserTransport();
+        var candidate = _host.CreateBrowserTransport();
         try
         {
-            await _transport.InitializeAsync(
-                _options(showBrowser, requireAuthorization),
-                cancellationToken);
+            await candidate.InitializeAsync(_options(false, false), cancellationToken);
+            _transport = candidate;
         }
         catch
         {
-            await DisposeTransportAsync();
+            await candidate.DisposeAsync();
             throw;
         }
-    }
-
-    private ValueTask DisposeTransportAsync()
-    {
-        var transport = _transport;
-        _transport = null;
-        return transport?.DisposeAsync() ?? ValueTask.CompletedTask;
     }
 
     private void ScheduleIdle()
     {
         CancelIdle();
-        if (_transport is null || _host.BrowserIdleMinutes == 0 || _disposed) return;
+        if (_transport is null || _host.BrowserIdleMinutes == 0 || _disposed ||
+            _activeUses != 0 || _retainedChats.Count != 0) return;
         var cancellation = new CancellationTokenSource();
         _idleCancellation = cancellation;
         _idleTask = DisposeWhenIdleAsync(cancellation);
@@ -222,23 +232,21 @@ public sealed class BrowserAccountSession : IAsyncDisposable
     {
         try
         {
-            await Task.Delay(
-                TimeSpan.FromMinutes(_host.BrowserIdleMinutes),
-                cancellation.Token);
+            await Task.Delay(TimeSpan.FromMinutes(_host.BrowserIdleMinutes), cancellation.Token);
             await _gate.WaitAsync(cancellation.Token);
             try
             {
-                if (ReferenceEquals(_idleCancellation, cancellation))
-                    await DisposeTransportAsync();
+                if (ReferenceEquals(_idleCancellation, cancellation) &&
+                    _activeUses == 0 && _retainedChats.Count == 0)
+                {
+                    var transport = _transport;
+                    _transport = null;
+                    if (transport is not null) await transport.DisposeAsync();
+                }
             }
-            finally
-            {
-                _gate.Release();
-            }
+            finally { _gate.Release(); }
         }
-        catch (OperationCanceledException)
-        {
-        }
+        catch (OperationCanceledException) { }
         finally
         {
             if (ReferenceEquals(_idleCancellation, cancellation))
@@ -260,7 +268,27 @@ public sealed class BrowserAccountSession : IAsyncDisposable
 
     private void ThrowIfDisposed()
     {
-        if (_disposed)
-            throw new ObjectDisposedException(nameof(BrowserAccountSession));
+        if (_disposed) throw new ObjectDisposedException(nameof(BrowserAccountSession));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        var idleTask = _idleTask;
+        CancelIdle();
+        if (idleTask is not null) await idleTask;
+        await _gate.WaitAsync();
+        try
+        {
+            var transport = _transport;
+            _transport = null;
+            if (transport is not null) await transport.DisposeAsync();
+        }
+        finally
+        {
+            _gate.Release();
+            // Leave semaphore valid for any already-returning in-flight calls during shutdown.
+        }
     }
 }

@@ -70,15 +70,11 @@ static async Task TestAutomaticLoginAsync(string root)
     Assert(result.Model is null, "Grok requested mode was incorrectly reported as the provider-served model");
     Assert(host.LastArguments?.GetProperty("model").GetString() == "expert",
         "selected Grok mode was not passed to the provider");
-    Assert(host.Initializations.Count == 3,
-        $"expected hidden check + visible login + hidden resume, got {host.Initializations.Count} initializations");
-    Assert(!host.Initializations[0].ShowBrowser, "authorization check unexpectedly started visible");
-    Assert(host.Initializations[0].RequireAuthorization, "hidden account start did not require authorization");
-    Assert(host.Initializations[1].ShowBrowser, "authorization requirement did not transition to visible login");
-    Assert(host.Initializations[1].RequireAuthorization, "visible login did not require authorization");
-    Assert(!host.Initializations[2].ShowBrowser, "post-login Grok transport did not resume hidden");
-    Assert(host.Initializations[2].RequireAuthorization, "post-login hidden Grok transport did not verify authorization");
-    Assert(host.ActiveTransports == 1, $"expected only hidden Grok transport to remain active, got {host.ActiveTransports}");
+    Assert(host.Authorized, "Grok automatic login did not authorize the shared host.");
+    Assert(host.Initializations.Count == 1, "Grok automatic login restarted the browser host.");
+    Assert(!host.Initializations[0].ShowBrowser && !host.Initializations[0].RequireAuthorization,
+        "Grok shared host should initialize hidden and authorize through its own operation.");
+    Assert(host.ActiveTransports == 1, "Authorized Grok browser host was not retained.");
     Assert(host.Operations.SequenceEqual(["newChat"]), "semantic Grok new-chat operation was not used");
 }
 
@@ -88,11 +84,9 @@ static async Task TestExplicitLoginAsync(string root)
     await using var integration = new GrokAccountIntegration(Connection(), host);
     await integration.Login!.LoginAsync();
 
-    Assert(host.Initializations.Count == 1,
-        $"expected one explicit login initialization, got {host.Initializations.Count}");
-    Assert(host.Initializations[0].ShowBrowser, "explicit login did not start visible");
-    Assert(host.Initializations[0].RequireAuthorization, "explicit login did not require authorization");
-    Assert(host.ActiveTransports == 0, "explicit Grok login browser stayed active after authorization completed");
+    Assert(host.Authorized, "Grok explicit login did not authorize the shared browser host.");
+    Assert(host.Initializations.Count == 1, "Grok explicit login created multiple hosts.");
+    Assert(host.ActiveTransports == 1, "Grok explicit login discarded the warm shared host.");
 }
 
 static async Task TestLocalHistoryAsync(string root)
@@ -205,6 +199,18 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
             throw new BrowserAuthorizationRequiredException("Authorization required.");
         if (options.RequireAuthorization && options.ShowBrowser)
             host.Authorized = true;
+        return Task.CompletedTask;
+    }
+
+    public Task EnsureAuthorizedAsync(bool interactive, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!host.Authorized)
+        {
+            if (!interactive)
+                throw new BrowserAuthorizationRequiredException("Authorization required.");
+            host.Authorized = true;
+        }
         return Task.CompletedTask;
     }
 

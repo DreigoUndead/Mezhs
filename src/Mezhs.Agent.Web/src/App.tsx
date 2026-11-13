@@ -36,6 +36,7 @@ type AgentChat = {
   createdAt: string;
   updatedAt: string;
   categoryId?: string | null;
+  executionStatus?: string | null;
 };
 
 type AgentCategory = {
@@ -195,6 +196,24 @@ function activityLabel(date: string) {
   const parsed = new Date(date);
   return Number.isNaN(parsed.getTime()) ? "Unknown activity" :
     parsed.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function agentStatus(chat: AgentChat) {
+  const state = chat.executionStatus ?? "Unknown";
+  return chat.paused && !["Queued", "Running", "CancelRequested"].includes(state)
+    ? "Paused" : state;
+}
+
+function AgentStatus({ chat }: { chat: AgentChat }) {
+  const state = agentStatus(chat);
+  const label = state === "CancelRequested" ? "Stopping" : state;
+  return (
+    <span className={`agent-status agent-status-${state.toLowerCase()}`}
+      role="img" aria-label={`Agent status: ${label}`} title={`Agent status: ${label}`}>
+      <span className="agent-status-dot" aria-hidden="true" />
+      <span>{label}</span>
+    </span>
+  );
 }
 
 function statusTone(execution: Execution) {
@@ -1364,7 +1383,7 @@ useEffect(() => {
                 onClick={() => selectChat(chat.chatId)}>
                 <span className="agent-chat-title">{displayTitle(chat)}</span>
                 <span className="agent-chat-meta">
-                  <span className="agent-chat-context">{policyNames.get(chat.policyId) ?? chat.policyId} · {chat.originSource}</span>
+                  <span className="agent-chat-context"><AgentStatus chat={chat} /> · {policyNames.get(chat.policyId) ?? chat.policyId} · {chat.originSource}</span>
                   <time dateTime={chat.updatedAt} title={new Date(chat.updatedAt).toLocaleString()}>
                     {activityLabel(chat.updatedAt)}
                   </time>
@@ -1498,6 +1517,7 @@ useEffect(() => {
                 <span className="eyebrow">{selectedChat.originSource} · {selectedPolicy?.name ?? selectedChat.policyId}</span>
                 <h1>{displayTitle(selectedChat)}</h1>
                 <div className="agent-header-meta">
+                  <AgentStatus chat={selectedChat} />
                   <span>{selectedChat.connectionId || selectedPolicy?.connectionId || "connection unavailable"}</span>
                   <span>·</span>
                   <span>{shortId(selectedChat.chatId)}</span>

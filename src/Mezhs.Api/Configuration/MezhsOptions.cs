@@ -1,3 +1,5 @@
+using Mezhs.Integrations;
+
 namespace Mezhs.Configuration;
 
 public class MezhsOptions
@@ -35,4 +37,5 @@ public sealed class ConnectionOptions
     public string Integration { get; set; } = "";
     public string? Workspace { get; set; }
     public string? DefaultModel { get; set; }
+    public IntegrationLimits Limits { get; set; } = new();
 }

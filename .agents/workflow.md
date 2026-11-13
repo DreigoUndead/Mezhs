@@ -52,7 +52,6 @@ Report concisely: **what** became complex, **which requirement causes it**, **si
 - **Small:** same-chat checks and relevant CI can be sufficient.
 - **Standard:** targeted tests; an independent tester when meaningful.
 - **High-risk:** independent testing is mandatory.
-- On failure, return to development, then repeat **affected review and tests**. No unnecessary fresh chat for each minor operation.
 
 ## 6. [Owner approval and release](release.md)
 
@@ -62,6 +61,8 @@ Report concisely: **what** became complex, **which requirement causes it**, **si
 - After approval, merge the completed task (including its final plan and workflow/documentation changes) into `main` **as part of the release**. **At merge finalization, update the version and changelog exactly once for the whole task**, then tag the resulting release commit and delete the merged branch. No direct plan/workflow commits to `main`, and no version/changelog edits during planning, development, review or testing.
 
 ### Handoffs and evidence
+
+When working inside MEŽS, follow [MEŽS Agent Handoff](mezhs-agent-handoff.md) to start required new agents directly instead of providing prompts for manual chat creation.
 
 Every next-role prompt must start with `<Task name> — <Role>` on its **first line**, which MEŽS uses as the chat title. Keep prompts generic by default: include only task-specific references needed to locate the work, without repeating instructions already in `AGENTS.md` or `.agents/`. For independent code reviewers, do not include earlier findings, fixes, or suggested areas of focus.
 

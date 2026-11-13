@@ -16,15 +16,29 @@ connections:
     name: ChatGPT Account
     integration: chatgpt-web-account
     workspace: Mezhs
+    # Allow two simultaneous local model turns, with at least five seconds
+    # between starts (minInterval is in milliseconds).
+    limits:
+      maxParallel: 2
+      minInterval: 5000
 
   - id: chatgpt-guest
     name: ChatGPT Guest
     integration: chatgpt-web
+    limits:
+      maxParallel: 1
+      minInterval: 0
 
   - id: gemini-guest
     name: Gemini Guest
     integration: gemini-web
+    limits:
+      maxParallel: 1
+      minInterval: 0
 
   - id: grok-account
     name: Grok Account
     integration: grok-web-account
+    limits:
+      maxParallel: 1
+      minInterval: 0

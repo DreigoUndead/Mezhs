@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
 import { modelActivityLabel } from "./ChatSurface";
@@ -24,6 +24,11 @@ type Category = {
   createdAt: string;
 };
 
+type GroupDeleteDialog = {
+  category: Category;
+  chatIds: string[];
+};
+
 type PendingFile = {
   key: string;
   file: File;
@@ -43,6 +48,26 @@ function formatBytes(value: number) {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Bound each request. A client-side timeout does not undo a server-side write.
+async function groupDeleteRequest<T>(request: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 12_000);
+  try {
+    return await request(controller.signal);
+  } catch (error) {
+    if (controller.signal.aborted)
+      throw new Error("Request timed out. The server may still have completed the operation.");
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+// Category IDs are case-insensitive in ChatStore.
+function sameCategoryId(left: string | null | undefined, right: string) {
+  return left?.toLowerCase() === right.toLowerCase();
 }
 
 function matchesChatQuery(chat: Chat, query: string, connectionName?: string, categoryName?: string) {
@@ -85,6 +110,11 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const [managerSearch, setManagerSearch] = useState("");
   const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
   const [deletingChats, setDeletingChats] = useState(false);
+  const [groupDeleteDialog, setGroupDeleteDialog] = useState<GroupDeleteDialog | null>(null);
+  const [groupDeleteOpening, setGroupDeleteOpening] = useState(false);
+  const [groupDeleteBusy, setGroupDeleteBusy] = useState(false);
+  const [groupDeleteError, setGroupDeleteError] = useState<string | null>(null);
+  const [groupDeleteUnverified, setGroupDeleteUnverified] = useState(false);
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
   const [chatRenameDraft, setChatRenameDraft] = useState("");
   const selectionEpoch = useRef(0);
@@ -93,6 +123,9 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const providerRegistry = useRef(new ChatProviderRegistry());
   const openChatMenuRef = useRef<HTMLDivElement | null>(null);
   const deletedChatIdsRef = useRef(new Set<string>());
+  const groupDeleteModalRef = useRef<HTMLDialogElement>(null);
+  const groupFilterRef = useRef<HTMLSelectElement>(null);
+  const restoreGroupFilterFocusRef = useRef(false);
 
   const selectedConnection = useMemo(
     () => connections.find((connection) => connection.id === connectionId),
@@ -100,7 +133,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   );
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
-  const selectedGroup = categories.find((category) => category.categoryId === categoryFilter);
+  const selectedGroup = categories.find((category) => sameCategoryId(category.categoryId, categoryFilter));
   const draftKey = chatId ? `chat:${chatId}` : `new:${newChatSequence}:${connectionId}`;
   const { draft, setDraft, clearDraft, moveDraft, restoreDraft } = useConversationDrafts(draftKey);
   const { pending: sending, start: startSend, transfer: transferSend, finish: finishSend } = useConversationPending(draftKey);
@@ -111,16 +144,16 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const filteredChats = useMemo(() => {
     return chats.filter((chat) => {
       if (categoryFilter === "uncategorized" && chat.categoryId) return false;
-      if (categoryFilter !== "all" && categoryFilter !== "uncategorized" && chat.categoryId !== categoryFilter) return false;
+      if (categoryFilter !== "all" && categoryFilter !== "uncategorized" && !sameCategoryId(chat.categoryId, categoryFilter)) return false;
       const connection = connections.find((item) => item.id === chat.connectionId);
-      const category = categories.find((item) => item.categoryId === chat.categoryId);
+      const category = categories.find((item) => sameCategoryId(chat.categoryId, item.categoryId));
       return matchesChatQuery(chat, search, connection?.name, category?.name);
     });
   }, [chats, connections, categories, categoryFilter, search]);
 
   const managedChats = useMemo(() => filteredChats.filter((chat) => {
     const connection = connections.find((item) => item.id === chat.connectionId);
-    const category = categories.find((item) => item.categoryId === chat.categoryId);
+    const category = categories.find((item) => sameCategoryId(chat.categoryId, item.categoryId));
     return matchesChatQuery(chat, managerSearch, connection?.name, category?.name);
   }), [filteredChats, connections, categories, managerSearch]);
 
@@ -154,6 +187,24 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
 }, [apiBase]);
 
 useEffect(() => () => providerRegistry.current.dispose(), []);
+
+  // showModal makes the rest of the page inert and contains keyboard focus.
+  useLayoutEffect(() => {
+    if (!groupDeleteDialog) return;
+    const modal = groupDeleteModalRef.current;
+    if (!modal) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    modal.showModal();
+    return () => {
+      if (modal.open) modal.close();
+      if (restoreGroupFilterFocusRef.current) {
+        restoreGroupFilterFocusRef.current = false;
+        groupFilterRef.current?.focus();
+      } else if (previousFocus?.isConnected) {
+        previousFocus.focus();
+      }
+    };
+  }, [Boolean(groupDeleteDialog)]);
 
   useEffect(() => {
     if (!chatMenuId) return;
@@ -361,8 +412,9 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     if (!editingCategory || !name || savingCategory) return;
     setSavingCategory(true);
     try {
+      let createdCategory: Category | null = null;
       if (editingCategory === "new") {
-        await apiJson<Category>(apiBase, "/v1/categories", {
+        createdCategory = await apiJson<Category>(apiBase, "/v1/categories", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name }),
@@ -376,6 +428,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
           });
       }
       await loadCategories();
+      if (createdCategory) selectCategory(createdCategory.categoryId);
       setNewCategoryName("");
       setEditingCategory(null);
     } catch (error) {
@@ -385,17 +438,144 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     }
   }
 
-  async function deleteCategory(category: Category) {
-    if (!window.confirm(`Delete group '${category.name}'? All conversations in this shared group, including Agent conversations if present, will be unassigned. Conversations are kept.`)) return;
+  async function promptDeleteCategory(category: Category) {
+    if (groupDeleteOpening || groupDeleteBusy || deletingChats) return;
+    restoreGroupFilterFocusRef.current = false;
+    setGroupDeleteOpening(true);
+    setNotice(null);
     try {
-      await apiJsonOrEmpty(apiBase, `/v1/categories/${category.categoryId}`, {
-        method: "DELETE",
+      // Core chat inventory includes Agent-backed chats on the Agent host.
+      const current = await groupDeleteRequest((signal) => apiJson<Chat[]>(apiBase, "/v1/chats", { signal }));
+      setChats(current.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
+      setGroupDeleteDialog({
+        category,
+        chatIds: current.filter((chat) => sameCategoryId(chat.categoryId, category.categoryId))
+          .map((chat) => chat.chatId),
       });
-      if (categoryFilter === category.categoryId) setCategoryFilter("all");
-      if (newChatCategoryId === category.categoryId) setNewChatCategoryId("");
-      await Promise.all([loadCategories(), loadChats()]);
+      setGroupDeleteError(null);
+      setGroupDeleteUnverified(false);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Group could not be deleted.");
+      setNotice(error instanceof Error ? error.message : "Could not load group conversations.");
+    } finally {
+      setGroupDeleteOpening(false);
+    }
+  }
+
+  function closeGroupDeleteDialog() {
+    if (groupDeleteBusy) return;
+    setGroupDeleteDialog(null);
+    setGroupDeleteError(null);
+    setGroupDeleteUnverified(false);
+  }
+
+  async function deleteCategory(mode: "unassign" | "delete") {
+    const dialog = groupDeleteDialog;
+    if (!dialog || groupDeleteBusy || groupDeleteUnverified || deletingChats) return;
+    setGroupDeleteBusy(true);
+    setGroupDeleteError(null);
+    let chatsDeleted = false;
+    try {
+      const current = await groupDeleteRequest((signal) => apiJson<Chat[]>(apiBase, "/v1/chats", { signal }));
+      const ids = current.filter((chat) => sameCategoryId(chat.categoryId, dialog.category.categoryId))
+        .map((chat) => chat.chatId);
+      // Never silently delete a different set than the one shown in the dialog.
+      if (ids.length !== dialog.chatIds.length ||
+          ids.some((id) => !dialog.chatIds.includes(id))) {
+        setChats(current.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
+        setGroupDeleteDialog({ ...dialog, chatIds: ids });
+        setGroupDeleteError("Group membership changed. Review the updated count and choose again.");
+        return;
+      }
+
+      if (mode === "delete" && ids.length > 0) {
+        // The Agent host routes these same requests through Agent-first/Core-second cleanup.
+        if (ids.length === 1) {
+          await groupDeleteRequest((signal) => apiJsonOrEmpty(apiBase, `/v1/chats/${encodeURIComponent(ids[0])}`, {
+            method: "DELETE", signal,
+          }));
+        } else {
+          await groupDeleteRequest((signal) => apiJsonOrEmpty(apiBase, "/v1/chats", {
+            method: "DELETE", signal,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chatIds: ids }),
+          }));
+        }
+        chatsDeleted = true;
+        const removed = new Set(ids);
+        ids.forEach((id) => deletedChatIdsRef.current.add(id));
+        setChats((existing) => existing.filter((chat) => !removed.has(chat.chatId)));
+        if (chatId && removed.has(chatId)) newChat();
+        setSelectedChatIds((selected) => new Set([...selected].filter((id) => !removed.has(id))));
+        setShowConversationManager(false);
+      }
+
+      // Keep this existing endpoint/behavior for "Unassign conversations".
+      // Delete the group only after the chat deletion request has succeeded.
+      await groupDeleteRequest((signal) => apiJsonOrEmpty(apiBase,
+        `/v1/categories/${encodeURIComponent(dialog.category.categoryId)}`, {
+          method: "DELETE", signal,
+        }));
+
+      if (categoryFilter === dialog.category.categoryId) setCategoryFilter("all");
+      if (newChatCategoryId === dialog.category.categoryId) setNewChatCategoryId("");
+      restoreGroupFilterFocusRef.current = true;
+      setGroupDeleteDialog(null);
+      const noun = ids.length === 1 ? "conversation" : "conversations";
+      setNotice(mode === "delete"
+        ? `Group '${dialog.category.name}' and ${ids.length} ${noun} deleted.`
+        : `Group '${dialog.category.name}' deleted; ${ids.length} ${noun} unassigned.`);
+      try {
+        const [currentCategories, currentChats] = await Promise.all([
+          groupDeleteRequest((signal) => apiJson<Category[]>(apiBase, "/v1/categories", { signal })),
+          groupDeleteRequest((signal) => apiJson<Chat[]>(apiBase, "/v1/chats", { signal })),
+        ]);
+        setCategories(currentCategories);
+        setChats(currentChats.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "Group deleted, but the list could not be refreshed.");
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Request failed.";
+      // The server may have committed even if the response was lost. Read both
+      // owners' Core views before offering a retry or claiming any outcome.
+      try {
+        const [current, currentCategories] = await Promise.all([
+          groupDeleteRequest((signal) => apiJson<Chat[]>(apiBase, "/v1/chats", { signal })),
+          groupDeleteRequest((signal) => apiJson<Category[]>(apiBase, "/v1/categories", { signal })),
+        ]);
+        // The server may have committed the delete before the response was lost.
+        // Reconcile against all remaining Core chats, not category membership.
+        const currentChatIds = new Set(current.map((chat) => chat.chatId));
+        const removed = new Set(dialog.chatIds.filter((id) => !currentChatIds.has(id)));
+        removed.forEach((id) => deletedChatIdsRef.current.add(id));
+        setChats(current.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId)));
+        if (chatId && removed.has(chatId)) newChat();
+        setSelectedChatIds((selected) => new Set([...selected].filter((id) => !removed.has(id))));
+        setCategories(currentCategories);
+        if (!currentCategories.some((category) => category.categoryId === dialog.category.categoryId)) {
+          if (categoryFilter === dialog.category.categoryId) setCategoryFilter("all");
+          if (newChatCategoryId === dialog.category.categoryId) setNewChatCategoryId("");
+          restoreGroupFilterFocusRef.current = true;
+          setGroupDeleteDialog(null);
+          setNotice(chatsDeleted
+            ? `Group '${dialog.category.name}' is removed; conversation deletion succeeded.`
+            : `Group '${dialog.category.name}' is removed; verify conversations because the earlier request outcome was uncertain.`);
+        } else {
+          setGroupDeleteDialog({
+            ...dialog,
+            chatIds: current.filter((chat) => sameCategoryId(chat.categoryId, dialog.category.categoryId))
+              .map((chat) => chat.chatId),
+          });
+          setGroupDeleteError(chatsDeleted
+            ? `Conversations were deleted, but the group remains: ${detail} Retry to remove the group.`
+            : `Could not complete group deletion: ${detail} Review the current count before retrying.`);
+        }
+      } catch {
+        setGroupDeleteUnverified(true);
+        setGroupDeleteError(`Could not verify group deletion: ${detail} Close this dialog and refresh the page before retrying.`);
+      }
+    } finally {
+      setGroupDeleteBusy(false);
     }
   }
 
@@ -599,12 +779,12 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
             </form>
           ) : (
             <>
-              <select aria-label="Filter conversations by group"
+              <select ref={groupFilterRef} aria-label="Filter conversations by group"
                 value={categoryFilter} onChange={(event) => selectCategory(event.target.value)}>
                 <option value="all">All groups ({chats.length})</option>
                 {categories.map((category) => (
                   <option key={category.categoryId} value={category.categoryId}>
-                    {category.name} ({chats.filter((chat) => chat.categoryId === category.categoryId).length})
+                    {category.name} ({chats.filter((chat) => sameCategoryId(chat.categoryId, category.categoryId)).length})
                   </option>
                 ))}
                 <option value="uncategorized">
@@ -618,10 +798,10 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                   ? <Pencil aria-hidden="true" size={17} strokeWidth={1.8} />
                   : <Plus aria-hidden="true" size={18} strokeWidth={2} />}
               </button>
-              <button type="button" disabled={!selectedGroup}
+              <button type="button" disabled={!selectedGroup || groupDeleteOpening || deletingChats}
                 aria-label={selectedGroup ? `Delete group ${selectedGroup.name}` : "Delete group"}
                 title={selectedGroup ? "Delete group" : "Select a group to delete"}
-                onClick={() => { if (selectedGroup) void deleteCategory(selectedGroup); }}>
+                onClick={() => { if (selectedGroup) void promptDeleteCategory(selectedGroup); }}>
                 <Trash2 aria-hidden="true" size={17} strokeWidth={1.8} />
               </button>
             </>
@@ -714,6 +894,52 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
           <small>{apiBase || "Connecting..."}</small>
         </div>
       </aside>
+
+      {groupDeleteDialog && (
+        <dialog ref={groupDeleteModalRef} className="group-delete-dialog" aria-modal="true"
+          aria-labelledby="group-delete-title" aria-describedby="group-delete-summary"
+          onCancel={(event) => {
+            event.preventDefault();
+            closeGroupDeleteDialog();
+          }}
+          onClick={(event) => {
+            if (event.target !== event.currentTarget) return;
+            const bounds = event.currentTarget.getBoundingClientRect();
+            if (event.clientX < bounds.left || event.clientX > bounds.right ||
+                event.clientY < bounds.top || event.clientY > bounds.bottom)
+              closeGroupDeleteDialog();
+          }}>
+            <h2 id="group-delete-title">Delete group</h2>
+            <p id="group-delete-summary">
+              Group <strong>{groupDeleteDialog.category.name}</strong> contains{" "}
+              <strong>{groupDeleteDialog.chatIds.length}</strong>{" "}
+              {groupDeleteDialog.chatIds.length === 1 ? "conversation" : "conversations"}.
+              Choose what happens to its conversations, including Agent conversations if present.
+            </p>
+            <div className="group-delete-choices">
+              <button type="button" disabled={groupDeleteBusy || groupDeleteUnverified}
+                onClick={() => void deleteCategory("unassign")}>
+                <strong>Unassign conversations</strong>
+                <span>Delete only the group. Keep all conversations without a group.</span>
+              </button>
+              <button type="button" className="destructive" disabled={groupDeleteBusy || groupDeleteUnverified}
+                onClick={() => void deleteCategory("delete")}>
+                <strong>Delete conversations</strong>
+                <span>Delete the group and all its conversations permanently.</span>
+              </button>
+            </div>
+            <p className="group-delete-disclosure">
+              Deletion removes conversation transcripts and associated Agent state from active storage.
+              Previously imported legacy chat files may remain as backups. Historical Executor records
+              and stored files may remain. Running Executor shells are not guaranteed to stop.
+            </p>
+            {groupDeleteError && <p className="group-delete-error" role="alert">{groupDeleteError}</p>}
+            <footer>
+              <button type="button" autoFocus disabled={groupDeleteBusy}
+                onClick={closeGroupDeleteDialog}>Cancel</button>
+            </footer>
+        </dialog>
+      )}
 
       {showConversationManager && (
         <div className="dialog-backdrop" onClick={() => setShowConversationManager(false)}>

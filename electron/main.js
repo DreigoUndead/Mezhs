@@ -8,11 +8,15 @@ const {
 } = require("./browser-identity");
 const { invokeDiagnostic } = require("./diagnostics");
 
-let window = null;
 let browserModule = null;
-let activeSession = null;
+let authenticatedSession = null;
+let management = null;
 let keepVisible = false;
+let managementAuthorizationDismissed = false;
 let shuttingDown = false;
+const guest = process.env.MEZHS_GUEST === "1";
+const contexts = new Map(); // local ChatId -> Promise<context>
+const providerOperations = new Map();
 const parentProcessId = Number(process.env.MEZHS_PARENT_PROCESS_ID || 0);
 const browserPreload = path.join(__dirname, "browser-preload.js");
 
@@ -28,9 +32,8 @@ app.disableHardwareAcceleration();
 
 if (parentProcessId > 0) {
   setInterval(() => {
-    try {
-      process.kill(parentProcessId, 0);
-    } catch {
+    try { process.kill(parentProcessId, 0); }
+    catch {
       shuttingDown = true;
       app.quit();
     }
@@ -95,97 +98,193 @@ function invokePageOperation(targetWindow, operation, args, timeoutMs = 0) {
   });
 }
 
-async function initialize({ profileDirectory, showBrowser, modulePath, requireAuthorization }) {
-  await app.whenReady();
-  browserModule = loadBrowserModule(modulePath);
-  keepVisible = Boolean(showBrowser);
-  const persistentSession = session.fromPath(path.resolve(profileDirectory));
-  configureSessionBrowserIdentity(persistentSession);
-  activeSession = persistentSession;
-
-  console.error(
-    `Initializing ${browserModule.name} window ` +
-    `(visible=${keepVisible}, authorization=${Boolean(requireAuthorization)}, profile=${profileDirectory})`
-  );
-  window = new BrowserWindow({
+async function createWindow(browserSession, visible, isManagement = false, onCreated) {
+  const target = new BrowserWindow({
     width: 1200,
     height: 850,
-    show: keepVisible,
+    show: visible,
     title: `MEŽS - ${browserModule.name}`,
     webPreferences: {
-      session: persistentSession,
+      session: browserSession,
       preload: browserPreload,
       contextIsolation: true,
       sandbox: false,
       backgroundThrottling: false
     }
   });
-  window.webContents.setWindowOpenHandler(() => ({
+  target.webContents.setWindowOpenHandler(() => ({
     action: "allow",
     overrideBrowserWindowOptions: {
       webPreferences: {
-        session: persistentSession,
+        session: browserSession,
         preload: browserPreload,
         contextIsolation: true,
         sandbox: false
       }
     }
   }));
-
-  window.on("close", event => {
-    if (shuttingDown) return;
-    event.preventDefault();
-    window.hide();
-  });
-  window.webContents.on("did-fail-load", (_event, code, description, url) => {
+  if (isManagement) {
+    target.on("close", event => {
+      if (shuttingDown) return;
+      managementAuthorizationDismissed = true;
+      event.preventDefault();
+      target.hide();
+    });
+  }
+  target.webContents.on("did-fail-load", (_event, code, description, url) => {
     console.error(`Navigation failed (${code} ${description}): ${url}`);
   });
-  window.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+  target.webContents.on("console-message", (_event, level, message, line, sourceId) => {
     if (level >= 2)
       console.error(`${browserModule.name} renderer: ${message} (${sourceId}:${line})`);
   });
-  window.once("ready-to-show", () => {
-    if (keepVisible) {
-      window.show();
-      window.focus();
+  target.once("ready-to-show", () => {
+    if (visible && !target.isDestroyed()) {
+      target.show();
+      target.focus();
     }
   });
-
-  await window.loadURL(browserModule.homeUrl);
-  console.error(`${browserModule.name} navigation completed at ${window.webContents.getURL()}`);
-
-  if (requireAuthorization) {
-    if (typeof browserModule.isAuthorized !== "function")
-      throw new Error(`Browser module '${modulePath}' does not support authorization.`);
-    if (!await browserModule.isAuthorized(window) && !keepVisible) {
-      const error = new Error(`${browserModule.name} authorization is required.`);
-      error.code = "authorization_required";
-      throw error;
-    }
-    while (!await browserModule.isAuthorized(window))
-      await sleep(1000);
-    await persistentSession.flushStorageData();
-    await persistentSession.cookies.flushStore();
-    console.error(`${browserModule.name} authorization confirmed and persisted.`);
+  // Conversation owners can close the window even while loadURL is pending.
+  onCreated?.(target);
+  try {
+    await target.loadURL(browserModule.homeUrl);
+    if (typeof browserModule.afterInitialize === "function")
+      await browserModule.afterInitialize({ window: target, session: browserSession, sleep });
+    if (!visible && !target.isDestroyed()) target.hide();
+    return target;
+  } catch (error) {
+    if (!target.isDestroyed()) target.destroy();
+    throw error;
   }
+}
 
-  if (typeof browserModule.afterInitialize === "function")
-    await browserModule.afterInitialize({ window, session: persistentSession, sleep });
-  if (!keepVisible) window.hide();
+function closeContext(context) {
+  if (!context || context.closed) return;
+  context.closed = true;
+  if (context.window && !context.window.isDestroyed()) context.window.destroy();
+}
+
+function createContext(ephemeral) {
+  const browserSession = ephemeral
+    ? session.fromPartition(`mezhs-guest-${randomUUID()}`) // no "persist:" prefix
+    : authenticatedSession;
+  if (!browserSession)
+    throw new Error("Authenticated browser session is unavailable.");
+  if (ephemeral)
+    configureSessionBrowserIdentity(browserSession);
+  const context = { window: null, session: browserSession, ephemeral, busy: 0, retire: false, closed: false };
+  const pending = createWindow(browserSession, false, false, window => {
+    context.window = window;
+  }).then(() => {
+    if (context.closed) throw new Error("Browser context closed while loading.");
+    return context;
+  });
+  // Expose the window before navigation resolves, not after.
+  pending.context = context;
+  return pending;
+}
+
+function contextPromise(contextId, ephemeral) {
+  if (!contextId) {
+    if (!management) throw new Error("Browser management context is unavailable.");
+    return Promise.resolve(management);
+  }
+  if (ephemeral) return createContext(true);
+  if (guest) throw new Error("Guest requests must use an ephemeral browser context.");
+  let pending = contexts.get(contextId);
+  if (!pending) {
+    pending = createContext(false);
+    contexts.set(contextId, pending);
+    const current = pending;
+    void pending.catch(() => {
+      if (contexts.get(contextId) === current) contexts.delete(contextId);
+    });
+  }
+  return pending;
+}
+
+function discardContext(contextId, pending) {
+  if (contextId && contexts.get(contextId) === pending)
+    contexts.delete(contextId);
+  // Close the actual window now, even if navigation never resolves.
+  if (pending.context) closeContext(pending.context);
+  else void pending.then(closeContext).catch(() => {});
+}
+
+function releaseContext(contextId) {
+  const pending = contexts.get(contextId);
+  if (!pending) return;
+  contexts.delete(contextId); // A later explicit send gets a new context.
+  const context = pending.context;
+  if (context) {
+    context.retire = true;
+    if (context.busy === 0) closeContext(context);
+  } else {
+    void pending.then(ready => {
+      ready.retire = true;
+      if (ready.busy === 0) closeContext(ready);
+    }).catch(() => {});
+  }
+}
+
+async function initialize({ profileDirectory, showBrowser, modulePath, requireAuthorization }) {
+  await app.whenReady();
+  browserModule = loadBrowserModule(modulePath);
+  keepVisible = Boolean(showBrowser);
+  if (!guest) {
+    authenticatedSession = session.fromPath(path.resolve(profileDirectory));
+    configureSessionBrowserIdentity(authenticatedSession);
+    const window = await createWindow(authenticatedSession, keepVisible, true);
+    management = { window, session: authenticatedSession, busy: 0, closed: false };
+    if (requireAuthorization) {
+      while (!(await checkAuthorization(keepVisible))) {
+        if (!keepVisible) {
+          const error = new Error(`${browserModule.name} authorization is required.`);
+          error.code = "authorization_required";
+          throw error;
+        }
+        await sleep(1000);
+      }
+    }
+  }
   return { ready: true };
 }
 
-function invokeProvider({ operation, arguments: args }, reportProgress) {
-  if (!window || !browserModule || !activeSession)
+async function checkAuthorization(interactive) {
+  if (!management || typeof browserModule.isAuthorized !== "function")
+    throw new Error(`${browserModule.name} does not support authorization.`);
+  const authorized = await browserModule.isAuthorized(management.window);
+  if (authorized) {
+    await authenticatedSession.flushStorageData();
+    await authenticatedSession.cookies.flushStore();
+  } else if (interactive && !managementAuthorizationDismissed) {
+    management.window.show();
+    management.window.focus();
+  }
+  return authorized;
+}
+
+async function authorizeRequest(interactive, first) {
+  if (interactive && first) managementAuthorizationDismissed = false;
+  if (interactive && managementAuthorizationDismissed)
+    return { authorized: false, dismissed: true };
+  const authorized = await checkAuthorization(interactive);
+  return { authorized, dismissed: interactive && managementAuthorizationDismissed };
+}
+
+function invokeProvider(context, { operation, arguments: args }, reportProgress) {
+  if (!browserModule || !context || context.closed)
     throw new Error("Electron browser is not initialized.");
+  const { window, session: browserSession } = context;
   if (String(operation || "").startsWith("$diagnostics/"))
-    return invokeDiagnostic(String(operation).slice("$diagnostics/".length), args ?? {}, { window, browserModule, sleep });
+    return invokeDiagnostic(String(operation).slice("$diagnostics/".length), args ?? {},
+      { window, browserModule, sleep });
   const method = browserModule.operations[operation];
   if (typeof method !== "function")
     throw new Error(`${browserModule.name} does not support provider operation '${operation}'.`);
   return method({
     window,
-    session: activeSession,
+    session: browserSession,
     page: {
       invoke: (pageOperation, pageArgs, timeoutMs = 0) =>
         invokePageOperation(window, pageOperation, pageArgs, timeoutMs)
@@ -195,7 +294,6 @@ function invokeProvider({ operation, arguments: args }, reportProgress) {
     reportProgress
   });
 }
-
 
 function readJson(request) {
   return new Promise((resolve, reject) => {
@@ -219,42 +317,72 @@ function writeJson(response, status, value) {
   response.end(body);
 }
 
-const providerOperations = new Map();
-let operationQueue = Promise.resolve();
-
 function queueProviderOperation(request) {
   const operationId = randomUUID();
+  const contextId = typeof request.contextId === "string" && request.contextId.trim()
+    ? request.contextId : null;
+  const ephemeral = request.ephemeral === true;
   const state = {
-    status: "queued",
-    result: undefined,
-    error: null,
-    code: null,
-    progress: null
+    status: "queued", result: undefined, error: null, code: null, progress: null,
+    cancelled: false, contextId, ephemeral, pending: null
   };
   providerOperations.set(operationId, state);
-
-  operationQueue = operationQueue.then(async () => {
-    state.status = "running";
+  void (async () => {
+    let context;
     try {
-      state.result = await invokeProvider(request, progress => {
-        if (!progress || typeof progress !== "object") return;
-        const progressState = String(progress.state || "").trim();
-        if (!progressState) return;
-        state.progress = {
-          state: progressState,
-          detail: progress.detail == null ? null : String(progress.detail),
-          analysis: progress.analysis == null ? null : String(progress.analysis)
-        };
-      });
-      state.status = "completed";
+      state.status = "running";
+      state.pending = contextPromise(contextId, ephemeral);
+      context = await state.pending;
+      if (state.cancelled || context.closed) return;
+      context.busy++;
+      try {
+        state.result = await invokeProvider(context, request, progress => {
+          if (state.cancelled || !progress || typeof progress !== "object") return;
+          const progressState = String(progress.state || "").trim();
+          if (!progressState) return;
+          state.progress = {
+            state: progressState,
+            detail: progress.detail == null ? null : String(progress.detail),
+            analysis: progress.analysis == null ? null : String(progress.analysis)
+          };
+        });
+        if (!state.cancelled) state.status = "completed";
+      } finally {
+        context.busy--;
+        if (ephemeral) closeContext(context);
+        else if (context.retire && context.busy === 0)
+          discardContext(contextId, state.pending);
+      }
     } catch (error) {
-      state.error = String(error?.stack ?? error);
-      state.code = typeof error?.code === "string" ? error.code : null;
-      state.status = "failed";
+      if (!state.cancelled) {
+        state.error = String(error?.stack ?? error);
+        state.code = typeof error?.code === "string" ? error.code : null;
+        state.status = "failed";
+      }
+    } finally {
+      if (state.cancelled) providerOperations.delete(operationId);
+      else {
+        // Retire unpolled terminal results without imposing a timeout on model work.
+        setTimeout(() => providerOperations.delete(operationId), 10 * 60 * 1000).unref();
+      }
     }
-  });
-
+  })();
   return operationId;
+}
+
+function cancelProviderOperation(operationId) {
+  const state = providerOperations.get(operationId);
+  if (!state) return false;
+  state.cancelled = true;
+  providerOperations.delete(operationId);
+  if (state.pending) {
+    // Only the cancelled operation's browser context is destroyed. Never stop the shared host.
+    if (state.ephemeral) {
+      if (state.pending.context) closeContext(state.pending.context);
+      else void state.pending.then(closeContext).catch(() => {});
+    } else if (state.contextId) discardContext(state.contextId, state.pending);
+  }
+  return true;
 }
 
 async function start() {
@@ -274,15 +402,30 @@ async function start() {
         }
         if (state.status === "completed" || state.status === "failed")
           response.once("finish", () => providerOperations.delete(operationId));
-        writeJson(response, 200, state);
+        writeJson(response, 200, {
+          status: state.status, result: state.result, error: state.error,
+          code: state.code, progress: state.progress
+        });
+      } else if (request.method === "POST" && /^\/invoke\/[^/]+\/cancel$/.test(requestUrl.pathname)) {
+        const operationId = decodeURIComponent(requestUrl.pathname.slice(8, -7));
+        writeJson(response, 200, { cancelled: cancelProviderOperation(operationId) });
+      } else if (request.method === "POST" && requestUrl.pathname === "/contexts/release") {
+        const body = await readJson(request);
+        if (typeof body.contextId !== "string" || !body.contextId.trim())
+          throw new Error("A contextId is required.");
+        releaseContext(body.contextId);
+        writeJson(response, 200, { released: true });
+      } else if (request.method === "POST" && requestUrl.pathname === "/authorize") {
+        const body = await readJson(request);
+        writeJson(response, 200, await authorizeRequest(body.interactive === true, body.first === true));
       } else if (request.method === "POST" && requestUrl.pathname === "/show") {
-        window?.show();
-        window?.focus();
-        writeJson(response, 200, { shown: true });
+        management?.window.show();
+        management?.window.focus();
+        writeJson(response, 200, { shown: Boolean(management) });
       } else if (request.method === "POST" && requestUrl.pathname === "/shutdown") {
         shuttingDown = true;
-        activeSession?.flushStorageData();
-        await activeSession?.cookies.flushStore();
+        await authenticatedSession?.flushStorageData();
+        await authenticatedSession?.cookies.flushStore();
         writeJson(response, 200, { stopped: true });
         server.close(() => app.quit());
       } else {

@@ -2,6 +2,61 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.5.0] — 2026-11-13
+
+### Added
+- Parallel local model sends for separate browser-backed ChatIds, with independent authenticated Electron windows inside one shared connection-owned host and fresh isolated guest sessions for each turn.
+- Per-connection browser limits: `maxParallel` (default 1; 0 unlimited) and `minInterval` (milliseconds; default 0), enforced by a cancellation-aware admission gate.
+- Accessible Agent execution status indicators in the sidebar and selected-chat header, backed by batched existing execution state.
+
+### Changed
+- Share account authentication without serializing entire model turns; deduplicate interactive login attempts and retain per-chat cancellation and progress routing.
+- Retain an Agent's browser conversation context through model-to-shell-to-model cycles and release it at execution end; retire ordinary chat windows after sends.
+- Configure ChatGPT Account for two concurrent local sends spaced by at least 5 seconds; explicitly retain 1/0 defaults for ChatGPT Guest, Gemini Guest and Grok Account.
+- Rename the unreleased `minIntervalBetweenStartsMs` setting to `minInterval`; the old key is not accepted.
+
+### Tests
+- Independent high-risk review and automated testing of the implementation prior to the final configuration follow-up, followed by targeted limits, cancellation, Electron context, Agent lifetime and Release solution checks on the final candidate; CI passed on the final candidate.
+
+### Known limitations
+- Real authenticated concurrent provider responses, simultaneous different served models/efforts, and full Electron GUI/resource measurements were not independently verified.
+- Browser cancellation stops local work best-effort; remote provider processing may continue. Dead Electron hosts are not automatically restarted.
+- Existing account-level ChatGPT model-preference mutation remains until live provider evidence warrants changing it.
+
+## [0.4.1] — 2026-11-13
+
+### Changed
+- Instruct MEŽS agents to prefer the internal GitHub tool when available for the task.
+- Remove the overlapping GitHub-tool clause from general coding guidance while preserving local working-tree instructions.
+
+No application runtime changes were made by this release.
+
+## [0.4.0] — 2026-11-10
+
+### Added
+- Three-choice group deletion dialog in regular API Web: unassign conversations, permanently delete group conversations, or cancel, with the current group count and clear retention disclosures.
+- Native accessible modal with keyboard focus management, request timeouts, pre-deletion membership reconfirmation, and best-effort reconciliation after uncertain server responses.
+
+### Changed
+- Reuse existing Core/Agent chat deletion and category removal APIs without changing Agent Web group deletion behavior or existing Agent/Core partial-failure semantics.
+- Handle case-insensitive group identifiers consistently in filtering, counts, and deletion.
+
+### Tests
+- Add Chromium group-deletion regression scenarios for modal focus, changed membership, lost responses, interrupted requests, mixed-case IDs, and successful deletion.
+- Extend shared UI regression checks. Developer CI passed; separate high-risk independent testing was explicitly waived by the owner.
+
+### Known limitations
+- Group membership validation is not atomic with ID-based deletion: a conversation moved to another group after the final preflight may still be deleted. This owner-accepted risk is documented in the implementation plan and current specification.
+
+## [0.3.1] — 2026-11-10
+
+### Changed
+- Automatically select newly created groups in the regular API Web UI after successful creation and category refresh, using the server-returned category ID.
+- Preserve Agent Web's existing group-creation selection behavior.
+
+### Tests
+- Update shared UI regression assertions for the regular API Web group-selection behavior.
+
 ## [0.3.0] — 2026-11-10
 
 ### Added

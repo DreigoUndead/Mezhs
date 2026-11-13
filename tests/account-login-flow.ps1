@@ -35,6 +35,8 @@ Directory.CreateDirectory(root);
 try
 {
     await TestSessionOwnershipAsync(Path.Combine(root, "ownership"));
+    await TestContextLifetimeAsync(Path.Combine(root, "lifetimes"));
+    await TestConcurrentLoginDoesNotBlockCancellationAsync(Path.Combine(root, "login-cancel"));
     await TestAnonymousDiagnosticsAsync(Path.Combine(root, "guests"));
     Console.WriteLine("PASS: T2 browser session ownership and diagnostics regressions");
     if (args.Contains("--ownership-only")) return;
@@ -50,29 +52,31 @@ finally
     try { Directory.Delete(root, recursive: true); } catch { }
 }
 
-static IntegrationConnection Connection() => new(
+static IntegrationConnection Connection(int? maxParallel = null) => new(
     "account",
     "Account",
     "chatgpt-web-account",
-    new Dictionary<string, string?>());
+    new Dictionary<string, string?>(),
+    maxParallel is null ? null : new IntegrationLimits { MaxParallel = maxParallel.Value });
 
 static async Task TestExpiredOperationLoginAsync(string root)
 {
     var host = new FakeHost(root, authorized: true) { AuthorizationFailureOnce = true };
     await using var integration = new ChatGptAccountIntegration(Connection(), host);
-    var now = DateTimeOffset.UtcNow;
-    var result = await integration.SendMessageAsync(new IntegrationSendContext(
-        new IntegrationChatContext("chat", "account"),
-        new IntegrationMessageContext("message", "user", "hello", false, now, null),
-        Array.Empty<IntegrationMessageContext>(),
-        Array.Empty<IntegrationInputFile>()));
+    try
+    {
+        await integration.SendMessageAsync(SimpleContext());
+        throw new InvalidOperationException("An expired authorization was replayed or incorrectly accepted.");
+    }
+    catch (BrowserAuthorizationRequiredException) { }
+    Assert(host.PromptCount == 0, "The first failed operation should not be automatically replayed.");
+    Assert(host.Initializations.Count == 1, "A mid-turn auth failure replaced the shared host.");
 
-    Assert(result.Text == "ok", "message did not continue after operation-time reauthentication");
-    Assert(host.Initializations.Count == 3,
-        $"expected hidden operation + visible login + hidden retry, got {host.Initializations.Count} initializations");
-    Assert(host.Initializations[1].ShowBrowser, "operation-time 401 did not transition to visible login");
-    Assert(!host.Initializations[2].ShowBrowser, "operation-time 401 did not resume hidden after login");
-    Assert(host.PromptCount == 1, $"expected one prompt after reauthentication, got {host.PromptCount}");
+    // A later explicit user attempt may reauthorize and submit a new turn.
+    var result = await integration.SendMessageAsync(SimpleContext());
+    Assert(result.Text == "ok", "Explicit retry after reauthorization failed.");
+    Assert(host.Initializations.Count == 1 && host.PromptCount == 1,
+        "Explicit retry should reuse the one host and submit exactly one turn.");
 }
 
 static async Task TestAutomaticLoginAsync(string root)
@@ -88,16 +92,10 @@ static async Task TestAutomaticLoginAsync(string root)
 
     Assert(result.Text == "ok", "message did not continue after login");
     Assert(result.Model == "served-test", "integration copied the requested model instead of the provider-served model");
-    Assert(host.Initializations.Count == 3,
-        $"expected hidden check + visible login + hidden resume, got {host.Initializations.Count} initializations");
-    Assert(!host.Initializations[0].ShowBrowser, "authorization check unexpectedly started visible");
-    Assert(host.Initializations[0].RequireAuthorization, "hidden account start did not require authorization");
-    Assert(host.Initializations[1].ShowBrowser, "authorization requirement did not transition to visible login");
-    Assert(host.Initializations[1].RequireAuthorization, "visible login did not require authorization");
-    Assert(!host.Initializations[2].ShowBrowser, "post-login account transport did not resume hidden");
-    Assert(host.Initializations[2].RequireAuthorization, "post-login hidden transport did not verify authorization");
-    Assert(host.ActiveTransports == 1, $"expected only hidden transport to remain active, got {host.ActiveTransports}");
-    Assert(host.PromptCount == 1, $"expected one prompt after login, got {host.PromptCount}");
+    Assert(host.Initializations.Count == 1, "Login recreated the browser process instead of authorizing the shared host.");
+    Assert(!host.Initializations[0].ShowBrowser, "Hidden shared host unexpectedly started visible.");
+    Assert(host.ActiveTransports == 1, "Authorized shared host should remain available for further chats.");
+    Assert(host.PromptCount == 1, "Expected exactly one submission after login.");
 }
 
 static async Task TestExplicitLoginAsync(string root)
@@ -105,11 +103,9 @@ static async Task TestExplicitLoginAsync(string root)
     var host = new FakeHost(root, authorized: false);
     await using var integration = new ChatGptAccountIntegration(Connection(), host);
     await integration.Login!.LoginAsync();
-
-    Assert(host.Initializations.Count == 1, $"expected one explicit login initialization, got {host.Initializations.Count}");
-    Assert(host.Initializations[0].ShowBrowser, "explicit login did not start visible");
-    Assert(host.Initializations[0].RequireAuthorization, "explicit login did not require authorization");
-    Assert(host.ActiveTransports == 0, "explicit login browser stayed active after authorization completed");
+    Assert(host.Authorized, "Explicit login did not authorize the shared account session.");
+    Assert(host.Initializations.Count == 1, "Explicit login created more than one host.");
+    Assert(host.ActiveTransports == 1, "Explicit login discarded the warm shared host.");
 }
 
 static async Task TestModelDeduplicationAsync(string root)
@@ -159,8 +155,8 @@ static async Task TestStaleConversationRecoveryAsync(string root)
     Assert(fallback.Contains("new question", StringComparison.Ordinal), "fallback prompt lost current message");
 }
 
-static IntegrationSendContext SimpleContext() => new(
-    new IntegrationChatContext("chat", "account"),
+static IntegrationSendContext SimpleContext(string chatId = "chat") => new(
+    new IntegrationChatContext(chatId, "account"),
     new IntegrationMessageContext("message", "user", "hello", false, DateTimeOffset.UtcNow),
     Array.Empty<IntegrationMessageContext>(),
     Array.Empty<IntegrationInputFile>());
@@ -193,8 +189,7 @@ static async Task TestSessionOwnershipAsync(string root)
         var send = await integration.SendMessageAsync(SimpleContext() with { ReportActivity = stages.Add });
         Assert(send.Text == "ok", "normal sending failed after diagnostics and browser show");
         Assert(stages.Select(stage => stage.Detail).SequenceEqual(
-            ["Waiting for shared browser session slot.", "Checking authorized browser session.",
-             "Browser session ready; preparing request."]),
+            ["Checking browser session.", "Browser session ready; preparing request."]),
             "authenticated request did not report the expected session preparation stages");
         await integration.Models!.GetModelsAsync();
         Assert(host.Invocations.Select(x => x.Operation).SequenceEqual(
@@ -211,6 +206,102 @@ static async Task TestSessionOwnershipAsync(string root)
     await integration.DisposeAsync();
 }
 
+static async Task TestContextLifetimeAsync(string root)
+{
+    var host = new FakeHost(root, authorized: true);
+    await using var integration = new ChatGptAccountIntegration(Connection(), host);
+    var owner = (IConversationContextOwner)integration;
+
+    // Ordinary chats retire their own windows even when host idle shutdown is disabled.
+    await integration.SendMessageAsync(SimpleContext("ordinary-a"));
+    await integration.SendMessageAsync(SimpleContext("ordinary-b"));
+    Assert(host.ReleasedContexts.SequenceEqual(["ordinary-a", "ordinary-b"]),
+        "Ordinary account chats must release each context without stopping the shared host.");
+    Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
+        "Retiring ordinary chat contexts unexpectedly restarted the shared host.");
+
+    // Two overlapping Agent owners must keep one context until both release it.
+    await owner.RetainConversationAsync("agent-chat");
+    await owner.RetainConversationAsync("agent-chat");
+    await integration.SendMessageAsync(SimpleContext("agent-chat"));
+    Assert(!host.ReleasedContexts.Contains("agent-chat"),
+        "An Agent model turn released a context needed for shell follow-up.");
+    await owner.ReleaseConversationAsync("agent-chat");
+    Assert(!host.ReleasedContexts.Contains("agent-chat"),
+        "The first of two overlapping Agent executions retired the other's context.");
+    await owner.ReleaseConversationAsync("agent-chat");
+    Assert(host.ReleasedContexts.Count(id => id == "agent-chat") == 1,
+        "The final Agent owner should release its context exactly once.");
+
+    // Cancellation must retire even a retained Agent context before the local send returns.
+    await owner.RetainConversationAsync("cancelled-agent");
+    host.HangNextPrompt = true;
+    using var cancellation = new CancellationTokenSource();
+    var send = integration.SendMessageAsync(SimpleContext("cancelled-agent"), cancellation.Token);
+    await host.PromptStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    cancellation.Cancel();
+    try
+    {
+        await send.WaitAsync(TimeSpan.FromSeconds(5));
+        throw new InvalidOperationException("Cancelled Agent model send unexpectedly succeeded.");
+    }
+    catch (OperationCanceledException) { }
+    Assert(host.ReleasedContexts.Contains("cancelled-agent"),
+        "Cancelled Agent context was not discarded before the send returned.");
+    await owner.ReleaseConversationAsync("cancelled-agent");
+}
+
+static async Task TestConcurrentLoginDoesNotBlockCancellationAsync(string root)
+{
+    var host = new FakeHost(root, authorized: true);
+    await using var integration = new ChatGptAccountIntegration(Connection(maxParallel: 3), host);
+
+    // A has already submitted. B waits for a user to log in, while C must
+    // wait for that same attempt rather than opening another login dialog.
+    host.HangNextPrompt = true;
+    using var cancelA = new CancellationTokenSource();
+    var sendA = integration.SendMessageAsync(SimpleContext("active-a"), cancelA.Token);
+    await host.PromptStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+    host.Authorized = false;
+    host.HangAuthorization = true;
+    var sendB = integration.SendMessageAsync(SimpleContext("login-b"));
+    await host.AuthorizationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    var sendC = integration.SendMessageAsync(SimpleContext("login-c"));
+
+    cancelA.Cancel();
+    try
+    {
+        await sendA.WaitAsync(TimeSpan.FromSeconds(2));
+        throw new InvalidOperationException("Active send did not cancel.");
+    }
+    catch (OperationCanceledException) { }
+    Assert(host.ReleasedContexts.Contains("active-a"),
+        "Active chat cancellation was blocked behind an interactive login.");
+    Assert(!sendB.IsCompleted && !sendC.IsCompleted,
+        "A waiting login attempt must not complete before the dialog is dismissed.");
+
+    // Dismiss the single login dialog without a cookie. Both waiting sends
+    // fail explicitly; the second may only recheck, not prompt the user again.
+    host.FinishAuthorization.TrySetResult(false);
+    await ExpectAuthRequiredAsync(sendB);
+    await ExpectAuthRequiredAsync(sendC);
+    Assert(host.InteractiveAuthorizationAttempts == 1,
+        "Concurrent chats started multiple interactive login attempts.");
+    Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
+        "Login or cancellation restarted the shared browser host.");
+}
+
+static async Task ExpectAuthRequiredAsync(Task send)
+{
+    try
+    {
+        await send.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+    catch (BrowserAuthorizationRequiredException) { return; }
+    throw new InvalidOperationException("Dismissed login did not fail with authorization required.");
+}
+
 static async Task TestAnonymousDiagnosticsAsync(string root)
 {
     var host = new FakeHost(root, authorized: true);
@@ -218,12 +309,15 @@ static async Task TestAnonymousDiagnosticsAsync(string root)
     await using (var guest = new ChatGptWebIntegration(
         new IntegrationConnection("guest-chatgpt", "ChatGPT Guest", "chatgpt-web", settings), host))
     {
+        await ((IConversationContextOwner)guest).RetainConversationAsync("guest-chat");
+        Assert(host.ActiveTransports == 0,
+            "Retaining a guest turn must not create an authenticated browser session.");
         Assert(guest.Diagnostics is null && host.ActiveTransports == 0,
             "ChatGPT guest diagnostics opened a persistent account session");
         var result = await guest.SendMessageAsync(SimpleContext());
         Assert(result.Text == "guest-ok", "ChatGPT anonymous sending changed");
-        Assert(guest.Diagnostics is null && host.ActiveTransports == 0,
-            "ChatGPT guest left a persistent transport after sending");
+        Assert(guest.Diagnostics is null && host.ActiveTransports == 1,
+            "ChatGPT guest should reuse its host between isolated ephemeral turns");
     }
     await using (var guest = new GeminiWebIntegration(
         new IntegrationConnection("guest-gemini", "Gemini Guest", "gemini-web", settings), host))
@@ -232,10 +326,10 @@ static async Task TestAnonymousDiagnosticsAsync(string root)
             "Gemini guest diagnostics opened a persistent account session");
         var result = await guest.SendMessageAsync(SimpleContext());
         Assert(result.Text == "guest-ok", "Gemini anonymous sending changed");
-        Assert(guest.Diagnostics is null && host.ActiveTransports == 0,
-            "Gemini guest left a persistent transport after sending");
+        Assert(guest.Diagnostics is null && host.ActiveTransports == 1,
+            "Gemini guest should reuse its host between isolated ephemeral turns");
     }
-    Assert(host.Initializations.Count == 2 && host.Initializations.All(x => !x.RequireAuthorization),
+    Assert(host.Initializations.Count == 2 && host.Initializations.All(x => x.Guest && !x.RequireAuthorization),
         "guest transports unexpectedly required account authorization");
 }
 
@@ -253,7 +347,17 @@ sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
     public int PromptCount { get; set; }
     public int ActiveTransports { get; set; }
     public int ShowCount { get; set; }
+    public List<string> ReleasedContexts { get; } = [];
+    public bool HangNextPrompt { get; set; }
+    public TaskCompletionSource<bool> PromptStarted { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     public bool Authorized { get; set; } = authorized;
+    public bool HangAuthorization { get; set; }
+    public int InteractiveAuthorizationAttempts;
+    public TaskCompletionSource<bool> AuthorizationStarted { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource<bool> FinishAuthorization { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     public bool AuthorizationFailureOnce { get; set; }
     public bool UnavailableContinuationOnce { get; set; }
 
@@ -288,6 +392,24 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         return Task.CompletedTask;
     }
 
+    public async Task EnsureAuthorizedAsync(bool interactive, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!host.Authorized)
+        {
+            if (!interactive)
+                throw new BrowserAuthorizationRequiredException("Authorization required.");
+            Interlocked.Increment(ref host.InteractiveAuthorizationAttempts);
+            if (host.HangAuthorization)
+            {
+                host.AuthorizationStarted.TrySetResult(true);
+                if (!await host.FinishAuthorization.Task.WaitAsync(cancellationToken))
+                    throw new BrowserAuthorizationRequiredException("Login was dismissed.");
+            }
+            host.Authorized = true;
+        }
+    }
+
     public Task<TResult> InvokeAsync<TResult>(
         string operation,
         object? arguments = null,
@@ -314,6 +436,12 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 
         if (operation is "newChat" or "send")
         {
+            if (host.HangNextPrompt)
+            {
+                host.HangNextPrompt = false;
+                host.PromptStarted.TrySetResult(true);
+                return WaitForCancellation<TResult>(cancellationToken);
+            }
             host.PromptCount++;
             if (operation == "send" && host.UnavailableContinuationOnce)
             {
@@ -334,6 +462,18 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         }
 
         throw new InvalidOperationException($"Unexpected fake browser operation '{operation}'.");
+    }
+
+    private static async Task<TResult> WaitForCancellation<TResult>(CancellationToken cancellationToken)
+    {
+        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        throw new InvalidOperationException("Cancellation probe unexpectedly resumed.");
+    }
+
+    public Task ReleaseContextAsync(string chatId, CancellationToken cancellationToken = default)
+    {
+        host.ReleasedContexts.Add(chatId);
+        return Task.CompletedTask;
     }
 
     private static Task<TResult> Result<TResult>(object value)

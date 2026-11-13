@@ -159,6 +159,32 @@ public sealed class AgentStore(AgentOptions options)
         return records;
     }
 
+    // One projection for every Agent sidebar row; active roots outrank historical results.
+    public IReadOnlyDictionary<string, string> GetLatestAgentStatuses()
+    {
+        using var connection = _database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT ChatId, Status FROM (
+                SELECT ChatId, Status,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY ChatId
+                        ORDER BY CASE
+                            WHEN Status IN ('Queued', 'Running', 'CancelRequested') THEN 0
+                            ELSE 1 END,
+                            CreatedAt DESC, ExecutionId DESC
+                    ) AS Position
+                FROM Executions
+                WHERE Kind = 'Agent' AND ParentExecutionId IS NULL AND ChatId IS NOT NULL
+            ) WHERE Position = 1;
+            """;
+        using var reader = command.ExecuteReader();
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        while (reader.Read())
+            result[reader.GetString(0)] = reader.GetString(1);
+        return result;
+    }
+
     public IReadOnlyList<AgentExecutionState> GetExecutionStates(string chatId)
     {
         using var connection = _database.Open();

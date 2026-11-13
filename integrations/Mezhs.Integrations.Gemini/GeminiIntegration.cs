@@ -15,7 +15,7 @@ public sealed class GeminiWebIntegration : BrowserIntegrationBase
     protected override Assembly BrowserModuleAssembly => typeof(GeminiWebIntegration).Assembly;
     protected override string BrowserModuleResourceName => "Mezhs.Integrations.Gemini.BrowserModule";
 
-    public override Task<IntegrationSendResult> SendMessageAsync(
+    protected override Task<IntegrationSendResult> SendCoreAsync(
         IntegrationSendContext context,
         CancellationToken cancellationToken = default) =>
         SendAnonymousAsync(context, cancellationToken);

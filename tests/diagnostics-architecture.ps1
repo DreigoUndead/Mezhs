@@ -31,12 +31,16 @@ Assert ($browserDiagnostics.Contains('BrowserDiagnosticsModule(BrowserAccountSes
     'Browser diagnostics do not execute through the owning authenticated BrowserAccountSession.'
 
 Assert ($browserBase.Contains('private BrowserAccountSession? _accountSession;') -and
-        $browserBase.Contains('CreateAccountSession() => _accountSession ??= new(') -and
+        $browserBase.Contains('lock (_sessionSync) return _accountSession ??= new(') -and
+        $browserBase.Contains('private BrowserAccountSession? _guestSession;') -and
+        $browserBase.Contains('lock (_sessionSync) return _guestSession ??= new(') -and
         $browserBase.Contains('public override IIntegrationDiagnosticsModule? Diagnostics') -and
         $browserBase.Contains('_accountSession is null ? null : _diagnostics ??=') -and
         $browserBase.Contains('new BrowserDiagnosticsModule(_accountSession)') -and
-        $browserBase.Contains('public override ValueTask DisposeAsync()')) `
-    'BrowserIntegrationBase must cache and dispose one account session, exposing diagnostics only for accounts.'
+        $browserBase.Contains('public override async ValueTask DisposeAsync()') -and
+        $browserBase.Contains('await _accountSession.DisposeAsync()') -and
+        $browserBase.Contains('await _guestSession.DisposeAsync()')) `
+    'BrowserIntegrationBase must keep account diagnostics in the account-owned session and dispose both account and guest sessions.'
 
 foreach ($source in @($chatGpt, $grok)) {
     Assert ($source.Contains('var session = CreateAccountSession();') -and

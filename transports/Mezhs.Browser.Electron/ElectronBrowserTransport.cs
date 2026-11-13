@@ -58,6 +58,7 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         startInfo.Environment["MEZHS_SHOW_BROWSER"] = options.ShowBrowser ? "1" : "0";
         startInfo.Environment["MEZHS_BROWSER_MODULE"] = Path.GetFullPath(options.ModulePath);
         startInfo.Environment["MEZHS_REQUIRE_AUTHORIZATION"] = options.RequireAuthorization ? "1" : "0";
+        startInfo.Environment["MEZHS_GUEST"] = options.Guest ? "1" : "0";
         startInfo.Environment["MEZHS_PARENT_PROCESS_ID"] = Environment.ProcessId.ToString();
 
         _process = Process.Start(startInfo)
@@ -73,25 +74,30 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         string operation,
         object? arguments = null,
         CancellationToken cancellationToken = default) =>
-        InvokeCoreAsync<TResult>(operation, arguments, reportProgress: null, cancellationToken);
+        InvokeCoreAsync<TResult>(operation, arguments, reportProgress: null, cancellationToken, null, false);
 
     public Task<TResult> InvokeWithProgressAsync<TResult>(
         string operation,
         object? arguments,
         Action<BrowserOperationProgress>? reportProgress,
         CancellationToken cancellationToken = default) =>
-        InvokeCoreAsync<TResult>(operation, arguments, reportProgress, cancellationToken);
+        InvokeCoreAsync<TResult>(operation, arguments, reportProgress, cancellationToken, null, false);
 
     private async Task<TResult> InvokeCoreAsync<TResult>(
         string operation,
         object? arguments,
         Action<BrowserOperationProgress>? reportProgress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? contextId,
+        bool ephemeral)
     {
         EnsureRunning();
+        string? operationId = null;
+        try
+        {
         using var startResponse = await _http.PostAsJsonAsync(
             "invoke",
-            new { operation, arguments },
+            new { operation, arguments, contextId, ephemeral },
             JsonOptions,
             cancellationToken);
         if (!startResponse.IsSuccessStatusCode)
@@ -107,6 +113,7 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
             throw new InvalidOperationException(
                 $"Electron provider operation '{operation}' returned an empty operation id.");
 
+        operationId = started.OperationId;
         BrowserOperationProgress? lastProgress = null;
         while (true)
         {
@@ -162,6 +169,77 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
                         $"Electron provider operation '{operation}' returned unknown status '{state.Status}'.");
             }
         }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            if (operationId is not null)
+                await CancelOperationBestEffortAsync(operationId);
+            throw;
+        }
+    }
+
+    private async Task CancelOperationBestEffortAsync(string operationId)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            using var response = await _http.PostAsync(
+                $"invoke/{Uri.EscapeDataString(operationId)}/cancel", null, timeout.Token);
+        }
+        catch (Exception)
+        {
+            // The local cancellation is final; remote cancellation is best effort.
+        }
+    }
+
+    public IChatBrowserTransport ForContext(string chatId, bool ephemeral = false) =>
+        new ContextView(this, chatId, ephemeral);
+
+    public async Task ReleaseContextAsync(string chatId, CancellationToken cancellationToken = default)
+    {
+        if (_process is null || _process.HasExited) return;
+        using var response = await _http.PostAsJsonAsync(
+            "contexts/release", new { contextId = chatId }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task EnsureAuthorizedAsync(bool interactive, CancellationToken cancellationToken = default)
+    {
+        EnsureRunning();
+        var first = true;
+        while (true)
+        {
+            using var response = await _http.PostAsJsonAsync(
+                "authorize", new { interactive, first }, JsonOptions, cancellationToken);
+            first = false;
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(await response.Content.ReadAsStringAsync(cancellationToken));
+            var state = await response.Content.ReadFromJsonAsync<AuthorizationState>(JsonOptions, cancellationToken);
+            if (state?.Authorized == true) return;
+            if (state?.Dismissed == true)
+                throw new BrowserAuthorizationRequiredException("Browser login was closed before authorization completed.");
+            if (!interactive)
+                throw new BrowserAuthorizationRequiredException("Browser authorization is required.");
+            await Task.Delay(1000, cancellationToken);
+        }
+    }
+
+    private sealed record AuthorizationState(bool Authorized, bool Dismissed = false);
+
+    private sealed class ContextView(ElectronBrowserTransport owner, string chatId, bool ephemeral)
+        : IChatBrowserTransport
+    {
+        public string Name => owner.Name;
+        public Task InitializeAsync(BrowserTransportOptions options, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("A browser context cannot initialize the host.");
+        public Task<TResult> InvokeAsync<TResult>(string operation, object? arguments = null,
+            CancellationToken cancellationToken = default) =>
+            owner.InvokeCoreAsync<TResult>(operation, arguments, null, cancellationToken, chatId, ephemeral);
+        public Task<TResult> InvokeWithProgressAsync<TResult>(string operation, object? arguments,
+            Action<BrowserOperationProgress>? reportProgress, CancellationToken cancellationToken = default) =>
+            owner.InvokeCoreAsync<TResult>(operation, arguments, reportProgress, cancellationToken, chatId, ephemeral);
+        public Task ShowAsync(CancellationToken cancellationToken = default) => owner.ShowAsync(cancellationToken);
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     public async Task ShowAsync(CancellationToken cancellationToken = default)

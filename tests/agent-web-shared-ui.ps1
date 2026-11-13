@@ -6,6 +6,7 @@ $markdown = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/MarkdownContent.
 $resize = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/useAutoResizeTextArea.ts") -Raw
 $targetPicker = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/ConnectionModelPicker.tsx") -Raw
 $sharedApp = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/MezhsChatApp.tsx") -Raw
+$apiClient = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/api.ts") -Raw
 $exports = Get-Content (Join-Path $root "src/Mezhs.Web.Lib/src/index.ts") -Raw
 $agentApp = Get-Content (Join-Path $root "src/Mezhs.Agent.Web/src/App.tsx") -Raw
 $agentProgram = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Program.cs") -Raw
@@ -118,10 +119,17 @@ if ($agentCss -notmatch 'agent-sidebar-tools[\s\S]*?gap:\s*6px' -or
     $sharedApp -notmatch 'async function renameChat' -or
     $agentApp -notmatch 'async function renameChat' -or
     $sharedApp -notmatch 'method: "PUT"' -or
-    $agentApp -notmatch 'method: "PUT"' -or
-    $sharedApp -match 'setCategoryFilter\(category\.categoryId\)' -or
-    $agentApp -match 'selectCategoryFilter\(category\.categoryId\)') {
-    throw "Base and Agent chat group controls, rename actions, or non-switching group creation have diverged."
+    $agentApp -notmatch 'method: "PUT"') {
+    throw "Base and Agent chat group controls or rename actions have diverged."
+}
+
+# Base Web selects a freshly created group only after POST and category refresh.
+# Agent Web retains its existing non-switching group creation behavior.
+if ($sharedApp -notmatch '(?s)let createdCategory: Category \| null = null;.*?createdCategory = await apiJson<Category>\(apiBase, "/v1/categories",.*?await loadCategories\(\);\s*if \(createdCategory\) selectCategory\(createdCategory\.categoryId\);') {
+    throw "Base Web group creation must select the returned group ID after category refresh."
+}
+if ($agentApp -match 'selectCategoryFilter\(category\.categoryId\)') {
+    throw "Agent Web group creation unexpectedly switches the category filter."
 }
 
 # Both web surfaces can operate against the Agent host, where group removal also
@@ -131,6 +139,58 @@ if ($sharedApp -notmatch 'including Agent conversations if present' -or
     $sharedApp -notmatch 'deletedChatIdsRef\.current\.has\(chat\.chatId\)' -or
     $sharedApp -notmatch 'deletedChatIdsRef\.current\.add\(id\)') {
     throw "Base chat deletion/group confirmations or stale-deletion list protection have regressed."
+}
+
+# Normal API Web group deletion is three-choice; bulk deletion must use the
+# shared Core/Agent chat endpoint before category removal, without a native confirm.
+$groupDialogStart = $sharedApp.IndexOf('async function promptDeleteCategory(')
+$groupWorkflowStart = $sharedApp.IndexOf('async function deleteCategory(mode:')
+$groupWorkflowEnd = $sharedApp.IndexOf('function openConversationManager()', $groupWorkflowStart)
+if ($groupDialogStart -lt 0 -or $groupWorkflowStart -lt 0 -or $groupWorkflowEnd -le $groupWorkflowStart) {
+    throw "Normal Web group deletion dialog/workflow is missing."
+}
+$groupWorkflow = $sharedApp.Substring($groupWorkflowStart, $groupWorkflowEnd - $groupWorkflowStart)
+if ($sharedApp -notmatch 'className="group-delete-dialog" aria-modal="true"' -or
+    $sharedApp -notmatch 'groupDeleteDialog.chatIds.length' -or
+    $sharedApp -notmatch 'deleteCategory\("unassign"\)' -or
+    $sharedApp -notmatch 'deleteCategory\("delete"\)' -or
+    $sharedApp -notmatch '>Cancel</button>' -or
+    $sharedApp -notmatch 'group-delete-disclosure' -or
+    $sharedApp -notmatch 'role="alert"' -or
+    $sharedApp -match 'window.confirm\(`Delete group' -or
+    $baseCss -notmatch '\.group-delete-dialog' -or
+    $baseCss -notmatch '\.group-delete-choices button.destructive') {
+    throw "Normal Web group deletion must present unassign/delete/cancel with count and disclosure."
+}
+if ($groupWorkflow -notmatch 'groupDeleteRequest' -or
+    $groupWorkflow -notmatch 'apiJson<Chat\[\]>\(apiBase, "/v1/chats", \{ signal \}\)' -or
+    $groupWorkflow -notmatch 'Group membership changed' -or
+    $groupWorkflow -notmatch 'method: "DELETE"' -or
+    $groupWorkflow -notmatch '"/v1/chats"' -or
+    $groupWorkflow -notmatch '/v1/categories/' -or
+    $groupWorkflow -notmatch 'deletedChatIdsRef.current.add' -or
+    $groupWorkflow -notmatch 'if \(chatId && removed.has\(chatId\)\) newChat\(\)') {
+    throw "Normal Web group destructive deletion bypasses the shared chat API or stale-data guard."
+}
+# Covers the mitigations for an unbounded outage, an uncertain successful delete,
+# and modal keyboard focus. P1 is pending a server-contract owner decision.
+if ($sharedApp -notmatch 'modal\.showModal\(\)' -or
+    $sharedApp -notmatch 'previousFocus\.focus\(\)' -or
+    $sharedApp -notmatch 'onCancel=\{\(event\) => \{' -or
+    $baseCss -notmatch '\.group-delete-dialog::backdrop' -or
+    $sharedApp -notmatch 'groupDeleteUnverified' -or
+    $groupWorkflow -notmatch 'const currentChatIds = new Set\(' -or
+    $groupWorkflow -notmatch 'if \(chatId && removed\.has\(chatId\)\) newChat\(\)' -or
+    $sharedApp -notmatch 'controller\.abort\(\)' -or
+    $apiClient -notmatch 'await waitForApi\(apiBase, init\?\.signal\)' -or
+    $apiClient -notmatch 'signal\.addEventListener\("abort"') {
+    throw "Group deletion lacks bounded requests, uncertain-outcome reconciliation or keyboard focus isolation."
+}
+$chatDeleteOffset = $groupWorkflow.IndexOf('if (mode === "delete"')
+$categoryDeleteOffset = $groupWorkflow.IndexOf('/v1/categories/')
+# Source guard: the category delete request must come after the conditional chat delete.
+if ($chatDeleteOffset -lt 0 -or $categoryDeleteOffset -le $chatDeleteOffset) {
+    throw "Group removal must follow completed conversation removal."
 }
 
 node (Join-Path $root "tests/agent-web-rich-formatting.test.cjs")

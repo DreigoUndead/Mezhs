@@ -50,7 +50,8 @@ public sealed record AgentChatView(
     string? ConnectionId,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    string? CategoryId);
+    string? CategoryId,
+    string? ExecutionStatus = null);
 
 public sealed record AgentExecutionState(
     string ExecutionId,

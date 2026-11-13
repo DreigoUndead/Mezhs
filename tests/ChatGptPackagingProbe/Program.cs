@@ -205,7 +205,7 @@ sealed class VersionProbe(
     protected override string BrowserModuleResourceName => resourceName;
     protected override string? BrowserModuleEntryFileName => singleFile ? null : "entry.js";
 
-    public override Task<IntegrationSendResult> SendMessageAsync(
+    protected override Task<IntegrationSendResult> SendCoreAsync(
         IntegrationSendContext context, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException();
 }

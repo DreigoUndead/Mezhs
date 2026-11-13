@@ -76,10 +76,28 @@ async function recover(apiBase: string, state: ApiState) {
   await state.recovery;
 }
 
-export async function waitForApi(apiBase: string) {
+export async function waitForApi(apiBase: string, signal?: AbortSignal | null) {
   const state = stateFor(apiBase);
+  if (signal?.aborted) throw new DOMException("Request aborted.", "AbortError");
   if (state.availability === "online") return;
-  await recover(apiBase, state);
+  const recovery = recover(apiBase, state);
+  if (!signal) {
+    await recovery;
+    return;
+  }
+  // Keep the shared health monitor alive; only this request stops waiting.
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(new DOMException("Request aborted.", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    void recovery.then(
+      () => { signal.removeEventListener("abort", onAbort); resolve(); },
+      (error) => { signal.removeEventListener("abort", onAbort); reject(error); },
+    );
+  });
 }
 
 function isRead(init?: RequestInit) {
@@ -97,7 +115,7 @@ export async function apiFetch(
 
   while (true) {
     if (read)
-      await waitForApi(apiBase);
+      await waitForApi(apiBase, init?.signal);
 
     try {
       const response = await fetch(endpoint(apiBase, path), init);

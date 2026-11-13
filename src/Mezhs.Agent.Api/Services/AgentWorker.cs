@@ -16,6 +16,7 @@ public sealed class AgentWorker : BackgroundService
     private readonly ChatService _chats;
     private readonly ChatStore _chatStore;
     private readonly MessageService _messages;
+    private readonly IntegrationRegistry _integrations;
     private readonly AgentPromptBuilder _prompts;
     private readonly PolicyEvaluationService _evaluations;
     private readonly Parser _parser;
@@ -37,6 +38,7 @@ public sealed class AgentWorker : BackgroundService
         ChatService chats,
         ChatStore chatStore,
         MessageService messages,
+        IntegrationRegistry integrations,
         AgentPromptBuilder prompts,
         PolicyEvaluationService evaluations,
         Parser parser,
@@ -51,6 +53,7 @@ public sealed class AgentWorker : BackgroundService
         _chats = chats;
         _chatStore = chatStore;
         _messages = messages;
+        _integrations = integrations;
         _prompts = prompts;
         _evaluations = evaluations;
         _parser = parser;
@@ -181,6 +184,7 @@ public sealed class AgentWorker : BackgroundService
     {
         var executionId = execution.ExecutionId;
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        var retainedConversation = false;
         lock (_cancellationSync)
             _cancellations[executionId] = cancellation;
         try
@@ -218,6 +222,8 @@ public sealed class AgentWorker : BackgroundService
                     execution.Environment);
             }
             execution.ChatId = chatId;
+            await _integrations.RetainConversationAsync(execution.ConnectionId, chatId);
+            retainedConversation = true;
             _store.ValidateAgentChatRunnable(chatId);
 
             var existingMessages = _chats.GetMessages(chatId);
@@ -288,6 +294,12 @@ public sealed class AgentWorker : BackgroundService
         }
         finally
         {
+            // Model-send permits were released after each turn; retire the warm window here.
+            if (retainedConversation && !string.IsNullOrWhiteSpace(execution.ChatId))
+            {
+                try { await _integrations.ReleaseConversationAsync(execution.ConnectionId, execution.ChatId); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Could not release browser context for {ChatId}", execution.ChatId); }
+            }
             // Serialize disposal against concurrent Cancel(), including its synchronous callbacks.
             lock (_cancellationSync)
             {
