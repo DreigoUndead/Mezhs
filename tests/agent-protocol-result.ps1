@@ -79,6 +79,7 @@ try {
 
     @'
 using Mezhs.Agent.Commands;
+using Mezhs.Common.RichUi;
 
 var parser = new Parser();
 static void Check(bool ok, string message)
@@ -91,24 +92,24 @@ static void Reject(Parser parser, string content, string message)
     catch (CommandParseException) { return; }
     throw new InvalidOperationException(message);
 }
-// Sanity guard for the structural refactor: parser tag classification must
-// reuse the existing command definitions, not shadow them with new authority.
+// Canonical rich tag grammar defines syntax. Agent Registry defines executable
+// authority; every executable command must have exactly one canonical tag role.
 foreach (var command in Registry.All)
 {
-    Check(MarkupRegistry.TryGet(command.Name, out var tag) &&
-          tag.Kind == MarkupKind.Command &&
-          ReferenceEquals(tag.Command, command),
-          "Agent markup registry diverged from executable command definitions.");
+    Check(RichTagRegistry.TryGet(command.Name, out var tag) &&
+          tag.Role == (command.Form == CommandForm.Block
+              ? RichTagRole.Command : RichTagRole.Marker),
+          "Canonical rich tags diverged from Agent command definitions.");
 }
-Check(MarkupRegistry.TryGet("box", out var boxTag) &&
-      boxTag.Kind == MarkupKind.Container, "Box must be a container node.");
-Check(MarkupRegistry.TryGet("CodeBlock", out var codeTag) &&
-      codeTag.Kind == MarkupKind.RawSource, "CodeBlock must remain literal raw source.");
-Check(MarkupRegistry.TryGet("WritingBlock", out var writingTag) &&
-      writingTag.Kind == MarkupKind.RawSource, "WritingBlock must remain literal raw source.");
-Check(MarkupRegistry.TryGet("icon", out var iconTag) &&
-      iconTag.Kind == MarkupKind.Leaf, "Icon cannot own command descendants.");
-Check(!MarkupRegistry.TryGet("UNKNOWN", out _), "Unknown tags must not be registered.");
+Check(RichTagRegistry.TryGet("box", out var boxTag) &&
+      boxTag.Role == RichTagRole.Container, "Box must be a container node.");
+Check(RichTagRegistry.TryGet("CodeBlock", out var codeTag) &&
+      codeTag.Role == RichTagRole.RawEditor, "CodeBlock must remain literal raw source.");
+Check(RichTagRegistry.TryGet("WritingBlock", out var writingTag) &&
+      writingTag.Role == RichTagRole.RawEditor, "WritingBlock must remain literal raw source.");
+Check(RichTagRegistry.TryGet("icon", out var iconTag) &&
+      iconTag.Role == RichTagRole.Leaf, "Icon cannot own command descendants.");
+Check(!RichTagRegistry.TryGet("UNKNOWN", out _), "Unknown tags must not be registered.");
 
 const string content = "before\n<SH>\necho first\n<DONE>\n<ABC>\necho last\n</SH>\n<DONE>\nafter";
 var parsed = parser.Parse(content);
