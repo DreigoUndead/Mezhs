@@ -8,8 +8,9 @@ namespace Mezhs.Common.RichUi;
 // React must not reparse Markdown source to discover actionable elements.
 internal static class RichMarkdownNodes
 {
-    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions().Build();
+    // Use the same bounded Markdown extensions as RichDocumentParser. Generic
+    // attributes are deliberately unsupported: braces remain visible text.
+    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().UsePipeTables().UseEmphasisExtras().Build();
 
     public static IReadOnlyList<RichNode> Convert(string source, int offset)
     {
