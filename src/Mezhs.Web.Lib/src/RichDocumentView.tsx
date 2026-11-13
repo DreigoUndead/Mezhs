@@ -116,6 +116,8 @@ function renderNode(node: RichNode, depth: number, svgScope: boolean): ReactNode
     case "listItem": return <li key={key}>{children}</li>;
     case "blockquote": return <blockquote key={key}>{children}</blockquote>;
     case "code": return <pre key={key}><code>{node.text || ""}</code></pre>;
+    case "taskCheckbox": return <input key={key} type="checkbox" checked={attrs.checked === "true"}
+      disabled aria-label={attrs.checked === "true" ? "Completed task" : "Incomplete task"} />;
     case "inlineCode": return <code key={key}>{node.text || ""}</code>;
     case "strong": return <strong key={key}>{children}</strong>;
     case "emphasis": return <em key={key}>{children}</em>;
@@ -126,9 +128,26 @@ function renderNode(node: RichNode, depth: number, svgScope: boolean): ReactNode
       const href = safeLink(attrs.url);
       return href ? <a key={key} href={href} rel="noopener noreferrer" target="_blank">{children}</a> : <span key={key}>{children}</span>;
     }
-    case "table": return <table key={key}><tbody>{children}</tbody></table>;
+    case "image": {
+      const src = safeLink(attrs.url);
+      if (!src || !/^https?:/i.test(src)) return children;
+      const altText = (nodes: RichNode[] = []): string => nodes.map(child =>
+        child.kind === "text" || child.kind === "literal" ? child.text || "" : altText(child.children || [])).join("");
+      return <img key={key} src={src} alt={altText(node.children || []).slice(0, 256)}
+        loading="lazy" referrerPolicy="no-referrer" />;
+    }
+    case "table": {
+      const rows = node.children || [];
+      const headers = rows.filter(row => row.attributes?.header === "true");
+      const body = rows.filter(row => row.attributes?.header !== "true");
+      return <table key={key}>
+        {headers.length > 0 && <thead>{headers.map(row => <Fragment key={row.id}>{renderNode(row, depth + 1, false)}</Fragment>)}</thead>}
+        <tbody>{body.map(row => <Fragment key={row.id}>{renderNode(row, depth + 1, false)}</Fragment>)}</tbody>
+      </table>;
+    }
     case "tableRow": return <tr key={key}>{children}</tr>;
-    case "tableCell": return <td key={key}>{children}</td>;
+    case "tableCell": return attrs.header === "true"
+      ? <th key={key} scope="col">{children}</th> : <td key={key}>{children}</td>;
     default: return node.text || children;
   }
 }
