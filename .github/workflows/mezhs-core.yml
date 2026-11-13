@@ -60,7 +60,7 @@ jobs:
       - name: Rich formatting and real Chromium regression
         shell: pwsh
         run: |
-          node --test tests/agent-web-rich-formatting.test.cjs tests/chat-ui-browser.test.cjs tests/rich-model-ui-rendering.test.cjs tests/rich-model-ui-browser.test.cjs tests/group-delete-browser.test.cjs
+          node --test tests/agent-web-rich-formatting.test.cjs tests/agent-status-unread-browser.test.cjs tests/chat-ui-browser.test.cjs tests/rich-model-ui-rendering.test.cjs tests/rich-model-ui-browser.test.cjs tests/group-delete-browser.test.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Agent command protocol and real Executor smoke
