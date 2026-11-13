@@ -185,6 +185,19 @@ try {
         throw "Execution API still exposes unauthenticated requester provenance."
     }
 
+    # The Agent list projects root execution status and matching ID in one batch.
+    # An unread browser dot must identify a completed run, not infer one from UpdatedAt.
+    $agentList = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats")
+    $listedAgent = @($agentList | Where-Object { $_.chatId -eq $completed.chatId })[0]
+    $singleAgent = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)"
+    if ($null -eq $listedAgent -or
+        $listedAgent.executionStatus -ne "Completed" -or
+        $listedAgent.executionStatusId -ne $completed.executionId -or
+        $singleAgent.executionStatus -ne "Completed" -or
+        $singleAgent.executionStatusId -ne $completed.executionId) {
+        throw "Agent chat list/detail status does not identify the matching completed root execution."
+    }
+
     $initialMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
     $initialUserMessage = @($initialMessages | Where-Object { $_.role -eq "user" })[-1]
     if ($completed.connectionId -ne "test" -or
@@ -216,6 +229,13 @@ try {
         $changedModelCompleted.connectionId -ne "test" -or
         $changedModelCompleted.model -ne "mock-deep") {
         throw "Agent execution did not persist an explicit model change on the selected connection."
+    }
+    $newStatus = @((Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats") |
+        Where-Object { $_.chatId -eq $completed.chatId })[0]
+    if ($null -eq $newStatus -or $newStatus.executionStatus -ne "Completed" -or
+        $newStatus.executionStatusId -ne $changedModelCompleted.executionId -or
+        $newStatus.executionStatusId -eq $completed.executionId) {
+        throw "Agent list status ID was not refreshed for the next completed root execution."
     }
     $changedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
     $changedUserMessage = @($changedMessages | Where-Object { $_.role -eq "user" })[-1]
