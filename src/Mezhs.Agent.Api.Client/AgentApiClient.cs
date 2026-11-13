@@ -124,7 +124,8 @@ public sealed record AgentChatView(
     string? Title,
     string? ConnectionId,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    string? ExecutionStatus = null);
 
 public sealed record CreateAgentExecutionRequest(
     string PolicyId,

@@ -24,13 +24,21 @@ public interface IChatBrowserTransport : IAsyncDisposable
         InvokeAsync<TResult>(operation, arguments, cancellationToken);
 
     Task ShowAsync(CancellationToken cancellationToken = default);
+
+    // The host is shared; this view binds one operation to a local conversation.
+    IChatBrowserTransport ForContext(string chatId, bool ephemeral = false) => this;
+
+    Task ReleaseContextAsync(string chatId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    Task EnsureAuthorizedAsync(bool interactive, CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 
 public sealed record BrowserTransportOptions(
     string ProfileDirectory,
     string ModulePath,
     bool ShowBrowser = false,
-    bool RequireAuthorization = false);
+    bool RequireAuthorization = false,
+    bool Guest = false);
 
 public sealed record BrowserOperationProgress(
     string State,

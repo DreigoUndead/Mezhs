@@ -17,7 +17,7 @@ public class ChatGptWebIntegration : BrowserIntegrationBase
     protected override string BrowserModuleResourceName => "Mezhs.Integrations.ChatGpt.BrowserModule";
     protected override string BrowserModuleEntryFileName => "entry.js";
 
-    public override Task<IntegrationSendResult> SendMessageAsync(
+    protected override Task<IntegrationSendResult> SendCoreAsync(
         IntegrationSendContext context,
         CancellationToken cancellationToken = default) =>
         SendAnonymousAsync(context, cancellationToken);
@@ -55,7 +55,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
     public override ILoginModule Login => _login;
     public override IModelModule Models => _models;
 
-    public override Task<IntegrationSendResult> SendMessageAsync(
+    protected override Task<IntegrationSendResult> SendCoreAsync(
         IntegrationSendContext context,
         CancellationToken cancellationToken = default) =>
         CreateAccountSession().UseAsync(async (transport, token) =>
@@ -119,7 +119,8 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 OutputFiles(sent.Response.Artifacts),
                 sent.Response.Model);
         }, cancellationToken, stage =>
-            context.ReportActivity?.Invoke(new IntegrationActivity("preparing", stage)));
+            context.ReportActivity?.Invoke(new IntegrationActivity("preparing", stage)),
+            chatId: context.Chat.ChatId);
 
     private static async Task<string?> ResolveProjectIdAsync(
         IChatBrowserTransport transport,

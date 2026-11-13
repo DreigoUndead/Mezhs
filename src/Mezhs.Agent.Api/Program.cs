@@ -81,9 +81,12 @@ app.MapGet("/v1/policies/{policyId}", (
 app.MapGet("/v1/agent-chats", (
     AgentStore agentStore,
     ChatStore chatStore) =>
-    Results.Ok(agentStore.GetAgentChats()
-        .Select(record => ToView(record, agentStore, chatStore))
-        .ToArray()));
+{
+    var statuses = agentStore.GetLatestAgentStatuses();
+    return Results.Ok(agentStore.GetAgentChats()
+        .Select(record => ToView(record, agentStore, chatStore, statuses))
+        .ToArray());
+});
 
 app.MapGet("/v1/agent-chats/{chatId}", (
     string chatId,
@@ -269,8 +272,10 @@ static IReadOnlyList<AgentExecutionView> GetExecutionViews(
 static AgentChatView ToView(
     AgentChatRecord record,
     AgentStore store,
-    ChatStore chats)
+    ChatStore chats,
+    IReadOnlyDictionary<string, string>? statuses = null)
 {
+    statuses ??= store.GetLatestAgentStatuses();
     var chat = chats.TryGetListState(record.ChatId);
     var core = chats.GetChat(record.ChatId);
     var lastActivity = core?.UpdatedAt > record.UpdatedAt ? core.UpdatedAt : record.UpdatedAt;
@@ -288,7 +293,8 @@ static AgentChatView ToView(
         chat?.ConnectionId,
         record.CreatedAt,
         lastActivity,
-        core?.CategoryId);
+        core?.CategoryId,
+        statuses.GetValueOrDefault(record.ChatId));
 }
 
 static string SafeFilePart(string value)
