@@ -165,7 +165,7 @@ function CanonicalQuestion({ node, depth }: { node: RichNode; depth: number }) {
       !options.some(option => option.attributes?.value === node.attributes?.initial)) return null;
   const label = (children?: RichNode[]) => children?.map(child =>
     <Fragment key={child.id}>{renderNode(child, depth + 1, false)}</Fragment>);
-  return <fieldset className="rich-question">
+  const control = <fieldset className="rich-question">
     <legend className="rich-question-caption">Choose one option</legend>
     {options.map(option => <label key={option.id} className="rich-question-option">
       <input type="radio" name={groupName} value={option.attributes?.value || ""}
@@ -179,6 +179,12 @@ function CanonicalQuestion({ node, depth }: { node: RichNode; depth: number }) {
     </button>
     {!onIssueNewTurn && <small className="rich-question-readonly">Submission unavailable in this view.</small>}
   </fieldset>;
+  if (node.attributes?.box !== "true") return control;
+  const props: Record<string, string> = {};
+  for (const [name, value] of Object.entries(node.attributes || {}))
+    if (name.startsWith("box."))
+      props["data-mezhs-" + name.slice(4)] = value;
+  return createElement(boxComponent, props, control);
 }
 
 export function RichDocumentView({ document, source }: { document: RichDocument; source: string }) {
