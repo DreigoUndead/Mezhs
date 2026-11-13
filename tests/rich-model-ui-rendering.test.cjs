@@ -109,6 +109,61 @@ test("Markdown bullets and tables remain typed, without a second React Markdown 
   assert.match(html(input, { document: doc }), /<ul/);
 });
 
+test("canonical Markdown images render safely, not as links or executable sources", () => {
+  const source = '![Architecture diagram](https://example.com/architecture.png)';
+  const doc = canonicalDocument(source);
+  assert.equal(doc.valid, true);
+  assert.equal(kinds(doc.nodes, "image").length, 1);
+  const output = html(source, { document: doc });
+  assert.match(output, /<img[^>]+src="https:\/\/example.com\/architecture.png"/);
+  assert.match(output, /alt="Architecture diagram"/);
+  assert.match(output, /referrerPolicy="no-referrer"|referrerpolicy="no-referrer"/i);
+  assert.doesNotMatch(output, /<a[^>]+architecture\.png/);
+  for (const unsafe of ["![bad](javascript:alert(1))", "![bad](data:image/svg+xml;base64,PHN2Zz4=)"]) {
+    const rendered = html(unsafe);
+    assert.doesNotMatch(rendered, /<img|src="javascript:|src="data:/);
+  }
+});
+
+test("canonical Markdown code excludes Markdown fences and keeps code literal", () => {
+  for (const input of [
+    '~~~csharp\nConsole.WriteLine("ok");\n~~~',
+    '~~~csharp\r\nConsole.WriteLine("ok");\r\n~~~',
+    '    if (true) return;\n    // indented block',
+  ]) {
+    const doc = canonicalDocument(input);
+    assert.equal(doc.valid, true);
+    assert.equal(kinds(doc.nodes, "code").length, 1);
+    const rendered = html(input, { document: doc });
+    assert.match(rendered, /<pre><code>/);
+    assert.doesNotMatch(rendered, /~~~csharp|~~~<\/code>|<code> {4}if/);
+    assert.match(rendered, /Console\.WriteLine|if \(true\)/);
+  }
+});
+
+test("typed GFM task lists and semantic table headers remain accessible", () => {
+  const input = "- [x] Completed\n- [ ] Pending\n\n| Name | Status |\n|---|---|\n| Ada | Ready |";
+  const doc = canonicalDocument(input);
+  assert.equal(doc.valid, true);
+  const checks = kinds(doc.nodes, "taskCheckbox");
+  assert.deepEqual(checks.map(node => node.attributes?.checked), ["true", "false"]);
+  const output = html(input, { document: doc });
+  assert.match(output, /type="checkbox"[^>]*checked=""[^>]*disabled=""/);
+  assert.match(output, /type="checkbox"[^>]*disabled=""/);
+  assert.match(output, /<thead><tr><th scope="col">Name<\/th><th scope="col">Status<\/th><\/tr><\/thead>/);
+  assert.match(output, /<tbody><tr><td>Ada<\/td><td>Ready<\/td><\/tr><\/tbody>/);
+});
+
+test("the documented one-state radio example is accepted by the canonical grammar", () => {
+  const documented = fs.readFileSync(path.join(root, "docs/supported-rich-ui.md"), "utf8");
+  const questionSection = documented.split("## One-state radio question")[1].split("## Rich question content")[0];
+  const sample = questionSection.split("```mdx\n")[1].split("\n```")[0];
+  const doc = canonicalDocument(sample);
+  assert.equal(doc.valid, true, doc.diagnostics?.[0]?.code || "invalid");
+  assert.equal(kinds(doc.nodes, "question").length, 1);
+  assert.match(html(sample, { document: doc }), /class="rich-question"/);
+});
+
 test("valid bounded SVG is mounted as native accessible geometry", () => {
   const doc = canonicalDocument(svg);
   assert.equal(doc.valid, true);
