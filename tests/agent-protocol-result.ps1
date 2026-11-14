@@ -447,6 +447,32 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
     Assert-OpaqueBoundary 'writing-closed-fence' '<WritingBlock variant="document">' "~~~md`nexample`n~~~" '</WritingBlock>'
     Assert-OpaqueBoundary 'writing-completed-backtick' '<WritingBlock variant="document">' '`example`' '</WritingBlock>'
 
+
+    # Security regression: a command-shaped example inside Markdown
+    # emphasis cannot pre-shield a fenced second example. The legitimate
+    # adjacent shell still executes exactly once. Test actual Executor records
+    # and filesystem side effects, not only the parser candidate count.
+    function Assert-NoMarkdownPromotion([string]$label, [string]$prefix, [string]$suffix) {
+        $real = Join-Path $temp "real-$label.txt"
+        $inert = Join-Path $temp "never-$label.txt"
+        $body = "**Example:\`n<SH>\`n**\`n\`n~~~\`n<SH>\`necho NEVER>>\`"$inert\`"\`n</SH>\`n~~~"
+        $task = "$prefix$body$suffix\`n<SH>\`necho REAL>>\`"$real\`"\`n</SH>\`n<DONE>"
+        $run = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $task })
+        $outcome = Wait-Execution $run.executionId 20
+        $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/executions")
+        $shells = @($history | Where-Object { $_.kind -eq 'Shell' })
+        if ($outcome.status -ne 'Completed' -or $shells.Count -ne 1 -or
+            $shells[0].status -ne 'Completed' -or
+            (Test-Path -LiteralPath $inert) -or -not (Test-Path -LiteralPath $real)) {
+            throw "Markdown promotion in $label: status=$($outcome.status), shells=$($shells.Count), inert=$(Test-Path -LiteralPath $inert), real=$(Test-Path -LiteralPath $real)."
+        }
+        Write-Host "PASS: Inert Markdown command example in $label produced zero unauthorized side effects; adjacent SH ran exactly once."
+    }
+
+    Assert-NoMarkdownPromotion 'root' '' ''
+    Assert-NoMarkdownPromotion 'box' "<box>\`n" "\`n</box>"
+    Assert-NoMarkdownPromotion 'nested-box-row' "<box>\`n<row>\`n" "\`n</row>\`n</box>"
+
     # A valid batch must still execute exactly once when a subsequent
     # multiline Markdown example contains a deceptive protocol opener.
     $allowedEmphasisFile = Join-Path $temp 'allowed-before-emphasis.txt'
