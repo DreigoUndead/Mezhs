@@ -3,32 +3,6 @@ version: 1
 server:
   listen: http://127.0.0.1:5060
 
-transport:
-  type: electron
-  idleMinutes: 15
-  electronDirectory: electron
-
-storage:
-  root: data
-
-connections:
-  - id: chatgpt-sub
-    name: ChatGPT Account
-    integration: chatgpt-web-account
-    workspace: Mezhs
-    defaultModel: gpt-5-6-thinking::thinking-effort=extended
-
-  - id: chatgpt-guest
-    name: ChatGPT Guest
-    integration: chatgpt-web
-
-  - id: gemini-guest
-    name: Gemini Guest
-    integration: gemini-web
-
-  - id: grok-account
-    name: Grok Account
-    integration: grok-web-account
 
 agentStorage: data/agent.sqlite
 workspace: .
