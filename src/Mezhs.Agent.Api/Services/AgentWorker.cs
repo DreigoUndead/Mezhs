@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Mezhs.Agent.Commands;
 using Mezhs.Agent.Models;
@@ -26,6 +27,8 @@ public sealed class AgentWorker : BackgroundService
     private readonly AgentAttachmentStaging _attachments;
     private readonly Channel<bool> _wake;
     private readonly Dictionary<string, Task> _inFlight = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _activeModelMessages =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly object _cancellationSync = new();
     private readonly object _inFlightSync = new();
     private readonly ILogger<AgentWorker> _logger;
@@ -71,6 +74,9 @@ public sealed class AgentWorker : BackgroundService
     }
 
     public void SignalWork() => _wake.Writer.TryWrite(true);
+
+    public bool TryGetActiveModelMessage(string executionId, out string messageId) =>
+        _activeModelMessages.TryGetValue(executionId, out messageId!);
 
     public ExecutionRecord Cancel(string executionId)
     {
@@ -255,16 +261,28 @@ public sealed class AgentWorker : BackgroundService
                 cancellation.Token.ThrowIfCancellationRequested();
                 _store.ValidateAgentChatRunnable(chatId);
 
-                var reply = await _messages.SendWithReplyAsync(
-                    new PostMessageRequest(
-                        Content: nextPrompt.Content,
-                        ConnectionId: execution.ConnectionId,
-                        ChatId: chatId,
-                        Origin: nextPrompt.Origin,
-                        Model: execution.Model,
-                        FileIds: _attachments.Pending(executionId)),
-                    cancellation.Token,
-                    posted => _attachments.MarkSubmitted(executionId, posted));
+                ApiMessage reply;
+                try
+                {
+                    reply = await _messages.SendWithReplyAsync(
+                        new PostMessageRequest(
+                            Content: nextPrompt.Content,
+                            ConnectionId: execution.ConnectionId,
+                            ChatId: chatId,
+                            Origin: nextPrompt.Origin,
+                            Model: execution.Model,
+                            FileIds: _attachments.Pending(executionId)),
+                        cancellation.Token,
+                        posted =>
+                        {
+                            _attachments.MarkSubmitted(executionId, posted);
+                            _activeModelMessages[executionId] = posted.MessageId;
+                        });
+                }
+                finally
+                {
+                    _activeModelMessages.TryRemove(executionId, out _);
+                }
 
                 var processed = await ProcessReplyAsync(
                     execution,
@@ -294,6 +312,7 @@ public sealed class AgentWorker : BackgroundService
         }
         finally
         {
+            _activeModelMessages.TryRemove(executionId, out _);
             // Model-send permits were released after each turn; retire the warm window here.
             if (retainedConversation && !string.IsNullOrWhiteSpace(execution.ChatId))
             {
