@@ -30,6 +30,10 @@ public sealed class RichDocumentParser
     // "{item.property}" model text as Markdown metadata. It is intentionally off.
     private readonly MarkdownPipeline _markdown = new MarkdownPipelineBuilder().UsePipeTables().UseEmphasisExtras().Build();
     private string _source = "";
+    // Same-length Markdown view of the source with validated opaque bodies
+    // replaced by inert whitespace. Original source and spans are unchanged.
+    private string _markdownSource = "";
+    private bool[] _opaqueBody = [];
     private bool[] _literal = [];
     // Context is derived from the same Markdig AST as literal/code protection.
     // Presentation-only Markdown inline ancestors never grant Agent authority.
@@ -57,7 +61,8 @@ public sealed class RichDocumentParser
             // are scanned only outside protected source ranges.
             _inlineContext = new bool[source.Length];
             _listContext = new bool[source.Length];
-            _literal = MarkdownLiteralMask(source, collectContext: true);
+            _markdownSource = ShieldOpaqueBodies();
+            _literal = MarkdownLiteralMask(_markdownSource, collectContext: true);
             var nodes = ReadChildren(0, source.Length, null, 0, out _);
             var done = _commands.FindIndex(c => c.Name == "DONE");
             if (done >= 0 && (done != _commands.Count - 1 ||
@@ -266,6 +271,78 @@ public sealed class RichDocumentParser
         return mask;
     }
 
+    // Discover only syntactically complete opaque spans, checking each opener
+    // against the canonical Markdown context since the previous opaque close.
+    // Doing this before Markdown validation stops raw-editor/command examples
+    // (including unmatched fences/backticks) from changing the interpretation
+    // of subsequent, unrelated source. The whitespace shadow preserves every
+    // source offset, line boundary and the immutable executable body.
+    private string ShieldOpaqueBodies()
+    {
+        var shadow = _source.ToCharArray();
+        _opaqueBody = new bool[_source.Length];
+        var segmentStart = 0;
+        for (var pos = 0; pos < _source.Length;)
+        {
+            pos = _source.IndexOf('<', pos);
+            if (pos < 0) break;
+            if (IsEscaped(pos) || !TryTag(pos, _source.Length, out var tag) ||
+                tag.Closing || tag.SelfClosing ||
+                !RichTagRegistry.TryGet(tag.Name, out var definition) ||
+                definition.Role is not (RichTagRole.OpaqueLiteral or
+                    RichTagRole.RawEditor or RichTagRole.Command))
+            {
+                pos++;
+                continue;
+            }
+            var inline = definition.Role == RichTagRole.OpaqueLiteral;
+            if (!inline && !WhitespaceLine(pos, tag.End))
+            {
+                pos = tag.End;
+                continue;
+            }
+            // Restrict Markdown parsing to each disjoint non-opaque prefix.
+            // Many fake openers inside one Markdown fence have a cumulative
+            // validation work budget rather than an unbounded retry loop.
+            var prefixLength = tag.End - segmentStart;
+            _markdownScanChars += prefixLength;
+            if (_markdownScanChars > 8_000_000)
+                throw new RichDocumentException("Markdown validation work budget exceeded.");
+            var preceding = MarkdownLiteralMask(_source[segmentStart..tag.End]);
+            if (preceding[pos - segmentStart])
+            {
+                pos = tag.End;
+                continue;
+            }
+            var closer = FindOpaqueClosing(tag.Name, tag.End, _source.Length,
+                inline, tag.Name == "WritingBlock", relaxed: true);
+            if (closer < 0)
+            {
+                // A malformed opener will fail validation in ReadChildren if
+                // structural. Never treat an unproven body as a safe scope.
+                pos = tag.End;
+                continue;
+            }
+            for (var i = tag.End; i < closer; i++)
+            {
+                _opaqueBody[i] = true;
+                if (_source[i] is not ('\r' or '\n')) shadow[i] = ' ';
+            }
+            pos = closer + tag.Name.Length + 3;
+            segmentStart = pos;
+        }
+        return new string(shadow);
+    }
+
+    private bool WhitespaceLine(int start, int end)
+    {
+        var beginning = _source.LastIndexOf('\n', Math.Max(0, start - 1)) + 1;
+        var ending = _source.IndexOf('\n', end);
+        if (ending < 0) ending = _source.Length;
+        return _source.AsSpan(beginning, start - beginning).Trim(' ').IsEmpty &&
+            _source.AsSpan(end, ending - end).Trim().IsEmpty;
+    }
+
     private static bool IsComment(MarkdownObject node, string source)
     {
         if (node is not HtmlInline && node is not HtmlBlock) return false;
@@ -437,7 +514,7 @@ public sealed class RichDocumentParser
             {
                 // Fenced/quoted markup has no structural authority, even
                 // when it looks like another opener for this same container.
-                if (_source[pos] != '<' || _literal[pos] || IsEscaped(pos) ||
+                if (_source[pos] != '<' || _literal[pos] || _opaqueBody[pos] || IsEscaped(pos) ||
                     !TryTag(pos, end, out var tag))
                 {
                     pos++;
@@ -471,7 +548,7 @@ public sealed class RichDocumentParser
             _markdownScanChars += length;
             if (_markdownScanChars > 8_000_000)
                 throw new RichDocumentException("Markdown validation work budget exceeded.");
-            var mask = MarkdownLiteralMask(_source[from..spanEnd],
+            var mask = MarkdownLiteralMask(_markdownSource[from..spanEnd],
                 collectContext: true, contextOffset: from);
             if (mask[candidate - from])
             {
@@ -569,19 +646,31 @@ public sealed class RichDocumentParser
         return end;
     }
 
-    private int FindOpaqueClosing(string name, int from, int end, bool inline, bool markdownAware)
+    private int FindOpaqueClosing(string name, int from, int end, bool inline,
+        bool markdownAware, bool relaxed = false)
     {
         var closer = "</" + name + ">";
-        // WritingBlock is an editor of literal Markdown; delimiter-like examples
-        // inside its Markdown code remain part of the draft, not a closing tag.
-        bool[]? rawMask = markdownAware ? MarkdownLiteralMask(_source[from..end]) : null;
         var pos = from;
         while ((pos = _source.IndexOf(closer, pos, StringComparison.Ordinal)) >= 0 && pos < end)
         {
-            // An opaque body is not recursively scanned. Commands and raw
-            // editors require a standalone closer; escape may close inline.
-            if ((rawMask is null || !rawMask[pos - from]) &&
-                (inline || Standalone(pos, pos + closer.Length)))
+            // A WritingBlock's Markdown applies only within its raw body.
+            // Parse no more than the prefix ending at each candidate closer.
+            // Combined with the cumulative budget this bounds fake-closer
+            // retries and avoids reparsing every subsequent sibling's suffix.
+            if (markdownAware)
+            {
+                var length = pos + closer.Length - from;
+                _markdownScanChars += length;
+                if (_markdownScanChars > 8_000_000)
+                    throw new RichDocumentException("Markdown validation work budget exceeded.");
+                var mask = MarkdownLiteralMask(_source[from..(pos + closer.Length)]);
+                if (mask[pos - from]) { pos += closer.Length; continue; }
+            }
+            // Only structural, line-delimited closers may terminate an editor
+            // or protocol block. The discovery prepass admits indentation
+            // conservatively; ReadChildren still enforces actual list context.
+            if (inline || (relaxed ? WhitespaceLine(pos, pos + closer.Length) :
+                Standalone(pos, pos + closer.Length)))
                 return pos;
             pos += closer.Length;
         }
