@@ -50,6 +50,48 @@ test("the C# parser supplies rich UI nodes, not executable model-authored JSX", 
   assert.match(html(input, { document: parsed }), /Label/);
 });
 
+
+test("canonical inline content model rejects block descendants without mounting invalid DOM", () => {
+  const inputs = [
+    '<text>Before <box>block</box> after</text>',
+    '<title><row>block</row></title>',
+    '<caption>Intro\\n\\n- one\\n- two</caption>',
+    '<badge>Intro\\n\\n# Heading</badge>',
+    '<text>Before <divider/> after</text>',
+  ].map(value => value.replaceAll('\\n', '\n'));
+  const docs = canonicalDocuments(inputs);
+  for (let i = 0; i < inputs.length; i++) {
+    assert.equal(docs[i].valid, false, inputs[i]);
+    const output = html(inputs[i], { document: docs[i] });
+    assert.doesNotMatch(output, /class="rich-(?:box|row|title|badge|caption)"/);
+    assert.doesNotMatch(output, /<span[^>]*>[^]*<(?:div|ul|ol|h[1-6]|hr)[\s>]/i);
+    assert.match(output, /&lt;/, "Invalid rich source must be escaped");
+  }
+});
+
+test("canonical inline content model rejects nested anchors while preserving ordinary inline phrasing", () => {
+  const invalid = [
+    '<Link url="https://a.test">Before [inner](https://b.test)</Link>',
+    '<Link url="https://a.test">Before <Link url="https://b.test">nested</Link></Link>',
+    '[Before <Link url="https://b.test">nested</Link>](https://a.test)',
+  ];
+  const docs = canonicalDocuments(invalid);
+  for (let i = 0; i < invalid.length; i++) {
+    assert.equal(docs[i].valid, false, invalid[i]);
+    const output = html(invalid[i], { document: docs[i] });
+    assert.doesNotMatch(output, /<a\b/i);
+    assert.match(output, /&lt;|\[Before/, "Rejected link source must stay inert");
+  }
+  const valid = '<text>Before <badge>ready</badge> and <Link url="https://example.com">go</Link> after</text>';
+  const doc = canonicalDocument(valid);
+  assert.equal(doc.valid, true);
+  const output = html(valid, { document: doc });
+  assert.match(output, /<span[^>]*>Before/);
+  assert.match(output, /class="rich-badge"/);
+  assert.match(output, /<a href="https:\/\/example\.com"/);
+  assert.doesNotMatch(output, /<a\b[^>]*>[^]*<a\b/i);
+});
+
 test("MarkdownContent does not depend on deleted frontend grammar or extractors", () => {
   const source = fs.readFileSync(path.join(root, "src/Mezhs.Web.Lib/src/MarkdownContent.tsx"), "utf8");
   assert.match(source, /RichDocumentView/);
