@@ -190,6 +190,37 @@ test("text and title preserve previously supported static alignment and numerals
   assert.match(output, /Score/);
 });
 
+test("recursive inline rich elements share one Markdown paragraph", () => {
+  const source = "Before <text strong>inside</text> after";
+  const parsed = canonicalDocument(source);
+  assert.equal(parsed.valid, true, parsed.diagnostics?.[0]?.code);
+  assert.equal(parsed.nodes.length, 1);
+  assert.equal(parsed.nodes[0].kind, "paragraph");
+  const output = html(source, { document: parsed });
+  assert.match(output, /<p>Before <span[^>]*>inside<\/span> after<\/p>/);
+  assert.doesNotMatch(output, /<span[^>]*><p>/);
+});
+
+test("emphasis and list-item formatting span nested inline rich elements", () => {
+  const sources = [
+    "**Before <text strong>inside</text> after**",
+    "- Before <text strong>inside</text> after",
+    "<box>hello <text strong>world</text></box>",
+    "<text strong>standalone</text>",
+  ];
+  const documents = canonicalDocuments(sources);
+  for (const [i, source] of sources.entries()) {
+    const doc = documents[i];
+    assert.equal(doc.valid, true, source + ": " + doc.diagnostics?.[0]?.code);
+    const output = html(source, { document: doc });
+    assert.match(output, /<span[^>]*>(?:inside|world|standalone)<\/span>/, source);
+    assert.doesNotMatch(output, /<span[^>]*><p>/, source);
+    if (i === 0) assert.match(output, /<p><strong>Before <span[^>]*>inside<\/span> after<\/strong><\/p>/);
+    if (i === 1) assert.match(output, /<li><p>Before <span[^>]*>inside<\/span> after<\/p><\/li>/);
+    if (i === 2) assert.match(output, /class="rich-box"[\s\S]*<p>hello <span[^>]*>world<\/span><\/p>/);
+  }
+});
+
 test("valid bounded SVG is mounted as native accessible geometry", () => {
   const doc = canonicalDocument(svg);
   assert.equal(doc.valid, true);
