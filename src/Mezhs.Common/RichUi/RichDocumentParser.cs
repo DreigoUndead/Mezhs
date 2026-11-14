@@ -20,6 +20,11 @@ public sealed class RichDocumentParser
     // Display-only tags (text, badge, title, caption, Link, etc.) never grant authority.
     private static readonly IReadOnlySet<string> ExecutableContainers =
         new HashSet<string>(["box", "row", "col", "grid", "grid-item"], StringComparer.Ordinal);
+    // These display-only elements participate in their parent's inline Markdown
+    // flow. Their bodies are still parsed recursively by this same C# parser.
+    private static readonly IReadOnlySet<string> InlineElements =
+        new HashSet<string>(["text", "title", "badge", "caption", "Link", "icon", "Cite"],
+            StringComparer.Ordinal);
     // Keep the syntax used for literal masking aligned with typed Markdown lowering.
     // AdvancedExtensions includes GenericAttributes, which swallows literal
     // "{item.property}" model text as Markdown metadata. It is intentionally off.
@@ -187,18 +192,27 @@ public sealed class RichDocumentParser
     }
 
     private IReadOnlyList<RichNode> ReadChildren(int start, int end, string? expected,
-        int depth, out int position, bool svgScope = false, bool commandsAllowed = true)
+        int depth, out int position, bool svgScope = false, bool commandsAllowed = true,
+        bool inlineScope = false)
     {
         if (depth > MaxDepth) throw new RichDocumentException("Document nesting exceeds limit.");
         var result = new List<RichNode>();
         var cursor = start;
         var plainFrom = start;
+        var inline = new List<RichNode>();
+        void Flush(int until)
+        {
+            if (until > plainFrom || inline.Count > 0)
+                AppendMarkdown(result, plainFrom, until, svgScope, inlineScope, inline);
+            inline.Clear();
+            plainFrom = until;
+        }
         while (cursor < end)
         {
             if (!svgScope && commandsAllowed && _source[cursor] == '{' && !_literal[cursor] && !IsEscaped(cursor) &&
                 RichQuestionGrammar.TryParse(_source, cursor, end, _literal, out var question, out var questionEnd))
             {
-                AppendMarkdown(result, plainFrom, cursor, svgScope);
+                Flush(cursor);
                 Add(result, question);
                 cursor = questionEnd;
                 plainFrom = cursor;
@@ -210,11 +224,11 @@ public sealed class RichDocumentParser
                 cursor++;
                 continue;
             }
-            AppendMarkdown(result, plainFrom, cursor, svgScope);
             if (tag.Closing)
             {
                 if (expected != tag.Name)
                     throw new RichDocumentException($"Unexpected closing tag: {tag.Name}.");
+                Flush(cursor);
                 position = tag.End;
                 return result;
             }
@@ -238,6 +252,8 @@ public sealed class RichDocumentParser
             }
 
             var from = cursor;
+            var inlineElement = !svgScope && InlineElements.Contains(tag.Name);
+            if (!inlineElement) Flush(from);
             cursor = tag.End;
             if (definition.Role is RichTagRole.OpaqueLiteral or RichTagRole.RawEditor or RichTagRole.Command)
             {
@@ -277,8 +293,10 @@ public sealed class RichDocumentParser
             {
                 if (definition.Role == RichTagRole.Leaf && !tag.SelfClosing)
                     throw new RichDocumentException($"{tag.Name} must be self-closing.");
-                Add(result, new RichNode("element", $"{from}:element", new RichSourceSpan(from, cursor),
-                    Name: tag.Name, Attributes: attributes));
+                var elementNode = new RichNode("element", $"{from}:element", new RichSourceSpan(from, cursor),
+                    Name: tag.Name, Attributes: attributes);
+                if (inlineElement) inline.Add(elementNode);
+                else Add(result, elementNode);
             }
             else
             {
@@ -294,16 +312,19 @@ public sealed class RichDocumentParser
                 }
                 var children = ReadChildren(cursor, childEnd, tag.Name, depth + 1, out var after,
                     svgScope || tag.Name == "svg",
-                    commandsAllowed && ExecutableContainers.Contains(tag.Name));
-                Add(result, new RichNode("element", $"{from}:element", new RichSourceSpan(from, after),
-                    Name: tag.Name, Attributes: attributes, Children: children));
+                    commandsAllowed && ExecutableContainers.Contains(tag.Name),
+                    inlineElement);
+                var elementNode = new RichNode("element", $"{from}:element", new RichSourceSpan(from, after),
+                    Name: tag.Name, Attributes: attributes, Children: children);
+                if (inlineElement) inline.Add(elementNode);
+                else Add(result, elementNode);
                 cursor = after;
             }
-            plainFrom = cursor;
+            if (!inlineElement) plainFrom = cursor;
         }
         if (expected is not null)
             throw new RichDocumentException($"Unclosed {expected} container.");
-        AppendMarkdown(result, plainFrom, end, svgScope);
+        Flush(end);
         position = end;
         return result;
     }
@@ -374,7 +395,8 @@ public sealed class RichDocumentParser
         nodes.Add(node);
     }
 
-    private void AppendMarkdown(List<RichNode> nodes, int start, int end, bool svgScope)
+    private void AppendMarkdown(List<RichNode> nodes, int start, int end, bool svgScope,
+        bool inlineScope, IReadOnlyList<RichNode> inline)
     {
         if (end <= start) return;
         if (svgScope)
@@ -387,12 +409,28 @@ public sealed class RichDocumentParser
                 Add(nodes, new RichNode("text", $"{start}:text", new RichSourceSpan(start, end), Text: raw));
             return;
         }
-        foreach (var node in RichMarkdownNodes.Convert(_source[start..end], start))
+        // Inline rich nodes occupy original source spans while Markdig parses
+        // surrounding text as one Markdown context. Their descendants were
+        // already counted by the recursive parser; count only new AST nodes.
+        var parsed = RichMarkdownNodes.Convert(_source[start..end], start, inlineScope, inline);
+        var priorChildren = inline.Sum(n => n.Children?.Sum(CountNodes) ?? 0);
+        var convertedCount = parsed.Sum(CountNodes);
+        if (inline.Count > 0)
         {
-            _count += CountNodes(node);
-            if (_count > MaxNodes) throw new RichDocumentException("Document node limit exceeded.");
-            nodes.Add(node);
+            var remaining = new HashSet<RichNode>(inline, ReferenceEqualityComparer.Instance);
+            void Visit(RichNode n)
+            {
+                remaining.Remove(n);
+                if (n.Children is not null)
+                    foreach (var child in n.Children) Visit(child);
+            }
+            foreach (var node in parsed) Visit(node);
+            if (remaining.Count > 0)
+                throw new RichDocumentException("Inline rich element did not survive Markdown lowering.");
         }
+        _count += convertedCount - priorChildren;
+        if (_count > MaxNodes) throw new RichDocumentException("Document node limit exceeded.");
+        nodes.AddRange(parsed);
     }
 
     private static int CountNodes(RichNode node) =>
