@@ -1,16 +1,10 @@
 import { RichDocumentView, type RichDocument } from "./RichDocumentView";
-import Markdown, { uriTransformer } from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { RichActionContext } from "./RichActionContext";
 import "./markdown.css";
 
-const safeUri = (value: string) => {
-  const validated = uriTransformer(value);
-  return validated === "javascript:void(0)" ? "" : validated;
-};
-
-// Only canonical server-authored AST nodes can create rich UI actions.
-// Streaming, local and legacy replies without a document remain inert Markdown.
+// The canonical C# document is the only Markdown / rich syntax authority.
+// Provisional, streaming, and legacy content without that document is escaped
+// plain source text; React never parses it through another Markdown grammar.
 export function MarkdownContent({ content, document, verbatim = false, onIssueNewTurn }: {
   content: string;
   document?: RichDocument | null;
@@ -21,9 +15,5 @@ export function MarkdownContent({ content, document, verbatim = false, onIssueNe
   if (document) return <RichActionContext.Provider value={onIssueNewTurn}>
     <RichDocumentView document={document} source={content} />
   </RichActionContext.Provider>;
-  return <div className="markdown-content">
-    <Markdown remarkPlugins={[remarkGfm]} transformLinkUri={safeUri} transformImageUri={() => ""}>
-      {content}
-    </Markdown>
-  </div>;
+  return <div className="markdown-content prompt-text">{content}</div>;
 }
