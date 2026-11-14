@@ -4,7 +4,7 @@ ID: rich-ui-custom-controls
 Branch: rich-ui-custom-controls
 PR: https://github.com/DreigoUndead/Mezhs/pull/53
 Level: **High-risk — cross-runtime parser/renderer redesign and host command authority**
-State: **IN DEVELOPMENT — owner approved per-tag child traversal and child-discoverability controls; seventh review FAIL corrections and independent re-review pending**
+State: **IMPLEMENTED — owner-approved independent tag discovery controls and seventh-review corrections developer-verified; fresh independent High-risk code review and separate final testing pending**
 Dependency: existing Rich UI Custom Controls work on this branch; old incremental plan versions remain in Git history (last archived plan at 54686a1d591be4a806a1f3e17d559aa8175736b2).
 Owner decision (2026-11-12): adopt one canonical **C#** document/parser/validation model; React renders typed validated data and owns only local interactive state; commands can occur inside valid containers/lists.
 Owner clarification (2026-11-13): **Do not preserve legacy UI parsing/handling.** All supported old and new tags use the one canonical C# parser, DTO and typed React renderer. Remove the old frontend extraction, expression and markup paths instead of a compatibility fallback. Retire or migrate raw-text frontend tests to validate canonical DTOs and the inert provisional fallback; treat unsupported expression constructs as inert until explicitly added to the canonical grammar. Security/command boundary tests remain mandatory.
@@ -330,3 +330,36 @@ Owner explicitly approved continuing PR #53 using a **single recursive C# canoni
 No blanket top-level-only Agent command restriction has been approved. Preserve previously valid nested SH/ATTACH/DONE under structural layout when the registry permits it and keep policy validation and fail-closed semantics. `SH`, `ATTACH`, `DONE`, `escape`, `CodeBlock`, `WritingBlock` must not parse their bodies as children; richly nested layout tags do. Make the two behaviors explicit in tag metadata and use them throughout the canonical traversal. Provisional rich markup does not execute on the frontend.
 
 The owner decision resolves the workflow complexity escalation by retaining the mixed source grammar but demanding a simpler per-tag traversal/child-recognition contract. Before independent code review: fix the seventh static findings (opaque prepass versus inert Markdown, collision-safe inline placeholders, radio delimiters inside Markdown code), add adversarial non-execution and legitimate sibling/nested-command coverage with real Executor side-effect assertions, and run all developer checks. A different independent code reviewer then assesses the *exact final SHA*. Only a reviewer PASS permits a separate independent final tester. No merge, version, changelog or release without explicit owner approval.
+
+## Developer correction and verification after seventh review (2026-11-14)
+
+Owner-approved independent per-tag controls are in canonical C# `RichTagDefinition`/`RichTagRegistry`:
+- `SearchChildren` determines whether the tag searches its own body for subcontrols.
+- `AllowAsChild` determines whether another searchable element can discover the tag as a child, **independent** of its own recursive search behavior.
+- Container tags such as `box`, `row`, `col`, `grid` allow recursive display parsing; `SH`, `ATTACH`, `CodeBlock`, `WritingBlock`, `escape`, `DONE` do not search their bodies. `SH`/`ATTACH` may still be discovered inside authorized structural layout; `DONE` is root-only. Policy validation and fail-closed document behavior remain separate from both controls.
+- The parser aligns early opaque shielding with the original-source Markdown emphasis/link authorization context, avoiding promotion of command-looking text from Markdown examples.
+
+The seventh review's additional correctness findings were corrected:
+- `RichMarkdownNodes` selects a pair of source-absent BMP private-use markers before substituting inline rich nodes, preventing collisions with authored literal U+E000/U+E001 data and maintaining UTF-16 spans/IDs.
+- `RichQuestionGrammar` checks candidate radio/button closing delimiters against canonical Markdown literal context after normalizing label indentation and restores original positions. Inline code containing delimiter-looking characters remains display data.
+
+Regression additions assert the independent properties, Markdown emphasized/fenced commands at root and in nested `box`/`row`, UTF-16 node positions/IDs after a model-authored placeholder collision, and code-literal radio/button delimiters. Real Agent/Executor integration verifies that three new root/box/nested-box-row adversarial Markdown examples cause **no unauthorized Shell records or filesystem side effects** while the legitimate adjacent shell executes **exactly once**.
+
+A previous verification at `23b0acaf` was **FAIL**, with 81/83 parser cases (radio label indentation) and a PowerShell syntax error preventing Agent integration. The errors were corrected in commits `a1174456` and `9d810c1`. The subsequent exact source/test SHA `9d810c11eb1133535229771b578e895f0541c8ae` passed all developer checks below.
+
+| Verification | Observed result |
+| --- | --- |
+| Canonical C# parser/security/performance | **83/83 PASS**; 1,500 WritingBlock siblings in 120ms, ~8,531 KiB allocated; 900 sibling containers 120ms; 600 alternating inline nodes 77ms |
+| Real Agent/Executor | **PASS**, including negative side-effect and authorized exactly-once assertions |
+| Typed React SSR | **34/34 PASS** |
+| Real Chromium | **1/1 PASS** |
+| Agent Web shared UI | **19/19 PASS**, including direct formatting regression suite; wiring PASS |
+| Agent architecture guard | **PASS** |
+| Agent API Release build | **PASS**, 0 warnings, 0 errors |
+| Agent Web TypeScript/Vite production build | **PASS** |
+| Codegraph generated/committed | **287 files, 741 edges**; blob hashes both `ca10c6df366583eebcbbaae26960c3b382760b0c` |
+| `git diff --check` | **PASS** |
+
+Codegraph exporter left a locally modified `.agents/codegraph/graph.json` due to the observed LF-to-CRLF working-tree conversion warning; `git hash-object` nevertheless agreed with the committed tree blob. No Codegraph content update or main-checkout change was required.
+
+**Gate:** These checks are developer evidence only. Request a new independent High-risk code review of the exact SHA after this documentation update, against pinned base `179c0da50a17e7024d76eaa2571cb6ee2498348e`. Only reviewer PASS permits a different independent final tester on the same exact SHA. Never merge/release without explicit owner approval; main is release-only; VERSION and CHANGELOG stay untouched.
