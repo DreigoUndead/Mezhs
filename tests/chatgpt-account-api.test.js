@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { randomUUID } = require("node:crypto");
 const { EventEmitter } = require("node:events");
 
 const root = path.resolve(__dirname, "..");
@@ -195,7 +196,7 @@ test("ChatGPT account newChat submits a semantic request and reads conversation 
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
     session,
-    args: { prompt: "hello api", files: [] },
+    args: { messageId: randomUUID(), prompt: "hello api", files: [] },
     sleep: async () => {}
   });
 
@@ -231,7 +232,7 @@ test("ChatGPT resolves citation glyphs from matching content references", async 
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(),
     session,
-    args: { prompt: "give sources", files: [] },
+    args: { messageId: randomUUID(), prompt: "give sources", files: [] },
     sleep: async () => {}
   });
   assert.equal(
@@ -259,7 +260,7 @@ test("ChatGPT fails closed when browser-owned requirements are unavailable", asy
     chatgpt.operations.newChat({
       ...browser,
       session,
-      args: { prompt: "should not submit", files: [] },
+      args: { messageId: randomUUID(), prompt: "should not submit", files: [] },
       sleep: async () => {}
     }),
     /did not produce a requirements token/
@@ -296,7 +297,7 @@ test("ChatGPT continues after a partial semantic response stream is aborted", as
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
     session,
-    args: {
+    args: { messageId: randomUUID(),
       prompt: "test successful renderer abort",
       model: "gpt-5-6-thinking::thinking-effort=extended",
       files: []
@@ -325,7 +326,7 @@ test("ChatGPT does not retry when the semantic request aborts before a response"
     chatgpt.operations.newChat({
       ...nativeBrowserSurface(session),
       session,
-      args: { prompt: "must fail", files: [] },
+      args: { messageId: randomUUID(), prompt: "must fail", files: [] },
       sleep: async () => {}
     }),
     /Native network connection aborted before HTTP response/
@@ -377,7 +378,7 @@ test("ChatGPT follow-up ignores a stale assistant until its user message appears
   const result = await chatgpt.operations.send({
     ...nativeBrowserSurface(session),
     session,
-    args: {
+    args: { messageId: randomUUID(),
       prompt: "continue",
       conversationId: "conv-existing",
       parentMessageId: "assistant-old",
@@ -418,7 +419,7 @@ test("ChatGPT final conversation metadata overrides earlier stream model metadat
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
     session,
-    args: {
+    args: { messageId: randomUUID(),
       prompt: "verify served model",
       model: "gpt-5-6-thinking::thinking-effort=extended",
       files: []
@@ -465,7 +466,7 @@ test("ChatGPT conversation polling backs off on 429 without resending the turn",
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
     session,
-    args: { prompt: "test", files: [] },
+    args: { messageId: randomUUID(), prompt: "test", files: [] },
     sleep: async ms => { sleeps.push(ms); }
   });
 
@@ -532,7 +533,7 @@ test("ChatGPT inactivity watchdog resets when the conversation advances", async 
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
     session,
-    args: { prompt: "keep progressing", files: [] },
+    args: { messageId: randomUUID(), prompt: "keep progressing", files: [] },
     sleep: async () => {}
   });
 
@@ -592,7 +593,7 @@ test("ChatGPT keeps waiting while explicit in-progress analysis remains active",
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
     session,
-    args: { prompt: "state please", files: [] },
+    args: { messageId: randomUUID(), prompt: "state please", files: [] },
     sleep: async () => {},
     reportProgress: value => progress.push(value)
   });
@@ -652,7 +653,7 @@ test("ChatGPT captures transient provider reasoning metadata from the response s
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
     session,
-    args: {
+    args: { messageId: randomUUID(),
       prompt: "reason",
       model: "provider-thinking-model::thinking-effort=provider-high",
       files: []
@@ -706,7 +707,7 @@ test("ChatGPT distinguishes requested thinking effort from provider-confirmed ef
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
     session,
-    args: {
+    args: { messageId: randomUUID(),
       prompt: "reason",
       model: "gpt-5-6-thinking::thinking-effort=extended",
       files: []
@@ -752,7 +753,7 @@ test("rate-limited state checks do not consume the turn-start watchdog", async (
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
     session,
-    args: { prompt: "do not duplicate", files: [] },
+    args: { messageId: randomUUID(), prompt: "do not duplicate", files: [] },
     sleep: async () => {}
   });
 
@@ -793,7 +794,7 @@ test("ChatGPT fails stalled state polling without replaying a request", async ()
     chatgpt.operations.newChat({
       ...nativeBrowserSurface(session),
       session,
-      args: { prompt: "never starts", files: [] },
+      args: { messageId: randomUUID(), prompt: "never starts", files: [] },
       sleep: async () => {}
     }),
     /showed no active generation for 20s after the native request completed/
@@ -870,7 +871,7 @@ test("ChatGPT account does not surface analysis-channel control text as the repl
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
     session,
-    args: { prompt: "test internal filtering", files: [] },
+    args: { messageId: randomUUID(), prompt: "test internal filtering", files: [] },
     sleep: async () => {}
   });
 
@@ -932,7 +933,7 @@ test("ChatGPT account walks past hidden current nodes to the visible final reply
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(session),
     session,
-    args: { prompt: "test hidden tail", files: [] },
+    args: { messageId: randomUUID(), prompt: "test hidden tail", files: [] },
     sleep: async () => {}
   });
 
@@ -1016,7 +1017,7 @@ test('ChatGPT Account uploads images and documents before one semantic turn', as
   try {
     const result = await chatgpt.operations.newChat({
       ...nativeBrowserSurface(session), session,
-      args: { prompt: 'describe these', files: [
+      args: { messageId: randomUUID(), prompt: 'describe these', files: [
         { path: image, name: 'sample.png', contentType: 'image/png' },
         { path: document, name: 'sample.txt', contentType: 'text/plain' }
       ] },
@@ -1088,7 +1089,7 @@ test('ChatGPT Account uploads on an existing conversation with JSON-lines proces
     const result = await chatgpt.operations.send({
       ...nativeBrowserSurface(session),
       session,
-      args: {
+      args: { messageId: randomUUID(),
         prompt: 'read this follow-up',
         conversationId: 'conv-existing-upload',
         parentMessageId: 'assistant-existing',
@@ -1158,7 +1159,7 @@ test('ChatGPT Account stops before semantic submission when attachment upload fa
         };
         await assert.rejects(chatgpt.operations.newChat({
           ...nativeBrowserSurface(session), session,
-          args: { prompt: 'should not send', files: [
+          args: { messageId: randomUUID(), prompt: 'should not send', files: [
             { path: document, name: 'sample.txt', contentType: 'text/plain' }
           ] },
           sleep: async () => {}
@@ -1203,7 +1204,7 @@ test('ChatGPT Account rejects invalid image before upload or prompt', async () =
   try {
     await assert.rejects(chatgpt.operations.newChat({
       ...nativeBrowserSurface(session), session,
-      args: { prompt: 'do not send', files: [{ path: file, name: 'invalid.png', contentType: 'image/png' }] },
+      args: { messageId: randomUUID(), prompt: 'do not send', files: [{ path: file, name: 'invalid.png', contentType: 'image/png' }] },
       sleep: async () => {}
     }), /Unsupported or invalid image format or dimensions/);
     assert.equal(uploadRequests, 0);
@@ -1254,7 +1255,7 @@ test('ChatGPT Account attaches JPEG GIF and WebP with dimensions', async t => {
         };
         const result=await chatgpt.operations.newChat({
           ...nativeBrowserSurface(session),session,
-          args:{prompt:'inspect image',files:[{path:imagePath,name:'sample.'+extension,contentType:mime}]},
+          args:{ messageId: randomUUID(),prompt:'inspect image',files:[{path:imagePath,name:'sample.'+extension,contentType:mime}]},
           sleep:async()=>{}
         });
         assert.equal(result.text,'answer');
@@ -1367,7 +1368,7 @@ test("ChatGPT account reports preparation, submission and final retrieval withou
   const result = await chatgpt.operations.newChat({
     ...nativeBrowserSurface(),
     session,
-    args: { prompt: "hello", model: "gpt-5-6-thinking", files: [] },
+    args: { messageId: randomUUID(), prompt: "hello", model: "gpt-5-6-thinking", files: [] },
     sleep: async () => { throw new Error("Completed turn must not sleep."); },
     reportProgress: value => progress.push(value)
   });

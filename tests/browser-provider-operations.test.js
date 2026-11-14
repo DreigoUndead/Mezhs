@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { randomUUID } = require("node:crypto");
 const { EventEmitter } = require("node:events");
 
 const root = path.resolve(__dirname, "..");
@@ -379,7 +380,7 @@ test("ChatGPT account sends project turns through semantic HTTP with the request
   const { session, state } = directSession({ projectId: "g-p-test" });
   const result = await chatgpt.operations.newChat({
     window: noUiWindow(), session,
-    args: {
+    args: { messageId: randomUUID(),
       prompt: "test project",
       model: "gpt-5-6-thinking::thinking-effort=extended",
       projectId: "g-p-test",
@@ -401,7 +402,7 @@ test("ChatGPT account continuations target the known conversation without UI nav
   const { session, state } = directSession();
   const result = await chatgpt.operations.send({
     window: noUiWindow(), session,
-    args: {
+    args: { messageId: randomUUID(),
       conversationId: "conv-test",
       parentMessageId: "assistant-previous",
       prompt: "continue",
@@ -422,7 +423,7 @@ test("ChatGPT does not replay a turn when the backend rejects direct submission"
   await assert.rejects(
     chatgpt.operations.send({
       window: noUiWindow(), session,
-      args: { conversationId: "conv-test", parentMessageId: "old", prompt: "once", files: [] },
+      args: { messageId: randomUUID(), conversationId: "conv-test", parentMessageId: "old", prompt: "once", files: [] },
       sleep: async () => {}
     }),
     /HTTP 403/
