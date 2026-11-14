@@ -317,23 +317,23 @@ static async Task TestAnonymousDiagnosticsAsync(string root)
     await using (var guest = new ChatGptWebIntegration(
         new IntegrationConnection("guest-chatgpt", "ChatGPT Guest", "chatgpt-web", settings), host))
     {
-        Assert(guest is not IConversationContextOwner && host.ActiveTransports == 0,
+        Assert((object)guest is not IConversationContextOwner && host.ActiveTransports == 0,
             "Guest integration must not acquire or retain account browser contexts.");
         Assert(host.ActiveTransports == 0,
             "ChatGPT guest diagnostics opened a persistent account session");
         var result = await Send(guest);
         Assert(result.Text == "guest-ok", "ChatGPT anonymous sending changed");
-        Assert(guest is not IConversationContextOwner && host.ActiveTransports == 1,
+        Assert((object)guest is not IConversationContextOwner && host.ActiveTransports == 1,
             "ChatGPT guest should reuse its host between isolated ephemeral turns");
     }
     await using (var guest = new GeminiWebIntegration(
         new IntegrationConnection("guest-gemini", "Gemini Guest", "gemini-web", settings), host))
     {
-        Assert(guest is not IConversationContextOwner && host.ActiveTransports == 0,
+        Assert((object)guest is not IConversationContextOwner && host.ActiveTransports == 0,
             "Gemini guest diagnostics opened a persistent account session");
         var result = await Send(guest);
         Assert(result.Text == "guest-ok", "Gemini anonymous sending changed");
-        Assert(guest is not IConversationContextOwner && host.ActiveTransports == 1,
+        Assert((object)guest is not IConversationContextOwner && host.ActiveTransports == 1,
             "Gemini guest should reuse its host between isolated ephemeral turns");
     }
     Assert(host.Initializations.Count == 2 && host.Initializations.All(x => x.Guest && !x.RequireAuthorization),
