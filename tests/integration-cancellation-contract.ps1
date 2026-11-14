@@ -58,7 +58,7 @@ var integrationAssemblies = args[1]
 
 var registrations = integrationAssemblies
     .SelectMany(GetLoadableTypes)
-    .Where(type => !type.IsAbstract && typeof(IChatIntegration).IsAssignableFrom(type))
+    .Where(type => !type.IsAbstract && typeof(IntegrationBase).IsAssignableFrom(type))
     .SelectMany(type => type.GetCustomAttributes<IntegrationAttribute>()
         .Select(attribute => new Registration(attribute.Type, type)))
     .OrderBy(registration => registration.Name, StringComparer.Ordinal)
@@ -83,7 +83,7 @@ static async Task VerifyPreCancelledAsync(Registration registration, string temp
     using var cancellation = new CancellationTokenSource();
     cancellation.Cancel();
 
-    var send = fixture.Integration.SendMessageAsync(CreateContext(registration.Name), cancellation.Token);
+    var send = Send(fixture.Integration, CreateContext(fixture.Integration), cancellation.Token);
     await ExpectCancelledAsync(send, registration.Name, "pre-cancelled");
     fixture.Host.AssertAllTransportsDisposed(registration.Name, "pre-cancelled");
 }
@@ -93,7 +93,7 @@ static async Task VerifyInFlightCancellationAsync(Registration registration, str
     await using var fixture = CreateFixture(registration, tempRoot, "flight");
     using var cancellation = new CancellationTokenSource();
 
-    var send = fixture.Integration.SendMessageAsync(CreateContext(registration.Name), cancellation.Token);
+    var send = Send(fixture.Integration, CreateContext(fixture.Integration), cancellation.Token);
     var browserBacked = typeof(BrowserIntegrationBase).IsAssignableFrom(registration.Type);
     if (browserBacked)
         await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
@@ -113,8 +113,8 @@ static async Task VerifyInFlightCancellationAsync(Registration registration, str
 
     // Different ChatIds overlap even while the first local turn is active.
     using var peerCancellation = new CancellationTokenSource();
-    var peerSend = fixture.Integration.SendMessageAsync(
-        CreateContext(registration.Name, "chat_peer"), peerCancellation.Token);
+    var peerSend = Send(fixture.Integration, 
+        CreateContext(fixture.Integration, "chat_peer"), peerCancellation.Token);
     await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
     if (peerSend.IsCompleted)
         throw new InvalidOperationException("Peer browser turn did not remain active.");
@@ -128,8 +128,8 @@ static async Task VerifyInFlightCancellationAsync(Registration registration, str
 
     // The freed local permit admits a new turn while an unrelated chat runs.
     using var secondCancellation = new CancellationTokenSource();
-    var secondSend = fixture.Integration.SendMessageAsync(
-        CreateContext(registration.Name, "chat_after_cancel"), secondCancellation.Token);
+    var secondSend = Send(fixture.Integration, 
+        CreateContext(fixture.Integration, "chat_after_cancel"), secondCancellation.Token);
     await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
     if (fixture.Host.CreatedCount != transportsBeforeCancel)
         throw new InvalidOperationException("Later send did not reuse the warm browser host.");
@@ -150,9 +150,9 @@ static async Task VerifyLimitsAsync(Registration registration, string root)
     {
         using var first = new CancellationTokenSource();
         using var waiting = new CancellationTokenSource();
-        var a = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "a"), first.Token);
+        var a = Send(fixture.Integration, CreateContext(fixture.Integration, "a"), first.Token);
         await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
-        var b = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "b"), waiting.Token);
+        var b = Send(fixture.Integration, CreateContext(fixture.Integration, "b"), waiting.Token);
         if (await fixture.Host.TryWaitForInvocationAsync(TimeSpan.FromMilliseconds(180)))
             throw new InvalidOperationException("MaxParallel=1 admitted an overlapping model send.");
         waiting.Cancel();
@@ -160,7 +160,7 @@ static async Task VerifyLimitsAsync(Registration registration, string root)
         first.Cancel();
         await ExpectCancelledAsync(a, registration.Name, "serial first");
         using var third = new CancellationTokenSource();
-        var c = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "c"), third.Token);
+        var c = Send(fixture.Integration, CreateContext(fixture.Integration, "c"), third.Token);
         await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
         third.Cancel();
         await ExpectCancelledAsync(c, registration.Name, "after waiter");
@@ -171,8 +171,8 @@ static async Task VerifyLimitsAsync(Registration registration, string root)
     {
         using var aToken = new CancellationTokenSource();
         using var bToken = new CancellationTokenSource();
-        var a = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "u1"), aToken.Token);
-        var b = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "u2"), bToken.Token);
+        var a = Send(fixture.Integration, CreateContext(fixture.Integration, "u1"), aToken.Token);
+        var b = Send(fixture.Integration, CreateContext(fixture.Integration, "u2"), bToken.Token);
         await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
         await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
         aToken.Cancel(); bToken.Cancel();
@@ -185,9 +185,9 @@ static async Task VerifyLimitsAsync(Registration registration, string root)
     {
         using var aToken = new CancellationTokenSource();
         using var bToken = new CancellationTokenSource();
-        var a = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "s1"), aToken.Token);
+        var a = Send(fixture.Integration, CreateContext(fixture.Integration, "s1"), aToken.Token);
         await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
-        var b = fixture.Integration.SendMessageAsync(CreateContext(registration.Name, "s2"), bToken.Token);
+        var b = Send(fixture.Integration, CreateContext(fixture.Integration, "s2"), bToken.Token);
         await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
         if (fixture.Host.InvocationGap < TimeSpan.FromMilliseconds(180))
             throw new InvalidOperationException("MinInterval did not space admitted sends.");
@@ -209,26 +209,31 @@ static Fixture CreateFixture(Registration registration, string tempRoot, string 
         registration.Name,
         new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
         limits ?? new IntegrationLimits { MaxParallel = 2 });
-    var integration = Activator.CreateInstance(registration.Type, connection, host) as IChatIntegration
+    var integration = Activator.CreateInstance(registration.Type, connection, host) as IntegrationBase
         ?? throw new InvalidOperationException(
             $"Integration '{registration.Name}' must expose the standard (IntegrationConnection, IIntegrationHost) constructor so the integration contract can exercise it.");
     return new Fixture(integration, host);
 }
 
-static IntegrationSendContext CreateContext(string connectionId, string chatId = "chat_contract")
+static (ChatContext Chat, PromptRequest Request) CreateContext(
+    IntegrationBase integration, string chatId = "chat_contract")
 {
-    var message = new IntegrationMessageContext(
-        "message_contract",
-        "user",
-        "cancellation contract probe",
-        Completed: true,
-        DateTimeOffset.UtcNow);
-    return new IntegrationSendContext(
-        new IntegrationChatContext(chatId, connectionId),
-        message,
-        Array.Empty<IntegrationMessageContext>(),
-        Array.Empty<IntegrationInputFile>());
+    var chat = new ChatContext(chatId, integration.Connection.Id, null,
+        (_, _, _, cancellationToken) =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<ChatMessage>>([]);
+        });
+    var request = new PromptRequest(
+        integration.CreateMessageId(), "cancellation contract probe", null, []);
+    return (chat, request);
 }
+
+static Task<PromptResult> Send(
+    IntegrationBase integration,
+    (ChatContext Chat, PromptRequest Request) context,
+    CancellationToken cancellationToken = default) =>
+    integration.PromptAsync(context.Chat, context.Request, cancellationToken);
 
 static async Task ExpectCancelledAsync(Task task, string integrationName, string phase)
 {
@@ -271,9 +276,9 @@ static string Sanitize(string value)
 
 sealed record Registration(string Name, Type Type);
 
-sealed class Fixture(IChatIntegration integration, ProbeHost host) : IAsyncDisposable
+sealed class Fixture(IntegrationBase integration, ProbeHost host) : IAsyncDisposable
 {
-    public IChatIntegration Integration { get; } = integration;
+    public IntegrationBase Integration { get; } = integration;
     public ProbeHost Host { get; } = host;
 
     public ValueTask DisposeAsync() => Integration.DisposeAsync();

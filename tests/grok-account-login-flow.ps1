@@ -52,22 +52,30 @@ static IntegrationConnection Connection() => new(
     "grok-web-account",
     new Dictionary<string, string?>());
 
-static IntegrationSendContext Context(
+// Always exercise the new typed PromptAsync API. The actual provider determines
+// the current/selected model when its browser reply lacks executed-model metadata.
+static Task<PromptResult> Send(
+    GrokAccountIntegration integration,
     string? remoteChatUrl = null,
-    IReadOnlyList<IntegrationMessageContext>? history = null) => new(
-    new IntegrationChatContext("chat", "grok-account", remoteChatUrl),
-    new IntegrationMessageContext("message", "user", "hello", false, DateTimeOffset.UtcNow, "expert"),
-    history ?? Array.Empty<IntegrationMessageContext>(),
-    Array.Empty<IntegrationInputFile>());
+    IReadOnlyList<ChatMessage>? history = null) =>
+    integration.PromptAsync(
+        new ChatContext("chat", integration.Connection.Id, null,
+            (_, _, _, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                return Task.FromResult<IReadOnlyList<ChatMessage>>(history ?? []);
+            },
+            remoteChatUrl: remoteChatUrl, restoreConversation: true),
+        new PromptRequest(integration.CreateMessageId(), "hello", "expert", []));
 
 static async Task TestAutomaticLoginAsync(string root)
 {
     var host = new FakeHost(root, authorized: false);
     await using var integration = new GrokAccountIntegration(Connection(), host);
-    var result = await integration.SendMessageAsync(Context());
+    var result = await Send(integration);
 
     Assert(result.Text == "ok", "message did not continue after login");
-    Assert(result.Model is null, "Grok requested mode was incorrectly reported as the provider-served model");
+    Assert(result.Model == "expert", "Grok must report the selected model when execution metadata is absent");
     Assert(host.LastArguments?.GetProperty("model").GetString() == "expert",
         "selected Grok mode was not passed to the provider");
     Assert(host.Authorized, "Grok automatic login did not authorize the shared host.");
@@ -82,7 +90,7 @@ static async Task TestExplicitLoginAsync(string root)
 {
     var host = new FakeHost(root, authorized: false);
     await using var integration = new GrokAccountIntegration(Connection(), host);
-    await integration.Login!.LoginAsync();
+    await integration.LoginAsync();
 
     Assert(host.Authorized, "Grok explicit login did not authorize the shared browser host.");
     Assert(host.Initializations.Count == 1, "Grok explicit login created multiple hosts.");
@@ -96,13 +104,13 @@ static async Task TestLocalHistoryAsync(string root)
     var now = DateTimeOffset.UtcNow;
     var history = new[]
     {
-        new IntegrationMessageContext("old-user", "user", "old question", true, now.AddMinutes(-2), "fast"),
-        new IntegrationMessageContext("old-assistant", "assistant", "old answer", true, now.AddMinutes(-1))
+        new ChatMessage("old-user", "grok-account", "user", "old question", true, now.AddMinutes(-2), "fast"),
+        new ChatMessage("old-assistant", "grok-account", "assistant", "old answer", true, now.AddMinutes(-1))
     };
-    var result = await integration.SendMessageAsync(Context("https://grok.com/c/existing", history));
+    var result = await Send(integration, "https://grok.com/c/existing", history);
 
     Assert(result.RemoteChatUrl == "https://grok.com/c/test", "Grok chat URL was not returned");
-    Assert(result.Model is null, "Grok invented a served model from the requested mode");
+    Assert(result.Model == "expert", "Grok should return its current/selected mode as an unverified fallback");
     Assert(host.Operations.SequenceEqual(["newChat"]),
         "stored remote Grok state incorrectly switched back to a continuation operation");
     Assert(host.LastArguments?.GetProperty("model").GetString() == "expert",
@@ -121,26 +129,23 @@ static async Task TestSessionOwnershipAsync(string root)
     var integration = new GrokAccountIntegration(Connection(), host);
     try
     {
-        var diagnostics = integration.Diagnostics;
-        Assert(diagnostics is not null, "Grok Account diagnostics unavailable");
-        Assert(ReferenceEquals(diagnostics, integration.Diagnostics), "diagnostics module was not reused");
-        Assert(host.ActiveTransports == 0, "reading Grok diagnostics unexpectedly opened a browser");
+        Assert(host.ActiveTransports == 0, "constructing Grok account unexpectedly opened a browser");
         var method = typeof(BrowserIntegrationBase).GetMethod("CreateAccountSession",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
         var first = (BrowserAccountSession)method.Invoke(integration, null)!;
         var second = (BrowserAccountSession)method.Invoke(integration, null)!;
         Assert(ReferenceEquals(first, second), "Grok CreateAccountSession created duplicate sessions");
 
-        var snapshot = await diagnostics!.InvokeAsync("snapshot", JsonSerializer.SerializeToElement(new { }));
+        var snapshot = await integration.DiagnoseAsync("snapshot", JsonSerializer.SerializeToElement(new { }));
         Assert(snapshot.GetProperty("snapshot").GetBoolean(), "Grok snapshot diagnostics failed");
         Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
             "Grok snapshot did not initialize exactly one authorized transport");
-        await integration.Login!.OpenBrowserAsync();
+        await integration.OpenBrowserAsync();
         Assert(host.ShowCount == 1 && host.Initializations.Count == 1,
             "opening Grok account browser created an extra transport");
-        var send = await integration.SendMessageAsync(Context());
+        var send = await Send(integration);
         Assert(send.Text == "ok", "Grok sending failed after diagnostics");
-        await integration.Models!.GetModelsAsync();
+        await integration.GetModelsAsync();
         Assert(host.Operations.SequenceEqual(["$diagnostics/snapshot", "newChat", "getModels"]),
             "Grok diagnostics, send, and models did not share the transport");
         Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
