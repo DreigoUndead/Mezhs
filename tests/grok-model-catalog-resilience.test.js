@@ -117,6 +117,17 @@ test("Grok never retries HTTP auth/rate-limit/server status or successful malfor
     assert.equal(malformedReads, 1);
     assert.equal(warnings.length, 0);
   });
+  // A parser error may quote text that resembles a Chromium error code.
+  // That must not turn malformed provider JSON into a retried network request.
+  let codeInJsonReads = 0;
+  await withCatalogFetch(async () => {
+    codeInJsonReads++;
+    return new Response("ERR_HTTP2_PROTOCOL_ERROR", { status: 200 });
+  }, async warnings => {
+    await assert.rejects(grok.pageOperations.models(), SyntaxError);
+    assert.equal(codeInJsonReads, 1);
+    assert.equal(warnings.length, 0);
+  });
   let invalidCatalogReads = 0;
   await withCatalogFetch(async () => {
     invalidCatalogReads++;
