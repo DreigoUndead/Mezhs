@@ -417,6 +417,44 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
 '@
     Assert-InertPresentation 'nested-static-raw' $nestedStaticOpening $nestedStaticClosing
 
+
+    # A valid batch must still execute exactly once when a subsequent
+    # multiline Markdown example contains a deceptive protocol opener.
+    $allowedEmphasisFile = Join-Path $temp 'allowed-before-emphasis.txt'
+    $forbiddenEmphasisFile = Join-Path $temp 'forbidden-in-emphasis.txt'
+    $allowedEmphasisShell = "echo ALLOWED>>`"$allowedEmphasisFile`""
+    $forbiddenEmphasisShell = "echo UNEXPECTED>>`"$forbiddenEmphasisFile`""
+    $emphasisTask = "<SH>`n$allowedEmphasisShell`n</SH>`n`n**Quoted:`n<SH>`n$forbiddenEmphasisShell`n</SH>`n**`n<DONE>"
+    $emphasisCreated = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $emphasisTask })
+    $emphasisOutcome = Wait-Execution $emphasisCreated.executionId 20
+    if ($emphasisOutcome.status -ne 'Completed') {
+        throw "Valid shell + quoted emphasis batch failed: $($emphasisOutcome.status), $($emphasisOutcome.error)"
+    }
+    $emphasisHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($emphasisOutcome.chatId)/executions")
+    $emphasisShells = @($emphasisHistory | Where-Object { $_.kind -eq 'Shell' })
+    if ($emphasisShells.Count -ne 1 -or $emphasisShells[0].status -ne 'Completed' -or
+        -not (Test-Path -LiteralPath $allowedEmphasisFile) -or
+        (Test-Path -LiteralPath $forbiddenEmphasisFile)) {
+        throw "A quoted emphasis command ran, or a valid shell did not: shell count=$($emphasisShells.Count)."
+    }
+    Write-Host 'PASS: Valid shell followed by a quoted emphasis example executes only the authorized shell.'
+
+    # Four spaces inside a nested Markdown list are list-continuation
+    # indentation, not root-level Markdown code or arbitrary authorization.
+    $nestedListFile = Join-Path $temp 'valid-nested-list.txt'
+    $nestedListShell = "    echo NESTED>>`"$nestedListFile`""
+    $nestedListTask = "- Parent`n  - Child`n    <SH>`n$nestedListShell`n    </SH>`n`n<DONE>"
+    $nestedCreated = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $nestedListTask })
+    $nestedOutcome = Wait-Execution $nestedCreated.executionId 20
+    $nestedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($nestedOutcome.chatId)/executions")
+    $nestedShells = @($nestedHistory | Where-Object { $_.kind -eq 'Shell' })
+    if ($nestedOutcome.status -ne 'Completed' -or $nestedShells.Count -ne 1 -or
+        $nestedShells[0].status -ne 'Completed' -or
+        -not (Test-Path -LiteralPath $nestedListFile)) {
+        throw "Valid nested Markdown list did not authorize its one shell: status=$($nestedOutcome.status), shell count=$($nestedShells.Count)."
+    }
+    Write-Host 'PASS: A correctly indented nested Markdown list executes its authorized shell.'
+
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
     $orderedCreated = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
