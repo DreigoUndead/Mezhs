@@ -65,8 +65,7 @@ try
             "Only the isolated profile will be used.");
         // An unattended live probe must not wait indefinitely for someone to sign in.
         cancelled.CancelAfter(TimeSpan.FromMinutes(5));
-        await (integration.Login?.LoginAsync(cancelled.Token)
-            ?? throw new InvalidOperationException("Account login module is unavailable."));
+        await integration.LoginAsync(cancelled.Token);
         cancelled.CancelAfter(Timeout.InfiniteTimeSpan);
         Console.WriteLine("INTERACTIVE_LOGIN=PASS");
     }
