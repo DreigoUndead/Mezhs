@@ -91,7 +91,7 @@ try {
         $badErrorText = if (Test-Path -LiteralPath $badErr) {
             Get-Content -LiteralPath $badErr -Raw -ErrorAction SilentlyContinue
         } else { "" }
-        if ($badAgent.HasExited -or $badErrorText -match "server\\.listen must use a loopback address") {
+        if ($badAgent.HasExited -or $badErrorText -match "server\.listen must use a loopback address") {
             break
         }
         Start-Sleep -Milliseconds 100
@@ -99,7 +99,7 @@ try {
     $badText = (Get-Content -LiteralPath $badErr -Raw -ErrorAction SilentlyContinue) +
         (Get-Content -LiteralPath $badOut -Raw -ErrorAction SilentlyContinue)
     if (($badAgent.HasExited -and $badAgent.ExitCode -eq 0) -or
-        $badText -notmatch "server\\.listen must use a loopback address") {
+        $badText -notmatch "server\.listen must use a loopback address") {
         throw "Non-loopback Agent API configuration did not fail specifically at the exposure boundary. Output: $badText"
     }
     if (Get-NetTCPConnection -LocalPort 5199 -State Listen -ErrorAction SilentlyContinue) {
