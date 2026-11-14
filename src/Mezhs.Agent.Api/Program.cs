@@ -116,7 +116,7 @@ app.MapPatch("/v1/agent-chats/{chatId}", (
     MessageService messages) =>
 {
     var chat = agents.SetPaused(chatId, request.Paused);
-    return Results.Ok(ToView(chat, agentStore, chatStore));
+    return Results.Ok(ToView(chat, agentStore, chatStore, worker, messages));
 });
 
 app.MapGet("/v1/agent-chats/{chatId}/messages", (
