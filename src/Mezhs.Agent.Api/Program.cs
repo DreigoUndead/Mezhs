@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Mezhs;
 using Mezhs.Agent;
+using Mezhs.Api.Contracts;
 using Mezhs.Agent.Commands;
 using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
