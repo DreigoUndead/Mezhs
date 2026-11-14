@@ -4,7 +4,7 @@ ID: rich-ui-custom-controls
 Branch: rich-ui-custom-controls
 PR: https://github.com/DreigoUndead/Mezhs/pull/53
 Level: **High-risk — cross-runtime parser/renderer redesign and host command authority**
-State: **IMPLEMENTED — recursive C# parser corrections developer-verified; fresh independent code review and independent final testing pending**
+State: **IMPLEMENTED — third independent code review FAIL corrections developer-verified; fresh independent code review and independent final testing pending**
 Dependency: existing Rich UI Custom Controls work on this branch; old incremental plan versions remain in Git history (last archived plan at 54686a1d591be4a806a1f3e17d559aa8175736b2).
 Owner decision (2026-11-12): adopt one canonical **C#** document/parser/validation model; React renders typed validated data and owns only local interactive state; commands can occur inside valid containers/lists.
 Owner clarification (2026-11-13): **Do not preserve legacy UI parsing/handling.** All supported old and new tags use the one canonical C# parser, DTO and typed React renderer. Remove the old frontend extraction, expression and markup paths instead of a compatibility fallback. Retire or migrate raw-text frontend tests to validate canonical DTOs and the inert provisional fallback; treat unsupported expression constructs as inert until explicitly added to the canonical grammar. Security/command boundary tests remain mandatory.
@@ -177,3 +177,21 @@ Changes on `rich-ui-custom-controls`:
 | Portable Codegraph | Regenerated to **287 files, 743 edges** |
 
 These are **developer** checks. A *new* independent High-risk code reviewer must evaluate the corrected PR SHA, followed by a **different independent tester** only on review PASS. Neither gate is yet satisfied for the revised implementation. The PR must remain unmerged; owner approval is required for merge/release; do not edit VERSION or CHANGELOG here.
+
+## Independent High-risk third review FAIL and security corrections (2026-11-14)
+
+Independent reviewer `exec_aafa62ca466748279aac8252bf3460ab` (chat `chat_75b6b5fba8bd4d17965630175fb0b8b5`) reviewed exact SHA `d6487bc3f53aa984b95d3be64d7e00b43952365a` against release-only main base `179c0da50a17e7024d76eaa2571cb6ee2498348e` and returned **FAIL**. The reviewer reported two static code-path findings; it did **not** execute an unauthorized shell command:
+
+1. **P1 — Markdown blockquotes could grant command authority through lazy continuation lines.** `RichDocumentParser.MarkdownLiteralMask` now masks canonical Markdig `QuoteBlock` spans, including lazy continuation lines without a `>` marker. The same recursive C# parser remains the sole authority; commands are not admitted inside protected quoted Markdown. C# tests cover standalone and nested quote examples, a following valid command, and quoted `DONE`. Real Agent integration asserts that quoted SH bodies create zero Shell records and zero filesystem side effects.
+2. **P2 — opening rich tags inside fenced code affected container matching.** `FindContainerClose` now ignores literal-protected opener and closer tokens during nesting scan; regressions include both fenced `<box>` opening and `</box>` closing decoys, with the surrounding structural box accepted. A Markdown lazy quote that absorbs a closing `</box>` fails closed; a separated quote and true structural close are accepted.
+
+Corrective branch commits include `996ff5b`, `9e91b67`, `a3d2d15`, `516189c`.
+
+**Developer verification** at `516189c45379d4e49b0e1f1da711bd2c0adba98d`:
+
+- Canonical C# parser/security: **47/47 PASS**, including the above quote/fence cases.
+- Agent protocol/Executor integration: **PASS**. Negative side-effect checks confirm quoted commands inside and outside structural boxes created no shell execution records or filesystem side effects. Valid ordered shell batches and error reporting also passed.
+- Explicit parsed-document boundary checks: terminated nested quote valid; ambiguous quoted `</box>` invalid with `Unclosed box container`.
+- Other renderer/build suites require rerun on this revised SHA before a new independent review.
+
+The independent review status for this corrected head is **pending**, and separate independent *final testing* must not start before a new reviewer PASS. No merge/release/owner approval has occurred; version and changelog remain unchanged.
