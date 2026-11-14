@@ -62,6 +62,12 @@ public sealed class RichDocumentParser
             _inlineContext = new bool[source.Length];
             _listContext = new bool[source.Length];
             _markdownSource = ShieldOpaqueBodies();
+            // Preserve Markdig inline/list scopes from the original source:
+            // masking opaque bodies can change how multiline Markdown links
+            // and emphasis are recognized. Only the shielded source provides
+            // literal/code protection, so unmatched raw-editor fences never
+            // consume authority following their validated close.
+            _ = MarkdownLiteralMask(_source, collectContext: true);
             _literal = MarkdownLiteralMask(_markdownSource, collectContext: true);
             var nodes = ReadChildren(0, source.Length, null, 0, out _);
             var done = _commands.FindIndex(c => c.Name == "DONE");
@@ -548,6 +554,8 @@ public sealed class RichDocumentParser
             _markdownScanChars += length;
             if (_markdownScanChars > 8_000_000)
                 throw new RichDocumentException("Markdown validation work budget exceeded.");
+            _ = MarkdownLiteralMask(_source[from..spanEnd],
+                collectContext: true, contextOffset: from);
             var mask = MarkdownLiteralMask(_markdownSource[from..spanEnd],
                 collectContext: true, contextOffset: from);
             if (mask[candidate - from])
