@@ -43,6 +43,9 @@ jobs:
       - name: Build .NET solution
         run: dotnet build Mezhs.sln -c Release --nologo
 
+      - name: Compile standalone authenticated typed HTTP Electron feasibility probe
+        run: dotnet build tests/Mezhs.TypedHttp.Probe/Mezhs.TypedHttp.Probe.csproj -c Release --nologo
+
       - name: SQLite ChatStore migration and failure-injection regression
         shell: pwsh
         run: |
