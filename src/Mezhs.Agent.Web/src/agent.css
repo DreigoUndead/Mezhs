@@ -1305,6 +1305,7 @@
   transform: translateX(0);
 }
 .agent-status-running .agent-status-dot { background: #7ba329; }
+.agent-status-waiting .agent-status-dot { background: #dd902e; }
 .agent-status-completed .agent-status-dot { background: #41a36a; }
 .agent-status-completed.agent-status-unread .agent-status-dot { background: #3986f4; }
 .agent-status-failed .agent-status-dot { background: #cf5656; }
