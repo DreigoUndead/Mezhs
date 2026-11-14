@@ -57,15 +57,9 @@ public sealed class MessageService(
             : TryRestoreModel(chat.ChatId, connectionId, out var restoredModel)
                 ? restoredModel
                 : NormalizeModel(integration.Connection.GetSetting("defaultModel"));
-        if (model is not null && integration.Models is null)
-            throw new ArgumentException($"Connection '{connectionId}' does not support model selection.");
-        if (requestedFileIds.Count > 0 && !integration.Capabilities.FileInput)
+        if (requestedFileIds.Count > 0 && !integration.AllowFiles)
             throw new RequestValidationException($"Connection '{connectionId}' does not support file input.");
         var attachedFiles = files.GetMany(requestedFileIds);
-        if (attachedFiles.Any(file => file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) &&
-            !integration.Capabilities.ImageInput)
-            throw new RequestValidationException($"Connection '{connectionId}' does not support image input.");
-
         return ToApi(CreateMessage(
             chat,
             connectionId,
@@ -186,7 +180,7 @@ public sealed class MessageService(
     {
         var message = new StoredMessage
         {
-            MessageId = ChatStore.NewId("msg"),
+            MessageId = integrations.Get(connectionId).CreateMessageId(),
             ChatId = chat.ChatId,
             ConnectionId = connectionId,
             Role = "user",
@@ -224,34 +218,45 @@ public sealed class MessageService(
 
             var chat = store.GetChat(message.ChatId)
                 ?? throw new ResourceNotFoundException($"Chat '{message.ChatId}' was not found.");
-            var historyMessages = BuildHistory(message);
             var remoteState = chat.RemoteStates.FirstOrDefault(state =>
                 string.Equals(state.ConnectionId, message.ConnectionId, StringComparison.OrdinalIgnoreCase));
-            var lastHistoryMessageId = historyMessages.LastOrDefault()?.MessageId;
+            // The continuation marker is the last local assistant ID from this connection;
+            // preserve the existing per-chat+connection state and legacy remote parent ID.
+            var lastHistoryMessageId = BuildHistory(message).LastOrDefault()?.MessageId;
             var continueRemote = remoteState is not null &&
                 !string.IsNullOrWhiteSpace(remoteState.LastLocalMessageId) &&
                 string.Equals(remoteState.LastLocalMessageId, lastHistoryMessageId, StringComparison.OrdinalIgnoreCase);
             var inputFiles = files.GetMany(message.FileIds)
                 .Select(file => new IntegrationInputFile(
-                    file.FileId,
-                    files.GetContentPath(file),
-                    file.Name,
-                    file.ContentType,
-                    file.Size))
+                    file.FileId, files.GetContentPath(file),
+                    file.Name, file.ContentType, file.Size))
                 .ToArray();
-            var result = await integrations.Get(message.ConnectionId).SendMessageAsync(
-                new IntegrationSendContext(
-                    new IntegrationChatContext(
-                        chat.ChatId,
-                        message.ConnectionId,
-                        continueRemote ? remoteState!.RemoteChatUrl : null,
-                        continueRemote ? remoteState!.RemoteConversationId : null,
-                        continueRemote ? remoteState!.RemoteParentMessageId : null),
-                    ToIntegrationMessage(message),
-                    historyMessages.Select(ToIntegrationMessage).ToArray(),
-                    inputFiles,
-                    RestoreConversation: !continueRemote,
-                    ReportActivity: activity => UpdateActivity(message, activity)),
+            var integration = integrations.Get(message.ConnectionId);
+            var chatContext = new ChatContext(
+                chat.ChatId,
+                message.ConnectionId,
+                continueRemote ? remoteState!.RemoteConversationId : null,
+                (limit, offset, fromStart, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    var completeHistory = BuildHistory(message)
+                        .Select(ToChatMessage)
+                        .ToArray();
+                    IEnumerable<ChatMessage> page = fromStart
+                        ? completeHistory.Skip(offset ?? 0)
+                        : completeHistory.Take(Math.Max(0, completeHistory.Length - (offset ?? 0)))
+                            .TakeLast(limit ?? completeHistory.Length);
+                    if (fromStart && limit.HasValue)
+                        page = page.Take(limit.Value);
+                    return Task.FromResult<IReadOnlyList<ChatMessage>>(page.ToArray());
+                },
+                remoteParentMessageId: continueRemote ? remoteState?.RemoteParentMessageId : null,
+                remoteChatUrl: continueRemote ? remoteState?.RemoteChatUrl : null,
+                restoreConversation: !continueRemote,
+                reportActivity: activity => UpdateActivity(message, activity));
+            var result = await integration.PromptAsync(
+                chatContext,
+                new PromptRequest(message.MessageId, message.Content, message.Model, inputFiles),
                 cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -284,19 +289,23 @@ public sealed class MessageService(
             cancellationToken.ThrowIfCancellationRequested();
             var reply = new StoredMessage
             {
-                MessageId = ChatStore.NewId("msg"),
+                MessageId = result.MessageId,
                 ChatId = chat.ChatId,
                 ConnectionId = message.ConnectionId,
                 Role = "assistant",
                 Origin = "assistant",
                 Content = result.Text,
-                Model = NormalizeModel(result.Model),
+                Model = result.Model,
                 FileIds = replyFileIds,
                 ParentMessageId = message.MessageId,
                 Status = MessageStatus.Completed,
                 StartedAt = message.StartedAt,
                 CompletedAt = DateTimeOffset.UtcNow
             };
+            if (string.IsNullOrWhiteSpace(reply.MessageId) ||
+                store.GetMessage(reply.MessageId) is not null)
+                throw new InvalidOperationException(
+                    "Integration returned a missing or duplicate assistant message id.");
             store.SaveMessage(reply);
 
             // Category mutations persist the same shared ChatRecord. Keep remote-state
@@ -416,11 +425,11 @@ public sealed class MessageService(
         string connectionId,
         ChatConnectionState? state,
         bool continued,
-        IntegrationSendResult result,
+        PromptResult result,
         string lastLocalMessageId)
     {
         var hasRemoteState = !string.IsNullOrWhiteSpace(result.RemoteChatUrl) ||
-                             !string.IsNullOrWhiteSpace(result.RemoteConversationId) ||
+                             !string.IsNullOrWhiteSpace(result.ProviderId) ||
                              !string.IsNullOrWhiteSpace(result.RemoteParentMessageId);
         if (!hasRemoteState)
         {
@@ -439,22 +448,23 @@ public sealed class MessageService(
         {
             if (!string.IsNullOrWhiteSpace(result.RemoteChatUrl))
                 state.RemoteChatUrl = result.RemoteChatUrl;
-            if (!string.IsNullOrWhiteSpace(result.RemoteConversationId))
-                state.RemoteConversationId = result.RemoteConversationId;
+            if (!string.IsNullOrWhiteSpace(result.ProviderId))
+                state.RemoteConversationId = result.ProviderId;
             if (!string.IsNullOrWhiteSpace(result.RemoteParentMessageId))
                 state.RemoteParentMessageId = result.RemoteParentMessageId;
         }
         else
         {
             state.RemoteChatUrl = result.RemoteChatUrl;
-            state.RemoteConversationId = result.RemoteConversationId;
+            state.RemoteConversationId = result.ProviderId;
             state.RemoteParentMessageId = result.RemoteParentMessageId;
         }
         state.LastLocalMessageId = lastLocalMessageId;
     }
 
-    private static IntegrationMessageContext ToIntegrationMessage(StoredMessage message) => new(
+    private static ChatMessage ToChatMessage(StoredMessage message) => new(
         message.MessageId,
+        message.ConnectionId,
         message.Role,
         message.Content,
         message.Status == MessageStatus.Completed,
@@ -511,7 +521,9 @@ public sealed class MessageService(
         string.IsNullOrWhiteSpace(origin) ? "human" : origin.Trim();
 
     private static string? NormalizeModel(string? model) =>
-        string.IsNullOrWhiteSpace(model) ? null : model.Trim();
+        string.IsNullOrWhiteSpace(model) ||
+        string.Equals(model.Trim(), "default", StringComparison.OrdinalIgnoreCase)
+            ? null : model.Trim();
 
     private sealed record QueuedMessage(
         StoredMessage Message,

@@ -222,10 +222,6 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     let cancelled = false;
     setModels([]);
     setModelId("");
-    if (!selectedConnection?.supportsModels) {
-      setModelsLoading(false);
-      return () => { cancelled = true; };
-    }
 
     setModelsLoading(true);
     void providerRegistry.current.get(selectedConnection.id).getModels()
@@ -696,12 +692,8 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
   }
 
   async function selectFiles(files: FileList | null) {
-    if (!files || !connectionId || !selectedConnection?.capabilities.fileInput) return;
+    if (!files || !connectionId || !selectedConnection?.allowFiles) return;
     for (const file of Array.from(files)) {
-      if (file.type.startsWith("image/") && !selectedConnection.capabilities.imageInput) {
-        setNotice(`${selectedConnection.name} does not support image input.`);
-        continue;
-      }
       const key = `${Date.now()}-${Math.random()}`;
       const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
       setPendingFiles((current) => [...current, { key, file, previewUrl, uploading: true }]);
@@ -1139,8 +1131,8 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
               <button
                 type="button"
                 className="attach"
-                disabled={!selectedConnection?.capabilities.fileInput || sending}
-                title={selectedConnection?.capabilities.fileInput ? "Attach files" : "This connection does not support files"}
+                disabled={!selectedConnection?.allowFiles || sending}
+                title={selectedConnection?.allowFiles ? "Attach files" : "This connection does not support files"}
                 onClick={() => fileInputRef.current?.click()}
               >+</button>
               <span>Enter to send / Shift + Enter for a new line</span>

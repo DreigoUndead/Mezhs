@@ -58,18 +58,9 @@ public static class MezhsApi
         {
             if (!integrations.TryGet(connectionId, out var integration))
                 return Results.NotFound(new { error = $"Connection '{connectionId}' was not found." });
-            if (integration.Models is null)
-                return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support model selection." });
-
             try
             {
-                var discovered = await integration.Models.GetModelsAsync(cancellationToken);
-                var models = new[] { new IntegrationModel(null, "Default") }
-                    .Concat(discovered
-                        .Where(model => !string.IsNullOrWhiteSpace(model.Id) && !string.IsNullOrWhiteSpace(model.Name))
-                        .DistinctBy(model => model.Id, StringComparer.OrdinalIgnoreCase))
-                    .ToArray();
-                return Results.Ok(models);
+                return Results.Ok(await integration.GetModelsAsync(cancellationToken));
             }
             catch (IntegrationAuthorizationRequiredException ex)
             {
@@ -97,12 +88,12 @@ public static class MezhsApi
 
             if (!integrations.TryGet(connectionId, out var integration))
                 return Results.NotFound(new { error = $"Connection '{connectionId}' was not found." });
-            if (integration.Diagnostics is null)
+            if (!IntegrationRegistry.HasDiagnostics(integration))
                 return Results.BadRequest(new { error = $"Connection '{connectionId}' does not expose live diagnostics." });
 
             try
             {
-                var result = await integration.Diagnostics.InvokeAsync(
+                var result = await integration.DiagnoseAsync(
                     operation,
                     arguments ?? JsonSerializer.SerializeToElement(new { }),
                     cancellationToken);
@@ -132,15 +123,11 @@ public static class MezhsApi
             if (string.IsNullOrWhiteSpace(connectionId))
                 return Results.BadRequest(new { error = "connectionId is required." });
             var integration = integrations.Get(connectionId);
-            if (!integration.Capabilities.FileInput)
+            if (!integration.AllowFiles)
                 return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support file input." });
             var upload = form.Files.GetFile("file");
             if (upload is null)
                 return Results.BadRequest(new { error = "file is required." });
-            if (upload.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) &&
-                !integration.Capabilities.ImageInput)
-                return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support image input." });
-
             await using var content = upload.OpenReadStream();
             var file = await files.CreateAsync(
                 connectionId,
@@ -224,10 +211,10 @@ public static class MezhsApi
         {
             if (!integrations.TryGet(connectionId, out var integration))
                 return Results.NotFound(new { error = $"Connection '{connectionId}' was not found." });
-            if (integration.Login is null)
+            if (!IntegrationRegistry.HasLogin(integration))
                 return Results.BadRequest(new { error = $"Connection '{connectionId}' does not support login." });
 
-            await integration.Login.LoginAsync(cancellationToken);
+            await integration.LoginAsync(cancellationToken);
             return Results.Ok(new { connectionId, status = "ready" });
         });
 
@@ -241,7 +228,7 @@ public static class MezhsApi
             if (integration.Login is null)
                 return Results.BadRequest(new { error = $"Connection '{connectionId}' does not have an account browser." });
 
-            await integration.Login.OpenBrowserAsync(cancellationToken);
+            await integration.OpenBrowserAsync(cancellationToken);
             return Results.Ok(new { connectionId, status = "open" });
         });
 
