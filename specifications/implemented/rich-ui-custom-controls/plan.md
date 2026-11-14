@@ -4,7 +4,7 @@ ID: rich-ui-custom-controls
 Branch: rich-ui-custom-controls
 PR: https://github.com/DreigoUndead/Mezhs/pull/53
 Level: **High-risk — cross-runtime parser/renderer redesign and host command authority**
-State: **BLOCKED — seventh independent High-risk review FAIL; mandatory owner complexity-escalation decision pending; no additional implementation or final testing authorized**
+State: **IN DEVELOPMENT — owner approved per-tag child traversal and child-discoverability controls; seventh review FAIL corrections and independent re-review pending**
 Dependency: existing Rich UI Custom Controls work on this branch; old incremental plan versions remain in Git history (last archived plan at 54686a1d591be4a806a1f3e17d559aa8175736b2).
 Owner decision (2026-11-12): adopt one canonical **C#** document/parser/validation model; React renders typed validated data and owns only local interactive state; commands can occur inside valid containers/lists.
 Owner clarification (2026-11-13): **Do not preserve legacy UI parsing/handling.** All supported old and new tags use the one canonical C# parser, DTO and typed React renderer. Remove the old frontend extraction, expression and markup paths instead of a compatibility fallback. Retire or migrate raw-text frontend tests to validate canonical DTOs and the inert provisional fallback; treat unsupported expression constructs as inert until explicitly added to the canonical grammar. Security/command boundary tests remain mandatory.
@@ -320,3 +320,13 @@ Potential directions to decide:
 4. **Stop or defer PR #53** until the command channel architecture is resolved.
 
 **No further source changes, seventh-review corrective tests, or independent final testing have been undertaken following this escalation.** Document owner decision before resuming. The PR remains unmerged and release-only main is unchanged; no VERSION/CHANGELOG edits.
+
+## Owner architecture decision: two independent tag discovery controls (2026-11-14)
+
+Owner explicitly approved continuing PR #53 using a **single recursive C# canonical parser with independent per-tag controls**:
+1. `SearchChildren`: whether a recognized tag searches/parses its body for nested controls, or treats its body as completely opaque.
+2. `AllowAsChild`: whether a tag may be recognized when another tag searches its children, independently of whether the tag itself searches its contents.
+
+No blanket top-level-only Agent command restriction has been approved. Preserve previously valid nested SH/ATTACH/DONE under structural layout when the registry permits it and keep policy validation and fail-closed semantics. `SH`, `ATTACH`, `DONE`, `escape`, `CodeBlock`, `WritingBlock` must not parse their bodies as children; richly nested layout tags do. Make the two behaviors explicit in tag metadata and use them throughout the canonical traversal. Provisional rich markup does not execute on the frontend.
+
+The owner decision resolves the workflow complexity escalation by retaining the mixed source grammar but demanding a simpler per-tag traversal/child-recognition contract. Before independent code review: fix the seventh static findings (opaque prepass versus inert Markdown, collision-safe inline placeholders, radio delimiters inside Markdown code), add adversarial non-execution and legitimate sibling/nested-command coverage with real Executor side-effect assertions, and run all developer checks. A different independent code reviewer then assesses the *exact final SHA*. Only a reviewer PASS permits a separate independent final tester. No merge, version, changelog or release without explicit owner approval.
