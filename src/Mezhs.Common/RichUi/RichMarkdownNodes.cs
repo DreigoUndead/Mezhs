@@ -19,11 +19,27 @@ internal static class RichMarkdownNodes
     {
         // Keep the exact UTF-16 positions while Markdig reads one uninterrupted
         // Markdown scope. Each recursively validated display element occupies
-        // one private-use start marker followed by private-use padding. Markdig
+        // a private-use start marker followed by private-use padding. Markdig
         // treats the marker as plain inline text; it cannot become a new tag.
         var replacements = new Dictionary<int, RichNode>();
+        // Never use model-authored characters as synthetic inline markers.
+        // Pick a pair absent from the *entire unmodified source* before any
+        // substitution. This makes IndexOf unambiguous even when an adversarial
+        // message contains the old U+E000/U+E001 sentinel sequence.
+        var markerStart = '\uE000';
+        var markerPad = '\uE001';
         if (inlineElements is { Count: > 0 })
         {
+            var occupied = new bool[0x1900]; // BMP private-use area E000..F8FF
+            foreach (var c in source)
+                if (c is >= '\uE000' and <= '\uF8FF')
+                    occupied[c - '\uE000'] = true;
+            var unused = Enumerable.Range(0, occupied.Length)
+                .Where(index => !occupied[index]).Take(2).ToArray();
+            if (unused.Length != 2)
+                throw new FormatException("No unambiguous Markdown inline placeholders available.");
+            markerStart = (char)('\uE000' + unused[0]);
+            markerPad = (char)('\uE000' + unused[1]);
             var chars = source.ToCharArray();
             foreach (var element in inlineElements)
             {
@@ -33,7 +49,7 @@ internal static class RichMarkdownNodes
                     replacements.ContainsKey(start))
                     throw new FormatException("Invalid inline element source span.");
                 for (var i = start; i < end; i++)
-                    chars[i] = i == start ? '\uE000' : '\uE001';
+                    chars[i] = i == start ? markerStart : markerPad;
                 replacements.Add(start, element);
             }
             source = new string(chars);
@@ -46,7 +62,8 @@ internal static class RichMarkdownNodes
         var result = new List<RichNode>();
         var count = 0;
         void AppendMapped(List<RichNode> nodes, MarkdownObject input, int depth) =>
-            AddMapped(nodes, Map(input, source, offset, depth, ref count, replacements, replacementStarts));
+            AddMapped(nodes, Map(input, source, offset, depth, ref count, replacements, replacementStarts,
+                markerStart, markerPad));
         foreach (var block in ast)
         {
             if (inlineOnly && block is ParagraphBlock { Inline: { } inlines })
@@ -70,7 +87,7 @@ internal static class RichMarkdownNodes
 
     private static RichNode Map(MarkdownObject input, string source, int offset,
         int depth, ref int count, IReadOnlyDictionary<int, RichNode> replacements,
-        int[] replacementStarts)
+        int[] replacementStarts, char markerStart, char markerPad)
     {
         if (++count > 4_096 || depth > 24) throw new FormatException("Markdown node budget exceeded.");
         var start = Math.Clamp(input.Span.Start, 0, source.Length);
@@ -92,7 +109,7 @@ internal static class RichMarkdownNodes
                     if (tokenStart >= end) break;
                     var element = replacements[tokenStart];
                     var length = element.SourceSpan.End - element.SourceSpan.Start;
-                    var marker = "\uE000" + new string('\uE001', length - 1);
+                    var marker = markerStart + new string(markerPad, length - 1);
                     var found = literalText.IndexOf(marker, at, StringComparison.Ordinal);
                     if (found < 0)
                         throw new FormatException("Markdown split an inline rich placeholder.");
@@ -175,7 +192,8 @@ internal static class RichMarkdownNodes
             }
             if (input is ContainerBlock blocks)
                 foreach (var child in blocks)
-                    AddMapped(children, Map(child, source, offset, depth + 1, ref count, replacements, replacementStarts));
+                    AddMapped(children, Map(child, source, offset, depth + 1, ref count, replacements, replacementStarts,
+                        markerStart, markerPad));
             if (input is LeafBlock leaf && leaf.Inline is not null)
                 foreach (var child in leaf.Inline)
                     AddMapped(children, Map(child, source, offset, depth + 1, ref count, replacements, replacementStarts));
