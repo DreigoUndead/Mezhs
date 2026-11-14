@@ -397,6 +397,9 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
     }
 
     Assert-InertPresentation 'multiline-emphasis' '**Quoted:' '**'
+    Assert-InertPresentation 'multiline-emphasis-in-box' "<box>`nIntro **Quoted:" "end**`n</box>"
+    Assert-InertPresentation 'multiline-emphasis-in-box-row' "<box>`n<row>`n**Quoted:" "**`n</row>`n</box>"
+    Assert-InertPresentation 'multiline-link-label-in-box' "<box>`n[Quoted:" "](https://example.com)`n</box>"
     Assert-InertPresentation 'multiline-link-label' '[Quoted:' '](https://example.com)'
     Assert-InertPresentation 'blockquote-lazy-command' '> Example:' ''
     Assert-InertPresentation 'blockquote-lazy-command-in-box' "<box>`n> Example:" "`n</box>"
@@ -454,6 +457,39 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
         throw "Valid nested Markdown list did not authorize its one shell: status=$($nestedOutcome.status), shell count=$($nestedShells.Count)."
     }
     Write-Host 'PASS: A correctly indented nested Markdown list executes its authorized shell.'
+
+
+    # Verify command scope carries across box and row boundaries in the
+    # running Agent/Executor, not just in the standalone parser test app.
+    $boxAllowedFile = Join-Path $temp 'allowed-after-box-emphasis.txt'
+    $boxDeniedFile = Join-Path $temp 'denied-in-box-emphasis.txt'
+    $boxAllowedShell = "echo REAL>>`"$boxAllowedFile`""
+    $boxDeniedShell = "echo NEVER>>`"$boxDeniedFile`""
+    $boxTask = "<box>`n<row>`n**Example:`n<SH>`n$boxDeniedShell`n</SH>`n**`n</row>`n</box>`n<SH>`n$boxAllowedShell`n</SH>`n<DONE>"
+    $boxRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $boxTask })
+    $boxOutcome = Wait-Execution $boxRun.executionId 20
+    $boxHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($boxOutcome.chatId)/executions")
+    $boxShells = @($boxHistory | Where-Object { $_.kind -eq 'Shell' })
+    if ($boxOutcome.status -ne 'Completed' -or $boxShells.Count -ne 1 -or $boxShells[0].status -ne 'Completed' -or
+        -not (Test-Path -LiteralPath $boxAllowedFile) -or
+        (Test-Path -LiteralPath $boxDeniedFile)) {
+        throw "Nested layout emphasis example executed an unauthorized shell or suppressed an authorized shell. Status=$($boxOutcome.status); shells=$($boxShells.Count)."
+    }
+    Write-Host 'PASS: Nested box/row emphasis remains inert while a later authorized shell runs exactly once.'
+
+    $boxListFile = Join-Path $temp 'allowed-nested-list-in-box.txt'
+    $boxListShell = "    echo INSIDE>>`"$boxListFile`""
+    $boxListTask = "<box>`n- Parent`n  - Child`n    <SH>`n$boxListShell`n    </SH>`n`n</box>`n<DONE>"
+    $boxListRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $boxListTask })
+    $boxListOutcome = Wait-Execution $boxListRun.executionId 20
+    $boxListHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($boxListOutcome.chatId)/executions")
+    $boxListShells = @($boxListHistory | Where-Object { $_.kind -eq 'Shell' })
+    if ($boxListOutcome.status -ne 'Completed' -or $boxListShells.Count -ne 1 -or
+        $boxListShells[0].status -ne 'Completed' -or
+        -not (Test-Path -LiteralPath $boxListFile)) {
+        throw "Nested Markdown list inside box lost its authorized shell. Status=$($boxListOutcome.status); shells=$($boxListShells.Count)."
+    }
+    Write-Host 'PASS: Nested Markdown list inside a rich box executes its authorized shell.'
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
