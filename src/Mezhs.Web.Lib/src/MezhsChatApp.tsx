@@ -222,13 +222,17 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     let cancelled = false;
     setModels([]);
     setModelId("");
+    if (!selectedConnection) {
+      setModelsLoading(false);
+      return () => { cancelled = true; };
+    }
 
     setModelsLoading(true);
     void providerRegistry.current.get(selectedConnection.id).getModels()
       .then((available) => {
         if (cancelled) return;
         setModels(available);
-        const configured = selectedConnection.defaultModel || "";
+        const configured = selectedConnection.defaultModel === "default" ? "" : selectedConnection.defaultModel || "";
         setModelId(available.some((model) => (model.id || "") === configured) ? configured : "");
       })
       .catch((error) => {

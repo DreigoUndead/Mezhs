@@ -657,7 +657,7 @@ useEffect(() => {
   useEffect(() => {
     let cancelled = false;
     setModels([]);
-    if (!selectedConnection?.supportsModels) {
+    if (!selectedConnection) {
       setModelsLoading(false);
       return () => { cancelled = true; };
     }

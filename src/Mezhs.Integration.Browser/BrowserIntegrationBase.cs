@@ -137,13 +137,13 @@ public abstract class BrowserIntegrationBase(
         var history = messages
             .Where(message => message.Role == "assistant" || message.Completed)
             .Select(message =>
-                $"[{(message.Role == "assistant" ? "Assistant" : "User")}]\\n{message.Content}")
+                $"[{(message.Role == "assistant" ? "Assistant" : "User")}]\n{message.Content}")
             .ToList();
         if (history.Count == 0)
             return currentText;
-        history.Add($"[User]\\n{currentText}");
-        return "Continue the conversation below. Reply only to the latest user message.\\n\\n" +
-               string.Join("\\n\\n", history);
+        history.Add($"[User]\n{currentText}");
+        return "Continue the conversation below. Reply only to the latest user message.\n\n" +
+               string.Join("\n\n", history);
     }
 
     private string GetBrowserModulePath()

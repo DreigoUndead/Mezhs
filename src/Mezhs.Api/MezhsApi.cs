@@ -225,7 +225,7 @@ public static class MezhsApi
         {
             if (!integrations.TryGet(connectionId, out var integration))
                 return Results.NotFound(new { error = $"Connection '{connectionId}' was not found." });
-            if (integration.Login is null)
+            if (!IntegrationRegistry.HasLogin(integration))
                 return Results.BadRequest(new { error = $"Connection '{connectionId}' does not have an account browser." });
 
             await integration.OpenBrowserAsync(cancellationToken);

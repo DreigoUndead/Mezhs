@@ -84,7 +84,7 @@ public abstract class IntegrationBase(
     IIntegrationHost host) : IAsyncDisposable
 {
     public IntegrationConnection Connection { get; } = connection;
-    protected IIntegrationHost Host { get; } = host;
+    protected IIntegrationHost IntegrationHost { get; } = host;
     public virtual bool AllowFiles => false;
 
     // Called before Core persists the outgoing message. Providers can supply IDs whose
