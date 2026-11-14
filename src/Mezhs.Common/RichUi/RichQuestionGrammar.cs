@@ -79,8 +79,8 @@ internal static class RichQuestionGrammar
             if (!match.Success) return false;
             var value = match.Groups["value"].Value;
             if (!values.Add(value)) return false;
-            var close = source.IndexOf("</radio>", openEnd, StringComparison.Ordinal);
-            if (close < 0 || close >= limit || close - openEnd > 600) return false;
+            var close = FindStructuralClosing(source, openEnd, limit, "</radio>", 600);
+            if (close < 0) return false;
             if (!Content(source, openEnd, close, out var display)) return false;
             options.Add(new RichNode("questionOption", $"{at}:questionOption",
                 new RichSourceSpan(at, close + 8),
@@ -101,8 +101,8 @@ internal static class RichQuestionGrammar
         if (!button.Success) return false;
         if (!Messages(button.Groups["action"].Value, state,
             options.Select(o => o.Attributes!["value"]).ToArray(), out var messages)) return false;
-        var buttonClose = source.IndexOf("</button>", buttonEnd, StringComparison.Ordinal);
-        if (buttonClose < 0 || buttonClose >= limit || buttonClose - buttonEnd > 400) return false;
+        var buttonClose = FindStructuralClosing(source, buttonEnd, limit, "</button>", 400);
+        if (buttonClose < 0) return false;
         if (!Content(source, buttonEnd, buttonClose, out var buttonDisplay)) return false;
         for (var i = 0; i < options.Count; i++)
         {
@@ -136,25 +136,46 @@ internal static class RichQuestionGrammar
         return true;
     }
 
+    // Structural delimiters must be outside Markdown literals. A label is
+    // allowed to *show* `</radio>` or `</button>` as inline/fenced code,
+    // without that text ending the interactive control.
+    private static int FindStructuralClosing(string source, int from, int limit,
+        string delimiter, int maxBody)
+    {
+        var stop = Math.Min(limit, from + maxBody + delimiter.Length);
+        if (stop <= from) return -1;
+        var mask = RichDocumentParser.MarkdownProtectionMask(source[from..stop]);
+        for (var at = from; at < stop;)
+        {
+            at = source.IndexOf(delimiter, at, StringComparison.Ordinal);
+            if (at < 0 || at >= stop) return -1;
+            if (at - from <= maxBody && !mask[at - from])
+                return at;
+            at += delimiter.Length;
+        }
+        return -1;
+    }
+
     private static bool Content(string source, int from, int end, out IReadOnlyList<RichNode> nodes)
     {
         nodes = [];
         var value = source[from..end];
         if (string.IsNullOrWhiteSpace(value)) return false;
-        // Only the two known presentation tags may appear within labels.
-        for (var at = 0; at < value.Length; at++)
+        // Normalize visual indentation before checking literal Markdown
+        // context, so exactly the same source is validated and lowered.
+        // Original UTF-16 spans are restored through the position map.
+        var (normalized, positions) = NormalizeLabel(value, from);
+        var literal = RichDocumentParser.MarkdownProtectionMask(normalized);
+        // Only known presentation tags may occur outside code, quotes and
+        // comments. Tag-shaped examples within Markdown literals are inert.
+        for (var at = 0; at < normalized.Length; at++)
         {
-            if (value[at] != '<') continue;
-            var close = value.IndexOf('>', at + 1);
+            if (normalized[at] != '<' || literal[at]) continue;
+            var close = normalized.IndexOf('>', at + 1);
             if (close < 0 || close - at > 256 ||
-                !AllowedLiteralTag.IsMatch(value[at..(close + 1)])) return false;
+                !AllowedLiteralTag.IsMatch(normalized[at..(close + 1)])) return false;
             at = close;
         }
-        // Radio bodies are indented relative to <radio>, but four leading
-        // spaces mean an indented Markdown code block. Remove only the common
-        // visual indent before canonical parsing, retaining original source
-        // offsets for every surviving UTF-16 code unit.
-        var (normalized, positions) = NormalizeLabel(value, from);
         var parsed = new RichDocumentParser().Parse(normalized);
         if (!parsed.Document.Valid || parsed.Commands.Count != 0) return false;
         bool Allowed(RichNode n) =>
