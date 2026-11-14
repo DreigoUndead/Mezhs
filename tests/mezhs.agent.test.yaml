@@ -3,28 +3,6 @@ version: 1
 server:
   listen: http://127.0.0.1:5199
 
-transport:
-  type: electron
-  idleMinutes: 1
-  electronDirectory: ../electron
-
-storage:
-  root: data-agent-test/core
-
-connections:
-  - id: test
-    name: Deterministic test integration
-    integration: mock
-    defaultModel: mock-fast
-
-  - id: test-alt
-    name: Alternate deterministic integration
-    integration: mock
-    defaultModel: mock-deep
-
-  - id: test-login
-    name: Deterministic login integration
-    integration: mock-login
 
 agentStorage: data-agent-test/agent.sqlite
 workspace: ..
