@@ -13,13 +13,15 @@ using Mezhs.Executor;
 using Mezhs.Services;
 
 var configPath = ConfigPath.Find(args, "agent.yaml");
-var options = AgentConfigLoader.Load(configPath);
+var coreConfigPath = ConfigPath.Find(args, "mezhs.yaml", "--mezhs-config");
+var coreOptions = MezhsConfigLoader.Load(coreConfigPath);
+var options = AgentConfigLoader.Load(configPath, coreOptions.Connections.Select(connection => connection.Id).ToArray());
 var executorStorage = Path.Combine(
     Path.GetDirectoryName(options.AgentStorage) ?? Environment.CurrentDirectory,
     "executor.sqlite");
 
 var builder = WebApplication.CreateBuilder(args);
-builder.AddMezhsApi(options);
+builder.AddMezhsApi(coreOptions, options.Server.Listen);
 builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
     policy.SetIsOriginAllowed(origin =>
             Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.IsLoopback)
@@ -248,6 +250,7 @@ app.MapPost("/v1/executions/{executionId}/restart", (
 });
 
 Console.WriteLine($"MEŽS Agent config: {configPath}");
+Console.WriteLine($"MEŽS Core config: {coreConfigPath}");
 Console.WriteLine($"MEŽS Agent listening: {options.Server.Listen}");
 Console.WriteLine($"MEŽS Agent workspace: {options.Workspace}");
 Console.WriteLine($"MEŽS Executor storage: {executorStorage}");
