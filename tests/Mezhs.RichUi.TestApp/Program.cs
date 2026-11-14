@@ -41,6 +41,11 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Blockquote lazy continuation shell inert", "> Example:\n<SH>\necho NEVER\n</SH>", true, []),
     ("Blockquote lazy continuation shell followed by valid command", "> Example:\n<SH>\necho NEVER\n</SH>\n\n<SH>\necho REAL\n</SH>", true, ["SH"]),
     ("Blockquote quoted DONE inert", "> Example:\n<DONE>", true, []),
+    ("Markdown multiline emphasis shell inert", "**Example:\n<SH>\necho NEVER\n</SH>\n**", true, []),
+    ("Markdown multiline link label shell inert", "[Example:\n<SH>\necho NEVER\n</SH>\n](https://example.com)", true, []),
+    ("Markdown emphasis after valid shell cannot add a second command", "<SH>\necho REAL\n</SH>\n\n**Example:\n<SH>\necho NEVER\n</SH>\n**", true, ["SH"]),
+    ("Two-level Markdown list command", "- Parent\n  - Child\n    <SH>\n    echo NESTED\n    </SH>\n\n<DONE>", true, ["SH", "DONE"]),
+    ("Four-space root indented Markdown code inert", "    <SH>\n    echo NEVER\n    </SH>", true, []),
 };
 var failures = 0;
 static IEnumerable<RichNode> Walk(RichNode node)
@@ -222,5 +227,20 @@ var deepPass = deepParsed.Document.Valid && deepParsed.Commands.Count == 0 &&
 Console.WriteLine($"{(deepPass ? "PASS" : "FAIL")}: Nested protected code bounded in {timer.ElapsedMilliseconds} ms");
 if (!deepPass) failures++;
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 7 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 7} passed");
+var alternatingSource = string.Concat(Enumerable.Range(0, 600)
+    .Select(i => $"Part {i} <text strong>Value {i}</text> "));
+GC.Collect();
+var beforeAllocated = GC.GetAllocatedBytesForCurrentThread();
+timer.Restart();
+var alternatingParsed = new RichDocumentParser().Parse(alternatingSource);
+timer.Stop();
+var bytesAllocated = GC.GetAllocatedBytesForCurrentThread() - beforeAllocated;
+var inlineNodes = alternatingParsed.Document.Nodes.SelectMany(Walk).Count(n => n.Name == "text");
+var alternatingPass = alternatingParsed.Document.Valid && alternatingParsed.Commands.Count == 0 &&
+    inlineNodes == 600 && timer.Elapsed < TimeSpan.FromSeconds(8) &&
+    bytesAllocated < 128L * 1024 * 1024;
+Console.WriteLine($"{(alternatingPass ? "PASS" : "FAIL")}: 600 alternating rich/Markdown inlines in {timer.ElapsedMilliseconds} ms, {bytesAllocated / 1024:N0} KiB allocated; rich nodes={inlineNodes}");
+if (!alternatingPass) failures++;
+
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 8 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 8} passed");
 return failures == 0 ? 0 : 1;
