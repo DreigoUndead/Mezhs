@@ -1,73 +1,96 @@
 # Integration configuration ownership and capacity-wait status
 
 ID: integration-config-ownership-wait-status
-Level: High-risk — cross-process integration architecture, concurrency admission, and runtime status projection
+Level: High-risk — configuration/DI boundary, integration admission activity, and Agent runtime status projection
 Base: main (release-only); branch: integration-config-ownership-wait-status
-Status: Planning; implementation blocked on independent plan review and explicit owner choice of the cross-process admission boundary
+Status: Planning; revised to the owner's approved **single in-process Core composition** direction on 2026-11-14; independent plan re-review required before implementation
 
 ## Goal
 
-Remove the accidental `AgentOptions : MezhsOptions` inheritance and any agent ownership of integration configuration. `mezhs.yaml` alone configures integrations, including `MaxParallel` and `MinInterval`. Agent execution is independent of integration admission. Show a truthful **Waiting** state and orange Agent status dot when an agent's active model request is waiting for an integration capacity permit or the configured minimum send interval.
+Separate Agent and Core configuration abstractions. \`mezhs.yaml\` is the only source of integration connections, provider settings, transport and \`MaxParallel\` / \`MinInterval\`; \`agent.yaml\` owns Agent-specific listener, workspace, persistence, message templates and policies, which reference Core connection IDs. Remove \`AgentOptions : MezhsOptions\` without duplicating integration configuration.
 
-All clients of the same connection must honor its configured limits; merely loading the same YAML into multiple processes is not sufficient.
+Show a truthful **Waiting** state and orange Agent status dot only while the active Agent model request is actually blocked on its Core integration's capacity or minimum send interval. Agent execution admission/scheduling is independent of model-send admission.
+
+## Owner-confirmed architecture
+
+- \`Mezhs.Api\` exposes the reusable Core DI, messaging, stores, integrations and endpoints. \`Mezhs.Agent.Api\` **composes** this Core API **in-process**, then adds Agent services/endpoints and Agent-specific behavior. Neither API inherits the other as a C# type.
+- When Agent features are needed, Agent API is the active full API host, including the normal Core chat/message endpoints. Ordinary chat and Agent model sends in that host use **one** Core \`IntegrationRegistry\` and the existing \`BrowserIntegrationBase\` admission instance for each configured connection.
+- Standalone Core API remains supported as an alternative host. Independently running Core and Agent API processes do **not** share an integration instance or aggregate permits; sharing live chat stores/browser profiles between such hosts is not part of this task. No distributed lock, cross-process admission service, new HTTP delegation, separate queue or remote prompt forwarding.
+- \`MaxParallel=0\` remains unlimited and \`MinInterval=0\` means no start spacing **within the owning integration instance**, as already specified. No permit is held through Agent shell work.
+
+This replaces the superseded cross-process admission alternatives in the first plan. Reconsidering simultaneous independent hosts is a separate architecture task requiring its own owner decision.
 
 ## Verified baseline
 
-- `Agent.Api/Program.cs` loads `agent.yaml` via `AgentConfigLoader.Load`, then passes its `AgentOptions` directly into `builder.AddMezhsApi(options)`.
-- `AgentOptions` inherits `MezhsOptions`, bringing Server/Transport/Storage/Connections/Extensions into the agent configuration. The generic `MezhsConfigLoader.Load<T>` validates and instantiates connection objects, with `IntegrationLimits.MaxParallel` defaulting to 1.
-- `IntegrationRegistry` is a singleton **per API process** and creates one integration instance per configured connection. `BrowserIntegrationBase` gates `SendCoreAsync` with an instance-local `SemaphoreSlim` and a start-spacing semaphore.
-- `MessageService.ProcessAsync` marks a queued user message `Running` before calling the integration. If blocked on the integration's limit, the stored state and Agent status dot currently look like actual activity.
-- `AgentStore.GetLatestAgentStatuses` returns root execution status only; `AgentChatView` and `AgentStatus` render `Running` green. `ChatStore` already exposes active-message runtime activity.
-- Current `mezhs.yaml` configures `chatgpt-sub` `maxParallel: 2` and `minInterval: 5000`, while `agent.yaml` has no such limits (and should not gain any).
-- Existing PR #57 (`integration-architecture-v2`) is a feasibility-only typed HTTP transport change. Avoid coupling this work to its unmerged transport redesign.
-- Observed four-agent test ended 2 Completed / 2 Failed (HTTP/2 retrieval error and 10s browser-session timeout); causality to parallelism has **not** been proven.
+- \`src/Mezhs.Agent.Api/Program.cs\` loads \`agent.yaml\` through \`AgentConfigLoader.Load\` and passes \`AgentOptions\` into \`builder.AddMezhsApi(options)\`.
+- \`AgentOptions : MezhsOptions\` imports Core server/transport/storage/connections/extensions into the Agent configuration. \`AgentConfigLoader\` uses \`MezhsConfigLoader.Load<AgentOptions>\` and validates policy connection IDs against \`options.Connections\`.
+- \`src/Mezhs.Api/MezhsApi.cs\` registers Core \`MezhsOptions\`, \`ChatStore\`, \`FileStore\`, \`MessageService\` and \`IntegrationRegistry\`; \`AddMezhsApi\` also sets the Core listener.
+- \`BrowserIntegrationBase\` already limits each integration instance with its own capacity semaphore and monotonic start-spacing gate, but does not report admission waiting.
+- \`MessageService\` marks the user message \`Running\` immediately before integration \`SendMessageAsync\`, and persists \`IntegrationSendContext.ReportActivity\` updates. \`AgentWorker\` sends model turns through that Core \`MessageService\` and retains/releases account conversation context around its execution.
+- \`AgentStore.GetLatestAgentStatuses\` projects root execution status in one batched SQL query. \`ChatStore\` provides in-memory active-message activity; current \`AgentChatView\` has no effective Waiting status or message-to-execution association.
+- Current \`mezhs.yaml\` sets \`chatgpt-sub\` to \`maxParallel: 2\`, \`minInterval: 5000\`. Current \`agent.yaml\` duplicates Core integration declarations without limit values.
+- \`ConfigPath.Find(args, "agent.yaml")\` recognizes \`--config\`; test fixtures also currently embed Core connections/transport/storage in their Agent YAML.
+- Observed four-agent test ended 2 Completed / 2 Failed (HTTP/2 retrieval error and browser-session timeout); a causal link to concurrency is unproven.
 
-## Scope and design constraints
+## Approach
 
-1. Replace inheritance with independent `AgentOptions` containing only agent policy/runtime configuration. The agent config may reference a `connectionId` in a policy, but must not define provider metadata, limits, session ownership or transport configuration. Validation should resolve policy connection IDs against the integration owner without cloning its config.
-2. Separate the core integration config loading/DI from agent-specific configuration. Core config remains sourced from `mezhs.yaml`. Agent-specific server/workspace/storage settings require explicit standalone contracts or composition, not inherited integration options. Avoid duplicating the full integration definition or limits in agent YAML.
-3. **Cross-process admission must be real.** Choose exactly one supported, testable integration-owned admission boundary, shared by API Web, Agent API and future clients; uphold `MaxParallel=0` as unlimited and `MinInterval=0` as no delay, and preserve cancellation and fault-release behavior. A per-process `SemaphoreSlim` does not satisfy this requirement.
-4. Prefer a single authoritative integration execution owner/service with bounded client adapters **if** it can reuse the existing core message API and lifecycle without introducing a second queue or replaying prompt submissions. This needs a feasibility/dependency checkpoint: maintaining separate API processes, chat/file store access, browser session affinity, authentication and cancellation must remain correct. If that introduces disproportionate remote API/proxy complexity, pause and present the simpler alternative: integration-layer cross-process admission coordination with one YAML source and explicit limitations. Do **not** silently select the architecture or implement an arbitrary distributed lock.
-5. Report integration admission waiting through the existing `IntegrationSendContext.ReportActivity` mechanism. Include both capacity-gate and `MinInterval` wait. Emit a distinct machine-readable state (`waiting`), provide a descriptive detail, and transition out immediately on permit acquisition. An agent working in its own shell or idle between model turns is **not** waiting on an integration permit.
-6. Derive an Agent **effective UI status** of `Waiting` only for a running root execution with an actively waiting model message. Keep durable root status `Running` (no SQLite root-status migration), and project waiting through the existing agent-chat/runtime API efficiently. A cancelled, failed, completed, or stale message may not leave the dot orange.
-7. In Agent Web, show the Waiting dot orange in both sidebar and selected-chat header, with accessible label/hover/focus and reduced-motion compatibility. Preserve existing blue unread-completion, green running/completed, paused/stopping, and failed precedence.
+### 1. Independent configuration contracts and existing Core composition
 
-## Decisions required before code
+1. Keep \`MezhsOptions\` / \`MezhsConfigLoader\` as the Core owner of \`mezhs.yaml\` and its connections/limits/transport/storage. Make \`AgentOptions\` a standalone Agent-specific type: listener, \`agentStorage\`, workspace, messages and policies. Do **not** embed or inherit \`MezhsOptions\`, \`ConnectionOptions\` or integration limits.
+2. Agent API loads **both** files independently. Preserve \`--config <agent.yaml>\`; define a distinct optional \`--mezhs-config <mezhs.yaml>\` for Core YAML, with the existing Core default-location lookup when omitted. Keep this path handling small and backward-compatible for standalone Core startup. Resolve relative paths from each file's own directory.
+3. Preserve Agent API's **Agent-specific loopback listener** and its fail-closed validation even though \`AddMezhsApi(coreOptions)\` currently sets Core \`server.listen\`. Establish a minimal, explicit listener override/composition contract, without introducing another API host or broad Core API refactoring.
+4. Register Core \`MezhsOptions\` and Agent \`AgentOptions\` independently in DI. Reuse existing Core \`MessageService\`, \`ChatStore\`, \`FileStore\`, \`IntegrationRegistry\`, provider/browser lifecycle and endpoint mapping **in the same Agent API process**. Agent services consume those Core services, never their own provider configuration.
+5. Validate each policy's \`connectionId\` against the Core-loaded connection IDs at startup; preserve policy default models and per-execution connection/model overrides. Reject removed Core-only sections (\`connections\`, \`transport\`, \`storage\`, Core \`extensions\`) in \`agent.yaml\` with an actionable migration error rather than silently ignoring them. Preserve policy \`limits.commandTimeoutSeconds\` (unrelated to integration admission).
+6. Migrate the repository's \`agent.yaml\`, Agent test YAML fixtures, startup scripts and configuration tests. Test separate paths and expected listener/storage roots; do not duplicate connection definitions in Agent YAML.
 
-- **Admission ownership:** (A) central integration host: agents use core API integration execution, one governor; (B) retain both hosts but use integration-owned, cross-process coordinated admission. Plan reviewer must assess compatibility, failure handling, complexity and whether the existing core API can safely carry agent lifetimes without duplicate prompt submission.
-- **API boundary:** if the agent host continues exposing core-compatible endpoints to Agent Web, specify which are local and which are forwarded; avoid a broad unreviewed rewrite.
-- Do not accept a change that only loads `mezhs.yaml` into two independent registries and claims global enforcement.
+### 2. Report actual integration admission waiting
 
-## Proposed sequence (after independent plan review and owner architecture decision)
+1. Keep the existing \`BrowserIntegrationBase.SendMessageAsync\` parallel and start-spacing gates; **do not add a gate in AgentWorker, MessageService, BrowserAccountSession or Electron**.
+2. Through \`context.ReportActivity\`, emit machine-readable \`waiting\` with a human-readable capacity/spacing detail only if an admission wait is genuinely pending. Include contention on capacity and a pending start-spacing interval; avoid a false Waiting pulse for immediate acquisition.
+3. Upon admission and before invoking \`SendCoreAsync\`, replace \`waiting\` with a non-wait state (for example \`preparing\`). Provider-specific subsequent activity continues to work. Cancellation/errors while waiting release capacity as current \`finally\` blocks guarantee; terminal message status supersedes old activity.
+4. Admission remains local model-send lifetime only, with unchanged cancellation semantics and no automatic replay after uncertain remote outcomes.
 
-1. Document current service/DI and provider-call ownership; add executable regressions proving independent configurations. Capture affected current specs and CLI/test fixtures.
-2. Split `AgentOptions` and `MezhsOptions`. Establish clear loading and DI composition, move integration ownership solely to core configuration, preserve standalone startup and policy connection checks.
-3. Implement the selected **integration-owned** cross-client admission owner, including capacity/start-spacing and cancellation/release guarantees. Avoid changes to the agent scheduler.
-4. Add activity transitions around permit/spacing waits, and a safe projection of `Waiting` from the active message to Agent Web status, including orange dot.
-5. Add focused tests for the gate and state transitions; refresh current spec and codegraph as needed. Before final reviews move plan to `specifications/implemented/` on the task branch.
-6. Independent code review and **independent runtime testing** on the exact candidate commit; report outcomes and pause for explicit owner merge/release approval. No main commits, merge, version or changelog update before approval.
+### 3. Project effective Agent Waiting status without changing durable execution state
+
+1. Keep root execution status \`Running\` in Agent SQLite and existing status precedence. Introduce a lightweight **execution-to-active-model-message association** around \`AgentWorker\`'s existing \`SendWithReplyAsync(..., onSubmitted)\` flow; clear it on completion, cancellation, error or transition to shell/reasoning. It must not mistake an unrelated ordinary chat message in the same ChatId for the Agent's own waiting turn. No persistent status migration or new global scheduler.
+2. For an Agent chat, project effective \`Waiting\` only when: the chosen root execution status is \`Running\`; the associated user message belongs to that execution and is currently \`Running\`; and its activity is \`waiting\`. \`Queued\`, \`CancelRequested\`, terminal and stale messages must not produce \`Waiting\`. On admission it projects \`Running\` again; shell and inter-turn work remain \`Running\`.
+3. Feed the existing Agent chat list/detail effective-status projection from the batched root-status query plus cheap local snapshots/lookups; **do not poll \`/runtime\` per sidebar row** or append large analysis payloads. Keep selected-chat runtime activity available for detail text. Use the same effective status in sidebar and selected header; respect existing polling and refresh cadence.
+4. Display orange Waiting dot and accessible label/hover/keyboard focus. Preserve blue unread-completion, green running/completed, paused, stopping, failed and cancelled precedence. Respect \`prefers-reduced-motion\`.
+
+## Implementation sequence (only after independent plan re-review)
+
+1. Update the config contracts/loader and Agent host startup; migrate sample and test YAML and update old inheritance assertions.
+2. Verify Core and Agent hosts each start with their intended listener and Core config. Verify Agent policy references, capabilities, model selection, file paths and usual chat endpoints still work.
+3. Add precise admission activity transitions within \`BrowserIntegrationBase\`; cover both wait gates and cancellation.
+4. Add execution/message association, effective Waiting projection and Agent Web status styling. Keep existing storage schema and Agent scheduler.
+5. Add deterministic tests, adjust applicable current specs and architecture docs, and refresh Codegraph if needed. Move completed plan to \`specifications/implemented/\` on this task branch before final code review/testing.
+6. Obtain independent code review, **independent runtime testing** on the exact candidate commit, then pause for explicit owner merge/release approval. No direct changes to \`main\`; no version/changelog edits before release.
 
 ## Acceptance criteria
 
-- [ ] Agent options do not derive from or embed core integration options. No `MaxParallel` / `MinInterval` in agent configuration, policy or scheduling. `mezhs.yaml` is the only source.
-- [ ] Provider-specific account/browser state and admission have one documented owning boundary; simultaneous clients of the same integration enforce the aggregate limit, including agent + ordinary chat across processes.
-- [ ] `MaxParallel=1,2,0` and `MinInterval=0,5000` have deterministic tests at the owner boundary; no permit leaks on cancellation, exceptions, startup/shutdown/restart, and no duplicate prompt submit/replay.
-- [ ] While a request is actually blocked on capacity/spacing, its running Agent shows Waiting/orange; on admission it becomes Running/green, with no stale waiting after failure, cancellation, completion, or another work phase.
-- [ ] Other agent status colors and unread completion, selected header, accessibility, refresh and keyboard focus remain correct.
-- [ ] Existing API Web, Agent Web, Electron account/guest flows, tests and standalone start behavior stay compatible (or documented approved migration).
-- [ ] Concurrent test evidence distinguishes root execution overlap from actual provider-call overlap. Observed historical network errors are not casually attributed to concurrency.
+- [ ] \`AgentOptions\` neither derives from nor embeds Core integration configuration. Agent YAML has no \`connections\`, provider metadata, \`MaxParallel\` or \`MinInterval\`. Core \`mezhs.yaml\` is the sole source; Agent policies may reference Core connection IDs.
+- [ ] Agent API continues to compose Core services/routes in-process; its own listener remains loopback-only. Core and Agent YAML load independently, with explicit optional Core config path and tested relative-path resolution.
+- [ ] Ordinary and Agent model sends through the **same Agent API process** share the integration's configured capacity and start spacing. No new cross-process infrastructure or second admission owner.
+- [ ] Existing \`MaxParallel=1,2,0\` and \`MinInterval=0,5000\` behavior remains correct, with deterministic tests of contention, cancellation/release and spacing; no duplicate submissions or automatic replay.
+- [ ] An actually blocked Agent model request displays Waiting/orange; admission restores Running/green. A queued message, unrelated chat message, shell command, cancellation, failure or completed execution cannot produce stale orange status.
+- [ ] Sidebar and header agree. Existing unread blue, paused/stopping, terminal statuses, keyboard/hover labels, reduced-motion and efficient refresh remain correct.
+- [ ] Existing API Web and Agent Web routes, core/agent standalone startup, Electron account/guest flows, file staging, model overrides, recovery and execution history continue to work.
+- [ ] Concurrent test evidence distinguishes Agent root overlap from model-send overlap. Historical provider/network failures are not assigned a cause without evidence.
 
 ## Verification plan
 
-- Unit/contract tests: options validation and policy IDs; integration limits and contention; waiting activity transitions and cancellation before admission.
-- Integration tests: Agent and ordinary-chat clients sharing the same connection and owner; 3+ request overlap at limit 2; spacing windows; process failure/restart; cross-chat isolation.
-- Agent status tests: waiting/green transitions, cancellation/error/terminal precedence, stale message exclusion, unread completion, hover/keyboard text and reduced motion.
-- Regression: `tests/browser-limits-config.ps1`, `tests/agent-architecture.ps1`, `tests/agent-api-smoke.ps1`, `tests/agent-status-unread-browser.test.cjs`, `tests/agent-provider-lifetime.ps1`, and related suites.
-- Check live provider behavior separately and safely; no killing shared Electron sessions and no copying auth profiles.
-- Independent plan review **before** development, independent code review, independent test; exact commit SHA and CI evidence recorded.
+- **Config/DI:** independent deserialization, reject removed Agent Core sections, policy ID validation, \`--config\`/\`--mezhs-config\` semantics and relative roots, Core/Agent host bind addresses, missing/bad Core YAML, no second integration registry in Agent host.
+- **Admission:** deterministic fake browser integration with capacity 1/2/unlimited and spacing 0/5000 (use controlled time or bounded timing assertions), both wait reasons, no false immediate wait, cancellation before gate and during spacing, no leaked permits.
+- **Message/Agent:** Agent and ordinary-chat sends against one hosted \`IntegrationRegistry\`; waiting-to-running transitions and exit from waiting on cancellation, error and shell phase; same-chat unrelated-message isolation and startup recovery.
+- **UI:** sidebar/header Waiting and other status precedence, selected/unselected behavior, unread completion, hover/focus/accessibility and reduced motion.
+- **Regression:** \`tests/browser-limits-config.ps1\`, \`tests/agent-architecture.ps1\`, \`tests/agent-api-smoke.ps1\`, \`tests/agent-status-unread-browser.test.cjs\`, \`tests/agent-provider-lifetime.ps1\`, \`tests/integration-cancellation-contract.ps1\` and relevant related suites.
+- If a startup test runs standalone Core and Agent API at once, use **separate fixture storage and profiles**; it does not verify or imply cross-process capacity coordination. Do not kill shared live Electron sessions or copy auth profiles.
+- Independent plan re-review before code, independent code review and independent runtime testing; record exact commits and check outcomes.
 
 ## Risks and exclusions
 
-- The inter-process integration owner may require more coordination than an isolated options fix. Per `.agents/workflow.md`, stop for owner decision if central-host delegation becomes disproportionate to value.
-- Retain command policy behavior, agent scheduler, existing SQLite execution history, renderer sandbox and transport auth rules.
-- Do not expand into the unmerged typed HTTP migration in PR #57 or unrelated provider resiliency patches.
+- The config split affects startup and tests that currently depend on inherited options and duplicated Agent YAML connections; focus changes there rather than introducing new host abstractions.
+- Waiting projection must be tied to the actual Agent request, not just a ChatId or historical \`activity\` value. Preserve cancellation and message terminal precedence.
+- Preserve Agent scheduling, shell policy, SQLite history, browser authorization, renderer sandbox and existing provider lifetime semantics.
+- No cross-process admission coordination, shared browser-profile ownership, transport redesign in unmerged PR #57, unrelated provider resiliency work, version or changelog edits.
+- If a new requirement forces extra processes, persistent coordinator state or broader forwarding, stop under \`.agents/workflow.md\` and obtain a new owner decision before adding complexity.
