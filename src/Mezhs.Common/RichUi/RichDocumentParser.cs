@@ -381,6 +381,11 @@ public sealed class RichDocumentParser
             _source.AsSpan(end, ending - end).Trim().IsEmpty;
     }
 
+    // The radio compatibility grammar delegates label/closing-tag Markdown
+    // protection to this same canonical C# parser, not a second text grammar.
+    internal static bool[] MarkdownProtectionMask(string source) =>
+        new RichDocumentParser().MarkdownLiteralMask(source);
+
     private static bool IsComment(MarkdownObject node, string source)
     {
         if (node is not HtmlInline && node is not HtmlBlock) return false;
