@@ -48,8 +48,7 @@ window.fetch = async input => {
   }]);
   if (pathname === "/v1/connections") return response([{
     id: "mock", name: "Mock", integration: "mock", requiresLogin: false,
-    supportsModels: false, defaultModel: null,
-    capabilities: { fileInput: false, imageInput: false, fileOutput: false, imageOutput: false },
+    allowFiles: false, defaultModel: null,
   }]);
   if (pathname === "/v1/categories") return response([]);
   if (pathname === "/v1/agent-chats") return response(window.fixtureChats);
@@ -174,6 +173,9 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
     for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution"])
       assert.ok(report[2].includes(expected), "Missing scenario " + expected);
   } finally {
-    fs.rmSync(folder, { recursive: true, force: true });
+    // Chromium may briefly retain an optimization-guide model handle on Windows
+    // after its headless process exits. Retry EBUSY cleanup instead of masking the
+    // actual browser assertions with an unrelated temporary-profile deletion error.
+    fs.rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
   }
 });
