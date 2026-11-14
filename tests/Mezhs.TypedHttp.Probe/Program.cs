@@ -24,16 +24,25 @@ var connectionRoot = Path.GetFullPath(positional[0]);
 var electronDirectory = Path.GetFullPath(positional.Length == 2
     ? positional[1] : Path.Combine(Environment.CurrentDirectory, "electron"));
 var profilePath = Path.Combine(connectionRoot, "profile");
-if (!Directory.Exists(profilePath))
+if (interactive)
 {
-    if (!interactive)
+    // A live connection profile may already be open in another Electron process.
+    // Refuse to point the interactive probe at an existing profile.
+    if (Directory.Exists(profilePath))
     {
         Console.Error.WriteLine(
-            "Existing account profile directory was not found. " +
-            "Use --interactive only with a separate test profile for a user-driven login.");
+            "Interactive proof requires a fresh isolated connection root. " +
+            "Refusing to open an existing browser profile.");
         return 2;
     }
     Directory.CreateDirectory(profilePath);
+}
+else if (!Directory.Exists(profilePath))
+{
+    Console.Error.WriteLine(
+        "Existing account profile directory was not found. " +
+        "Use --interactive only with a fresh isolated profile for a user-driven login.");
+    return 2;
 }
 
 using var cancelled = new CancellationTokenSource();
