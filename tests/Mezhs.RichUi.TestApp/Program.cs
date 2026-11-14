@@ -223,6 +223,22 @@ var nestedPass = nestedParsed.Document.Valid && nestedParsed.Commands.Count == 0
 Console.WriteLine($"{(nestedPass ? "PASS" : "FAIL")}: Fenced false closing delimiter inside nested layout; valid={nestedParsed.Document.Valid}; diagnostics={string.Join("|", nestedParsed.Document.Diagnostics.Select(d => d.Code))}; root={string.Join(",", nestedParsed.Document.Nodes.Select(n => n.Kind + ":" + n.Name))}");
 if (!nestedPass) failures++;
 
+// Adversarial raw-editor siblings: reparsing the full remaining suffix
+// for each opener used to grow quadratically before opaque scope isolation.
+var rawSiblings = string.Concat(Enumerable.Range(0, 1500)
+    .Select(i => $"<WritingBlock variant=\"document\">\\nDraft {i}\\n</WritingBlock>\\n")).Replace("\\n", "\n");
+var rawTimer = System.Diagnostics.Stopwatch.StartNew();
+GC.Collect();
+var rawBefore = GC.GetAllocatedBytesForCurrentThread();
+var rawResult = new RichDocumentParser().Parse(rawSiblings);
+rawTimer.Stop();
+var rawBytes = GC.GetAllocatedBytesForCurrentThread() - rawBefore;
+var rawCount = rawResult.Document.Nodes.SelectMany(Walk).Count(n => n.Name == "WritingBlock");
+var rawPass = rawResult.Document.Valid && rawResult.Commands.Count == 0 && rawCount == 1500 &&
+    rawTimer.Elapsed < TimeSpan.FromSeconds(8) && rawBytes < 128L * 1024 * 1024;
+Console.WriteLine($"{(rawPass ? "PASS" : "FAIL")}: 1500 WritingBlock siblings in {rawTimer.ElapsedMilliseconds} ms, {rawBytes / 1024:N0} KiB, raw nodes={rawCount}; diagnostics={string.Join("|", rawResult.Document.Diagnostics.Select(d => d.Code))}");
+if (!rawPass) failures++;
+
 var wideSource = string.Concat(Enumerable.Range(0, 900)
     .Select(i => $"<box><text>Label {i}</text></box>\\n")).Replace("\\n", "\n");
 var timer = System.Diagnostics.Stopwatch.StartNew();
@@ -260,5 +276,5 @@ var alternatingPass = alternatingParsed.Document.Valid && alternatingParsed.Comm
 Console.WriteLine($"{(alternatingPass ? "PASS" : "FAIL")}: 600 alternating rich/Markdown inlines in {timer.ElapsedMilliseconds} ms, {bytesAllocated / 1024:N0} KiB allocated; rich nodes={inlineNodes}");
 if (!alternatingPass) failures++;
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 8 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 8} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 9 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 8} passed");
 return failures == 0 ? 0 : 1;
