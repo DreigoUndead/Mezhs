@@ -82,23 +82,27 @@ app.MapGet("/v1/policies/{policyId}", (
 
 app.MapGet("/v1/agent-chats", (
     AgentStore agentStore,
-    ChatStore chatStore) =>
+    ChatStore chatStore,
+    AgentWorker worker,
+    MessageService messages) =>
 {
     var statuses = agentStore.GetLatestAgentStatuses();
     return Results.Ok(agentStore.GetAgentChats()
-        .Select(record => ToView(record, agentStore, chatStore, statuses))
+        .Select(record => ToView(record, agentStore, chatStore, worker, messages, statuses))
         .ToArray());
 });
 
 app.MapGet("/v1/agent-chats/{chatId}", (
     string chatId,
     AgentStore agentStore,
-    ChatStore chatStore) =>
+    ChatStore chatStore,
+    AgentWorker worker,
+    MessageService messages) =>
 {
     var chat = agentStore.GetAgentChat(chatId);
     return chat is null
         ? Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." })
-        : Results.Ok(ToView(chat, agentStore, chatStore));
+        : Results.Ok(ToView(chat, agentStore, chatStore, worker, messages));
 });
 
 app.MapPatch("/v1/agent-chats/{chatId}", (
@@ -106,7 +110,9 @@ app.MapPatch("/v1/agent-chats/{chatId}", (
     UpdateAgentChatRequest request,
     AgentService agents,
     AgentStore agentStore,
-    ChatStore chatStore) =>
+    ChatStore chatStore,
+    AgentWorker worker,
+    MessageService messages) =>
 {
     var chat = agents.SetPaused(chatId, request.Paused);
     return Results.Ok(ToView(chat, agentStore, chatStore));
@@ -276,6 +282,8 @@ static AgentChatView ToView(
     AgentChatRecord record,
     AgentStore store,
     ChatStore chats,
+    AgentWorker worker,
+    MessageService messages,
     IReadOnlyDictionary<string, AgentChatExecutionStatus>? statuses = null)
 {
     statuses ??= store.GetLatestAgentStatuses();
@@ -285,6 +293,14 @@ static AgentChatView ToView(
     var firstTask = store.GetFirstRootExecutionRequest(record.ChatId);
     var latestStatus = statuses.GetValueOrDefault(record.ChatId);
     var savedTitle = core?.Title;
+    var effectiveStatus = latestStatus?.Status;
+    if (string.Equals(effectiveStatus, nameof(AgentExecutionStatus.Running), StringComparison.Ordinal) &&
+        latestStatus is not null &&
+        worker.TryGetActiveModelMessage(latestStatus.ExecutionId, out var messageId) &&
+        chats.GetMessage(messageId) is { Status: MessageStatus.Running } activeMessage &&
+        string.Equals(activeMessage.ChatId, record.ChatId, StringComparison.OrdinalIgnoreCase) &&
+        messages.IsAdmissionWaiting(messageId))
+        effectiveStatus = "Waiting";
     return new AgentChatView(
         record.ChatId,
         record.PolicyId,
@@ -298,7 +314,7 @@ static AgentChatView ToView(
         record.CreatedAt,
         lastActivity,
         core?.CategoryId,
-        latestStatus?.Status,
+        effectiveStatus,
         latestStatus?.ExecutionId);
 }
 
