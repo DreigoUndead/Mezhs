@@ -28,7 +28,8 @@ public sealed class BrowserHttpExecutor(IChatBrowserTransport transport)
         // observations. Credentials never cross into this typed descriptor.
         return transport.InvokeWithProgressAsync<TResponse>(
             "typedHttp",
-            new { method = endpoint.Method.Method, path = endpoint.Path, body = request },
+            new { method = endpoint.Method.Method, path = endpoint.Path,
+                body = endpoint.Method == HttpMethod.Get ? null : (object?)request },
             reportProgress,
             cancellationToken);
     }
