@@ -4,7 +4,7 @@ ID: rich-ui-custom-controls
 Branch: rich-ui-custom-controls
 PR: https://github.com/DreigoUndead/Mezhs/pull/53
 Level: **High-risk — cross-runtime parser/renderer redesign and host command authority**
-State: **IMPLEMENTED — fifth independent High-risk review FAIL corrections developer-verified; new independent code review and independent final testing pending**
+State: **IMPLEMENTED — sixth independent High-risk review FAIL corrections developer-verified; seventh independent code review and independent final testing pending**
 Dependency: existing Rich UI Custom Controls work on this branch; old incremental plan versions remain in Git history (last archived plan at 54686a1d591be4a806a1f3e17d559aa8175736b2).
 Owner decision (2026-11-12): adopt one canonical **C#** document/parser/validation model; React renders typed validated data and owns only local interactive state; commands can occur inside valid containers/lists.
 Owner clarification (2026-11-13): **Do not preserve legacy UI parsing/handling.** All supported old and new tags use the one canonical C# parser, DTO and typed React renderer. Remove the old frontend extraction, expression and markup paths instead of a compatibility fallback. Retire or migrate raw-text frontend tests to validate canonical DTOs and the inert provisional fallback; treat unsupported expression constructs as inert until explicitly added to the canonical grammar. Security/command boundary tests remain mandatory.
@@ -268,3 +268,33 @@ All below were run from the dedicated verification checkout at exact source/test
 | `git diff --check` | **PASS** |
 
 This remains **developer verification only**. Request a fresh independent High-risk code review of the exact branch SHA after this plan update. Only independent reviewer **PASS** permits a **separate, different independent final tester**. Owner approval remains mandatory before merge. Main is release-only and VERSION/CHANGELOG are untouched.
+
+## Sixth independent High-risk review FAIL and opaque scope/performance correction (2026-11-14)
+
+Independent High-risk reviewer `exec_7dec1eda81a74e359626489317117cb2` (chat `chat_782f40ba2e8743428c339ebce54b8a27`) inspected exact source SHA `78a705a2c2f385c97a803051c9581cee7ab6d7d9` against pinned release-only base `179c0da50a17e7024d76eaa2571cb6ee2498348e`. **Verdict: FAIL**; two code-path findings, not demonstrated runtime failures:
+
+1. **P1 — quadratic Markdown scans over consecutive raw editors.** The previous `FindOpaqueClosing` for `WritingBlock` parsed the remaining parent suffix for every editor, letting thousands of siblings trigger O(N²) work. The corrected parser checks only the body prefix through prospective closing candidates, shares an **8,000,000-character cumulative Markdown validation budget**, and uses source-position-preserving opaque-body shielding. A **1,500 WritingBlock sibling** adversarial regression passed in **124 ms**, approximately **8,531 KiB** allocated, within explicit time/allocation limits. If ambiguous candidate closers exceed the cumulative budget, the parser fails closed rather than granting authority.
+2. **P2 — Markdown markers inside a completed opaque block could suppress later authorized commands.** The parser now constructs a same-length masked Markdown view that replaces contents of validated `CodeBlock`, `WritingBlock`, `escape`, `SH` and `ATTACH` bodies with whitespace while keeping source offsets and line boundaries. Markdown literal masking uses this protected view so unmatched fences/backticks do not conceal real `SH`/`DONE` after a valid closing delimiter. Original-source Markdown emphasis and list contexts are preserved separately, and rich layout scopes (`box`, `row`) are recognized during opaque discovery; malformed/ambiguous closers remain fail-closed. Existing source text and executor command bodies are never rewritten.
+
+Corrective commits: `6ff7bb8` (opaque shield and bounded Markdown work), `0ce0b0c` (boundary test cases), `d11a1ad` (raw sibling performance/allocations), `366bd87` (preserve original inline context), `ce22472` (fix suite count), `5bbb690` (real Agent positive and negative opaque side-effect checks), `efae6a4` (rich layout scope during discovery), `660a87b` (quoted-shell/layout regressions).
+
+An earlier Agent integration run at `5bbb690` **failed** with `Unexpected closing tag: SH` in a quoted-block-in-box fixture, although 72/72 parser tests passed. The scope correction `efae6a4` and new nested quote regressions `660a87b` addressed that observed failure; the Agent integration was rerun and **passed**, so the unsuccessful prior attempt is not counted as verification.
+
+### Complete developer verification after sixth-review corrections
+
+All checks below were executed from isolated worktree `D:\\Projects\\Mezhs-rich-ui-verify53` at source/test SHA **`660a87b8d13d72860205a4e8f3874393abbe144d`**:
+
+| Verification | Observed result |
+| --- | --- |
+| Canonical C# parser/security | **76/76 PASS**, including opaque marker boundaries, Markdown/rich box quotes and 1,500 WritingBlock siblings |
+| Agent protocol and real Executor | **PASS**; six new completed opaque-boundary cases confirmed subsequent authorized SH/DONE ran once, shell-shaped content inside opaque scopes caused **zero Shell records and filesystem side effects** |
+| Rich React typed SSR | **34/34 PASS** |
+| Actual Chromium host-bound UI | **PASS (1/1)** |
+| Shared Agent Web UI/SSR and wiring | **19/19 PASS**; wiring PASS |
+| Agent architecture guard | **PASS** |
+| `Mezhs.Agent.Api` Release build | **PASS**, **0 warnings, 0 errors** |
+| Agent Web TypeScript/Vite production build | **PASS** |
+| Codegraph | **287 files, 741 edges**; generated and committed blob hashes both `ca10c6df366583eebcbbaae26960c3b382760b0c` |
+| `git diff --check` | **PASS** |
+
+These are **developer checks only** and do not satisfy the independent review gate. Repeated static review findings in parser boundaries warrant the mandated independent scrutiny of compositional security and work budgets. Obtain a seventh independent High-risk code review of the *new exact SHA after this plan update*; if and only if **PASS**, assign a **different independent final tester** on that same SHA. Never merge/release without explicit owner approval; main remains release-only; do not change VERSION or CHANGELOG in this PR.
