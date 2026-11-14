@@ -276,5 +276,5 @@ var alternatingPass = alternatingParsed.Document.Valid && alternatingParsed.Comm
 Console.WriteLine($"{(alternatingPass ? "PASS" : "FAIL")}: 600 alternating rich/Markdown inlines in {timer.ElapsedMilliseconds} ms, {bytesAllocated / 1024:N0} KiB allocated; rich nodes={inlineNodes}");
 if (!alternatingPass) failures++;
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 9 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 8} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 9 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 9} passed");
 return failures == 0 ? 0 : 1;
