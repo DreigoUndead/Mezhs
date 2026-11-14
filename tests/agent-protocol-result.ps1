@@ -421,6 +421,32 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
     Assert-InertPresentation 'nested-static-raw' $nestedStaticOpening $nestedStaticClosing
 
 
+
+    # A completed opaque scope must never let Markdown-like source hide
+    # authorized commands that begin after its unambiguous closing delimiter.
+    function Assert-OpaqueBoundary([string]$label, [string]$opener, [string]$body, [string]$closer) {
+        $marker = Join-Path $temp "opaque-authorized-$label.txt"
+        $inert = Join-Path $temp "opaque-inert-$label.txt"
+        $task = "$opener`n$body`n<SH>`necho NEVER>>`"$inert`"`n</SH>`n$closer`n<SH>`necho REAL>>`"$marker`"`n</SH>`n<DONE>"
+        $run = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $task })
+        $outcome = Wait-Execution $run.executionId 20
+        $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/executions")
+        $shells = @($history | Where-Object { $_.kind -eq 'Shell' })
+        if ($outcome.status -ne 'Completed' -or $shells.Count -ne 1 -or
+            $shells[0].status -ne 'Completed' -or
+            -not (Test-Path -LiteralPath $marker) -or (Test-Path -LiteralPath $inert)) {
+            throw "Closed $label opaque scope hid valid SH/DONE or executed an inert command: status=$($outcome.status), shells=$($shells.Count)."
+        }
+        Write-Host "PASS: Closed $label scope preserves subsequent SH/DONE; opaque content has no shell side effects."
+    }
+
+    Assert-OpaqueBoundary 'code-fence' '<CodeBlock language="text">' '~~~' '</CodeBlock>'
+    Assert-OpaqueBoundary 'code-backtick' '<CodeBlock language="text">' '`' '</CodeBlock>'
+    Assert-OpaqueBoundary 'escape-fence' '<escape>' '~~~' '</escape>'
+    Assert-OpaqueBoundary 'escape-backtick' '<escape>' '`' '</escape>'
+    Assert-OpaqueBoundary 'writing-closed-fence' '<WritingBlock variant="document">' "~~~md`nexample`n~~~" '</WritingBlock>'
+    Assert-OpaqueBoundary 'writing-completed-backtick' '<WritingBlock variant="document">' '`example`' '</WritingBlock>'
+
     # A valid batch must still execute exactly once when a subsequent
     # multiline Markdown example contains a deceptive protocol opener.
     $allowedEmphasisFile = Join-Path $temp 'allowed-before-emphasis.txt'
