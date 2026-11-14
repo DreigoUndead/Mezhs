@@ -292,13 +292,35 @@ public sealed class RichDocumentParser
         {
             pos = _source.IndexOf('<', pos);
             if (pos < 0) break;
-            if (IsEscaped(pos) || !TryTag(pos, _source.Length, out var tag) ||
-                tag.Closing || tag.SelfClosing ||
+            if (IsEscaped(pos) || !TryTag(pos, _source.Length, out var tag))
+            {
+                pos++;
+                continue;
+            }
+            // Rich block layouts start a new Markdown parsing scope. The
+            // enclosing <box> is an HTML block to Markdig; without a scope
+            // reset, a Markdown quote inside that box is invisible while
+            // discovering an opaque SH candidate. Only reset at a real
+            // standalone boundary outside existing Markdown literal ranges.
+            if (ExecutableContainers.Contains(tag.Name) && !tag.SelfClosing &&
+                WhitespaceLine(pos, tag.End))
+            {
+                var length = tag.End - segmentStart;
+                _markdownScanChars += length;
+                if (_markdownScanChars > 8_000_000)
+                    throw new RichDocumentException("Markdown validation work budget exceeded.");
+                var scopeMask = MarkdownLiteralMask(_source[segmentStart..tag.End]);
+                if (!scopeMask[pos - segmentStart])
+                    segmentStart = tag.End;
+                pos = tag.End;
+                continue;
+            }
+            if (tag.Closing || tag.SelfClosing ||
                 !RichTagRegistry.TryGet(tag.Name, out var definition) ||
                 definition.Role is not (RichTagRole.OpaqueLiteral or
                     RichTagRole.RawEditor or RichTagRole.Command))
             {
-                pos++;
+                pos = tag.End;
                 continue;
             }
             var inline = definition.Role == RichTagRole.OpaqueLiteral;
