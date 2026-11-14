@@ -44,6 +44,10 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Markdown multiline emphasis shell inert", "**Example:\n<SH>\necho NEVER\n</SH>\n**", true, []),
     ("Markdown multiline link label shell inert", "[Example:\n<SH>\necho NEVER\n</SH>\n](https://example.com)", true, []),
     ("Markdown emphasis after valid shell cannot add a second command", "<SH>\necho REAL\n</SH>\n\n**Example:\n<SH>\necho NEVER\n</SH>\n**", true, ["SH"]),
+    ("Midline bold example interrupted by command is inert", "Intro **quoted\n<SH>\necho NEVER\n</SH>\nend**", true, []),
+    ("Bold example closed at paragraph end is inert", "**Intro\n<SH>\necho NEVER\n</SH>\nend**", true, []),
+    ("Midline italic example interrupted by command is inert", "Intro *quoted\n<SH>\necho NEVER\n</SH>\nend*", true, []),
+    ("Valid command after completed inline emphasis", "**intro**\n\n<SH>\necho REAL\n</SH>", true, ["SH"]),
     ("Two-level Markdown list command", "- Parent\n  - Child\n    <SH>\n    echo NESTED\n    </SH>\n\n<DONE>", true, ["SH", "DONE"]),
     ("Four-space root indented Markdown code inert", "    <SH>\n    echo NEVER\n    </SH>", true, []),
 };
