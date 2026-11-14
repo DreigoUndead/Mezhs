@@ -4,7 +4,7 @@ ID: rich-ui-custom-controls
 Branch: rich-ui-custom-controls
 PR: https://github.com/DreigoUndead/Mezhs/pull/53
 Level: **High-risk — cross-runtime parser/renderer redesign and host command authority**
-State: **IMPLEMENTED — third independent code review FAIL corrections developer-verified; fresh independent code review and independent final testing pending**
+State: **IMPLEMENTED — fourth independent High-risk review FAIL corrections developer-verified; new independent code review and independent final testing pending**
 Dependency: existing Rich UI Custom Controls work on this branch; old incremental plan versions remain in Git history (last archived plan at 54686a1d591be4a806a1f3e17d559aa8175736b2).
 Owner decision (2026-11-12): adopt one canonical **C#** document/parser/validation model; React renders typed validated data and owns only local interactive state; commands can occur inside valid containers/lists.
 Owner clarification (2026-11-13): **Do not preserve legacy UI parsing/handling.** All supported old and new tags use the one canonical C# parser, DTO and typed React renderer. Remove the old frontend extraction, expression and markup paths instead of a compatibility fallback. Retire or migrate raw-text frontend tests to validate canonical DTOs and the inert provisional fallback; treat unsupported expression constructs as inert until explicitly added to the canonical grammar. Security/command boundary tests remain mandatory.
@@ -214,3 +214,29 @@ Following the third review's P1/P2 corrections, all gates were rerun in the isol
 | Nested quote boundary | Separated quote + structural `</box>` valid; ambiguous quote that swallows closing delimiter **fails closed** |
 
 The above remain **developer-only verification**. Request another independent review on the final exact branch SHA. Only if it passes, request separate independent final testing by a different agent. Never merge without explicit owner approval; do not edit version or changelog.
+
+## Fourth independent High-risk review FAIL and corrective verification (2026-11-14)
+
+Independent reviewer `exec_05882f077d9f40ae8c708c86155bfc83` (chat `chat_1dcf96db6a9349a8ac99afc2dfb97cb1`) reviewed SHA `ee68192a529f84dc69cf225d816676c57460c927` against release-only base `179c0da50a17e7024d76eaa2571cb6ee2498348e` and returned **FAIL** on five static source findings. No unauthorized execution was reproduced by that reviewer.
+
+1. **P1 — multiline Markdown emphasis and link labels could expose Agent commands.** The canonical C# parser now derives `EmphasisInline`/`LinkInline` context from Markdig and does not promote commands in these contexts. For multiline emphasis interrupted by a source-level HTML-like command line, a conservative paired-delimiter authorization guard additionally blocks command promotion without introducing a second rendering grammar. Security tests include midline, paragraph-ended, standalone multiline bold/italic and link-label examples, adjacent valid command candidates, and real Agent/Executor runs with zero prohibited Shell records and filesystem side effects.
+2. **P2 — deeply nested Markdown list command indentation rejected.** `Standalone` now permits more than three leading spaces only when the canonical Markdig `ListItemBlock` AST contains the candidate source offset. Root-level four-space indented code remains inert. Parser and real Agent Executor tests verify a correctly indented nested-list shell executes once.
+3. **P2 — repeated inline replacement scanning was quadratic.** `RichMarkdownNodes` now sorts replacement source offsets once and binary-searches for replacements overlapping each literal node; the 600 alternating rich/Markdown element regression passed in 23–26 ms with approximately 2,568 KiB of managed allocations during developer verification.
+4. **P2 — provisional frontend Markdown fallback parsed Markdown a second time.** `MarkdownContent` no longer imports `react-markdown` or `remark-gfm`; it displays escaped source text for provisional/streamed content until the canonical server document is available. Shared-UI/architecture assertions and React tests now enforce single-ownership behavior.
+5. **P2 — autolinks lost navigability.** `RichMarkdownNodes` now extracts `AutolinkInline` URLs, including mailto email autolinks, applying the existing scheme/length allowlist. React regressions verify safe URLs and visible labels while unsafe destinations remain inert.
+
+**Developer verification and evidence:**
+
+| Check | Result |
+| --- | --- |
+| Canonical C# parser/security at `ee57dbaac17b1e3f01730c1bafbbacd666afe08e` | **57/57 PASS** (including the four additional emphasis edge cases) |
+| Agent protocol and real Executor at `ee57dba` | **PASS** (no Shell/filesystem effects for Markdown quotes, emphasis and links; only authorized shell runs; nested-list shell runs; durable order and continuation PASS) |
+| React SSR rendering at `1551160` (no production code modified afterward) | **34/34 PASS**, including autolinks and inert provisional rendering |
+| Real Chromium at `1551160` | **PASS** |
+| Shared Agent Web UI/SSR at `5c962cc` (test guard corrected) | **19/19 PASS**, wiring PASS |
+| Agent architecture at `ee57dba` | **PASS** |
+| Agent API .NET Release build at `1551160` | **PASS**, 0 warnings and 0 errors |
+| Agent Web TypeScript/Vite build at `1551160` | **PASS** |
+| Codegraph export at `a6e711b` | **287 files, 741 edges**, generated Git blob exactly matches committed `ca10c6df366583eebcbbaae26960c3b382760b0c` |
+
+These are **developer** checks, not independent review or testing. Obtain a new independent High-risk code review against the exact updated plan commit; only a **PASS** unblocks a **different independent final tester**. No merge, release, version or changelog action without explicit owner approval. Main remains release-only.
