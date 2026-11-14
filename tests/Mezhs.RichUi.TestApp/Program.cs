@@ -120,15 +120,14 @@ if (!controlsPass) failures++;
 
 // A model can literally author the former private-use marker sequence.
 // The restored inline node must stay at its real UTF-16 position.
-var collisionSource = "pre \\uE000\\uE001 <text strong>node</text> post"
-    .Replace("\\\\uE000", "\\uE000").Replace("\\\\uE001", "\\uE001");
+var collisionSource = "pre " + (char)0xE000 + (char)0xE001 + " <text strong>node</text> post";
 var collisionResult = new RichDocumentParser().Parse(collisionSource);
 var collisionChildren = collisionResult.Document.Nodes.FirstOrDefault()?.Children;
 var collisionStart = collisionSource.IndexOf("<text strong>", StringComparison.Ordinal);
 var collisionElement = collisionChildren?.FirstOrDefault(n => n.Name == "text");
 var collisionPass = collisionResult.Document.Valid && collisionResult.Commands.Count == 0 &&
     collisionChildren?.Count == 3 &&
-    collisionChildren[0].Text == "pre \\uE000\\uE001 " &&
+    collisionChildren[0].Text == ("pre " + (char)0xE000 + (char)0xE001 + " ") &&
     collisionElement is not null && collisionElement.SourceSpan.Start == collisionStart &&
     collisionElement.SourceSpan.End == collisionSource.IndexOf("</text>", StringComparison.Ordinal) + 7 &&
     collisionElement.Id == $"{collisionStart}:element" &&
