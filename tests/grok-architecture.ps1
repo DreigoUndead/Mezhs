@@ -11,11 +11,14 @@ $forbiddenRoots = @(
 )
 $forbiddenFiles = $forbiddenRoots |
     ForEach-Object { Get-ChildItem $_ -Recurse -File -ErrorAction SilentlyContinue } |
-    Where-Object Extension -in '.cs', '.ts', '.tsx', '.js'
-$matches = Select-String -Path $forbiddenFiles.FullName -Pattern 'grok|xai' -CaseSensitive:$false
-if ($matches) {
-    $matches | ForEach-Object {
-        Write-Error "$($_.Path):$($_.LineNumber): $($_.Line.Trim())"
+    Where-Object {
+        $_.Extension -in '.cs', '.ts', '.tsx', '.js' -and
+        $_.FullName -notmatch '[\\/](node_modules|bin|obj|dist|build)[\\/]'
+    }
+$matches = @($forbiddenFiles | Select-String -Pattern 'grok|xai' -CaseSensitive:$false)
+if ($matches.Count -gt 0) {
+    $matches | Select-Object -First 10 | ForEach-Object {
+        Write-Error "$($_.Path):$($_.LineNumber): $($_.Line.Trim().Substring(0, [Math]::Min(180, $_.Line.Trim().Length)))"
     }
     throw 'Grok-specific behavior leaked outside the integration boundary.'
 }
