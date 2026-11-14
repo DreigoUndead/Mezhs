@@ -144,12 +144,22 @@ internal static class RichQuestionGrammar
     {
         var stop = Math.Min(limit, from + maxBody + delimiter.Length);
         if (stop <= from) return -1;
-        var mask = RichDocumentParser.MarkdownProtectionMask(source[from..stop]);
         for (var at = from; at < stop;)
         {
             at = source.IndexOf(delimiter, at, StringComparison.Ordinal);
             if (at < 0 || at >= stop) return -1;
-            if (at - from <= maxBody && !mask[at - from])
+            if (at - from > maxBody) return -1;
+            // Radio labels are visually indented inside <radio>. Test each
+            // candidate boundary using the same indent-normalized Markdown
+            // view as Content(), retaining the exact UTF-16 source offsets.
+            // Parsing the raw indented span would classify every real closing
+            // delimiter as Markdown indented code and reject valid questions.
+            // Body and option counts are strictly bounded.
+            var (normalized, positions) =
+                NormalizeLabel(source[from..(at + delimiter.Length)], from);
+            var candidateIndex = Array.BinarySearch(positions, at);
+            if (candidateIndex >= 0 && candidateIndex < normalized.Length &&
+                !RichDocumentParser.MarkdownProtectionMask(normalized)[candidateIndex])
                 return at;
             at += delimiter.Length;
         }
