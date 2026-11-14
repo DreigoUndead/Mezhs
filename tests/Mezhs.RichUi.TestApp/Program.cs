@@ -50,6 +50,12 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Valid command after completed inline emphasis", "**intro**\n\n<SH>\necho REAL\n</SH>", true, ["SH"]),
     ("Two-level Markdown list command", "- Parent\n  - Child\n    <SH>\n    echo NESTED\n    </SH>\n\n<DONE>", true, ["SH", "DONE"]),
     ("Four-space root indented Markdown code inert", "    <SH>\n    echo NEVER\n    </SH>", true, []),
+    ("Markdown emphasis command inside box inert", "<box>\nIntro **quoted\n<SH>\necho NEVER\n</SH>\nend**\n</box>", true, []),
+    ("Markdown emphasis command inside box and row inert", "<box>\n<row>\n**Example:\n<SH>\necho NEVER\n</SH>\n**\n</row>\n</box>", true, []),
+    ("Markdown link-label command inside box inert", "<box>\n[Example:\n<SH>\necho NEVER\n</SH>\n](https://example.com)\n</box>", true, []),
+    ("Markdown box quote inert plus later valid command", "<box>\n**Example:\n<SH>\necho NEVER\n</SH>\n**\n</box>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("Two-level Markdown list command inside box", "<box>\n- Parent\n  - Child\n    <SH>\n    echo NESTED\n    </SH>\n\n</box>\n<DONE>", true, ["SH", "DONE"]),
+    ("Two-level Markdown list command inside row and box", "<box>\n<row>\n- Parent\n  - Child\n    <SH>\n    echo NESTED\n    </SH>\n\n</row>\n</box>", true, ["SH"]),
 };
 var failures = 0;
 static IEnumerable<RichNode> Walk(RichNode node)
