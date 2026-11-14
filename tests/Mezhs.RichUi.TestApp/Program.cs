@@ -40,6 +40,14 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Commented shell inert", "<!--\n<SH>\necho NEVER\n</SH>\n-->", true, []),
 };
 var failures = 0;
+static IEnumerable<RichNode> Walk(RichNode node)
+{
+    yield return node;
+    if (node.Children is null) yield break;
+    foreach (var child in node.Children)
+        foreach (var descendant in Walk(child))
+            yield return descendant;
+}
 foreach (var (name, source, valid, commands) in checks)
 {
     var result = new RichDocumentParser().Parse(source);
@@ -51,7 +59,9 @@ foreach (var (name, source, valid, commands) in checks)
         pass &= result.Document.Nodes.Any(n => n.Kind == "literal" && n.Text?.Contains("echo NEVER") == true);
     if (name == "Nested box and text")
         pass &= result.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "box" &&
-            n.Children?.Any(c => c.Kind == "element" && c.Name == "text") == true);
+            n.Children?.Any(c => c.Kind == "paragraph" && c.Children?.Any(t =>
+                t.Kind == "element" && t.Name == "text" &&
+                t.Children?.Any(child => child.Text == "hello") == true) == true) == true);
     Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; commands={string.Join(",", names)}; diagnostics={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
     if (!pass) failures++;
 }
@@ -91,7 +101,8 @@ if (!rejectedBoxPass) failures++;
 
 var staticStyle = new RichDocumentParser().Parse("<text textAlign=\"center\" tabularNums>42</text><title textAlign=\"center\" tabularNums>Title</title>");
 var staticStylePass = staticStyle.Document.Valid &&
-    staticStyle.Document.Nodes.Count(n => n.Kind == "element" &&
+    staticStyle.Document.Nodes.SelectMany(Walk).Count(n => n.Kind == "element" &&
+        n.Name is "text" or "title" &&
         n.Attributes?.GetValueOrDefault("textAlign") == "center" &&
         n.Attributes.GetValueOrDefault("tabularNums") == "true") == 2;
 Console.WriteLine($"{(staticStylePass ? "PASS" : "FAIL")}: Previously supported text/title static attributes");
@@ -105,39 +116,39 @@ var inlineTests = new (string Name, string Source, Func<RichParseResult, bool> C
         r.Document.Valid && r.Commands.Count == 0 &&
         r.Document.Nodes.Count == 1 && r.Document.Nodes[0].Kind == "paragraph" &&
         r.Document.Nodes[0].Children?.Count == 3 &&
-        r.Document.Nodes[0].Children[0].Text == "Before " &&
-        r.Document.Nodes[0].Children[1].Name == "text" &&
-        r.Document.Nodes[0].Children[1].Attributes?.GetValueOrDefault("strong") == "true" &&
-        r.Document.Nodes[0].Children[1].Children?.Count == 1 &&
-        r.Document.Nodes[0].Children[1].Children[0].Kind == "text" &&
-        r.Document.Nodes[0].Children[1].Children[0].Text == "inside" &&
-        r.Document.Nodes[0].Children[2].Text == " after"),
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Text == "Before " &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(1)?.Name == "text" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(1)?.Attributes?.GetValueOrDefault("strong") == "true" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(1)?.Children?.Count == 1 &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(1)?.Children?.ElementAtOrDefault(0)?.Kind == "text" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(1)?.Children?.ElementAtOrDefault(0)?.Text == "inside" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(2)?.Text == " after"),
     ("Emphasis spanning an inline rich element", "**Before <text strong>inside</text> after**", r =>
         r.Document.Valid && r.Document.Nodes.Count == 1 &&
         r.Document.Nodes[0].Kind == "paragraph" &&
         r.Document.Nodes[0].Children?.Count == 1 &&
-        r.Document.Nodes[0].Children[0].Kind == "strong" &&
-        r.Document.Nodes[0].Children[0].Children?.Any(c => c.Name == "text") == true),
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Kind == "strong" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.Any(c => c.Name == "text") == true),
     ("Rich element inside list item", "- Before <text strong>inside</text> after", r =>
         r.Document.Valid && r.Document.Nodes.Count == 1 &&
         r.Document.Nodes[0].Kind == "list" &&
         r.Document.Nodes[0].Children?.Count == 1 &&
-        r.Document.Nodes[0].Children[0].Children?.Any(n =>
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.Any(n =>
             n.Kind == "paragraph" && n.Children?.Any(c => c.Name == "text") == true) == true),
     ("Recursive box with inline rich child", "<box>hello <text strong>world</text></box>", r =>
         r.Document.Valid && r.Document.Nodes.Count == 1 &&
         r.Document.Nodes[0].Name == "box" &&
         r.Document.Nodes[0].Children?.Count == 1 &&
-        r.Document.Nodes[0].Children[0].Kind == "paragraph" &&
-        r.Document.Nodes[0].Children[0].Children?.Any(n => n.Name == "text" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Kind == "paragraph" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.Any(n => n.Name == "text" &&
             n.Children?.Count == 1 && n.Children[0].Text == "world") == true),
     ("Standalone inline element has no paragraph inside span", "<text strong>world</text>", r =>
         r.Document.Valid && r.Document.Nodes.Count == 1 &&
         r.Document.Nodes[0].Kind == "paragraph" &&
         r.Document.Nodes[0].Children?.Count == 1 &&
         r.Document.Nodes[0].Children[0].Name == "text" &&
-        r.Document.Nodes[0].Children[0].Children?.Count == 1 &&
-        r.Document.Nodes[0].Children[0].Children[0].Kind == "text"),
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.Count == 1 &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.ElementAtOrDefault(0)?.Kind == "text"),
 };
 foreach (var (name, source, verify) in inlineTests)
 {
@@ -169,7 +180,11 @@ var nestedScope = "<box>\n~~~md\n</box>\n~~~\n<box><text>Nested sibling</text></
 var nestedParsed = new RichDocumentParser().Parse(nestedScope);
 var nestedPass = nestedParsed.Document.Valid && nestedParsed.Commands.Count == 0 &&
     nestedParsed.Document.Nodes.Any(n => n.Name == "box" &&
-        n.Children?.Any(c => c.Name == "box" && c.Children?.Any(x => x.Name == "text") == true) == true);
+        n.Children?.Any(c => c.Kind == "code" && c.Text?.Contains("</box>") == true) == true &&
+        n.Children?.Any(c => c.Name == "box" &&
+            c.Children?.Any(p => p.Kind == "paragraph" &&
+                p.Children?.Any(x => x.Name == "text" &&
+                    x.Children?.Any(t => t.Text == "Nested sibling") == true) == true) == true) == true);
 Console.WriteLine($"{(nestedPass ? "PASS" : "FAIL")}: Fenced false closing delimiter inside nested layout; valid={nestedParsed.Document.Valid}; diagnostics={string.Join("|", nestedParsed.Document.Diagnostics.Select(d => d.Code))}; root={string.Join(",", nestedParsed.Document.Nodes.Select(n => n.Kind + ":" + n.Name))}");
 if (!nestedPass) failures++;
 
