@@ -141,12 +141,12 @@ var inlineTests = new (string Name, string Source, Func<RichParseResult, bool> C
         r.Document.Nodes[0].Children?.Count == 1 &&
         r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Kind == "paragraph" &&
         r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.Any(n => n.Name == "text" &&
-            n.Children?.Count == 1 && n.Children[0].Text == "world") == true),
+            n.Children?.Count == 1 && n.Children?.ElementAtOrDefault(0)?.Text == "world") == true),
     ("Standalone inline element has no paragraph inside span", "<text strong>world</text>", r =>
         r.Document.Valid && r.Document.Nodes.Count == 1 &&
         r.Document.Nodes[0].Kind == "paragraph" &&
         r.Document.Nodes[0].Children?.Count == 1 &&
-        r.Document.Nodes[0].Children[0].Name == "text" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Name == "text" &&
         r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.Count == 1 &&
         r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.ElementAtOrDefault(0)?.Kind == "text"),
 };
