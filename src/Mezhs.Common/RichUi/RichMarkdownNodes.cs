@@ -39,11 +39,14 @@ internal static class RichMarkdownNodes
             source = new string(chars);
         }
 
+        // Pre-sort just once. Binary search per literal is O(log N), rather
+        // than scanning every replacement for every Markdown inline fragment.
+        var replacementStarts = replacements.Keys.OrderBy(start => start).ToArray();
         var ast = Markdown.Parse(source, Pipeline);
         var result = new List<RichNode>();
         var count = 0;
         void AppendMapped(List<RichNode> nodes, MarkdownObject input, int depth) =>
-            AddMapped(nodes, Map(input, source, offset, depth, ref count, replacements));
+            AddMapped(nodes, Map(input, source, offset, depth, ref count, replacements, replacementStarts));
         foreach (var block in ast)
         {
             if (inlineOnly && block is ParagraphBlock { Inline: { } inlines })
@@ -66,7 +69,8 @@ internal static class RichMarkdownNodes
     }
 
     private static RichNode Map(MarkdownObject input, string source, int offset,
-        int depth, ref int count, IReadOnlyDictionary<int, RichNode> replacements)
+        int depth, ref int count, IReadOnlyDictionary<int, RichNode> replacements,
+        int[] replacementStarts)
     {
         if (++count > 4_096 || depth > 24) throw new FormatException("Markdown node budget exceeded.");
         var start = Math.Clamp(input.Span.Start, 0, source.Length);
@@ -74,17 +78,19 @@ internal static class RichMarkdownNodes
         var span = new RichSourceSpan(start + offset, end + offset);
         if (input is LiteralInline literalWithRich && replacements.Count > 0)
         {
-            var embedded = replacements
-                .Where(entry => entry.Key >= start && entry.Key < end)
-                .OrderBy(entry => entry.Key).ToArray();
-            if (embedded.Length > 0)
+            var first = Array.BinarySearch(replacementStarts, start);
+            if (first < 0) first = ~first;
+            if (first < replacementStarts.Length && replacementStarts[first] < end)
             {
                 var literalText = literalWithRich.Content.ToString();
                 var parts = new List<RichNode>();
                 var at = 0;
                 var original = start;
-                foreach (var (tokenStart, element) in embedded)
+                for (var tokenIndex = first; tokenIndex < replacementStarts.Length; tokenIndex++)
                 {
+                    var tokenStart = replacementStarts[tokenIndex];
+                    if (tokenStart >= end) break;
+                    var element = replacements[tokenStart];
                     var length = element.SourceSpan.End - element.SourceSpan.Start;
                     var marker = "\uE000" + new string('\uE001', length - 1);
                     var found = literalText.IndexOf(marker, at, StringComparison.Ordinal);
@@ -135,12 +141,19 @@ internal static class RichMarkdownNodes
         if (input is TableRow row && row.IsHeader) attributes.Add("header", "true");
         if (input is TableCell { Parent: TableRow { IsHeader: true } }) attributes.Add("header", "true");
         if (input is TaskList task) attributes.Add("checked", task.Checked ? "true" : "false");
-        if (input is LinkInline link && !string.IsNullOrEmpty(link.Url) &&
-            Uri.TryCreate(link.Url, UriKind.Absolute, out var uri) &&
-            link.Url.Length <= 2_048 &&
+        var destination = input switch
+        {
+            LinkInline link => link.Url,
+            AutolinkInline link when link.IsEmail => "mailto:" + link.Url,
+            AutolinkInline link => link.Url,
+            _ => null
+        };
+        if (!string.IsNullOrEmpty(destination) &&
+            Uri.TryCreate(destination, UriKind.Absolute, out var uri) &&
+            destination.Length <= 2_048 &&
             (uri.Scheme is "https" or "http" ||
-             !link.IsImage && uri.Scheme == "mailto"))
-            attributes.Add("url", link.Url);
+             kind == "link" && uri.Scheme == "mailto"))
+            attributes.Add("url", destination);
         if (kind is "link" or "image" && !attributes.ContainsKey("url")) kind = "literal";
 
         string? text = null;
@@ -153,15 +166,22 @@ internal static class RichMarkdownNodes
         var children = new List<RichNode>();
         if (kind != "literal" && kind != "code")
         {
+            if (input is AutolinkInline)
+            {
+                var label = source[start..end];
+                if (label.StartsWith('<') && label.EndsWith('>'))
+                    label = label[1..^1];
+                children.Add(new RichNode("text", $"{span.Start}:text", span, Text: label));
+            }
             if (input is ContainerBlock blocks)
                 foreach (var child in blocks)
-                    AddMapped(children, Map(child, source, offset, depth + 1, ref count, replacements));
+                    AddMapped(children, Map(child, source, offset, depth + 1, ref count, replacements, replacementStarts));
             if (input is LeafBlock leaf && leaf.Inline is not null)
                 foreach (var child in leaf.Inline)
-                    AddMapped(children, Map(child, source, offset, depth + 1, ref count, replacements));
+                    AddMapped(children, Map(child, source, offset, depth + 1, ref count, replacements, replacementStarts));
             if (input is ContainerInline inlines)
                 foreach (var child in inlines)
-                    AddMapped(children, Map(child, source, offset, depth + 1, ref count, replacements));
+                    AddMapped(children, Map(child, source, offset, depth + 1, ref count, replacements, replacementStarts));
         }
         return new RichNode(kind, $"{span.Start}:{kind}", span, text,
             Attributes: attributes.Count == 0 ? null : attributes,
