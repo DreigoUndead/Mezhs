@@ -21,6 +21,45 @@ module.exports = {
   },
 
   operations: {
+
+    // Feasibility-only typed endpoint. Calls the existing session-owned ChatGPT
+    // auth/integrity transport; does not expose a raw arbitrary-origin fetch.
+    async typedHttp({ session, args, signal, reportProgress }) {
+      if (args?.method !== "GET" || args?.path !== API.models || args?.body != null)
+        throw new Error("Typed HTTP feasibility endpoint is not allowed.");
+
+      reportProgress?.({ state: "preparing", detail: "Checking authenticated model endpoint." });
+      const token = await requireToken(session);
+      const response = await apiFetch(session, token, API.models, {
+        method: "GET",
+        signal
+      });
+
+      reportProgress?.({ state: "retrieving", detail: "Receiving typed model catalog." });
+      if (!response.body?.getReader)
+        return response.json();
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const chunks = [];
+      let size = 0;
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > 8 * 1024 * 1024)
+            throw new Error("Typed HTTP response exceeded the 8 MiB probe limit.");
+          chunks.push(decoder.decode(value, { stream: true }));
+          reportProgress?.({ state: "retrieving", detail: "Receiving typed model catalog (" + size + " bytes)." });
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      chunks.push(decoder.decode());
+      return JSON.parse(chunks.join(""));
+    },
+
     async getProjects({ session }) {
       const token = await requireToken(session);
       const projects = [];

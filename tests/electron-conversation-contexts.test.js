@@ -26,6 +26,7 @@ function harness({ guest = false, deferWindowReady = false } = {}) {
   let sequence = 0;
   const env = {
     contexts, providerOperations, authenticatedSession, management, guest,
+    AbortController,
     randomUUID: () => `operation-${++sequence}`,
     session: {
       fromPartition(partition) {
@@ -47,9 +48,9 @@ function harness({ guest = false, deferWindowReady = false } = {}) {
         await new Promise(resolve => { window.finishLoading = resolve; });
       return window;
     },
-    invokeProvider(context, request, reportProgress) {
+    invokeProvider(context, request, reportProgress, signal) {
       return new Promise((resolve, reject) => {
-        operations.push({ context, request, reportProgress, resolve, reject });
+        operations.push({ context, request, reportProgress, signal, resolve, reject });
       });
     },
     setTimeout,
@@ -105,6 +106,8 @@ test("cancelled chat context cannot destroy a different active ChatId", async ()
   const b = h.operations.find(op => op.request.contextId === "b");
   assert.ok(a && b);
   assert.equal(h.cancelProviderOperation(idA), true);
+  assert.equal(a.signal.aborted, true);
+  assert.equal(b.signal.aborted, false);
   await flush();
   assert.equal(a.context.window.destroyed, true);
   assert.equal(b.context.window.destroyed, false);

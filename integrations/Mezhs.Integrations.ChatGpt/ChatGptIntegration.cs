@@ -47,6 +47,18 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         _models = new ModelModule(session);
     }
 
+
+    // Feasibility gate only: deliberately unused by normal model retrieval until
+    // an authenticated Electron run confirms transport, error and cancellation.
+    public Task<ChatGptModelCatalogProbe> ProbeTypedHttpAsync(
+        Action<BrowserOperationProgress>? reportProgress = null,
+        CancellationToken cancellationToken = default) =>
+        CreateAccountSession().UseAuthorizedAsync(
+            (transport, token) => new BrowserHttpExecutor(transport).CallAsync(
+                ChatGptTypedHttpEndpoints.Models, new EmptyHttpRequest(),
+                reportProgress, token),
+            cancellationToken);
+
     public override IntegrationCapabilities Capabilities => new(
         FileInput: true,
         ImageInput: true,

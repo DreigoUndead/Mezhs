@@ -272,7 +272,7 @@ async function authorizeRequest(interactive, first) {
   return { authorized, dismissed: interactive && managementAuthorizationDismissed };
 }
 
-function invokeProvider(context, { operation, arguments: args }, reportProgress) {
+function invokeProvider(context, { operation, arguments: args }, reportProgress, signal) {
   if (!browserModule || !context || context.closed)
     throw new Error("Electron browser is not initialized.");
   const { window, session: browserSession } = context;
@@ -291,7 +291,8 @@ function invokeProvider(context, { operation, arguments: args }, reportProgress)
     },
     args: args ?? {},
     sleep,
-    reportProgress
+    reportProgress,
+    signal
   });
 }
 
@@ -324,7 +325,8 @@ function queueProviderOperation(request) {
   const ephemeral = request.ephemeral === true;
   const state = {
     status: "queued", result: undefined, error: null, code: null, progress: null,
-    cancelled: false, contextId, ephemeral, pending: null
+    cancelled: false, contextId, ephemeral, pending: null,
+    abortController: new AbortController()
   };
   providerOperations.set(operationId, state);
   void (async () => {
@@ -345,7 +347,7 @@ function queueProviderOperation(request) {
             detail: progress.detail == null ? null : String(progress.detail),
             analysis: progress.analysis == null ? null : String(progress.analysis)
           };
-        });
+        }, state.abortController.signal);
         if (!state.cancelled) state.status = "completed";
       } finally {
         context.busy--;
@@ -374,6 +376,7 @@ function cancelProviderOperation(operationId) {
   const state = providerOperations.get(operationId);
   if (!state) return false;
   state.cancelled = true;
+  state.abortController.abort();
   providerOperations.delete(operationId);
   if (state.pending) {
     // Only the cancelled operation's browser context is destroyed. Never stop the shared host.
