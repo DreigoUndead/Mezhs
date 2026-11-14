@@ -97,6 +97,56 @@ var staticStylePass = staticStyle.Document.Valid &&
 Console.WriteLine($"{(staticStylePass ? "PASS" : "FAIL")}: Previously supported text/title static attributes");
 if (!staticStylePass) failures++;
 
+// Inline rich elements must not fragment their containing Markdown block.
+// Recursion still validates each element and its children in C#.
+var inlineTests = new (string Name, string Source, Func<RichParseResult, bool> Check)[]
+{
+    ("Mixed paragraph", "Before <text strong>inside</text> after", r =>
+        r.Document.Valid && r.Commands.Count == 0 &&
+        r.Document.Nodes.Count == 1 && r.Document.Nodes[0].Kind == "paragraph" &&
+        r.Document.Nodes[0].Children?.Count == 3 &&
+        r.Document.Nodes[0].Children[0].Text == "Before " &&
+        r.Document.Nodes[0].Children[1].Name == "text" &&
+        r.Document.Nodes[0].Children[1].Attributes?.GetValueOrDefault("strong") == "true" &&
+        r.Document.Nodes[0].Children[1].Children?.Count == 1 &&
+        r.Document.Nodes[0].Children[1].Children[0].Kind == "text" &&
+        r.Document.Nodes[0].Children[1].Children[0].Text == "inside" &&
+        r.Document.Nodes[0].Children[2].Text == " after"),
+    ("Emphasis spanning an inline rich element", "**Before <text strong>inside</text> after**", r =>
+        r.Document.Valid && r.Document.Nodes.Count == 1 &&
+        r.Document.Nodes[0].Kind == "paragraph" &&
+        r.Document.Nodes[0].Children?.Count == 1 &&
+        r.Document.Nodes[0].Children[0].Kind == "strong" &&
+        r.Document.Nodes[0].Children[0].Children?.Any(c => c.Name == "text") == true),
+    ("Rich element inside list item", "- Before <text strong>inside</text> after", r =>
+        r.Document.Valid && r.Document.Nodes.Count == 1 &&
+        r.Document.Nodes[0].Kind == "list" &&
+        r.Document.Nodes[0].Children?.Count == 1 &&
+        r.Document.Nodes[0].Children[0].Children?.Any(n =>
+            n.Kind == "paragraph" && n.Children?.Any(c => c.Name == "text") == true) == true),
+    ("Recursive box with inline rich child", "<box>hello <text strong>world</text></box>", r =>
+        r.Document.Valid && r.Document.Nodes.Count == 1 &&
+        r.Document.Nodes[0].Name == "box" &&
+        r.Document.Nodes[0].Children?.Count == 1 &&
+        r.Document.Nodes[0].Children[0].Kind == "paragraph" &&
+        r.Document.Nodes[0].Children[0].Children?.Any(n => n.Name == "text" &&
+            n.Children?.Count == 1 && n.Children[0].Text == "world") == true),
+    ("Standalone inline element has no paragraph inside span", "<text strong>world</text>", r =>
+        r.Document.Valid && r.Document.Nodes.Count == 1 &&
+        r.Document.Nodes[0].Kind == "paragraph" &&
+        r.Document.Nodes[0].Children?.Count == 1 &&
+        r.Document.Nodes[0].Children[0].Name == "text" &&
+        r.Document.Nodes[0].Children[0].Children?.Count == 1 &&
+        r.Document.Nodes[0].Children[0].Children[0].Kind == "text"),
+};
+foreach (var (name, source, verify) in inlineTests)
+{
+    var parsed = new RichDocumentParser().Parse(source);
+    var pass = verify(parsed);
+    Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={parsed.Document.Valid}; errors={string.Join(",", parsed.Document.Diagnostics.Select(d => d.Code))}");
+    if (!pass) failures++;
+}
+
 var svgTests = new (string Name, string Source, bool Valid, Func<RichParseResult, bool> Extra)[]
 {
     ("Representative SVG", File.ReadAllText(Path.Combine("tests","fixtures","rich-model-ui","representative-svg.md")), true, r => r.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "svg" && n.Children?.Any(c => c.Name == "text") == true && n.Children?.Any(c => c.Name == "g" && c.Children?.Any(x => x.Name == "rect") == true && c.Children?.Any(x => x.Name == "text" && x.Children?.Any(t => t.Text?.Contains("Collector") == true) == true) == true) == true)),
@@ -145,5 +195,5 @@ var deepPass = deepParsed.Document.Valid && deepParsed.Commands.Count == 0 &&
 Console.WriteLine($"{(deepPass ? "PASS" : "FAIL")}: Nested protected code bounded in {timer.ElapsedMilliseconds} ms");
 if (!deepPass) failures++;
 
-Console.WriteLine($"{checks.Length + svgTests.Length + 6 - failures}/{checks.Length + svgTests.Length + 6} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 6 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 6} passed");
 return failures == 0 ? 0 : 1;
