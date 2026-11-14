@@ -33,13 +33,31 @@ public enum RichTagRole { Container, Leaf, OpaqueLiteral, RawEditor, Command, Ma
 public sealed record RichTagDefinition(
     string Name,
     RichTagRole Role,
-    IReadOnlySet<string> AllowedAttributes);
+    IReadOnlySet<string> AllowedAttributes,
+    // SearchChildren: recursively discover registered nested tags inside this
+    // tag's body. False means the complete body is opaque and never searched.
+    bool SearchChildren,
+    // AllowAsChild: whether this tag may be discovered while traversing any
+    // other searchable tag. Independent of SearchChildren and Agent policy.
+    bool AllowAsChild);
 
 // The shared parser owns UI syntax. Agent command authority stays with Agent Registry.
 public static class RichTagRegistry
 {
     private static RichTagDefinition Tag(string name, RichTagRole role, params string[] attributes) =>
-        new(name, role, new HashSet<string>(attributes, StringComparer.Ordinal));
+        new(name, role, new HashSet<string>(attributes, StringComparer.Ordinal),
+            SearchChildren: role == RichTagRole.Container,
+            AllowAsChild: name != "DONE");
+
+    // An individual tag may override either traversal policy without
+    // changing its role, syntax, attribute allowlist or siblings.
+    private static RichTagDefinition WithDiscovery(RichTagDefinition tag,
+        bool? searchChildren = null, bool? allowAsChild = null) =>
+        tag with
+        {
+            SearchChildren = searchChildren ?? tag.SearchChildren,
+            AllowAsChild = allowAsChild ?? tag.AllowAsChild
+        };
 
     private static readonly string[] SvgCommon =
     ["fill", "stroke", "strokeWidth", "strokeLinecap", "strokeLinejoin",
@@ -83,9 +101,11 @@ public static class RichTagRegistry
             Tag("CodeBlock", RichTagRole.RawEditor, "language", "editable"),
             Tag("WritingBlock", RichTagRole.RawEditor, "variant", "recipient", "cc", "bcc", "subject", "id"),
             Tag("escape", RichTagRole.OpaqueLiteral, "char"),
-            Tag("SH", RichTagRole.Command),
-            Tag("ATTACH", RichTagRole.Command),
-            Tag("DONE", RichTagRole.Marker)
+            // Commands can be found under structural layout, but their bodies
+            // never grant recursive authority. Completion is root-only.
+            WithDiscovery(Tag("SH", RichTagRole.Command), searchChildren: false, allowAsChild: true),
+            WithDiscovery(Tag("ATTACH", RichTagRole.Command), searchChildren: false, allowAsChild: true),
+            WithDiscovery(Tag("DONE", RichTagRole.Marker), searchChildren: false, allowAsChild: false)
         }.ToDictionary(tag => tag.Name, StringComparer.Ordinal);
 
     public static bool IsSvgTag(string name) => SvgNames.Contains(name);
