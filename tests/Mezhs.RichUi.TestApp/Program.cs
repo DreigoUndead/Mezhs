@@ -38,6 +38,9 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Unclosed multiline code span inert", "`\n<SH>\necho NEVER\n</SH>\n<DONE>", true, []),
     ("Unclosed HTML comment inert", "<!--\n<SH>\necho NEVER\n</SH>\n<DONE>", true, []),
     ("Commented shell inert", "<!--\n<SH>\necho NEVER\n</SH>\n-->", true, []),
+    ("Blockquote lazy continuation shell inert", "> Example:\n<SH>\necho NEVER\n</SH>", true, []),
+    ("Blockquote lazy continuation shell followed by valid command", "> Example:\n<SH>\necho NEVER\n</SH>\n\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("Blockquote quoted DONE inert", "> Example:\n<DONE>", true, []),
 };
 var failures = 0;
 static IEnumerable<RichNode> Walk(RichNode node)
@@ -176,6 +179,15 @@ foreach (var (name, source, valid, extra) in svgTests)
     Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; errors={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
     if (!pass) failures++;
 }
+var fencedOpening = "<box>\n~~~md\n<box>\n~~~\n</box>";
+var fencedOpeningResult = new RichDocumentParser().Parse(fencedOpening);
+var fencedOpeningPass = fencedOpeningResult.Document.Valid && fencedOpeningResult.Commands.Count == 0 &&
+    fencedOpeningResult.Document.Nodes.Count == 1 &&
+    fencedOpeningResult.Document.Nodes[0].Name == "box" &&
+    fencedOpeningResult.Document.Nodes[0].Children?.Any(n => n.Kind == "code" && n.Text?.Contains("<box>") == true) == true;
+Console.WriteLine($"{(fencedOpeningPass ? "PASS" : "FAIL")}: Fenced opening-tag decoy stays literal inside box; valid={fencedOpeningResult.Document.Valid}; diagnostics={string.Join("|", fencedOpeningResult.Document.Diagnostics.Select(d => d.Code))}");
+if (!fencedOpeningPass) failures++;
+
 var nestedScope = "<box>\n~~~md\n</box>\n~~~\n<box><text>Nested sibling</text></box>\n</box>";
 var nestedParsed = new RichDocumentParser().Parse(nestedScope);
 var nestedPass = nestedParsed.Document.Valid && nestedParsed.Commands.Count == 0 &&
@@ -210,5 +222,5 @@ var deepPass = deepParsed.Document.Valid && deepParsed.Commands.Count == 0 &&
 Console.WriteLine($"{(deepPass ? "PASS" : "FAIL")}: Nested protected code bounded in {timer.ElapsedMilliseconds} ms");
 if (!deepPass) failures++;
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 6 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 6} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 7 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 7} passed");
 return failures == 0 ? 0 : 1;
