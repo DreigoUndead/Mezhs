@@ -1,18 +1,41 @@
 using System.ComponentModel.DataAnnotations;
 using Mezhs.Agent.Policy;
-using Mezhs.Configuration;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 using YamlDotNet.RepresentationModel;
 
 namespace Mezhs.Agent.Configuration;
 
 public static class AgentConfigLoader
 {
-    public static AgentOptions Load(string path)
+    public static AgentOptions Load(string path, IReadOnlyCollection<string>? coreConnectionIds = null)
     {
-        var options = MezhsConfigLoader.Load<AgentOptions>(path);
-        var configDirectory = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        if (!File.Exists(path))
+            throw new FileNotFoundException("MEŽS Agent configuration file was not found.", path);
+        var yaml = new YamlStream();
+        using (var reader = File.OpenText(path))
+            yaml.Load(reader);
+        if (yaml.Documents.Count != 1 || yaml.Documents[0].RootNode is not YamlMappingNode root)
+            throw new InvalidOperationException("MEŽS Agent configuration must contain one YAML mapping document.");
 
-        if (!Uri.TryCreate(options.Server.Listen, UriKind.Absolute, out var listen) || !listen.IsLoopback)
+        foreach (var key in root.Children.Keys.OfType<YamlScalarNode>())
+        {
+            if (key.Value is not null && new[] { "connections", "transport", "storage", "extensions" }
+                    .Contains(key.Value, StringComparer.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"agent.yaml cannot declare '{key.Value}'; move Core configuration to mezhs.yaml.");
+        }
+
+        var options = new DeserializerBuilder()
+            .WithNamingConvention(CamelCaseNamingConvention.Instance)
+            .Build().Deserialize<AgentOptions>(File.ReadAllText(path))
+            ?? throw new InvalidOperationException("MEŽS Agent configuration is empty.");
+        if (options.Version != 1)
+            throw new InvalidOperationException($"Unsupported Agent config version {options.Version}.");
+        var configDirectory = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        if (!Uri.TryCreate(options.Server.Listen, UriKind.Absolute, out var listen) ||
+            !listen.IsLoopback ||
+            (listen.Scheme != Uri.UriSchemeHttp && listen.Scheme != Uri.UriSchemeHttps))
             throw new InvalidOperationException(
                 "server.listen must use a loopback address. Host-shell Agent API cannot be exposed directly to the network.");
 
@@ -24,15 +47,10 @@ public static class AgentConfigLoader
         Validate(options, "agent");
         Validate(options.Messages, "messages");
 
-        var yaml = new YamlStream();
-        using (var reader = File.OpenText(path))
-            yaml.Load(reader);
-        if (yaml.Documents.Count != 1 || yaml.Documents[0].RootNode is not YamlMappingNode root)
-            throw new InvalidOperationException("MEŽS Agent configuration must contain one YAML mapping document.");
-
         options.Policies = new PolicyDecoder().DecodePolicies(
             RequiredMapping(root, "policies", "policies"));
-        ValidatePolicyConnections(options.Policies, options.Connections);
+        if (coreConnectionIds is not null)
+            ValidatePolicyConnections(options.Policies, coreConnectionIds);
         return options;
     }
 
@@ -61,10 +79,10 @@ public static class AgentConfigLoader
 
     private static void ValidatePolicyConnections(
         IReadOnlyDictionary<string, PolicyContext> policies,
-        IReadOnlyList<ConnectionOptions> connections)
+        IReadOnlyCollection<string> connectionIds)
     {
         foreach (var policy in policies.Values)
-            ValidateConnection(policy.ConnectionId, connections, $"policies.{policy.Id}.connectionId");
+            ValidateConnection(policy.ConnectionId, connectionIds, $"policies.{policy.Id}.connectionId");
     }
 
     private static void ValidateConnection(
@@ -72,8 +90,8 @@ public static class AgentConfigLoader
         IReadOnlyList<ConnectionOptions> connections,
         string path)
     {
-        if (connections.Any(connection =>
-                string.Equals(connection.Id, connectionId, StringComparison.OrdinalIgnoreCase)))
+        if (connectionIds.Any(id =>
+                string.Equals(id, connectionId, StringComparison.OrdinalIgnoreCase)))
             return;
         throw new InvalidOperationException(
             $"{path} references unknown connection '{connectionId}'.");
