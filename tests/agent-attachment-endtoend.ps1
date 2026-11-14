@@ -38,13 +38,16 @@ try {
   [IO.File]::WriteAllBytes($png, [Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg=='))
   $config = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mezhs.agent.test.yaml') -Raw)
   $config = $config.Replace('allow: [SH]', 'allow: [SH, ATTACH]')
-  $config = $config.Replace('data-agent-test/core', ($dataRoot.Replace('\','/')))
   $config = $config.Replace('data-agent-test/agent.sqlite', ($agentStore.Replace('\','/')))
-  $config = $config.Replace('electronDirectory: ../electron', 'electronDirectory: ' + (Join-Path $root 'electron').Replace('\','/'))
   $config = $config.Replace('workspace: ..', 'workspace: ' + $root.Replace('\','/'))
   Set-Content -LiteralPath $cfg -Value $config -Encoding UTF8
+  $coreCfg = Join-Path $temp 'core.yaml'
+  $core = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mezhs.agent.core.test.yaml') -Raw).
+    Replace('root: data-agent-test/core', 'root: ' + $dataRoot.Replace('\','/')).
+    Replace('electronDirectory: ../electron', 'electronDirectory: ' + (Join-Path $root 'electron').Replace('\','/'))
+  Set-Content -LiteralPath $coreCfg -Value $core -Encoding UTF8
   $dll = Join-Path $root 'src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll'
-  $agent = Start-Process -FilePath 'dotnet' -ArgumentList @($dll,'--config',$cfg) -WorkingDirectory $root -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
+  $agent = Start-Process -FilePath 'dotnet' -ArgumentList @($dll,'--config',$cfg,'--mezhs-config',$coreCfg) -WorkingDirectory $root -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
   WaitHealth 'http://127.0.0.1:5199/health'
   $command = "<ATTACH>`n$txt`n$png`n</ATTACH>"
   $task = "Test attachment in own next turn.`n$command"
