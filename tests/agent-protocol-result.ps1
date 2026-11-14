@@ -455,8 +455,8 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
     function Assert-NoMarkdownPromotion([string]$label, [string]$prefix, [string]$suffix) {
         $real = Join-Path $temp "real-$label.txt"
         $inert = Join-Path $temp "never-$label.txt"
-        $body = "**Example:\`n<SH>\`n**\`n\`n~~~\`n<SH>\`necho NEVER>>\`"$inert\`"\`n</SH>\`n~~~"
-        $task = "$prefix$body$suffix\`n<SH>\`necho REAL>>\`"$real\`"\`n</SH>\`n<DONE>"
+        $body = "**Example:`n<SH>`n**`n`n~~~`n<SH>`necho NEVER>>`"$inert`"`n</SH>`n~~~"
+        $task = "$prefix$body$suffix`n<SH>`necho REAL>>`"$real`"`n</SH>`n<DONE>"
         $run = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $task })
         $outcome = Wait-Execution $run.executionId 20
         $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/executions")
@@ -470,8 +470,8 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
     }
 
     Assert-NoMarkdownPromotion 'root' '' ''
-    Assert-NoMarkdownPromotion 'box' "<box>\`n" "\`n</box>"
-    Assert-NoMarkdownPromotion 'nested-box-row' "<box>\`n<row>\`n" "\`n</row>\`n</box>"
+    Assert-NoMarkdownPromotion 'box' "<box>`n" "`n</box>"
+    Assert-NoMarkdownPromotion 'nested-box-row' "<box>`n<row>`n" "`n</row>`n</box>"
 
     # A valid batch must still execute exactly once when a subsequent
     # multiline Markdown example contains a deceptive protocol opener.
