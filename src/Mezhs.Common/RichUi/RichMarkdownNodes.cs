@@ -79,7 +79,7 @@ internal static class RichMarkdownNodes
                 .OrderBy(entry => entry.Key).ToArray();
             if (embedded.Length > 0)
             {
-                var text = literalWithRich.Content.ToString();
+                var literalText = literalWithRich.Content.ToString();
                 var parts = new List<RichNode>();
                 var at = 0;
                 var original = start;
@@ -87,20 +87,20 @@ internal static class RichMarkdownNodes
                 {
                     var length = element.SourceSpan.End - element.SourceSpan.Start;
                     var marker = "\uE000" + new string('\uE001', length - 1);
-                    var found = text.IndexOf(marker, at, StringComparison.Ordinal);
+                    var found = literalText.IndexOf(marker, at, StringComparison.Ordinal);
                     if (found < 0)
                         throw new FormatException("Markdown split an inline rich placeholder.");
                     if (found > at)
                         parts.Add(new RichNode("text", $"{offset + original}:text",
                             new RichSourceSpan(offset + original, offset + tokenStart),
-                            Text: text[at..found]));
+                            Text: literalText[at..found]));
                     parts.Add(element);
                     at = found + marker.Length;
                     original = tokenStart + length;
                 }
-                if (at < text.Length)
+                if (at < literalText.Length)
                     parts.Add(new RichNode("text", $"{offset + original}:text",
-                        new RichSourceSpan(offset + original, offset + end), Text: text[at..]));
+                        new RichSourceSpan(offset + original, offset + end), Text: literalText[at..]));
                 return new RichNode("inlineFragment", $"{span.Start}:inlineFragment",
                     span, Children: parts);
             }
