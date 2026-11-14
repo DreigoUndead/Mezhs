@@ -295,6 +295,7 @@ test("Grok reply extraction prefers the specific response over its surrounding c
   ];
   const originals = new Map(names.map(name => [name, global[name]]));
   let sent = false;
+  let sendClicks = 0;
 
   const element = (text = "") => ({
     tagName: "DIV",
@@ -307,7 +308,7 @@ test("Grok reply extraction prefers the specific response over its surrounding c
   });
   const editor = element();
   const send = element();
-  send._click = () => { sent = true; };
+  send._click = () => { sent = true; sendClicks++; };
   const reply = element("GROK_OK");
   const container = element("promptGROK_OKSuggestion oneSuggestion two");
 
@@ -339,6 +340,7 @@ test("Grok reply extraction prefers the specific response over its surrounding c
       sleep: async () => {}
     });
     assert.equal(result.text, "GROK_OK");
+    assert.equal(sendClicks, 1, "one native click per requested turn");
     assert.equal(result.chatUrl, "https://grok.com/c/test");
   } finally {
     for (const [name, value] of originals) {
