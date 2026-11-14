@@ -161,6 +161,8 @@ const TRANSIENT_CATALOG_CODES = new Set([
 ]);
 
 function transientCatalogCode(error) {
+  // JSON syntax failures are never transient, even if their text mentions an ERR_ code.
+  if (error?.name === "SyntaxError") return null;
   const code = String(error?.code || "").replace(/^net::/, "");
   if (TRANSIENT_CATALOG_CODES.has(code)) return code;
   const match = /\b(ERR_[A-Z0-9_]+)\b/.exec(String(error?.message || ""));
