@@ -73,7 +73,8 @@ if ($agentCss -match 'min-height:\s*108px' -or
 }
 if ($shared -notmatch '<MarkdownContent content=\{message\.content\}' -or
     $sharedApp -notmatch '<MarkdownContent content=\{message\.content\}' -or
-    $markdown -notmatch 'remarkGfm' -or $markdown -notmatch 'RichDocumentView' -or $markdown -match 'remarkRichMarkup|remarkMdx|extractRichQuestions' -or $markdown -match 'StaticMarkup') {
+    $markdown -notmatch 'RichDocumentView' -or $markdown -notmatch 'prompt-text' -or
+    $markdown -match 'react-markdown|remark-gfm|remarkGfm|remarkRichMarkup|remarkMdx|extractRichQuestions|StaticMarkup') {
     throw "Both chat surfaces must render messages through the shared Markdown owner."
 }
 if ($resize -notmatch 'useLayoutEffect' -or $resize -notmatch 'scrollHeight') {
