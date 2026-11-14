@@ -464,7 +464,7 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
         if ($outcome.status -ne 'Completed' -or $shells.Count -ne 1 -or
             $shells[0].status -ne 'Completed' -or
             (Test-Path -LiteralPath $inert) -or -not (Test-Path -LiteralPath $real)) {
-            throw "Markdown promotion in $label: status=$($outcome.status), shells=$($shells.Count), inert=$(Test-Path -LiteralPath $inert), real=$(Test-Path -LiteralPath $real)."
+            throw "Markdown promotion in ${label}: status=$($outcome.status), shells=$($shells.Count), inert=$(Test-Path -LiteralPath $inert), real=$(Test-Path -LiteralPath $real)."
         }
         Write-Host "PASS: Inert Markdown command example in $label produced zero unauthorized side effects; adjacent SH ran exactly once."
     }
