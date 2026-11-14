@@ -4,7 +4,7 @@ ID: rich-ui-custom-controls
 Branch: rich-ui-custom-controls
 PR: https://github.com/DreigoUndead/Mezhs/pull/53
 Level: **High-risk — cross-runtime parser/renderer redesign and host command authority**
-State: **IMPLEMENTED — developer verification passed; independent code review re-review pending after corrections; independent tester pending**
+State: **IMPLEMENTED — recursive C# parser corrections developer-verified; fresh independent code review and independent final testing pending**
 Dependency: existing Rich UI Custom Controls work on this branch; old incremental plan versions remain in Git history (last archived plan at 54686a1d591be4a806a1f3e17d559aa8175736b2).
 Owner decision (2026-11-12): adopt one canonical **C#** document/parser/validation model; React renders typed validated data and owns only local interactive state; commands can occur inside valid containers/lists.
 Owner clarification (2026-11-13): **Do not preserve legacy UI parsing/handling.** All supported old and new tags use the one canonical C# parser, DTO and typed React renderer. Remove the old frontend extraction, expression and markup paths instead of a compatibility fallback. Retire or migrate raw-text frontend tests to validate canonical DTOs and the inert provisional fallback; treat unsupported expression constructs as inert until explicitly added to the canonical grammar. Security/command boundary tests remain mandatory.
@@ -150,3 +150,30 @@ Independent High-risk re-review against feature `b5dde35cb7d2f83ff07d183172d70a0
 **Mandatory complexity escalation:** Repeated fixes now stem from the same structural split-and-reparse strategy. The repository workflow requires an owner decision before introducing further complexity. Options: **(A)** refactor within the single canonical C# parser so Markdig retains Markdown block/inline context while validated rich tokens become typed children (higher implementation/test cost, retains supported semantics); **(B)** narrowly unwrap/merge paragraph fragments in postprocessing (smaller diff but incomplete for headings, links, lists and cross-tag markup; not recommended as a durable fix); or **(C)** explicitly narrow the supported syntax to rich elements that do not interrupt Markdown inline structure (simpler but a compatibility break requiring explicit owner approval). Recommendation: **A**, with bounded source spans, all-or-nothing command validation, and real-fixture regression coverage, or **C** only if the owner deliberately accepts reduced compatibility. **Await owner choice before further parser changes.**
 
 No independent test or fresh independent review has been performed for the seven follow-up commits. Do not merge or start final independent testing until the remaining issue is resolved or explicitly accepted, developer checks are recorded, and a fresh independent High-risk reviewer passes the final SHA. Version and changelog remain release-only.
+
+## Owner-confirmed recursive parsing and second review corrections (2026-11-14)
+
+The owner clarified that parsing must remain **recursive**: a `box` parses its children; its inner `text` node receives static attributes such as `strong` and recursively parses its text. This is confirmation of the existing **one authoritative C# parser** design, not approval of a legacy frontend fallback or a new parser engine. The previous complexity-gate decision above is **resolved**: preserve recursive rich tag discovery while retaining Markdown context across inline child tags.
+
+Changes on `rich-ui-custom-controls`:
+
+- Restored previously supported **single-box radio questions** using `RichQuestionGrammar` and the canonical C# validator for wrapper attributes, preserving the host-owned action callback and bounded option grammar. Restored the original supported sample and added an end-to-end fixture and unsafe-wrapper rejection cases.
+- Restored static `textAlign` and `tabularNums` validation for `text` and `title`.
+- In `RichDocumentParser`, inline presentation nodes are still parsed recursively, but their validated source spans are passed with surrounding text to the same C# Markdown converter. `RichMarkdownNodes` treats those spans as inert, source-preserving placeholder text during Markdig AST construction, then substitutes the already validated typed nodes. Thus `Before <text strong>inside</text> after` becomes a single Markdown paragraph containing the rich child; Markdown emphasis can span the child and list-item structure is retained. React continues to render typed data only. Agent command placement and all-or-nothing parse failure semantics are unchanged.
+- Regression cases cover mixed paragraphs, recursive boxes, emphasis across inline tags, list items, previously accepted static attributes, boxed questions, fenced closing-tag decoys, and forbidden Agent command placement.
+
+**Developer verification** at source/test commit `29c5f1d24e8c78b17278a3ad15599753ddf2a2ab` in dedicated verification worktree:
+
+| Gate | Result |
+| --- | --- |
+| Canonical C# parser/security | **43/43 PASS**; 900 sibling containers bounded in 66 ms |
+| Typed React SSR rendering | **32/32 PASS** |
+| Real Chromium interactive DIL/host state | **PASS** |
+| Agent protocol + Executor security/side-effect checks | **PASS** |
+| Shared Agent Web UI/SSR | **19/19 PASS**, shared wiring PASS |
+| Agent architecture guard | **PASS** |
+| `Mezhs.Agent.Api` Release build | **PASS**, 0 warnings, 0 errors |
+| `Mezhs.Agent.Web` production build | **PASS**, TypeScript and Vite |
+| Portable Codegraph | Regenerated to **287 files, 743 edges** |
+
+These are **developer** checks. A *new* independent High-risk code reviewer must evaluate the corrected PR SHA, followed by a **different independent tester** only on review PASS. Neither gate is yet satisfied for the revised implementation. The PR must remain unmerged; owner approval is required for merge/release; do not edit VERSION or CHANGELOG here.
