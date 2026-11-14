@@ -4,45 +4,48 @@ using Mezhs.Integrations.Browser;
 namespace Mezhs.Integrations.Grok;
 
 /// <summary>
-/// Connects a persistent Grok account to Mezhs and delegates provider-browser work
-/// to the embedded Grok browser module.
+/// Persistent Grok account with a single session owner and per-chat isolated contexts.
+/// The existing DOM provider protocol remains in place for this architecture update.
 /// </summary>
 [Integration("grok-web-account")]
-public sealed class GrokAccountIntegration : BrowserIntegrationBase
+public sealed class GrokAccountIntegration : BrowserAccountIntegrationBase
 {
-    private readonly ILoginModule _login;
-    private readonly IModelModule _models;
-
     public GrokAccountIntegration(
-        IntegrationConnection connection,
-        IIntegrationHost host) : base(Validate(connection), host)
-    {
-        var session = CreateAccountSession();
-        _login = new LoginModule(session);
-        _models = new ModelModule(session);
-    }
+        IntegrationConnection connection, IIntegrationHost host)
+        : base(Validate(connection), host) { }
 
     protected override Assembly BrowserModuleAssembly => typeof(GrokAccountIntegration).Assembly;
     protected override string BrowserModuleResourceName => "Mezhs.Integrations.Grok.BrowserModule";
 
-    public override ILoginModule Login => _login;
-    public override IModelModule Models => _models;
-
-    protected override Task<IntegrationSendResult> SendCoreAsync(
-        IntegrationSendContext context,
+    public override Task<IReadOnlyList<IntegrationModel>> GetModelsAsync(
         CancellationToken cancellationToken = default) =>
-        CreateAccountSession().UseAsync(async (transport, token) =>
+        AccountSession.UseAuthorizedAsync<IReadOnlyList<IntegrationModel>>(async (transport, token) =>
         {
+            var discovered = await transport.InvokeAsync<IntegrationModel[]>(
+                "getModels", cancellationToken: token);
+            return [new IntegrationModel("default", "Default"), ..discovered
+                .Where(model => !string.IsNullOrWhiteSpace(model.Id) &&
+                                !string.IsNullOrWhiteSpace(model.Name) &&
+                                !string.Equals(model.Id, "default", StringComparison.OrdinalIgnoreCase))
+                .DistinctBy(model => model.Id, StringComparer.OrdinalIgnoreCase)];
+        }, cancellationToken);
+
+    // Native browser module selects the model within the isolated chat operation.
+    protected override Task SetModelAsync(ChatContext chat, string model,
+        CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    protected override Task<PromptResult> SendCoreAsync(
+        ChatContext chat, PromptRequest request,
+        CancellationToken cancellationToken = default) =>
+        AccountSession.UseAsync(async (transport, token) =>
+        {
+            var prompt = await BuildRestorePromptAsync(chat, request.Text, token);
             var response = await transport.InvokeAsync<GrokSendResponse>(
-                "newChat",
-                new GrokSendRequest(
-                    (context with { RestoreConversation = true }).Prompt,
-                    context.Message.Model),
-                token);
-            return new IntegrationSendResult(
-                response.Text,
-                response.ChatUrl);
-        }, cancellationToken, chatId: context.Chat.ChatId);
+                "newChat", new GrokSendRequest(prompt, request.Model), token);
+            return new PromptResult(
+                response.Text, CreateMessageId(), request.Model ?? "default",
+                RemoteChatUrl: response.ChatUrl);
+        }, cancellationToken, chatId: chat.Id);
 
     private static IntegrationConnection Validate(IntegrationConnection connection)
     {
@@ -52,31 +55,6 @@ public sealed class GrokAccountIntegration : BrowserIntegrationBase
         return connection;
     }
 
-    private sealed record GrokSendRequest(
-        string Prompt,
-        string? Model);
-
-    private sealed record GrokSendResponse(
-        string Text,
-        string? ChatUrl);
-
-    private sealed class LoginModule(BrowserAccountSession session) : ILoginModule
-    {
-        public Task LoginAsync(CancellationToken cancellationToken = default) =>
-            session.LoginAsync(cancellationToken);
-
-        public Task OpenBrowserAsync(CancellationToken cancellationToken = default) =>
-            session.OpenBrowserAsync(cancellationToken);
-    }
-
-    private sealed class ModelModule(BrowserAccountSession session) : IModelModule
-    {
-        public Task<IReadOnlyList<IntegrationModel>> GetModelsAsync(
-            CancellationToken cancellationToken = default) =>
-            session.UseAuthorizedAsync<IReadOnlyList<IntegrationModel>>(async (transport, token) =>
-                await transport.InvokeAsync<IntegrationModel[]>(
-                    "getModels",
-                    cancellationToken: token),
-                cancellationToken);
-    }
+    private sealed record GrokSendRequest(string Prompt, string? Model);
+    private sealed record GrokSendResponse(string Text, string? ChatUrl);
 }

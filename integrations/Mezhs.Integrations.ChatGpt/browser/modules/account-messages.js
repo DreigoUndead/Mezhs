@@ -121,7 +121,11 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
       execution.initializedDefaultModel = initializedModel;
   }
 
-  const requestMessageId = randomUUID();
+  // Core has already persisted this provider-format outbound message ID.
+  // Never generate a different on-wire ID after persistence.
+  const requestMessageId = args.messageId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestMessageId || ""))
+    throw new Error("ChatGPT request requires a persisted UUID message id.");
   const posted = await postConversationTurn(
     window,
     session,

@@ -17,10 +17,11 @@ public class ChatGptWebIntegration : BrowserIntegrationBase
     protected override string BrowserModuleResourceName => "Mezhs.Integrations.ChatGpt.BrowserModule";
     protected override string BrowserModuleEntryFileName => "entry.js";
 
-    protected override Task<IntegrationSendResult> SendCoreAsync(
-        IntegrationSendContext context,
+    protected override Task<PromptResult> SendCoreAsync(
+        ChatContext chat,
+        PromptRequest request,
         CancellationToken cancellationToken = default) =>
-        SendAnonymousAsync(context, cancellationToken);
+        SendAnonymousAsync(chat, request, cancellationToken);
 
     private static IntegrationConnection Validate(IntegrationConnection connection)
     {
@@ -33,79 +34,82 @@ public class ChatGptWebIntegration : BrowserIntegrationBase
 }
 
 [Integration("chatgpt-web-account")]
-public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
+public sealed class ChatGptAccountIntegration : BrowserAccountIntegrationBase
 {
-    private readonly ILoginModule _login;
-    private readonly IModelModule _models;
-
     public ChatGptAccountIntegration(
-        IntegrationConnection connection,
-        IIntegrationHost host) : base(connection, host)
-    {
-        var session = CreateAccountSession();
-        _login = new LoginModule(session);
-        _models = new ModelModule(session);
-    }
+        IntegrationConnection connection, IIntegrationHost host) : base(connection, host) { }
 
+    protected override Assembly BrowserModuleAssembly => typeof(ChatGptAccountIntegration).Assembly;
+    protected override string BrowserModuleResourceName => "Mezhs.Integrations.ChatGpt.BrowserModule";
+    protected override string BrowserModuleEntryFileName => "entry.js";
+
+    public override bool AllowFiles => true;
+    public override string CreateMessageId() => Guid.NewGuid().ToString();
 
     // Feasibility gate only: deliberately unused by normal model retrieval until
     // an authenticated Electron run confirms transport, error and cancellation.
     public Task<ChatGptModelCatalogProbe> ProbeTypedHttpAsync(
         Action<BrowserOperationProgress>? reportProgress = null,
         CancellationToken cancellationToken = default) =>
-        CreateAccountSession().UseAuthorizedAsync(
+        AccountSession.UseAuthorizedAsync(
             (transport, token) => new BrowserHttpExecutor(transport).CallAsync(
                 ChatGptTypedHttpEndpoints.Models, new EmptyHttpRequest(),
                 reportProgress, token),
             cancellationToken);
 
-    public override IntegrationCapabilities Capabilities => new(
-        FileInput: true,
-        ImageInput: true,
-        FileOutput: true,
-        ImageOutput: true);
-    public override ILoginModule Login => _login;
-    public override IModelModule Models => _models;
-
-    protected override Task<IntegrationSendResult> SendCoreAsync(
-        IntegrationSendContext context,
+    public override Task<IReadOnlyList<IntegrationModel>> GetModelsAsync(
         CancellationToken cancellationToken = default) =>
-        CreateAccountSession().UseAsync(async (transport, token) =>
+        AccountSession.UseAuthorizedAsync<IReadOnlyList<IntegrationModel>>(async (transport, token) =>
+        {
+            var discovered = await transport.InvokeAsync<IntegrationModel[]>(
+                "getModels", cancellationToken: token);
+            return [new IntegrationModel("default", "Default"), ..discovered
+                .Where(model => !string.IsNullOrWhiteSpace(model.Id) &&
+                                !string.IsNullOrWhiteSpace(model.Name) &&
+                                !string.Equals(model.Id, "default", StringComparison.OrdinalIgnoreCase))
+                .DistinctBy(model => model.Name.Trim(), StringComparer.OrdinalIgnoreCase)];
+        }, cancellationToken);
+
+    // Browser protocol chooses the model per operation, never in connection-global C# state.
+    protected override Task SetModelAsync(ChatContext chat, string model,
+        CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    protected override Task<PromptResult> SendCoreAsync(
+        ChatContext chat, PromptRequest request,
+        CancellationToken cancellationToken = default) =>
+        AccountSession.UseAsync(async (transport, token) =>
         {
             var hasRemoteConversation =
-                !string.IsNullOrWhiteSpace(context.Chat.RemoteConversationId) &&
-                !string.IsNullOrWhiteSpace(context.Chat.RemoteParentMessageId);
+                !string.IsNullOrWhiteSpace(chat.ProviderId) &&
+                !string.IsNullOrWhiteSpace(chat.RemoteParentMessageId);
             var workspace = Connection.GetSetting("workspace");
-            var files = context.Files.Select(file => new ChatGptInputFile(
-                file.Path,
-                file.Name,
-                file.ContentType)).ToArray();
+            var files = request.Files.Select(file => new ChatGptInputFile(
+                file.Path, file.Name, file.ContentType)).ToArray();
 
             async Task<(ChatGptSendResponse Response, string? ProjectId)> SendAsync(bool newChat)
             {
                 if (newChat && !string.IsNullOrWhiteSpace(workspace))
-                    context.ReportActivity?.Invoke(new IntegrationActivity(
+                    chat.ReportActivity?.Invoke(new IntegrationActivity(
                         "preparing", "Resolving ChatGPT project."));
                 var projectId = newChat
                     ? await ResolveProjectIdAsync(transport, workspace, token)
                     : null;
-                var prompt = newChat && hasRemoteConversation
-                    ? (context with { RestoreConversation = true }).Prompt
-                    : context.Prompt;
-                var request = new ChatGptSendRequest(
+                var prompt = newChat && (chat.RestoreConversation || hasRemoteConversation)
+                    ? await BuildRestorePromptAsync(chat, request.Text, token)
+                    : request.Text;
+                var payload = new ChatGptSendRequest(
                     prompt,
-                    newChat ? null : context.Chat.RemoteConversationId,
-                    newChat ? null : context.Chat.RemoteParentMessageId,
+                    request.MessageId,
+                    newChat ? null : chat.ProviderId,
+                    newChat ? null : chat.RemoteParentMessageId,
                     projectId,
-                    context.Message.Model,
+                    request.Model,
                     files);
                 var response = await transport.InvokeWithProgressAsync<ChatGptSendResponse>(
                     newChat ? "newChat" : "send",
-                    request,
-                    progress => context.ReportActivity?.Invoke(new IntegrationActivity(
-                        progress.State,
-                        progress.Detail,
-                        progress.Analysis)),
+                    payload,
+                    progress => chat.ReportActivity?.Invoke(new IntegrationActivity(
+                        progress.State, progress.Detail, progress.Analysis)),
                     token);
                 return (response, projectId);
             }
@@ -114,7 +118,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
             if (hasRemoteConversation && sent.Response.ConversationUnavailable)
             {
                 Console.Error.WriteLine(
-                    $"ChatGPT conversation '{context.Chat.RemoteConversationId}' was unavailable before submission; restoring the new remote conversation from local history.");
+                    $"ChatGPT conversation '{chat.ProviderId}' was unavailable before submission; restoring the new remote conversation from local history.");
                 sent = await SendAsync(newChat: true);
             }
 
@@ -123,16 +127,21 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
                 throw new InvalidOperationException(
                     $"ChatGPT created the chat outside project '{workspace}'.");
 
-            return new IntegrationSendResult(
+            if (string.IsNullOrWhiteSpace(sent.Response.ParentMessageId))
+                throw new InvalidOperationException(
+                    "ChatGPT did not return the final assistant message id.");
+
+            return new PromptResult(
                 sent.Response.Text,
-                sent.Response.ChatUrl,
-                sent.Response.ConversationId,
                 sent.Response.ParentMessageId,
+                sent.Response.Model ?? request.Model ?? "default",
+                sent.Response.ConversationId,
                 OutputFiles(sent.Response.Artifacts),
-                sent.Response.Model);
-        }, cancellationToken, stage =>
-            context.ReportActivity?.Invoke(new IntegrationActivity("preparing", stage)),
-            chatId: context.Chat.ChatId);
+                sent.Response.ParentMessageId,
+                sent.Response.ChatUrl);
+        }, cancellationToken,
+        stage => chat.ReportActivity?.Invoke(new IntegrationActivity("preparing", stage)),
+        chatId: chat.Id);
 
     private static async Task<string?> ResolveProjectIdAsync(
         IChatBrowserTransport transport,
@@ -191,6 +200,7 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
 
     private sealed record ChatGptSendRequest(
         string Prompt,
+        string MessageId,
         string? ConversationId,
         string? ParentMessageId,
         string? ProjectId,
@@ -206,30 +216,4 @@ public sealed class ChatGptAccountIntegration : ChatGptWebIntegration
         IReadOnlyList<BrowserArtifact>? Artifacts,
         string? Model = null,
         bool ConversationUnavailable = false);
-
-    private sealed class LoginModule(BrowserAccountSession session) : ILoginModule
-    {
-        public Task LoginAsync(CancellationToken cancellationToken = default) =>
-            session.LoginAsync(cancellationToken);
-
-        public Task OpenBrowserAsync(CancellationToken cancellationToken = default) =>
-            session.OpenBrowserAsync(cancellationToken);
-    }
-
-    private sealed class ModelModule(BrowserAccountSession session) : IModelModule
-    {
-        public Task<IReadOnlyList<IntegrationModel>> GetModelsAsync(
-            CancellationToken cancellationToken = default) =>
-            session.UseAuthorizedAsync<IReadOnlyList<IntegrationModel>>(async (transport, token) =>
-            {
-                var discovered = await transport.InvokeAsync<IntegrationModel[]>(
-                    "getModels",
-                    cancellationToken: token);
-                return discovered
-                    .Where(model => !string.IsNullOrWhiteSpace(model.Id) &&
-                                    !string.IsNullOrWhiteSpace(model.Name))
-                    .DistinctBy(model => model.Name.Trim(), StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
-            }, cancellationToken);
-    }
 }

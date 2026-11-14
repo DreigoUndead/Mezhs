@@ -3,11 +3,12 @@ using Mezhs.Browser;
 
 namespace Mezhs.Integrations.Browser;
 
-public sealed class BrowserDiagnosticsModule(BrowserAccountSession session)
-    : IIntegrationDiagnosticsModule
+// Keep browser diagnostic allowlisting at the authenticated session boundary;
+// the public API also checks loopback + origin before invoking this helper.
+internal static class BrowserDiagnostics
 {
-    private static readonly HashSet<string> Operations =
-    [
+    private static readonly HashSet<string> Operations = new(StringComparer.Ordinal)
+    {
         "snapshot",
         "inspectPoint",
         "click",
@@ -17,12 +18,13 @@ public sealed class BrowserDiagnosticsModule(BrowserAccountSession session)
         "networkTrace",
         "inspectRspackExports",
         "show"
-    ];
+    };
 
-    public Task<JsonElement> InvokeAsync(
+    internal static Task<JsonElement> InvokeAsync(
+        BrowserAccountSession session,
         string operation,
         JsonElement arguments,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
         var normalized = operation?.Trim() ?? string.Empty;
         if (!Operations.Contains(normalized))
