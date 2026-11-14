@@ -200,7 +200,7 @@ function activityLabel(date: string) {
 
 function agentStatus(chat: AgentChat) {
   const state = chat.executionStatus ?? "Unknown";
-  return chat.paused && !["Queued", "Running", "CancelRequested"].includes(state)
+  return chat.paused && !["Queued", "Running", "Waiting", "CancelRequested"].includes(state)
     ? "Paused" : state;
 }
 
