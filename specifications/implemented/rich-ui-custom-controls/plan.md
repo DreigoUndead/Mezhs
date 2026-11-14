@@ -4,7 +4,7 @@ ID: rich-ui-custom-controls
 Branch: rich-ui-custom-controls
 PR: https://github.com/DreigoUndead/Mezhs/pull/53
 Level: **High-risk — cross-runtime parser/renderer redesign and host command authority**
-State: **IMPLEMENTED — fourth independent High-risk review FAIL corrections developer-verified; new independent code review and independent final testing pending**
+State: **IMPLEMENTED — fifth independent High-risk review FAIL corrections developer-verified; new independent code review and independent final testing pending**
 Dependency: existing Rich UI Custom Controls work on this branch; old incremental plan versions remain in Git history (last archived plan at 54686a1d591be4a806a1f3e17d559aa8175736b2).
 Owner decision (2026-11-12): adopt one canonical **C#** document/parser/validation model; React renders typed validated data and owns only local interactive state; commands can occur inside valid containers/lists.
 Owner clarification (2026-11-13): **Do not preserve legacy UI parsing/handling.** All supported old and new tags use the one canonical C# parser, DTO and typed React renderer. Remove the old frontend extraction, expression and markup paths instead of a compatibility fallback. Retire or migrate raw-text frontend tests to validate canonical DTOs and the inert provisional fallback; treat unsupported expression constructs as inert until explicitly added to the canonical grammar. Security/command boundary tests remain mandatory.
@@ -240,3 +240,31 @@ Independent reviewer `exec_05882f077d9f40ae8c708c86155bfc83` (chat `chat_1dcf96d
 | Codegraph export at `a6e711b` | **287 files, 741 edges**, generated Git blob exactly matches committed `ca10c6df366583eebcbbaae26960c3b382760b0c` |
 
 These are **developer** checks, not independent review or testing. Obtain a new independent High-risk code review against the exact updated plan commit; only a **PASS** unblocks a **different independent final tester**. No merge, release, version or changelog action without explicit owner approval. Main remains release-only.
+
+## Fifth independent High-risk review FAIL and scoped Markdown-context fix (2026-11-14)
+
+Independent reviewer `exec_18d206ce82e54185a2a09b3364625ed8` (chat `chat_59044c095c034c8195f44e259494b8cb`) reviewed exact SHA `7b7226ce5e323761eb32cf1e0db26e9afcb84850` against release-only base `179c0da50a17e7024d76eaa2571cb6ee2498348e` and returned **FAIL** on two static code-path issues; the reviewer did not demonstrate unauthorized shell execution.
+
+1. **P1 — missing Markdown inline authorization context inside rich layout containers.** The full-document Markdig AST may treat `<box>` as an HTML block, hiding inner emphasis and link-label ranges. `RichDocumentParser.MarkdownLiteralMask` now gathers and merges local `EmphasisInline` and `LinkInline` authorization scopes, plus the existing protective multiline delimiter guard, into the original UTF-16 source-position masks during each `FindContainerClose` scoped validation. Commands inside emphasized or linked examples in nested `box`/`row` are now inert; valid adjacent commands remain authorized.
+2. **P2 — nested Markdown list commands rejected inside rich layout.** Per-container scoped Markdig validation also merges `ListItemBlock` spans into the same global source positions. A four-space continuation indent inside a two-level list within `box` or `row` now qualifies as legitimate list indentation; four-space root code remains inert.
+
+Corrective commits: `a0d8d9d` (scoped context propagation), `ea8500d` (six combined parser security/correctness regressions), `edce368` (real Agent/Executor negative and positive side-effect checks). No legacy frontend parser has been reintroduced.
+
+### Developer verification after fifth-review corrections
+
+All below were run from the dedicated verification checkout at exact source/test HEAD `edce3680827482baadfb3256dd005d10cc4f07a3`:
+
+| Gate | Evidence |
+| --- | --- |
+| Canonical C# parser/security | **63/63 PASS**, including Markdown emphasis/link-label and nested lists inside `box`/`row` |
+| Agent protocol + real Executor | **PASS**; nested layout emphasized/link-label shell examples created **no Shell records or filesystem side effects**; valid neighboring shell and nested-list shell each ran **exactly once**; rejected batch, ordering, and continuation regressions PASS |
+| Typed React SSR | **34/34 PASS** |
+| Real Chromium | **PASS** |
+| Shared Agent Web UI/SSR and wiring | **19/19 PASS** and wiring PASS |
+| Architecture guard | **PASS** |
+| Agent API Release build | **PASS**, **0 warnings, 0 errors** |
+| Agent Web TypeScript/Vite build | **PASS** |
+| Codegraph | **287 files, 741 edges**; generated and committed blob hashes both `ca10c6df366583eebcbbaae26960c3b382760b0c` |
+| `git diff --check` | **PASS** |
+
+This remains **developer verification only**. Request a fresh independent High-risk code review of the exact branch SHA after this plan update. Only independent reviewer **PASS** permits a **separate, different independent final tester**. Owner approval remains mandatory before merge. Main is release-only and VERSION/CHANGELOG are untouched.
