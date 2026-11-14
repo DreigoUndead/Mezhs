@@ -223,9 +223,14 @@ Reject(parser, "<!--\n<SH>\necho INERT\n</SH>\n-->\n<UNKNOWN>",
 var quotedShell = parser.Parse("> Example:\n<SH>\necho NEVER_EXECUTE_QUOTE\n</SH>\n\n<DONE>");
 Check(quotedShell.Commands.SequenceEqual([new Command("DONE", null)]),
     "Markdown blockquote lazy continuation granted shell authority.");
-var quotedInsideBox = parser.Parse("<box>\n> Example:\n<SH>\necho NEVER_EXECUTE_BOX_QUOTE\n</SH>\n</box>\n<DONE>");
+// A blank line terminates a lazy Markdown quote before the rich closing
+// delimiter. Without the blank line Markdig includes the closing </box> in
+// the quote; the parser must fail closed rather than promote quoted commands.
+var quotedInsideBox = parser.Parse("<box>\n> Example:\n<SH>\necho NEVER_EXECUTE_BOX_QUOTE\n</SH>\n\n</box>\n<DONE>");
 Check(quotedInsideBox.Commands.SequenceEqual([new Command("DONE", null)]),
     "Markdown blockquote within a rich box granted shell authority.");
+Reject(parser, "<box>\n> Example:\n<SH>\necho NEVER_EXECUTE_BOX_QUOTE\n</SH>\n</box>\n<DONE>",
+    "An ambiguous lazy Markdown quote closed a rich container and authorized commands.");
 Console.WriteLine("PASS: Markdown blockquotes, including lazy continuations inside boxes, cannot authorize shell commands.");
 
 Console.WriteLine("PASS: Top-level HTML comments and multiline code spans are inert; later commands remain strict.");
@@ -380,7 +385,7 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
     }
 
     Assert-InertPresentation 'blockquote-lazy-command' '> Example:' ''
-    Assert-InertPresentation 'blockquote-lazy-command-in-box' "<box>`n> Example:" '</box>'
+    Assert-InertPresentation 'blockquote-lazy-command-in-box' "<box>`n> Example:" "`n</box>"
     Assert-InertPresentation 'html-comment' '<!--' '-->'
     Assert-InertPresentation 'inline-code' '`' '`'
     Assert-InertPresentation 'quoted-code-opener' '<CodeBlock language="text" note="</CodeBlock>">' '</CodeBlock>'
