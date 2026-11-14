@@ -31,6 +31,10 @@ public sealed class RichDocumentParser
     private readonly MarkdownPipeline _markdown = new MarkdownPipelineBuilder().UsePipeTables().UseEmphasisExtras().Build();
     private string _source = "";
     private bool[] _literal = [];
+    // Context is derived from the same Markdig AST as literal/code protection.
+    // Presentation-only Markdown inline ancestors never grant Agent authority.
+    private bool[] _inlineContext = [];
+    private bool[] _listContext = [];
     private List<RichCommandCandidate> _commands = [];
     private int _count;
     private int _svgCount;
@@ -51,7 +55,7 @@ public sealed class RichDocumentParser
         {
             // Markdown establishes code/escaped/comment semantics. Rich tags
             // are scanned only outside protected source ranges.
-            _literal = MarkdownLiteralMask(source);
+            _literal = MarkdownLiteralMask(source, collectContext: true);
             var nodes = ReadChildren(0, source.Length, null, 0, out _);
             var done = _commands.FindIndex(c => c.Name == "DONE");
             if (done >= 0 && (done != _commands.Count - 1 ||
@@ -79,12 +83,29 @@ public sealed class RichDocumentParser
             [new RichDiagnostic(reason, new RichSourceSpan(0, source.Length))]),
         []);
 
-    private bool[] MarkdownLiteralMask(string source)
+    private bool[] MarkdownLiteralMask(string source, bool collectContext = false)
     {
         var mask = new bool[source.Length];
+        bool[]? inlineContext = null;
+        bool[]? listContext = null;
+        if (collectContext)
+        {
+            _inlineContext = inlineContext = new bool[source.Length];
+            _listContext = listContext = new bool[source.Length];
+        }
         var document = Markdown.Parse(source, _markdown);
+        static void Mark(bool[] target, SourceSpan span)
+        {
+            var start = Math.Clamp(span.Start, 0, target.Length);
+            var end = Math.Clamp(span.End + 1, start, target.Length);
+            Array.Fill(target, true, start, end - start);
+        }
         void Visit(MarkdownObject node)
         {
+            if (listContext is not null && node is ListItemBlock)
+                Mark(listContext, node.Span);
+            if (inlineContext is not null && node is EmphasisInline or LinkInline)
+                Mark(inlineContext, node.Span);
             // A Markdown blockquote is presentation, never an Agent command
             // authority scope. Mask its *entire* canonical AST range, including
             // lazy continuation lines that have no leading '>' marker. Tags
@@ -227,6 +248,16 @@ public sealed class RichDocumentParser
                 !TryTag(cursor, end, out var tag))
             {
                 cursor++;
+                continue;
+            }
+            // In an emphasized passage or Markdown link label, protocol-looking
+            // source remains Markdown. Do not split the inline structure or
+            // collect a host command; this applies to both opener and closer.
+            // Other rich elements still recurse and render inside emphasis.
+            if (!svgScope && _inlineContext[cursor] &&
+                tag.Name is "SH" or "ATTACH" or "DONE")
+            {
+                cursor = tag.End;
                 continue;
             }
             if (tag.Closing)
@@ -455,10 +486,14 @@ public sealed class RichDocumentParser
         var lineStart = _source.LastIndexOf('\n', Math.Max(0, start - 1)) + 1;
         var lineEnd = _source.IndexOf('\n', end);
         if (lineEnd < 0) lineEnd = _source.Length;
-        // Delimiters may have at most three leading spaces; tabs are never valid.
-        // Markdown code indentation cannot terminate a raw editor.
+        // Root commands need at most three leading spaces. A nested Markdown
+        // list item can require four or more *continuation* spaces: admit only
+        // when the canonical Markdig list-item span contains this delimiter.
+        // Code blocks / quotes remain masked before this check, including
+        // four-space indented code that is not a list continuation.
         var prefix = _source.AsSpan(lineStart, start - lineStart);
-        return prefix.Length <= 3 && prefix.IndexOfAnyExcept((char)32) < 0 &&
+        return (prefix.Length <= 3 || _listContext[start]) &&
+               prefix.IndexOfAnyExcept((char)32) < 0 &&
                string.IsNullOrWhiteSpace(_source[end..lineEnd]);
     }
 
