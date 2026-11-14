@@ -196,10 +196,12 @@ internal static class RichMarkdownNodes
                         markerStart, markerPad));
             if (input is LeafBlock leaf && leaf.Inline is not null)
                 foreach (var child in leaf.Inline)
-                    AddMapped(children, Map(child, source, offset, depth + 1, ref count, replacements, replacementStarts));
+                    AddMapped(children, Map(child, source, offset, depth + 1, ref count, replacements, replacementStarts,
+                        markerStart, markerPad));
             if (input is ContainerInline inlines)
                 foreach (var child in inlines)
-                    AddMapped(children, Map(child, source, offset, depth + 1, ref count, replacements, replacementStarts));
+                    AddMapped(children, Map(child, source, offset, depth + 1, ref count, replacements, replacementStarts,
+                        markerStart, markerPad));
         }
         return new RichNode(kind, $"{span.Start}:{kind}", span, text,
             Attributes: attributes.Count == 0 ? null : attributes,
