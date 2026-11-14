@@ -72,6 +72,11 @@ public sealed class RichDocumentParser
             // cannot hide valid later commands.
             _literal = MarkdownLiteralMask(_markdownSource, collectContext: true);
             var nodes = ReadChildren(0, source.Length, null, 0, out _);
+            // Validate the final typed tree before releasing any command
+            // candidates. Rich inline wrappers render as HTML phrasing
+            // elements; they must not contain blocks or nested interactive
+            // controls, even when Markdown lowering introduces those nodes.
+            ValidateContentModel(nodes);
             var done = _commands.FindIndex(c => c.Name == "DONE");
             if (done >= 0 && (done != _commands.Count - 1 ||
                 _commands.Count(c => c.Name == "DONE") != 1))
@@ -89,6 +94,47 @@ public sealed class RichDocumentParser
             // Parse failures must not grant host capabilities or return a
             // partially parsed command list.
             return Failed(source, "The document could not be parsed safely.");
+        }
+    }
+
+    // This runs over the canonical C# display AST, never over React markup.
+    // The independent SearchChildren/AllowAsChild tag discovery flags do not
+    // override HTML content-model constraints for the resulting DOM.
+    private static void ValidateContentModel(IReadOnlyList<RichNode> nodes,
+        bool phrasingOnly = false, bool insideInteractive = false)
+    {
+        foreach (var node in nodes)
+        {
+            var isElement = node.Kind == "element";
+            var name = node.Name ?? "";
+            var inlineElement = isElement && InlineElements.Contains(name);
+            var richLink = isElement && name == "Link";
+            var markdownLink = node.Kind == "link";
+            if (phrasingOnly &&
+                !(node.Kind is "text" or "literal" or "inlineCode" or
+                    "strong" or "emphasis" or "strikethrough" or
+                    "lineBreak" or "link" or "image" ||
+                  inlineElement || isElement && name == "svg"))
+                throw new RichDocumentException(
+                    "Block or interactive content is forbidden inside inline rich elements.");
+            // Markdown links and rich Link both render as anchors. A nested
+            // anchor (or input) is invalid even if intermediate children
+            // are strong/emphasis/text wrappers.
+            if (insideInteractive &&
+                (richLink || markdownLink || node.Kind == "taskCheckbox"))
+                throw new RichDocumentException(
+                    "Nested interactive content is forbidden inside links or buttons.");
+            // SVG has its own separately validated content grammar. Native
+            // geometry/text nodes are not HTML child elements.
+            if (isElement && name == "svg") continue;
+            if (node.Children is { Count: > 0 } children)
+                ValidateContentModel(children,
+                    phrasingOnly || inlineElement ||
+                    node.Kind is "paragraph" or "heading" or
+                        "strong" or "emphasis" or "strikethrough" or
+                        "link" or "questionButton",
+                    insideInteractive || richLink || markdownLink ||
+                    node.Kind == "questionButton");
         }
     }
 
