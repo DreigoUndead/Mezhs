@@ -44,20 +44,17 @@ static async Task CheckParallelAsync(int capacity, int immediate)
     {
         await UntilAsync(() => trace.IsBlocked("3", IntegrationAdmissionWaitReason.Capacity),
             $"maxParallel={capacity} capacity waiting");
-        Assert(!trace.IsBlocked("1") && !trace.IsBlocked("2"),
-            "Already-admitted sends are incorrectly Waiting.");
     }
     else Assert(!trace.AnyBlocked, "Unlimited connection must never signal capacity waiting.");
 
-    foreach (var id in probe.Started.Keys.ToArray())
-        probe.Release(id);
-    if (capacity > 0)
+    for (var i = 1; i <= 3; i++)
     {
-        await UntilAsync(() => probe.Started.ContainsKey("3"), "third send admission after release");
-        Assert(!trace.IsBlocked("3"), "Capacity Waiting not cleared on admission.");
-        Assert(trace.ProviderWaiting.ContainsKey("3") && !trace.IsBlocked("3"),
+        var id = i.ToString();
+        await UntilAsync(() => probe.Started.ContainsKey(id), "send admission " + id);
+        Assert(!trace.IsBlocked(id), "Admission Waiting was not cleared for " + id);
+        Assert(trace.ProviderWaiting.ContainsKey(id) && !trace.IsBlocked(id),
             "Provider waiting after admission incorrectly controls integration admission.");
-        probe.Release("3");
+        probe.Release(id);
     }
     await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
     Assert(!trace.AnyBlocked, "Completed sends left stale admission state.");
