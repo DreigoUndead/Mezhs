@@ -232,6 +232,18 @@ Check(quotedInsideBox.Commands.SequenceEqual([new Command("DONE", null)]),
 Reject(parser, "<box>\n> Example:\n<SH>\necho NEVER_EXECUTE_BOX_QUOTE\n</SH>\n</box>\n<DONE>",
     "An ambiguous lazy Markdown quote closed a rich container and authorized commands.");
 Console.WriteLine("PASS: Markdown blockquotes, including lazy continuations inside boxes, cannot authorize shell commands.");
+var emphasizedExample = parser.Parse("**Example:\n<SH>\necho NEVER_EXECUTE_EMPHASIS\n</SH>\n**\n<DONE>");
+Check(emphasizedExample.Commands.SequenceEqual([new Command("DONE", null)]),
+    "Multiline Markdown emphasis promoted a quoted shell example.");
+var linkedExample = parser.Parse("[Example:\n<SH>\necho NEVER_EXECUTE_LINK\n</SH>\n](https://example.com)\n<DONE>");
+Check(linkedExample.Commands.SequenceEqual([new Command("DONE", null)]),
+    "Multiline Markdown link label promoted an inert shell example.");
+var validBeforeEmphasis = parser.Parse("<SH>\necho VALID\n</SH>\n\n**Example:\n<SH>\necho NEVER_EXECUTE_EMPHASIS\n</SH>\n**");
+Check(validBeforeEmphasis.Commands.SequenceEqual([new Command("SH", "echo VALID")]),
+    "Emphasis after a valid shell batch exposed an extra candidate.");
+Console.WriteLine("PASS: Markdown emphasis and link labels cannot authorize shell commands; valid adjacent commands remain authorized.");
+
+
 
 Console.WriteLine("PASS: Top-level HTML comments and multiline code spans are inert; later commands remain strict.");
 
@@ -384,6 +396,8 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
         Write-Host "PASS: Literal $label example created no Shell record or filesystem side effect."
     }
 
+    Assert-InertPresentation 'multiline-emphasis' '**Quoted:' '**'
+    Assert-InertPresentation 'multiline-link-label' '[Quoted:' '](https://example.com)'
     Assert-InertPresentation 'blockquote-lazy-command' '> Example:' ''
     Assert-InertPresentation 'blockquote-lazy-command-in-box' "<box>`n> Example:" "`n</box>"
     Assert-InertPresentation 'html-comment' '<!--' '-->'
