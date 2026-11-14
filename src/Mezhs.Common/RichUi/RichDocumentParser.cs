@@ -183,6 +183,51 @@ public sealed class RichDocumentParser
         }
         if (fenceStart >= 0)
             for (var i = fenceStart; i < source.Length; i++) mask[i] = true;
+        // A standalone HTML-looking command line can interrupt Markdown
+        // emphasis recognition. Conservatively protect paired, line-delimited
+        // emphasis examples from Agent command discovery, even if Markdig
+        // cannot emit one EmphasisInline spanning the HTML-like line. This is
+        // an authorization guard; display lowering still uses canonical AST.
+        if (inlineContext is not null)
+        {
+            int exampleStart = -1;
+            char exampleMarker = '\0';
+            int exampleWidth = 0;
+            for (var lineStart = 0; lineStart < source.Length;)
+            {
+                var newline = source.IndexOf('\n', lineStart);
+                var lineEnd = newline < 0 ? source.Length : newline;
+                var nextLine = newline < 0 ? source.Length : newline + 1;
+                var at = lineStart;
+                while (at < lineEnd && at - lineStart < 4 && source[at] == ' ') at++;
+                if (at - lineStart <= 3 && at < lineEnd &&
+                    !mask[at] && source[at] is '*' or '_')
+                {
+                    var marker = source[at];
+                    var runEnd = at;
+                    while (runEnd < lineEnd && source[runEnd] == marker) runEnd++;
+                    var width = runEnd - at;
+                    if (width is 1 or 2)
+                    {
+                        var rest = source.AsSpan(runEnd, lineEnd - runEnd).Trim();
+                        if (exampleStart >= 0 && marker == exampleMarker &&
+                            width == exampleWidth && rest.IsEmpty)
+                        {
+                            Array.Fill(inlineContext, true, exampleStart, nextLine - exampleStart);
+                            exampleStart = -1;
+                        }
+                        else if (exampleStart < 0 && !rest.IsEmpty &&
+                                 !char.IsWhiteSpace(source[runEnd]))
+                        {
+                            exampleStart = at;
+                            exampleMarker = marker;
+                            exampleWidth = width;
+                        }
+                    }
+                }
+                lineStart = nextLine;
+            }
+        }
         // Markdig masks completed code spans. Conservatively mask a dangling
         // backtick run through EOF: unmatched Markdown literals must not grant
         // command authority to later command-shaped text. One linear pass.
