@@ -55,6 +55,8 @@ public sealed class RichDocumentParser
         {
             // Markdown establishes code/escaped/comment semantics. Rich tags
             // are scanned only outside protected source ranges.
+            _inlineContext = new bool[source.Length];
+            _listContext = new bool[source.Length];
             _literal = MarkdownLiteralMask(source, collectContext: true);
             var nodes = ReadChildren(0, source.Length, null, 0, out _);
             var done = _commands.FindIndex(c => c.Name == "DONE");
@@ -83,16 +85,16 @@ public sealed class RichDocumentParser
             [new RichDiagnostic(reason, new RichSourceSpan(0, source.Length))]),
         []);
 
-    private bool[] MarkdownLiteralMask(string source, bool collectContext = false)
+    private bool[] MarkdownLiteralMask(string source, bool collectContext = false,
+        int contextOffset = 0)
     {
         var mask = new bool[source.Length];
-        bool[]? inlineContext = null;
-        bool[]? listContext = null;
-        if (collectContext)
-        {
-            _inlineContext = inlineContext = new bool[source.Length];
-            _listContext = listContext = new bool[source.Length];
-        }
+        // Markdig's outer document AST can treat a rich <box> as an HTML block,
+        // hiding nested Markdown lists/emphasis. Each structural rich container
+        // is validated against its own Markdig scope. Merge source-relative
+        // contexts into global UTF-16 spans before scanning its Agent commands.
+        var inlineContext = collectContext ? new bool[source.Length] : null;
+        var listContext = collectContext ? new bool[source.Length] : null;
         var document = Markdown.Parse(source, _markdown);
         static void Mark(bool[] target, int from, int through)
         {
@@ -251,6 +253,16 @@ public sealed class RichDocumentParser
         }
         if (unmatchedAt >= 0)
             for (var i = unmatchedAt; i < source.Length; i++) mask[i] = true;
+        if (collectContext)
+        {
+            if (contextOffset < 0 || source.Length > _source.Length - contextOffset)
+                throw new RichDocumentException("Invalid Markdown context source span.");
+            for (var i = 0; i < source.Length; i++)
+            {
+                if (inlineContext![i]) _inlineContext[contextOffset + i] = true;
+                if (listContext![i]) _listContext[contextOffset + i] = true;
+            }
+        }
         return mask;
     }
 
@@ -459,7 +471,8 @@ public sealed class RichDocumentParser
             _markdownScanChars += length;
             if (_markdownScanChars > 8_000_000)
                 throw new RichDocumentException("Markdown validation work budget exceeded.");
-            var mask = MarkdownLiteralMask(_source[from..spanEnd]);
+            var mask = MarkdownLiteralMask(_source[from..spanEnd],
+                collectContext: true, contextOffset: from);
             if (mask[candidate - from])
             {
                 ignored.Add(candidate);
