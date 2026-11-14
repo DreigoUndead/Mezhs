@@ -85,7 +85,12 @@ public sealed class RichDocumentParser
         var document = Markdown.Parse(source, _markdown);
         void Visit(MarkdownObject node)
         {
-            if (node is CodeBlock || node is CodeInline || IsComment(node, source))
+            // A Markdown blockquote is presentation, never an Agent command
+            // authority scope. Mask its *entire* canonical AST range, including
+            // lazy continuation lines that have no leading '>' marker. Tags
+            // inside quoted source stay literal, while Markdig still renders
+            // the preserved source as a blockquote in the typed display AST.
+            if (node is QuoteBlock || node is CodeBlock || node is CodeInline || IsComment(node, source))
             {
                 var from = Math.Clamp(node.Span.Start, 0, source.Length);
                 var to = Math.Clamp(node.Span.End + 1, from, source.Length);
@@ -342,7 +347,9 @@ public sealed class RichDocumentParser
             var candidate = -1;
             for (var pos = from; pos < end;)
             {
-                if (_source[pos] != '<' || IsEscaped(pos) ||
+                // Fenced/quoted markup has no structural authority, even
+                // when it looks like another opener for this same container.
+                if (_source[pos] != '<' || _literal[pos] || IsEscaped(pos) ||
                     !TryTag(pos, end, out var tag))
                 {
                     pos++;
