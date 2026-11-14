@@ -4,7 +4,7 @@ ID: rich-ui-custom-controls
 Branch: rich-ui-custom-controls
 PR: https://github.com/DreigoUndead/Mezhs/pull/53
 Level: **High-risk — cross-runtime parser/renderer redesign and host command authority**
-State: **IMPLEMENTED — sixth independent High-risk review FAIL corrections developer-verified; seventh independent code review and independent final testing pending**
+State: **BLOCKED — seventh independent High-risk review FAIL; mandatory owner complexity-escalation decision pending; no additional implementation or final testing authorized**
 Dependency: existing Rich UI Custom Controls work on this branch; old incremental plan versions remain in Git history (last archived plan at 54686a1d591be4a806a1f3e17d559aa8175736b2).
 Owner decision (2026-11-12): adopt one canonical **C#** document/parser/validation model; React renders typed validated data and owns only local interactive state; commands can occur inside valid containers/lists.
 Owner clarification (2026-11-13): **Do not preserve legacy UI parsing/handling.** All supported old and new tags use the one canonical C# parser, DTO and typed React renderer. Remove the old frontend extraction, expression and markup paths instead of a compatibility fallback. Retire or migrate raw-text frontend tests to validate canonical DTOs and the inert provisional fallback; treat unsupported expression constructs as inert until explicitly added to the canonical grammar. Security/command boundary tests remain mandatory.
@@ -298,3 +298,25 @@ All checks below were executed from isolated worktree `D:\\Projects\\Mezhs-rich-
 | `git diff --check` | **PASS** |
 
 These are **developer checks only** and do not satisfy the independent review gate. Repeated static review findings in parser boundaries warrant the mandated independent scrutiny of compositional security and work budgets. Obtain a seventh independent High-risk code review of the *new exact SHA after this plan update*; if and only if **PASS**, assign a **different independent final tester** on that same SHA. Never merge/release without explicit owner approval; main remains release-only; do not change VERSION or CHANGELOG in this PR.
+
+## Seventh independent High-risk review FAIL — mandatory complexity escalation (2026-11-14)
+
+Reviewer `exec_16f324478f9941949dd96e4cd9685441` (chat `chat_b03084117bc241a9bfadc3dd44dc5795`) reviewed exact source SHA `52e04cc711592ea30809918b37dd6c962f8e4bb6` against pinned base `179c0da50a17e7024d76eaa2571cb6ee2498348e` and returned **FAIL** with three source-level findings:
+
+- **P1 security — compositional opaque shielding risk.** `ShieldOpaqueBodies` can treat an apparent `SH` opener inside Markdown emphasis/link text as an opaque block even though later `ReadChildren` treats that opener as inert. Shielding its body can erase Markdown fences that would otherwise protect another command-shaped opening. This is a **static code-path finding**, not a reproduced exploit on the reviewed feature SHA.
+- **P2 source-map integrity — private-use Unicode placeholder collisions.** `RichMarkdownNodes` injects `U+E000`/`U+E001` placeholders and locates them using `IndexOf`; model-authored identical characters may misassociate literals, node IDs or UTF-16 source spans.
+- **P2 radio correctness — Markdown code delimiters.** `RichQuestionGrammar` uses unconditional `IndexOf("</radio>")` and `IndexOf("</button>")`, and label validation rejects tag-shaped content even when Markdig would treat it as code. Supported literal code labels can fail canonical question parsing.
+
+**Separate observed runtime incident:** During the review execution, MEŽS runtime evidence for host shell execution `7128` reported an unintended `SH` dispatch of text intended as an inert fenced example, with cmd.exe errors on Markdown markers and exit code **255**. The runtime's exact deployed parser SHA and complete command/side-effect history were not established. This incident is **not proof** of the proposed P1 defect in feature SHA `52e04cc`, and absence of prior side effects has **not** been established. No further live adversarial command payloads should be sent through an SH-authorized review agent.
+
+### Complexity escalation decision — OWNER ACTION REQUIRED
+
+Per `.agents/workflow.md`, after repeated fixes driven by the same architecture **stop affected work and obtain an explicit owner decision before adding complexity**. The approved goals include a single canonical recursive C# rich UI parser, mixed Markdown/rich layout, inert presentation source, and executable Agent command blocks inside the same stream. Their compositional source-context and authorization guarantee now requires multiple overlapping masking/prepass/scoping mechanisms, each introducing new correctness/security edge cases.
+
+Potential directions to decide:
+1. **Redesign command transport (recommended):** keep the single canonical C# parser and typed React UI for display, but make executable Agent commands a distinct structured, explicitly authorized channel instead of discovering authority from mixed Markdown/display text. This changes the Agent protocol/API boundary and needs an updated plan and independent review.
+2. **Retain the existing mixed command syntax and guarantee:** authorize a formal canonical source-token/scope design with explicit work budgets rather than incremental special-case masking; larger implementation and long-term maintenance cost, requiring an approved architecture revision.
+3. **Relax supported syntax/behavior:** reject commands for ambiguous or Markdown-rich responses, disable command extraction in risky mixed contexts, or constrain where commands may appear. Lower parser complexity but reduced functionality/compatibility.
+4. **Stop or defer PR #53** until the command channel architecture is resolved.
+
+**No further source changes, seventh-review corrective tests, or independent final testing have been undertaken following this escalation.** Document owner decision before resuming. The PR remains unmerged and release-only main is unchanged; no VERSION/CHANGELOG edits.
