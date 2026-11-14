@@ -61,13 +61,15 @@ public sealed class RichDocumentParser
             // are scanned only outside protected source ranges.
             _inlineContext = new bool[source.Length];
             _listContext = new bool[source.Length];
-            _markdownSource = ShieldOpaqueBodies();
-            // Preserve Markdig inline/list scopes from the original source:
-            // masking opaque bodies can change how multiline Markdown links
-            // and emphasis are recognized. Only the shielded source provides
-            // literal/code protection, so unmatched raw-editor fences never
-            // consume authority following their validated close.
+            // Collect original-source inline/list authorization contexts
+            // *before* opaque discovery. An apparent SH inside emphasis must
+            // not be allowed to shield a later Markdown fence. Opaque bodies
+            // do not grant execution through these original contexts.
             _ = MarkdownLiteralMask(_source, collectContext: true);
+            _markdownSource = ShieldOpaqueBodies();
+            // Literal Markdown masking uses only the protected same-length
+            // view, so unmatched markers inside completed opaque blocks
+            // cannot hide valid later commands.
             _literal = MarkdownLiteralMask(_markdownSource, collectContext: true);
             var nodes = ReadChildren(0, source.Length, null, 0, out _);
             var done = _commands.FindIndex(c => c.Name == "DONE");
@@ -317,8 +319,16 @@ public sealed class RichDocumentParser
             }
             if (tag.Closing || tag.SelfClosing ||
                 !RichTagRegistry.TryGet(tag.Name, out var definition) ||
-                definition.Role is not (RichTagRole.OpaqueLiteral or
-                    RichTagRole.RawEditor or RichTagRole.Command))
+                definition.SearchChildren ||
+                definition.Role is RichTagRole.Leaf or RichTagRole.Marker)
+            {
+                pos = tag.End;
+                continue;
+            }
+            // Match actual command discovery: Markdown emphasis and link-label
+            // openers are not opaque boundaries. Shielding an inert opener
+            // could otherwise erase a code fence protecting a later SH.
+            if (definition.Role is RichTagRole.Command && _inlineContext[pos])
             {
                 pos = tag.End;
                 continue;
@@ -406,7 +416,9 @@ public sealed class RichDocumentParser
                 plainFrom = cursor;
                 continue;
             }
-            if (_source[cursor] != '<' || (!svgScope && _literal[cursor]) || IsEscaped(cursor) ||
+            if (_source[cursor] != '<' ||
+                (!svgScope && (_literal[cursor] || _opaqueBody[cursor])) ||
+                IsEscaped(cursor) ||
                 !TryTag(cursor, end, out var tag))
             {
                 cursor++;
@@ -432,6 +444,11 @@ public sealed class RichDocumentParser
             }
             if (!RichTagRegistry.TryGet(tag.Name, svgScope, out var definition))
                 throw new RichDocumentException($"Unsupported tag: {tag.Name}.");
+            // Discovery as a child is independent of searching this tag's
+            // own contents. Ineligible nested elements invalidate the whole
+            // document rather than accidentally promoting inner commands.
+            if (expected is not null && !definition.AllowAsChild)
+                throw new RichDocumentException($"{tag.Name} cannot be discovered as a child.");
             if ((definition.Role is RichTagRole.Command or RichTagRole.Marker) &&
                 (!commandsAllowed || svgScope))
                 throw new RichDocumentException("Agent protocol commands are forbidden inside display-only elements.");
@@ -496,6 +513,25 @@ public sealed class RichDocumentParser
                 if (inlineElement) inline.Add(elementNode);
                 else Add(result, elementNode);
             }
+            else if (!definition.SearchChildren)
+            {
+                // A container can independently opt out of child discovery.
+                // Its body stays literal; it is never rescanned for tags.
+                var closer = FindOpaqueClosing(tag.Name, tag.End, end, inline: true,
+                    markdownAware: false);
+                if (closer < 0)
+                    throw new RichDocumentException($"Unclosed {tag.Name} block.");
+                var after = closer + tag.Name.Length + 3;
+                var body = _source[tag.End..closer];
+                var literal = new RichNode("literal", $"{tag.End}:literal",
+                    new RichSourceSpan(tag.End, closer), Text: body);
+                var element = new RichNode("element", $"{from}:element",
+                    new RichSourceSpan(from, after), Name: tag.Name,
+                    Attributes: attributes, Children: [literal]);
+                if (inlineElement) inline.Add(element);
+                else Add(result, element);
+                cursor = after;
+            }
             else
             {
                 // Reparse Markdown only through this container's own matching
@@ -548,8 +584,10 @@ public sealed class RichDocumentParser
                     pos++;
                     continue;
                 }
-                if (!tag.Closing && RichTagRegistry.TryGet(tag.Name, out var definition) &&
-                    definition.Role is RichTagRole.OpaqueLiteral or RichTagRole.RawEditor or RichTagRole.Command)
+                if (!tag.Closing && !_inlineContext[pos] &&
+                    RichTagRegistry.TryGet(tag.Name, out var definition) &&
+                    !definition.SearchChildren &&
+                    definition.Role is not (RichTagRole.Leaf or RichTagRole.Marker))
                 {
                     var close = _source.IndexOf("</" + tag.Name + ">", tag.End, StringComparison.Ordinal);
                     if (close >= 0 && close < end)
