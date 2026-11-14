@@ -220,6 +220,14 @@ Check(parser.Parse("Text with `inline code`\n<DONE>").Commands.SequenceEqual([ne
     "Closed single-line Markdown code blocked a valid command.");
 Reject(parser, "<!--\n<SH>\necho INERT\n</SH>\n-->\n<UNKNOWN>",
     "Unknown uppercase tag after a comment must be rejected by the canonical parser.");
+var quotedShell = parser.Parse("> Example:\n<SH>\necho NEVER_EXECUTE_QUOTE\n</SH>\n\n<DONE>");
+Check(quotedShell.Commands.SequenceEqual([new Command("DONE", null)]),
+    "Markdown blockquote lazy continuation granted shell authority.");
+var quotedInsideBox = parser.Parse("<box>\n> Example:\n<SH>\necho NEVER_EXECUTE_BOX_QUOTE\n</SH>\n</box>\n<DONE>");
+Check(quotedInsideBox.Commands.SequenceEqual([new Command("DONE", null)]),
+    "Markdown blockquote within a rich box granted shell authority.");
+Console.WriteLine("PASS: Markdown blockquotes, including lazy continuations inside boxes, cannot authorize shell commands.");
+
 Console.WriteLine("PASS: Top-level HTML comments and multiline code spans are inert; later commands remain strict.");
 
 // Unclosed or unsupported raw-editor metadata fails the entire batch closed.
@@ -371,6 +379,8 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
         Write-Host "PASS: Literal $label example created no Shell record or filesystem side effect."
     }
 
+    Assert-InertPresentation 'blockquote-lazy-command' '> Example:' ''
+    Assert-InertPresentation 'blockquote-lazy-command-in-box' "<box>`n> Example:" '</box>'
     Assert-InertPresentation 'html-comment' '<!--' '-->'
     Assert-InertPresentation 'inline-code' '`' '`'
     Assert-InertPresentation 'quoted-code-opener' '<CodeBlock language="text" note="</CodeBlock>">' '</CodeBlock>'
