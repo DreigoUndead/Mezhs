@@ -68,6 +68,10 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Markdown box quote inert plus later valid command", "<box>\n**Example:\n<SH>\necho NEVER\n</SH>\n**\n</box>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
     ("Two-level Markdown list command inside box", "<box>\n- Parent\n  - Child\n    <SH>\n    echo NESTED\n    </SH>\n\n</box>\n<DONE>", true, ["SH", "DONE"]),
     ("Two-level Markdown list command inside row and box", "<box>\n<row>\n- Parent\n  - Child\n    <SH>\n    echo NESTED\n    </SH>\n\n</row>\n</box>", true, ["SH"]),
+    ("Inert emphasized shell opener must not erase following fenced shell", "**Example:\n<SH>\n**\n\n~~~\n<SH>\necho NEVER\n</SH>\n~~~\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("Inert emphasized shell opener inside box must not erase fenced shell", "<box>\n**Example:\n<SH>\n**\n\n~~~\n<SH>\necho NEVER\n</SH>\n~~~\n</box>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("Inert emphasized shell opener inside row must not erase fenced shell", "<box>\n<row>\n**Example:\n<SH>\n**\n\n~~~\n<SH>\necho NEVER\n</SH>\n~~~\n</row>\n</box>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("DONE may not be discovered as a nested control", "<box>\n<DONE>\n</box>", false, []),
 };
 var failures = 0;
 static IEnumerable<RichNode> Walk(RichNode node)
@@ -95,6 +99,45 @@ foreach (var (name, source, valid, commands) in checks)
     Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; commands={string.Join(",", names)}; diagnostics={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
     if (!pass) failures++;
 }
+// Every tag carries independent child-search and child-eligibility policies.
+var controlsPass =
+    RichTagRegistry.TryGet("box", out var boxDef) &&
+    boxDef.SearchChildren && boxDef.AllowAsChild &&
+    RichTagRegistry.TryGet("row", out var rowDef) &&
+    rowDef.SearchChildren && rowDef.AllowAsChild &&
+    RichTagRegistry.TryGet("SH", out var shellDef) &&
+    !shellDef.SearchChildren && shellDef.AllowAsChild &&
+    RichTagRegistry.TryGet("ATTACH", out var attachDef) &&
+    !attachDef.SearchChildren && attachDef.AllowAsChild &&
+    RichTagRegistry.TryGet("DONE", out var doneDef) &&
+    !doneDef.SearchChildren && !doneDef.AllowAsChild &&
+    RichTagRegistry.TryGet("escape", out var escapeDef) &&
+    !escapeDef.SearchChildren && escapeDef.AllowAsChild &&
+    RichTagRegistry.TryGet("WritingBlock", out var writingDef) &&
+    !writingDef.SearchChildren && writingDef.AllowAsChild;
+Console.WriteLine($"{(controlsPass ? "PASS" : "FAIL")}: Independent per-tag child search and child eligibility policies");
+if (!controlsPass) failures++;
+
+// A model can literally author the former private-use marker sequence.
+// The restored inline node must stay at its real UTF-16 position.
+var collisionSource = "pre \\uE000\\uE001 <text strong>node</text> post"
+    .Replace("\\\\uE000", "\\uE000").Replace("\\\\uE001", "\\uE001");
+var collisionResult = new RichDocumentParser().Parse(collisionSource);
+var collisionChildren = collisionResult.Document.Nodes.FirstOrDefault()?.Children;
+var collisionStart = collisionSource.IndexOf("<text strong>", StringComparison.Ordinal);
+var collisionElement = collisionChildren?.FirstOrDefault(n => n.Name == "text");
+var collisionPass = collisionResult.Document.Valid && collisionResult.Commands.Count == 0 &&
+    collisionChildren?.Count == 3 &&
+    collisionChildren[0].Text == "pre \\uE000\\uE001 " &&
+    collisionElement is not null && collisionElement.SourceSpan.Start == collisionStart &&
+    collisionElement.SourceSpan.End == collisionSource.IndexOf("</text>", StringComparison.Ordinal) + 7 &&
+    collisionElement.Id == $"{collisionStart}:element" &&
+    collisionChildren[2].Text == " post" &&
+    collisionChildren[0].SourceSpan.End == collisionStart &&
+    collisionChildren[2].SourceSpan.Start == collisionElement.SourceSpan.End;
+Console.WriteLine($"{(collisionPass ? "PASS" : "FAIL")}: Model-authored private-use marker collision preserves exact text, order, node IDs, UTF-16 spans");
+if (!collisionPass) failures++;
+
 var fixture = File.ReadAllText(Path.Combine("tests", "fixtures", "rich-model-ui", "custom-controls-question.md"));
 var parsedQuestion = new RichDocumentParser().Parse(fixture);
 var question = parsedQuestion.Document.Nodes.SingleOrDefault(n => n.Kind == "question");
@@ -123,6 +166,22 @@ var wrappedPass = wrappedResult.Document.Valid && wrappedResult.Commands.Count =
         n.Attributes?.GetValueOrDefault("message") == "Choice: A");
 Console.WriteLine($"{(wrappedPass ? "PASS" : "FAIL")}: Original boxed radio fixture; valid={wrappedResult.Document.Valid}; diagnostics={string.Join("|", wrappedResult.Document.Diagnostics.Select(d => d.Code))}");
 if (!wrappedPass) failures++;
+
+// Closing-tag-looking code within radio labels/buttons is never structural.
+var radioCode = wrappedFixture
+    .Replace("**A — Send to the collector.** One pipeline, one endpoint.",
+        "Literal code: `</radio>` is a label example.")
+    .Replace("Confirm</button>", "Confirm `</button>` in code</button>");
+var radioCodeResult = new RichDocumentParser().Parse(radioCode);
+var radioCodeNode = radioCodeResult.Document.Nodes.SingleOrDefault(n => n.Kind == "question");
+var radioCodeOption = radioCodeNode?.Children?.FirstOrDefault(n => n.Kind == "questionOption");
+var radioCodeButton = radioCodeNode?.Children?.FirstOrDefault(n => n.Kind == "questionButton");
+var radioCodePass = radioCodeResult.Document.Valid && radioCodeResult.Commands.Count == 0 &&
+    radioCodeOption?.Children?.SelectMany(Walk).Any(n => n.Kind == "inlineCode" && n.Text == "</radio>") == true &&
+    radioCodeButton?.Children?.SelectMany(Walk).Any(n => n.Kind == "inlineCode" && n.Text == "</button>") == true &&
+    radioCodeOption.SourceSpan.End == radioCode.IndexOf("    </radio>", StringComparison.Ordinal) + 12;
+Console.WriteLine($"{(radioCodePass ? "PASS" : "FAIL")}: Radio and button delimiters inside inline Markdown code remain inert with original spans");
+if (!radioCodePass) failures++;
 
 var rejectedBox = new RichDocumentParser().Parse(wrappedFixture.Replace("<box border", "<box onClick=\"unsafe()\" border"));
 var rejectedBoxPass = !rejectedBox.Document.Valid && rejectedBox.Commands.Count == 0;
@@ -280,5 +339,5 @@ var alternatingPass = alternatingParsed.Document.Valid && alternatingParsed.Comm
 Console.WriteLine($"{(alternatingPass ? "PASS" : "FAIL")}: 600 alternating rich/Markdown inlines in {timer.ElapsedMilliseconds} ms, {bytesAllocated / 1024:N0} KiB allocated; rich nodes={inlineNodes}");
 if (!alternatingPass) failures++;
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 9 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 9} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 12 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 12} passed");
 return failures == 0 ? 0 : 1;
