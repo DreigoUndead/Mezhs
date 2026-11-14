@@ -2,12 +2,12 @@ namespace Mezhs.Configuration;
 
 public static class ConfigPath
 {
-    public static string Find(string[] args, string fileName)
+    public static string Find(string[] args, string fileName, string argumentName = "--config")
     {
         string? configuredPath = null;
         for (var i = 0; i < args.Length - 1; i++)
         {
-            if (string.Equals(args[i], "--config", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(args[i], argumentName, StringComparison.OrdinalIgnoreCase))
             {
                 configuredPath = args[i + 1];
                 break;
