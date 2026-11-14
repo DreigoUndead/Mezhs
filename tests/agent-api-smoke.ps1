@@ -4,6 +4,7 @@ Add-Type -AssemblyName System.Net.Http
 $root = Split-Path -Parent $PSScriptRoot
 $mezhsConfig = Join-Path $PSScriptRoot "mezhs.test.yaml"
 $agentConfig = Join-Path $PSScriptRoot "mezhs.agent.test.yaml"
+$agentCoreConfig = Join-Path $PSScriptRoot "mezhs.agent.core.test.yaml"
 $dataPath = Join-Path $PSScriptRoot "data-agent-test"
 $genericDataPath = Join-Path $PSScriptRoot "data"
 
@@ -79,7 +80,7 @@ function Get-Status([string]$uri) {
     "listen: http://0.0.0.0:5199") | Set-Content -LiteralPath $badConfig -Encoding UTF8
 $agentDll = (Resolve-Path (Join-Path $root "src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll")).Path
 $badAgent = Start-Process -FilePath "dotnet" `
-    -ArgumentList @($agentDll, "--config", $badConfig) `
+    -ArgumentList @($agentDll, "--config", $badConfig, "--mezhs-config", $agentCoreConfig) `
     -WorkingDirectory $root -RedirectStandardOutput $badOut -RedirectStandardError $badErr -WindowStyle Hidden -PassThru
 try {
     if (-not $badAgent.WaitForExit(25000)) {
@@ -105,7 +106,7 @@ $web = $null
 try {
     Wait-Health "http://127.0.0.1:5198/health"
     $agent = Start-Process -FilePath "dotnet" `
-        -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $agentConfig) `
+        -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $agentConfig, "--mezhs-config", $agentCoreConfig) `
         -WorkingDirectory $root -RedirectStandardOutput $agentOut -RedirectStandardError $agentErr -WindowStyle Hidden -PassThru
     Wait-Health "http://127.0.0.1:5199/health"
 
