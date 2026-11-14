@@ -148,9 +148,28 @@ module.exports = {
   }
 };
 
+// /rest/modes is a read-only catalog query despite using POST. Its only
+// input is locale: replaying this *specific* query does not resubmit a turn.
+const TRANSIENT_CATALOG_DELAYS_MS = [150, 400, 900];
+const TRANSIENT_CATALOG_CODES = new Set([
+  "ERR_HTTP2_PROTOCOL_ERROR",
+  "ERR_NETWORK_IO_SUSPENDED",
+  "ERR_CONNECTION_RESET",
+  "ERR_CONNECTION_CLOSED",
+  "ERR_NETWORK_CHANGED",
+  "ERR_TIMED_OUT"
+]);
+
+function transientCatalogCode(error) {
+  const code = String(error?.code || "").replace(/^net::/, "");
+  if (TRANSIENT_CATALOG_CODES.has(code)) return code;
+  const match = /\b(ERR_[A-Z0-9_]+)\b/.exec(String(error?.message || ""));
+  return match && TRANSIENT_CATALOG_CODES.has(match[1]) ? match[1] : null;
+}
+
 async function discoverModeCatalog() {
   const locale = String(globalThis.navigator?.language || "en-US");
-  const response = await fetch(MODES_ENDPOINT, {
+  const request = {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -159,14 +178,32 @@ async function discoverModeCatalog() {
     body: JSON.stringify({ locale }),
     credentials: "include",
     cache: "no-store"
-  });
-  if (!response.ok)
-    throw new Error(`Grok /rest/modes failed with HTTP ${response.status}.`);
-  const payload = await response.json();
-  return {
-    models: normalizeModes(payload),
-    defaultModelId: String(payload?.defaultModeId || "").trim()
   };
+
+  for (let retry = 0; ; retry++) {
+    let payload;
+    try {
+      const response = await fetch(MODES_ENDPOINT, request);
+      if (!response.ok)
+        throw new Error(`Grok /rest/modes failed with HTTP ${response.status}.`);
+      payload = await response.json();
+    } catch (error) {
+      const code = transientCatalogCode(error);
+      if (!code || retry >= TRANSIENT_CATALOG_DELAYS_MS.length)
+        throw error;
+      const delayMs = TRANSIENT_CATALOG_DELAYS_MS[retry];
+      // Fixed endpoint/category and allowlisted code only: no credentials or bodies.
+      console.warn(
+        `Grok transient POST /rest/modes ${code}; retry ${retry + 1}/${TRANSIENT_CATALOG_DELAYS_MS.length} in ${delayMs}ms.`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      continue;
+    }
+    // Protocol/schema errors are not transport failures and must not be replayed.
+    return {
+      models: normalizeModes(payload),
+      defaultModelId: String(payload?.defaultModeId || "").trim()
+    };
+  }
 }
 
 function findModelTrigger(modes = []) {
