@@ -125,6 +125,32 @@ test("canonical Markdown images render safely, not as links or executable source
   }
 });
 
+test("canonical autolinks retain safe navigable destinations and visible labels", () => {
+  const inputs = [
+    "<https://example.com/docs?q=one>",
+    "<user@example.com>",
+    "<javascript:alert(1)>",
+  ];
+  const documents = canonicalDocuments(inputs);
+  assert.equal(documents[0].valid, true);
+  assert.equal(documents[1].valid, true);
+  assert.equal(kinds(documents[0].nodes, "link").length, 1);
+  assert.equal(kinds(documents[1].nodes, "link").length, 1);
+  assert.match(html(inputs[0], { document: documents[0] }), /<a[^>]*href="https:\/\/example.com\/docs\?q=one"[^>]*>https:\/\/example.com\/docs\?q=one<\/a>/);
+  assert.match(html(inputs[1], { document: documents[1] }), /<a[^>]*href="mailto:user@example.com"[^>]*>user@example.com<\/a>/);
+  assert.doesNotMatch(html(inputs[2], { document: documents[2] }), /href="javascript:|href="data:/);
+});
+
+test("provisional source never invokes a separate Markdown parser", () => {
+  const source = "**Emphasis** [link](https://example.com) <SH>echo NEVER</SH>";
+  const view = html(source, { document: null });
+  assert.match(view, /\*\*Emphasis\*\*/);
+  assert.match(view, /&lt;SH&gt;echo NEVER&lt;\/SH&gt;/);
+  assert.doesNotMatch(view, /<strong>|<a\b|<SH>|<p>/);
+  const implementation = fs.readFileSync(path.join(root, "src/Mezhs.Web.Lib/src/MarkdownContent.tsx"), "utf8");
+  assert.doesNotMatch(implementation, /react-markdown|remark-gfm/);
+});
+
 test("canonical Markdown code excludes Markdown fences and keeps code literal", () => {
   for (const input of [
     '~~~csharp\nConsole.WriteLine("ok");\n~~~',
