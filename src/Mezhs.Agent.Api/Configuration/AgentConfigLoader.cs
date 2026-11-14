@@ -87,7 +87,7 @@ public static class AgentConfigLoader
 
     private static void ValidateConnection(
         string connectionId,
-        IReadOnlyList<ConnectionOptions> connections,
+        IReadOnlyCollection<string> connectionIds,
         string path)
     {
         if (connectionIds.Any(id =>
