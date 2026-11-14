@@ -114,6 +114,17 @@ async function run() {
     open("chat-b");
     await until(() => !unread("chat-b"), "opening later completion clears unread");
     checked.push("new-unselected-execution");
+    // The API projects Waiting only for admission-blocked model turns.
+    window.updateFixture("chat-b", "Waiting", "execution-b4");
+    await until(() => dot("chat-b")?.classList.contains("agent-status-waiting"), "admission Waiting");
+    requireCondition(dot("chat-b").getAttribute("aria-label") === "Agent status: Waiting", "Waiting aria status is missing");
+    requireCondition(getComputedStyle(dot("chat-b").querySelector(".agent-status-dot")).backgroundColor === "rgb(221, 144, 46)", "Waiting dot is not orange");
+    requireCondition(document.querySelector(".agent-header-meta .agent-status")?.classList.contains("agent-status-waiting"), "Header/sidebar Waiting status differs");
+    requireCondition(!unread("chat-b"), "Waiting must not override completion-read semantics");
+    window.updateFixture("chat-b", "Running", "execution-b4");
+    await until(() => dot("chat-b")?.classList.contains("agent-status-running"), "admitted Running");
+    requireCondition(document.querySelector(".agent-header-meta .agent-status")?.classList.contains("agent-status-running"), "Header/sidebar Running status differs");
+    checked.push("waiting-orange-running-recovery");
 
     const result = document.createElement("pre");
     result.id = "agent-status-browser-results";
@@ -171,7 +182,7 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
     const report = /<pre id="agent-status-browser-results" data-status="([^"]+)">([^<]*)<\/pre>/.exec(result.stdout);
     assert.ok(report, "Browser did not report: " + result.stdout.slice(-1500) + " " + result.stderr);
     assert.equal(report[1], "pass", report[2]);
-    for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution"])
+    for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution", "waiting-orange-running-recovery"])
       assert.ok(report[2].includes(expected), "Missing scenario " + expected);
   } finally {
     fs.rmSync(folder, { recursive: true, force: true });
