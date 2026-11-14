@@ -83,14 +83,27 @@ $badAgent = Start-Process -FilePath "dotnet" `
     -ArgumentList @($agentDll, "--config", $badConfig, "--mezhs-config", $agentCoreConfig) `
     -WorkingDirectory $root -RedirectStandardOutput $badOut -RedirectStandardError $badErr -WindowStyle Hidden -PassThru
 try {
-    if (-not $badAgent.WaitForExit(25000)) {
-        Stop-Process -Id $badAgent.Id -Force
-        $badAgent.WaitForExit()
-        throw "Non-loopback Agent startup did not exit within 25 seconds (PID $($badAgent.Id)); inspect $badErr."
-    }
-    $badText = (Get-Content -LiteralPath $badErr -Raw) + (Get-Content -LiteralPath $badOut -Raw)
-    if ($badAgent.ExitCode -eq 0 -or $badText -notmatch "loopback") {
+    # Windows crash reporting can leave an unhandled-exception process alive even
+    # after it has emitted the expected startup failure. Assert the actual
+    # fail-closed boundary, not prompt process termination by the OS.
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(25)
+    do {
+        $badErrorText = if (Test-Path -LiteralPath $badErr) {
+            Get-Content -LiteralPath $badErr -Raw -ErrorAction SilentlyContinue
+        } else { "" }
+        if ($badAgent.HasExited -or $badErrorText -match "server\\.listen must use a loopback address") {
+            break
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTimeOffset]::UtcNow -lt $deadline)
+    $badText = (Get-Content -LiteralPath $badErr -Raw -ErrorAction SilentlyContinue) +
+        (Get-Content -LiteralPath $badOut -Raw -ErrorAction SilentlyContinue)
+    if (($badAgent.HasExited -and $badAgent.ExitCode -eq 0) -or
+        $badText -notmatch "server\\.listen must use a loopback address") {
         throw "Non-loopback Agent API configuration did not fail specifically at the exposure boundary. Output: $badText"
+    }
+    if (Get-NetTCPConnection -LocalPort 5199 -State Listen -ErrorAction SilentlyContinue) {
+        throw "Non-loopback Agent API unexpectedly opened port 5199 despite rejecting configuration."
     }
 } finally {
     if (-not $badAgent.HasExited) { Stop-Process -Id $badAgent.Id -Force; $badAgent.WaitForExit() }
