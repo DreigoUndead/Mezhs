@@ -94,18 +94,18 @@ public sealed class RichDocumentParser
             _listContext = listContext = new bool[source.Length];
         }
         var document = Markdown.Parse(source, _markdown);
-        static void Mark(bool[] target, SourceSpan span)
+        static void Mark(bool[] target, int from, int through)
         {
-            var start = Math.Clamp(span.Start, 0, target.Length);
-            var end = Math.Clamp(span.End + 1, start, target.Length);
+            var start = Math.Clamp(from, 0, target.Length);
+            var end = Math.Clamp(through + 1, start, target.Length);
             Array.Fill(target, true, start, end - start);
         }
         void Visit(MarkdownObject node)
         {
             if (listContext is not null && node is ListItemBlock)
-                Mark(listContext, node.Span);
+                Mark(listContext, node.Span.Start, node.Span.End);
             if (inlineContext is not null && node is EmphasisInline or LinkInline)
-                Mark(inlineContext, node.Span);
+                Mark(inlineContext, node.Span.Start, node.Span.End);
             // A Markdown blockquote is presentation, never an Agent command
             // authority scope. Mask its *entire* canonical AST range, including
             // lazy continuation lines that have no leading '>' marker. Tags
