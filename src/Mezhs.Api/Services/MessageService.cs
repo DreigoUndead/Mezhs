@@ -500,7 +500,8 @@ public sealed class MessageService(
             message.ActivityDetail,
             message.Analysis,
             message.ActivityAt,
-            message.ActivityHistory);
+            message.ActivityHistory,
+            message.ParentMessageId);
     }
 
     private static string NormalizeStoredOrigin(StoredMessage message)

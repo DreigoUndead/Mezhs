@@ -7,7 +7,7 @@ import { useAutoResizeTextArea } from "./useAutoResizeTextArea";
 export type ChatSurfaceMessage = Pick<
   ChatMessage,
   "messageId" | "connectionId" | "role" | "origin" | "content" | "status" | "createdAt" | "error" |
-  "activity" | "activityDetail" | "analysis" | "activityAt"
+  "activity" | "activityDetail" | "analysis" | "activityAt" | "model" | "parentMessageId"
 > & {
   files?: ApiFile[];
 };
@@ -43,6 +43,26 @@ function defaultAuthorLabel(message: ChatSurfaceMessage) {
 
 function defaultAvatarLabel(message: ChatSurfaceMessage) {
   return message.role === "assistant" ? "M" : "YOU";
+}
+
+// A returned model may be provider-confirmed or the integration's selected
+// model. Compare only explicit non-default selections against their own reply.
+export function returnedModelMismatch(
+  message: ChatSurfaceMessage,
+  messages: ChatSurfaceMessage[],
+): string | null {
+  if (message.role !== "assistant" || !message.model || !message.parentMessageId)
+    return null;
+  const request = messages.find((candidate) =>
+    candidate.messageId === message.parentMessageId &&
+    candidate.role === "user" &&
+    candidate.connectionId === message.connectionId);
+  const selected = request?.model?.trim();
+  const returned = message.model.trim();
+  if (!selected || selected.toLowerCase() === "default" ||
+      !returned || selected.toLowerCase() === returned.toLowerCase())
+    return null;
+  return `Model mismatch: requested ${selected}; integration returned ${returned}.`;
 }
 
 export function modelActivityLabel(activity?: string | null, detail?: string | null) {
@@ -92,6 +112,15 @@ export function ChatTranscript({
             <div className="message-meta">
               <strong>{getAuthorLabel(message)}</strong>
               <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+              {message.model && <span className="message-model"
+                title={message.role === "assistant"
+                  ? "Model returned by integration; may be the current/selected model rather than provider-confirmed execution."
+                  : "Requested model ID"}>
+                {message.role === "assistant" ? "Returned: " : "Requested: "}{message.model}
+              </span>}
+              {returnedModelMismatch(message, messages) && (
+                <span className="message-model-warning" role="status">{returnedModelMismatch(message, messages)}</span>
+              )}
               {message.status !== "Completed" && (
                 <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>
               )}

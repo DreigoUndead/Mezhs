@@ -39,6 +39,7 @@ export type ChatMessage = {
   origin: string;
   content: string;
   model?: string | null;
+  parentMessageId?: string | null;
   files: ApiFile[];
   status: "Queued" | "Running" | "Completed" | "Failed" | "Cancelled";
   createdAt: string;

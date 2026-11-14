@@ -234,6 +234,9 @@ try {
         if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Attachment message polling timed out.' }
         Start-Sleep -Milliseconds 50
     } while ($true)
+    if ($attachmentCompleted.reply.parentMessageId -ne $attachmentCompleted.messageId) {
+        throw 'Typed reply did not expose its persisted parent message ID.'
+    }
     if ($attachmentCompleted.model -ne 'mock-fast' -or $attachmentCompleted.reply.model -ne 'mock-served') {
         throw 'New chat with an omitted requested model did not use the connection defaultModel.'
     }

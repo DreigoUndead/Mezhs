@@ -260,6 +260,8 @@ function toSharedMessage(message: AgentChatMessage, executions: Execution[]): Ch
   return {
     messageId: message.messageId,
     connectionId: message.connectionId,
+    model: message.model,
+    parentMessageId: message.parentMessageId,
     role: message.role,
     origin: message.origin,
     content,

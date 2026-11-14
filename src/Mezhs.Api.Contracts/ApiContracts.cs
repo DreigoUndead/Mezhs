@@ -111,7 +111,8 @@ public sealed record ApiMessage(
     string? ActivityDetail = null,
     string? Analysis = null,
     DateTimeOffset? ActivityAt = null,
-    IReadOnlyList<MessageActivity>? ActivityHistory = null);
+    IReadOnlyList<MessageActivity>? ActivityHistory = null,
+    string? ParentMessageId = null);
 
 public sealed record ApiChatHistoryMessage(
     string MessageId,
