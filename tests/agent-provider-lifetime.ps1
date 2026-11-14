@@ -36,7 +36,7 @@ if (-not $messageService.Contains('Channel<QueuedMessage>')) {
 if (-not $messageService.Contains('running.Add(ProcessAsync(queued.Message, queued.CancellationToken));')) {
     throw 'MessageService must preserve queued cancellation into processing.'
 }
-if ($messageService -notmatch '(?s)SendMessageAsync\(\s*new IntegrationSendContext\(.*?\),\s*cancellationToken\);') {
+if ($messageService -notmatch '(?s)integration\.PromptAsync\(\s*chatContext,\s*new PromptRequest\(.*?\),\s*cancellationToken\);') {
     throw 'MessageService must pass the operation cancellation token into the integration.'
 }
 if (-not $messageService.Contains('message.Status = MessageStatus.Cancelled;')) {
