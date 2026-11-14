@@ -43,6 +43,12 @@ jobs:
       - name: Build .NET solution
         run: dotnet build Mezhs.sln -c Release --nologo
 
+      - name: Integration V2 typed chat history and reply identity contract
+        shell: pwsh
+        run: |
+          dotnet run --project tests/Mezhs.Integration.Contracts.Probe/Mezhs.Integration.Contracts.Probe.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Compile standalone authenticated typed HTTP Electron feasibility probe
         run: dotnet build tests/Mezhs.TypedHttp.Probe/Mezhs.TypedHttp.Probe.csproj -c Release --nologo
 
@@ -63,7 +69,7 @@ jobs:
       - name: Rich formatting and real Chromium regression
         shell: pwsh
         run: |
-          node --test tests/agent-web-rich-formatting.test.cjs tests/chat-ui-browser.test.cjs tests/rich-model-ui-rendering.test.cjs tests/rich-model-ui-browser.test.cjs tests/group-delete-browser.test.cjs
+          node --test tests/agent-web-rich-formatting.test.cjs tests/integration-model-mismatch.test.cjs tests/chat-ui-browser.test.cjs tests/rich-model-ui-rendering.test.cjs tests/rich-model-ui-browser.test.cjs tests/group-delete-browser.test.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Agent command protocol and real Executor smoke
@@ -93,6 +99,8 @@ jobs:
         run: |
           foreach ($test in @(
             'agent-architecture.ps1',
+            'architecture.ps1',
+            'grok-architecture.ps1',
             'agent-provider-lifetime.ps1',
             'integration-resources.ps1'
           )) {
