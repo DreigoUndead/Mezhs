@@ -24,6 +24,7 @@ try {
     @'
 using Mezhs.Agent.Commands;
 using Mezhs.Agent.Configuration;
+using Mezhs.Configuration;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
@@ -32,7 +33,33 @@ using Mezhs.Api.Contracts;
 using Mezhs.Executor;
 using Microsoft.Data.Sqlite;
 
-var options = AgentConfigLoader.Load(args[0]);
+var core = MezhsConfigLoader.Load(args[1]);
+var options = AgentConfigLoader.Load(args[0], core.Connections.Select(connection => connection.Id).ToArray());
+Assert(core.Connections.Single(connection => connection.Id == "test").DefaultModel == "mock-fast",
+    "Core connection default model was not loaded from independent Core YAML.");
+try
+{
+    AgentConfigLoader.Load(args[0], ["unknown"]);
+    throw new InvalidOperationException("Invalid policy connection was accepted.");
+}
+catch (InvalidOperationException ex) when (ex.Message.Contains("references unknown connection", StringComparison.Ordinal))
+{
+}
+var legacyConfig = Path.Combine(Path.GetTempPath(), $"mezhs-legacy-agent-{Guid.NewGuid():N}.yaml");
+try
+{
+    File.WriteAllText(legacyConfig, File.ReadAllText(args[0]) + "\nconnections: []\n");
+    try
+    {
+        AgentConfigLoader.Load(legacyConfig);
+        throw new InvalidOperationException("Legacy Agent connection definitions were silently accepted.");
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("move Core configuration to mezhs.yaml", StringComparison.Ordinal))
+    {
+    }
+}
+finally { File.Delete(legacyConfig); }
+
 var normal = options.Policies["test"];
 var done = options.Policies["test-done"];
 var evidencePolicy = options.Policies["test-evidence"];
@@ -145,10 +172,6 @@ Assert(promptBuilder.BuildContinue(done).Content.Contains("<DONE>", StringCompar
 var shellOptions = new AgentOptions
 {
     Version = options.Version,
-    Server = options.Server,
-    Transport = options.Transport,
-    Storage = options.Storage,
-    Connections = options.Connections,
     AgentStorage = Path.Combine(Path.GetTempPath(), $"mezhs-agent-policy-{Guid.NewGuid():N}.sqlite"),
     Workspace = options.Workspace,
     Messages = options.Messages,
@@ -293,7 +316,7 @@ static void Assert(bool condition, string message)
 }
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
-    dotnet run --project (Join-Path $temp 'Test.csproj') -c Release -- $configPath
+    dotnet run --project (Join-Path $temp 'Test.csproj') -c Release -- $configPath (Join-Path $PSScriptRoot "mezhs.agent.core.test.yaml")
     if ($LASTEXITCODE -ne 0) { throw "Policy/shell behavior test failed with exit code $LASTEXITCODE." }
 }
 finally {

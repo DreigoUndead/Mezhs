@@ -19,7 +19,10 @@ $mezhsConfig = Join-Path $temp 'core.yaml'
 $agentConfig = Join-Path $temp 'agent.yaml'
 $electron = Join-Path $root 'electron'
 $coreYaml = (Get-Content (Join-Path $PSScriptRoot 'mezhs.test.yaml') -Raw).Replace('http://127.0.0.1:5198', $coreUrl).Replace('root: data', "root: $(Join-Path $temp 'core')").Replace('electronDirectory: ../electron', "electronDirectory: $electron")
-$agentYaml = (Get-Content (Join-Path $PSScriptRoot 'mezhs.agent.test.yaml') -Raw).Replace('http://127.0.0.1:5199', $agentUrl).Replace('root: data-agent-test/core', "root: $(Join-Path $temp 'agent-core')").Replace('agentStorage: data-agent-test/agent.sqlite', "agentStorage: $(Join-Path $temp 'agent.sqlite')").Replace('workspace: ..', "workspace: $(Join-Path $temp 'workspace')").Replace('electronDirectory: ../electron', "electronDirectory: $electron")
+$agentYaml = (Get-Content (Join-Path $PSScriptRoot 'mezhs.agent.test.yaml') -Raw).Replace('http://127.0.0.1:5199', $agentUrl).Replace('agentStorage: data-agent-test/agent.sqlite', "agentStorage: $(Join-Path $temp 'agent.sqlite')").Replace('workspace: ..', "workspace: $(Join-Path $temp 'workspace')")
+$agentCoreConfig = Join-Path $temp 'agent-core.yaml'
+$agentCoreYaml = (Get-Content (Join-Path $PSScriptRoot 'mezhs.agent.core.test.yaml') -Raw).Replace('root: data-agent-test/core', "root: $(Join-Path $temp 'agent-core')").Replace('electronDirectory: ../electron', "electronDirectory: $electron")
+Set-Content -LiteralPath $agentCoreConfig -Value $agentCoreYaml -Encoding UTF8
 Set-Content -LiteralPath $mezhsConfig -Value $coreYaml -Encoding UTF8
 Set-Content -LiteralPath $agentConfig -Value $agentYaml -Encoding UTF8
 $apiOut = Join-Path $temp 'core.out'
@@ -44,7 +47,7 @@ function Wait-Health([string]$uri) {
 
 function Start-AgentProcess() {
     return Start-Process -FilePath "dotnet" `
-        -ArgumentList @($agentDll, "--config", $agentConfig) `
+        -ArgumentList @($agentDll, "--config", $agentConfig, "--mezhs-config", $agentCoreConfig) `
         -WorkingDirectory $root -RedirectStandardOutput $agentOut -RedirectStandardError $agentErr -WindowStyle Hidden -PassThru
 }
 

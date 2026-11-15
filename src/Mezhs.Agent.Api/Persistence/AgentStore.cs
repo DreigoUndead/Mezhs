@@ -160,13 +160,13 @@ public sealed class AgentStore(AgentOptions options)
     }
 
     // One projection for every Agent sidebar row; active roots outrank historical results.
-    public IReadOnlyDictionary<string, string> GetLatestAgentStatuses()
+    public IReadOnlyDictionary<string, AgentChatExecutionStatus> GetLatestAgentStatuses()
     {
         using var connection = _database.Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT ChatId, Status FROM (
-                SELECT ChatId, Status,
+            SELECT ChatId, ExecutionId, Status FROM (
+                SELECT ChatId, ExecutionId, Status,
                     ROW_NUMBER() OVER (
                         PARTITION BY ChatId
                         ORDER BY CASE
@@ -179,9 +179,9 @@ public sealed class AgentStore(AgentOptions options)
             ) WHERE Position = 1;
             """;
         using var reader = command.ExecuteReader();
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, AgentChatExecutionStatus>(StringComparer.OrdinalIgnoreCase);
         while (reader.Read())
-            result[reader.GetString(0)] = reader.GetString(1);
+            result[reader.GetString(0)] = new AgentChatExecutionStatus(reader.GetString(1), reader.GetString(2));
         return result;
     }
 

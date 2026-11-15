@@ -81,32 +81,67 @@ public abstract class BrowserIntegrationBase(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (_parallelGate is not null)
-            await _parallelGate.WaitAsync(cancellationToken);
+        var parallelTaken = false;
+        var waiting = false;
+        void Signal(IntegrationAdmissionWaitReason? reason)
+        {
+            if (reason is null && !waiting)
+                return;
+            waiting = reason is not null;
+            context.ReportAdmissionWait?.Invoke(reason);
+        }
+
         try
         {
-            await _startGate.WaitAsync(cancellationToken);
+            if (_parallelGate is not null)
+            {
+                if (!_parallelGate.Wait(0))
+                {
+                    Signal(IntegrationAdmissionWaitReason.Capacity);
+                    await _parallelGate.WaitAsync(cancellationToken);
+                }
+                parallelTaken = true;
+                Signal(null);
+            }
+
+            var spacingMs = Connection.Limits?.MinInterval ?? 0;
+            var startTaken = false;
             try
             {
-                var spacingMs = Connection.Limits?.MinInterval ?? 0;
+                if (!_startGate.Wait(0))
+                {
+                    // With no configured spacing, this short mutex is not a capacity wait.
+                    if (spacingMs > 0)
+                        Signal(IntegrationAdmissionWaitReason.Spacing);
+                    await _startGate.WaitAsync(cancellationToken);
+                }
+                startTaken = true;
                 if (spacingMs > 0 && _lastStartTimestamp != 0)
                 {
                     var remaining = spacingMs - Stopwatch.GetElapsedTime(_lastStartTimestamp).TotalMilliseconds;
                     if (remaining > 0)
+                    {
+                        Signal(IntegrationAdmissionWaitReason.Spacing);
                         await Task.Delay(TimeSpan.FromMilliseconds(remaining), cancellationToken);
+                    }
                 }
                 cancellationToken.ThrowIfCancellationRequested();
                 _lastStartTimestamp = Stopwatch.GetTimestamp();
             }
             finally
             {
-                _startGate.Release();
+                if (startTaken)
+                    _startGate.Release();
             }
+
+            Signal(null);
             return await SendCoreAsync(context, cancellationToken);
         }
         finally
         {
-            _parallelGate?.Release();
+            Signal(null);
+            if (parallelTaken)
+                _parallelGate!.Release();
         }
     }
 

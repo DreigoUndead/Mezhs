@@ -18,6 +18,10 @@ public sealed class MessageService(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _chatGates =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, IntegrationAdmissionWaitReason> _admissionWaits =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsAdmissionWaiting(string messageId) => _admissionWaits.ContainsKey(messageId);
 
     public ApiMessage Post(PostMessageRequest request)
     {
@@ -252,7 +256,8 @@ public sealed class MessageService(
                     historyMessages.Select(ToIntegrationMessage).ToArray(),
                     inputFiles,
                     RestoreConversation: !continueRemote,
-                    ReportActivity: activity => UpdateActivity(message, activity)),
+                    ReportActivity: activity => UpdateActivity(message, activity),
+                    ReportAdmissionWait: reason => UpdateAdmissionWait(message, reason)),
                 cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -335,9 +340,18 @@ public sealed class MessageService(
         }
         finally
         {
+            _admissionWaits.TryRemove(message.MessageId, out _);
             if (gateTaken)
                 gate.Release();
         }
+    }
+
+    private void UpdateAdmissionWait(StoredMessage message, IntegrationAdmissionWaitReason? reason)
+    {
+        if (reason is not null && message.Status == MessageStatus.Running)
+            _admissionWaits[message.MessageId] = reason.Value;
+        else
+            _admissionWaits.TryRemove(message.MessageId, out _);
     }
 
     private void UpdateActivity(StoredMessage message, IntegrationActivity activity)

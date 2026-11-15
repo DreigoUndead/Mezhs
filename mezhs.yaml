@@ -16,6 +16,7 @@ connections:
     name: ChatGPT Account
     integration: chatgpt-web-account
     workspace: Mezhs
+    defaultModel: gpt-5-6-thinking::thinking-effort=extended
     # Allow two simultaneous local model turns, with at least five seconds
     # between starts (minInterval is in milliseconds).
     limits:
