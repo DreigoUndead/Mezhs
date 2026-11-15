@@ -240,6 +240,17 @@ try {
         throw "High policy did not materialize its configured integration/model default."
     }
 
+    # With no policy model override, the Core connection default applies to the first send.
+    $coreFallback = Start-AgentExecution "test" "core model fallback"
+    $coreFallbackCompleted = Wait-AgentExecution $coreFallback.executionId
+    $coreFallbackMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($coreFallbackCompleted.chatId)/messages"
+    $coreFallbackUser = @($coreFallbackMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($coreFallbackCompleted.status -ne "Completed" -or
+        $null -ne $coreFallbackCompleted.model -or
+        $coreFallbackUser.model -ne "mock-fast") {
+        throw "Core connection model default was not used when the Agent policy left model unset."
+    }
+
     # An explicit empty model selects provider Default, overriding policy and Core defaults.
     # An omitted model on a subsequent turn must inherit that choice, not reinstate the defaults.
     $providerDefault = Start-AgentExecution "low" "explicit provider default" $null $null "test" ""
