@@ -128,28 +128,27 @@ internal static class RichMarkdownNodes
                     span, Children: parts);
             }
         }
-        var name = input.GetType().Name;
-        var kind = name switch
+        var kind = input switch
         {
-            "ParagraphBlock" => "paragraph",
-            "HeadingBlock" => "heading",
-            "ListBlock" => "list",
-            "ListItemBlock" => "listItem",
-            "QuoteBlock" => "blockquote",
-            "FencedCodeBlock" or "CodeBlock" => "code",
-            "ThematicBreakBlock" => "divider",
-            "LiteralInline" => "text",
-            "CodeInline" => "inlineCode",
-            "EmphasisInline" => input is EmphasisInline e && e.DelimiterChar == '~'
-                ? "strikethrough" : input is EmphasisInline strong && strong.DelimiterCount >= 2
-                    ? "strong" : "emphasis",
-            "LinkInline" => input is LinkInline { IsImage: true } ? "image" : "link",
-            "AutolinkInline" => "link",
-            "TaskList" => "taskCheckbox",
-            "LineBreakInline" => "lineBreak",
-            "Table" => "table",
-            "TableRow" => "tableRow",
-            "TableCell" => "tableCell",
+            ParagraphBlock => "paragraph",
+            HeadingBlock => "heading",
+            ListBlock => "list",
+            ListItemBlock => "listItem",
+            QuoteBlock => "blockquote",
+            FencedCodeBlock or CodeBlock => "code",
+            ThematicBreakBlock => "divider",
+            LiteralInline => "text",
+            CodeInline => "inlineCode",
+            EmphasisInline { DelimiterChar: '~' } => "strikethrough",
+            EmphasisInline { DelimiterCount: >= 2 } => "strong",
+            EmphasisInline => "emphasis",
+            LinkInline { IsImage: true } => "image",
+            LinkInline or AutolinkInline => "link",
+            TaskList => "taskCheckbox",
+            LineBreakInline => "lineBreak",
+            Table => "table",
+            TableRow => "tableRow",
+            TableCell => "tableCell",
             _ => "literal"
         };
         var attributes = new Dictionary<string, string>(StringComparer.Ordinal);

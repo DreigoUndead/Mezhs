@@ -397,6 +397,33 @@ test("malformed ancestors reject any previously valid display controls", () => {
   assert.doesNotMatch(html(input,{document:doc}),/class="rich-badge"/);
 });
 
+
+test("unknown presentation attributes remain inert data for their owning controls", () => {
+  const input = '<box futureTheme="violet" border><text futureTone="bright" strong>Visible</text></box>';
+  const doc = canonicalDocument(input);
+  assert.equal(doc.valid, true);
+  const nodes = kinds(doc.nodes, "element");
+  assert.equal(nodes.find(n => n.name === "box")?.attributes?.futureTheme, "violet");
+  assert.equal(nodes.find(n => n.name === "text")?.attributes?.futureTone, "bright");
+  const output = html(input, { document: doc });
+  assert.match(output, /class="rich-box/);
+  assert.match(output, /Visible/);
+  assert.doesNotMatch(output, /(?:futureTheme|futureTone|data-mezhs-future)/);
+});
+
+test("SVG and raw editors retain strict attributes, while event and style props fail closed", () => {
+  for (const source of [
+    '<svg futureTheme="violet"><rect width="2" height="2" /></svg>',
+    '<CodeBlock unexpected="value">\nraw\n</CodeBlock>',
+    '<WritingBlock variant="document" unexpected="value">\nraw\n</WritingBlock>',
+    '<box style="color:red">no</box>',
+    '<box onClick="alert(1)">no</box>',
+  ]) {
+    assert.equal(canonicalDocument(source).valid, false, source);
+    assert.match(html(source), /&lt;/);
+  }
+});
+
 test("unknown tags and event handlers cannot reach the host renderer", () => {
   const inputs=[
     '<text onClick="alert(1)">Unsafe</text>',

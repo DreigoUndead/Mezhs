@@ -33,7 +33,7 @@ public enum RichTagRole { Container, Leaf, OpaqueLiteral, RawEditor, Command, Ma
 public sealed record RichTagDefinition(
     string Name,
     RichTagRole Role,
-    IReadOnlySet<string> AllowedAttributes,
+    IReadOnlySet<string>? AllowedAttributes,
     // SearchChildren: recursively discover registered nested tags inside this
     // tag's body. False means the complete body is opaque and never searched.
     bool SearchChildren,
@@ -48,6 +48,11 @@ public static class RichTagRegistry
         new(name, role, new HashSet<string>(attributes, StringComparer.Ordinal),
             SearchChildren: role == RichTagRole.Container,
             AllowAsChild: name != "DONE");
+
+    // Presentation components receive bounded inert attributes and interpret them locally.
+    // Restricted namespaces (SVG, raw editors, Agent commands) keep explicit contracts.
+    private static RichTagDefinition Presentation(string name, RichTagRole role) =>
+        Tag(name, role) with { AllowedAttributes = null };
 
     // An individual tag may override either traversal policy without
     // changing its role, syntax, attribute allowlist or siblings.
@@ -73,16 +78,16 @@ public static class RichTagRegistry
     private static readonly IReadOnlyDictionary<string, RichTagDefinition> Tags =
         new[]
         {
-            Tag("box", RichTagRole.Container, "gap", "align", "justify", "padding", "border", "radius", "background", "width", "flex", "key"),
-            Tag("row", RichTagRole.Container, "gap", "align", "justify", "key"),
-            Tag("col", RichTagRole.Container, "gap", "align", "justify", "key"),
-            Tag("grid", RichTagRole.Container, "columns", "gap", "key"),
-            Tag("grid-item", RichTagRole.Container, "span", "key"),
-            Tag("text", RichTagRole.Container, "size", "color", "weight", "strong", "textAlign", "tabularNums", "key"),
-            Tag("title", RichTagRole.Container, "size", "color", "weight", "textAlign", "tabularNums", "key"),
-            Tag("caption", RichTagRole.Container, "color", "key"),
-            Tag("badge", RichTagRole.Container, "color", "variant", "key"),
-            Tag("Link", RichTagRole.Container, "url", "title", "key"),
+            Presentation("box", RichTagRole.Container),
+            Presentation("row", RichTagRole.Container),
+            Presentation("col", RichTagRole.Container),
+            Presentation("grid", RichTagRole.Container),
+            Presentation("grid-item", RichTagRole.Container),
+            Presentation("text", RichTagRole.Container),
+            Presentation("title", RichTagRole.Container),
+            Presentation("caption", RichTagRole.Container),
+            Presentation("badge", RichTagRole.Container),
+            Presentation("Link", RichTagRole.Container),
             // SVG uses the same tag registry, with SVG-specific attributes and nesting.
             SvgTag("svg", RichTagRole.Container, "viewBox", "width", "height", "preserveAspectRatio", "aria-label", "role"),
             SvgTag("g", RichTagRole.Container),
@@ -94,10 +99,10 @@ public static class RichTagRegistry
             SvgTag("circle", RichTagRole.Leaf, "cx", "cy", "r"),
             SvgTag("ellipse", RichTagRole.Leaf, "cx", "cy", "rx", "ry"),
             SvgTag("tspan", RichTagRole.Container, "x", "y"),
-            Tag("divider", RichTagRole.Leaf, "color", "key"),
-            Tag("icon", RichTagRole.Leaf, "name", "size", "color", "inline", "key"),
-            Tag("Chart", RichTagRole.Leaf, "content"),
-            Tag("Cite", RichTagRole.Leaf, "ref", "refs"),
+            Presentation("divider", RichTagRole.Leaf),
+            Presentation("icon", RichTagRole.Leaf),
+            Presentation("Chart", RichTagRole.Leaf),
+            Presentation("Cite", RichTagRole.Leaf),
             Tag("CodeBlock", RichTagRole.RawEditor, "language", "editable"),
             Tag("WritingBlock", RichTagRole.RawEditor, "variant", "recipient", "cc", "bcc", "subject", "id"),
             Tag("escape", RichTagRole.OpaqueLiteral, "char"),

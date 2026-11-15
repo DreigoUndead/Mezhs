@@ -16,6 +16,11 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
 {
     ("Plain Markdown", "# Hello\n\n**Strong** and [link](https://example.com)", true, []),
     ("Nested box and text", "<box gap={2}>\n<text>hello</text>\n</box>", true, []),
+    ("Unknown presentation attribute is inert", "<text futureTone=\"violet\" strong>Visible</text>", true, []),
+    ("Unknown layout attribute does not revoke nested shell", "<box futureTheme=\"quiet\">\n<SH>\necho REAL\n</SH>\n</box>", true, ["SH"]),
+    ("Unsafe event attribute blocks nested shell", "<box onClick=\"alert(1)\">\n<SH>\necho NEVER\n</SH>\n</box>", false, []),
+    ("Unsafe HTML style attribute rejected", "<badge style=\"color:red\">No</badge>", false, []),
+    ("Unknown SVG attribute rejected", "<svg futureTheme=\"violet\"><rect width=\"5\" height=\"5\"/></svg>", false, []),
     ("Inline text accepts phrasing descendants", "<text>Before <badge>status</badge> and <Link url=\"https://example.com\">a link</Link> after</text>", true, []),
     ("Inline Link accepts nested text and code", "<Link url=\"https://example.com\">Read <text strong>this</text> `literal`</Link>", true, []),
     ("Inline text accepts a Markdown link", "<text>Read [docs](https://example.com) here.</text>", true, []),

@@ -838,6 +838,14 @@ public sealed class RichDocumentParser
         throw new RichDocumentException("Unclosed or oversized tag opening.");
     }
 
+    // Unknown *presentation* attributes stay inert data: React components read only
+    // their own namespaced values, never spread these directly onto the DOM.
+    // Event/HTML/DOM injection properties remain invalid even in that namespace.
+    private static bool UnsafePresentationAttribute(string name) =>
+        name.StartsWith("on", StringComparison.OrdinalIgnoreCase) ||
+        name is "style" or "class" or "className" or "dangerouslySetInnerHTML" or
+            "innerHTML" or "ref" or "srcDoc" or "suppressHydrationWarning";
+
     private static IReadOnlyDictionary<string, string> ParseAttributes(Tag tag, RichTagDefinition definition)
     {
         if (tag.Closing) return new Dictionary<string, string>();
@@ -851,7 +859,9 @@ public sealed class RichDocumentParser
             while (i < source.Length && (char.IsLetterOrDigit(source[i]) || source[i] is '-' or '_')) i++;
             if (i == 0) throw new RichDocumentException("Invalid tag attribute name.");
             var name = source[..i].ToString();
-            if (!definition.AllowedAttributes.Contains(name) || result.ContainsKey(name))
+            if (result.ContainsKey(name) ||
+                definition.AllowedAttributes is { } allowed && !allowed.Contains(name) ||
+                definition.AllowedAttributes is null && UnsafePresentationAttribute(name))
                 throw new RichDocumentException($"Unsupported or duplicate {tag.Name} attribute: {name}.");
             source = source[i..].TrimStart();
             string value;

@@ -1,8 +1,7 @@
-import { createElement, Fragment, useContext, useId, useState } from "react";
-import { RichActionContext } from "./RichActionContext";
+import { createElement, Fragment } from "react";
 import type { ReactNode, ComponentType } from "react";
-import { RichCodeBlock } from "./RichCodeBlock";
-import { RichWritingBlock } from "./RichWritingBlock";
+import { RichCodeBlock } from "./rich-elements/CodeBlock";
+import { RichWritingBlock } from "./rich-elements/WritingBlock";
 import { Cite } from "./rich-elements/Cite";
 import { rowComponent } from "./rich-elements/Row";
 import { colComponent } from "./rich-elements/Col";
@@ -17,7 +16,8 @@ import { badgeComponent } from "./rich-elements/Badge";
 import { iconComponent } from "./rich-elements/Icon";
 import { linkComponent } from "./rich-elements/Link";
 import { chartComponent } from "./rich-elements/Chart";
-import { svgComponents } from "./RichSvg";
+import { renderSvg } from "./rich-elements/Svg";
+import { CanonicalQuestion } from "./rich-elements/Question";
 import "./markdown.css";
 
 // The server is the only owner of document grammar. These are data, not
@@ -39,7 +39,6 @@ export type RichDocument = {
   diagnostics: Array<{ code: string; sourceSpan: { start: number; end: number } }>;
 };
 
-const svg = svgComponents();
 // Only symbolic server-validated tag names map to host-owned presentation.
 const presentation = {
   row: rowComponent,
@@ -72,7 +71,8 @@ function renderNode(node: RichNode, depth: number, svgScope: boolean): ReactNode
   const content = () => node.children?.map(child =>
     <Fragment key={child.id}>{renderNode(child, depth + 1, svgScope)}</Fragment>);
   if (node.kind === "literal" || node.kind === "text") return node.text || "";
-  if (node.kind === "question") return <CanonicalQuestion key={key} node={node} depth={depth} />;
+  if (node.kind === "question") return <CanonicalQuestion key={key} node={node}
+    renderChild={child => renderNode(child, depth + 1, false)} />;
   if (node.kind === "raw") {
     if (node.name === "CodeBlock")
       return <RichCodeBlock key={key} source={node.text || ""}
@@ -87,15 +87,9 @@ function renderNode(node: RichNode, depth: number, svgScope: boolean): ReactNode
   if (node.kind === "element") {
     const name = node.name || "";
     if (name === "Cite") return <Cite key={key} />;
-    if (name === "svg" || svgScope) {
-      const component = svg["mezhs-svg-" + name];
-      if (!component) return null;
-      const props: Record<string, unknown> = {};
-      for (const [attr, value] of Object.entries(attrs))
-        props["data-mezhs-svg-" + attr.toLowerCase()] = value;
-      return createElement(component as ComponentType<Record<string, unknown>>, { ...props, key }, node.children?.map(child =>
+    if (name === "svg" || svgScope)
+      return renderSvg(name, attrs, node.children?.map(child =>
         <Fragment key={child.id}>{renderNode(child, depth + 1, true)}</Fragment>));
-    }
     const element = Object.prototype.hasOwnProperty.call(presentation, name)
       ? presentation[name as keyof typeof presentation] : null;
     if (!element) return null;
@@ -150,41 +144,6 @@ function renderNode(node: RichNode, depth: number, svgScope: boolean): ReactNode
       ? <th key={key} scope="col">{children}</th> : <td key={key}>{children}</td>;
     default: return node.text || children;
   }
-}
-
-function CanonicalQuestion({ node, depth }: { node: RichNode; depth: number }) {
-  const onIssueNewTurn = useContext(RichActionContext);
-  const groupName = useId();
-  const options = (node.children || []).filter(child => child.kind === "questionOption");
-  const button = node.children?.find(child => child.kind === "questionButton");
-  const [choice, setChoice] = useState(node.attributes?.initial || "");
-  const selected = options.find(option => option.attributes?.value === choice);
-  const message = selected?.attributes?.message;
-  const enabled = !!onIssueNewTurn && typeof message === "string" && message.length > 0;
-  if (!button || options.length < 2 || options.length > 12 ||
-      !options.some(option => option.attributes?.value === node.attributes?.initial)) return null;
-  const label = (children?: RichNode[]) => children?.map(child =>
-    <Fragment key={child.id}>{renderNode(child, depth + 1, false)}</Fragment>);
-  const control = <fieldset className="rich-question">
-    <legend className="rich-question-caption">Choose one option</legend>
-    {options.map(option => <label key={option.id} className="rich-question-option">
-      <input type="radio" name={groupName} value={option.attributes?.value || ""}
-        checked={choice === option.attributes?.value}
-        onChange={() => setChoice(option.attributes?.value || "")} />
-      <div>{label(option.children || [])}</div>
-    </label>)}
-    <button type="button" className={button.attributes?.block === "true" ? "rich-question-block" : undefined}
-      disabled={!enabled} onClick={() => { if (enabled && message) onIssueNewTurn?.(message); }}>
-      {label(button.children || [])}
-    </button>
-    {!onIssueNewTurn && <small className="rich-question-readonly">Submission unavailable in this view.</small>}
-  </fieldset>;
-  if (node.attributes?.box !== "true") return control;
-  const props: Record<string, string> = {};
-  for (const [name, value] of Object.entries(node.attributes || {}))
-    if (name.startsWith("box."))
-      props["data-mezhs-" + name.slice(4)] = value;
-  return createElement(boxComponent, props, control);
 }
 
 export function RichDocumentView({ document, source }: { document: RichDocument; source: string }) {
