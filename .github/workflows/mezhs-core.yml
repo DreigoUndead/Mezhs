@@ -74,6 +74,8 @@ jobs:
       - name: Agent API model and policy smoke
         shell: pwsh
         run: |
+          pwsh -NoProfile -File tests/policy-decoder.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pwsh -NoProfile -File tests/agent-api-smoke.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

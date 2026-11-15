@@ -64,7 +64,7 @@ public sealed class AgentPromptBuilder(AgentOptions options)
             ? string.Empty
             : $"""
                Policy instructions:
-               {policy.ModelInstructions}
+               {policy.ModelInstructions.Replace("{OS}", HostOsName(), StringComparison.Ordinal)}
 
                """;
         var shellContext = ShellAllowed(policy)
@@ -85,6 +85,11 @@ public sealed class AgentPromptBuilder(AgentOptions options)
         return policy.Settings.Commands.Allow.Contains(shell, StringComparer.OrdinalIgnoreCase) &&
                !policy.Settings.Commands.Deny.Contains(shell, StringComparer.OrdinalIgnoreCase);
     }
+
+    private static string HostOsName() =>
+        OperatingSystem.IsWindows() ? "Windows" :
+        OperatingSystem.IsLinux() ? "Linux" :
+        OperatingSystem.IsMacOS() ? "macOS" : "Unknown OS";
 
     private static string HostShellDescription() =>
         OperatingSystem.IsWindows() ? "cmd.exe on Windows" : "/bin/sh on Unix-like systems";

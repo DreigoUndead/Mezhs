@@ -2,6 +2,37 @@ namespace Mezhs.Configuration;
 
 public static class ConfigPath
 {
+    // Default launches use an editable personal copy next to the tracked sample.
+    // Explicit --config paths retain their exact existing meaning.
+    public static string FindLocal(
+        string[] args, string fileName, string argumentName = "--config", string? companionFileName = null)
+    {
+        var path = Find(args, fileName, argumentName);
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (string.Equals(args[i], argumentName, StringComparison.OrdinalIgnoreCase))
+                return path;
+        }
+
+        var localPath = EnsureLocalCopy(path);
+        if (companionFileName is not null)
+            EnsureLocalCopy(Path.Combine(Path.GetDirectoryName(path)!, companionFileName));
+        return localPath;
+    }
+
+    public static string EnsureLocalCopy(string defaultPath)
+    {
+        var localPath = Path.Combine(
+            Path.GetDirectoryName(Path.GetFullPath(defaultPath))!,
+            Path.GetFileNameWithoutExtension(defaultPath) + ".local" + Path.GetExtension(defaultPath));
+        if (!File.Exists(localPath))
+        {
+            try { File.Copy(defaultPath, localPath); }
+            catch (IOException) when (File.Exists(localPath)) { /* Concurrent first startup. */ }
+        }
+        return localPath;
+    }
+
     public static string Find(string[] args, string fileName, string argumentName = "--config")
     {
         string? configuredPath = null;

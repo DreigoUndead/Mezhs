@@ -48,7 +48,8 @@ public static class AgentConfigLoader
         Validate(options.Messages, "messages");
 
         options.Policies = new PolicyDecoder().DecodePolicies(
-            RequiredMapping(root, "policies", "policies"));
+            RequiredMapping(root, "policies", "policies"),
+            InstructionTextLoader.Load(path));
         if (coreConnectionIds is not null)
             ValidatePolicyConnections(options.Policies, coreConnectionIds);
         return options;
