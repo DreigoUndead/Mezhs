@@ -149,6 +149,18 @@ var collisionPass = collisionResult.Document.Valid && collisionResult.Commands.C
 Console.WriteLine($"{(collisionPass ? "PASS" : "FAIL")}: Model-authored private-use marker collision preserves exact text, order, node IDs, UTF-16 spans");
 if (!collisionPass) failures++;
 
+// GFM task checkboxes are valid native phrasing inputs inside Markdown list
+// paragraphs, but remain forbidden inside interactive rich links/buttons.
+var taskSource = "- [x] Completed\n- [ ] Pending";
+var taskResult = new RichDocumentParser().Parse(taskSource);
+var taskNodes = taskResult.Document.Nodes.SelectMany(Walk)
+    .Where(node => node.Kind == "taskCheckbox").ToArray();
+var taskPass = taskResult.Document.Valid && taskResult.Commands.Count == 0 &&
+    taskNodes.Length == 2 && taskNodes[0].Attributes?.GetValueOrDefault("checked") == "true" &&
+    taskNodes[1].Attributes?.GetValueOrDefault("checked") == "false";
+Console.WriteLine($"{(taskPass ? "PASS" : "FAIL")}: GFM task checkboxes remain accessible inside Markdown paragraphs");
+if (!taskPass) failures++;
+
 var fixture = File.ReadAllText(Path.Combine("tests", "fixtures", "rich-model-ui", "custom-controls-question.md"));
 var parsedQuestion = new RichDocumentParser().Parse(fixture);
 var question = parsedQuestion.Document.Nodes.SingleOrDefault(n => n.Kind == "question");
@@ -157,6 +169,8 @@ var buttons = question?.Children?.Where(n => n.Kind == "questionButton").ToArray
 var radioPass = parsedQuestion.Document.Valid && parsedQuestion.Commands.Count == 0 &&
     question?.Attributes?["initial"] == "A" &&
     choices.Length == 4 && buttons.Length == 1 &&
+    buttons[0].Children is { Count: > 0 } buttonChildren &&
+    buttonChildren.All(child => child.Kind is not ("paragraph" or "heading" or "list" or "taskCheckbox")) &&
     string.Join("", choices.Select(n => n.Attributes!["value"])) == "ABCD" &&
     choices.All(n => n.Attributes!["message"].StartsWith("Grill Me Q1: ", StringComparison.Ordinal)) &&
     choices[0].Attributes!["message"].Contains("minimum interval between request starts") &&
