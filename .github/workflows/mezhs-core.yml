@@ -60,6 +60,10 @@ jobs:
       - name: Rich formatting and real Chromium regression
         shell: pwsh
         run: |
+          # Multiple Node test workers share the canonical C# fixture DLL.
+          # Build it once before the workers to avoid concurrent compiler writes.
+          dotnet build tests/Mezhs.RichUi.TestApp/Mezhs.RichUi.TestApp.csproj -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test tests/agent-web-rich-formatting.test.cjs tests/agent-status-unread-browser.test.cjs tests/chat-ui-browser.test.cjs tests/rich-model-ui-rendering.test.cjs tests/rich-model-ui-browser.test.cjs tests/group-delete-browser.test.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
