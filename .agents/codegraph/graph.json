@@ -5750,6 +5750,14 @@
       "raw": "node:test"
     },
     {
+      "from": 268,
+      "to": {
+        "type": "file",
+        "path": 286
+      },
+      "raw": "./helpers/canonical-rich-document.cjs"
+    },
+    {
       "from": 269,
       "to": {
         "type": "external",
