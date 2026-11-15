@@ -60,4 +60,3 @@ export function tone(props: RichProps) {
   const color = read(props, "color");
   return /^(success|danger|warning|secondary|muted)$/.test(color) ? " rich-tone-" + color : "";
 }
-
