@@ -92,8 +92,9 @@ Assert(initialPrompt.Contains($"MEŽS runtime on {os}", StringComparison.Ordinal
     "Runtime startup did not resolve the host OS in shared instructions.");
 Assert(!initialPrompt.Contains("{OS}", StringComparison.Ordinal),
     "Runtime startup left an OS placeholder unresolved.");
-Assert(initialPrompt.Contains("Task:\nTest instructions", StringComparison.Ordinal),
-    "Runtime startup lost the task content: " + initialPrompt[^Math.Min(200, initialPrompt.Length)..]);
+Assert(initialPrompt.Replace("\r\n", "\n", StringComparison.Ordinal)
+       .Contains("Task:\nTest instructions", StringComparison.Ordinal),
+    "Runtime startup lost the task content.");
 Assert(initialPrompt.Contains("Host shell:", StringComparison.Ordinal),
     "Runtime startup omitted the configured shell context.");
 Assert(!initialPrompt.Contains("return <SH> on a line", StringComparison.Ordinal),
