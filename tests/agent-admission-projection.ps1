@@ -190,7 +190,10 @@ policies:
     # New Agent root is Running; its own message is merely queued behind that ordinary provider turn.
     $agentTwo = Post '/v1/executions' @{ policyId = 'capacity'; input = 'same chat isolation'; chatId = $chatOne }
     Until { (Get "/v1/executions/$($agentTwo.executionId)").status -eq 'Running' } 'next root running'
-    Until { (Get-AgentMessage $chatOne).messageId -ne $agentMessage.messageId } 'second Agent message queued'
+    Until {
+        $latest = Get-AgentMessage $chatOne
+        $null -ne $latest -and $latest.messageId -notin @($agentMessage.messageId, $unrelated.messageId)
+    } 'second Agent message queued'
     $secondMessage = Get-AgentMessage $chatOne
     Assert ((Get "/v1/messages/$($secondMessage.messageId)").status -eq 'Queued') 'Second Agent model should queue behind unrelated same-chat provider.'
     Await-Projection $chatOne 'Running'
