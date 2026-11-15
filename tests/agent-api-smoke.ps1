@@ -401,19 +401,33 @@ echo %TEST_AGENT_VALUE%
         throw "Debug log still exposes obsolete requester metadata."
     }
 
-    # Agent Web is the browser-facing half of the same local trust boundary and must also reject network exposure.
+    # Agent Web must fail closed on non-loopback exposure. Windows crash reporting
+    # can leave a rejected .NET process alive after stderr records the exception.
+    if (Get-NetTCPConnection -LocalPort 5201 -State Listen -ErrorAction SilentlyContinue) {
+        throw "Port 5201 is already listening; cannot safely verify Agent Web rejection."
+    }
     $badWeb = Start-Process -FilePath "dotnet" `
         -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj"), "-c", "Release", "--no-build", "--no-launch-profile", "--", "--urls", "http://0.0.0.0:5201", "--Agent:BaseUrl", "http://127.0.0.1:5199") `
         -WorkingDirectory $root -RedirectStandardOutput $badWebOut -RedirectStandardError $badWebErr -WindowStyle Hidden -PassThru
     try {
-        if (-not $badWeb.WaitForExit(25000)) {
-            Stop-Process -Id $badWeb.Id -Force
-            $badWeb.WaitForExit()
-            throw "Non-loopback Agent Web startup did not exit within 25 seconds (PID $($badWeb.Id)); inspect $badWebErr."
-        }
-        $badWebText = (Get-Content -LiteralPath $badWebErr -Raw) + (Get-Content -LiteralPath $badWebOut -Raw)
-        if ($badWeb.ExitCode -eq 0 -or $badWebText -notmatch "loopback") {
+        $deadline = [DateTimeOffset]::UtcNow.AddSeconds(25)
+        do {
+            $badWebErrorText = if (Test-Path -LiteralPath $badWebErr) {
+                Get-Content -LiteralPath $badWebErr -Raw -ErrorAction SilentlyContinue
+            } else { "" }
+            if ($badWeb.HasExited -or $badWebErrorText -match "Agent Web listen URL must use a loopback address") {
+                break
+            }
+            Start-Sleep -Milliseconds 100
+        } while ([DateTimeOffset]::UtcNow -lt $deadline)
+        $badWebText = (Get-Content -LiteralPath $badWebErr -Raw -ErrorAction SilentlyContinue) +
+            (Get-Content -LiteralPath $badWebOut -Raw -ErrorAction SilentlyContinue)
+        if (($badWeb.HasExited -and $badWeb.ExitCode -eq 0) -or
+            $badWebText -notmatch "Agent Web listen URL must use a loopback address") {
             throw "Non-loopback Agent Web configuration did not fail specifically at the exposure boundary. Output: $badWebText"
+        }
+        if (Get-NetTCPConnection -LocalPort 5201 -State Listen -ErrorAction SilentlyContinue) {
+            throw "Non-loopback Agent Web unexpectedly opened port 5201 despite rejecting configuration."
         }
     } finally {
         if (-not $badWeb.HasExited) { Stop-Process -Id $badWeb.Id -Force; $badWeb.WaitForExit() }
