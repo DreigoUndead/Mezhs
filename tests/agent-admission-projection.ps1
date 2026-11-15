@@ -8,6 +8,7 @@ $agentOutput = Join-Path $root 'src\Mezhs.Agent.Api\bin\Release\net10.0'
 $pluginInstalled = Join-Path $agentOutput 'Mezhs.Integrations.AdmissionProbe.dll'
 $hostDll = Join-Path $agentOutput 'Mezhs.Agent.Api.dll'
 $agent = $null
+$pluginInstalledByTest = $false
 $baseUrl = 'http://127.0.0.1:5397'
 
 function Assert([bool]$condition, [string]$description) {
@@ -84,6 +85,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Test-only admission plugin build failed.' }
     $built = Join-Path $temp 'bin\Release\net10.0\Mezhs.Integrations.AdmissionProbe.dll'
     Copy-Item -LiteralPath $built -Destination $pluginInstalled -ErrorAction Stop
+    $pluginInstalledByTest = $true
 
     # Core and Agent YAML are in distinct roots to check independent resolution.
     $coreFolder = Join-Path $temp 'core-config'
@@ -244,6 +246,8 @@ policies:
         Stop-Process -Id $agent.Id -Force -ErrorAction SilentlyContinue
         $agent.WaitForExit(5000) | Out-Null
     }
-    Remove-Item -LiteralPath $pluginInstalled -Force -ErrorAction SilentlyContinue
+    if ($pluginInstalledByTest) {
+        Remove-Item -LiteralPath $pluginInstalled -Force -ErrorAction SilentlyContinue
+    }
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }
