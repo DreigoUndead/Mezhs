@@ -240,6 +240,28 @@ try {
         throw "High policy did not materialize its configured integration/model default."
     }
 
+    # An explicit empty model selects provider Default, overriding policy and Core defaults.
+    # An omitted model on a subsequent turn must inherit that choice, not reinstate the defaults.
+    $providerDefault = Start-AgentExecution "low" "explicit provider default" $null $null "test" ""
+    $providerDefaultCompleted = Wait-AgentExecution $providerDefault.executionId
+    $providerDefaultMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($providerDefaultCompleted.chatId)/messages"
+    $providerDefaultUser = @($providerDefaultMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($providerDefaultCompleted.status -ne "Completed" -or
+        $providerDefaultCompleted.connectionId -ne "test" -or
+        $providerDefaultCompleted.model -cne "" -or
+        $null -ne $providerDefaultUser.model) {
+        throw "Explicit provider Default did not override the policy and Core model defaults."
+    }
+    $inheritedDefault = Start-AgentExecution "low" "inherit explicit provider default" $null $providerDefaultCompleted.chatId
+    $inheritedDefaultCompleted = Wait-AgentExecution $inheritedDefault.executionId
+    $inheritedDefaultMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($providerDefaultCompleted.chatId)/messages"
+    $inheritedDefaultUser = @($inheritedDefaultMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($inheritedDefaultCompleted.status -ne "Completed" -or
+        $null -ne $inheritedDefaultCompleted.model -or
+        $null -ne $inheritedDefaultUser.model) {
+        throw "Existing chat did not inherit an explicitly selected provider Default."
+    }
+
     $changedModel = Start-AgentExecution "low" "switch model" $null $completed.chatId "test" "mock-deep"
     $changedModelCompleted = Wait-AgentExecution $changedModel.executionId
     if ($changedModelCompleted.status -ne "Completed" -or
