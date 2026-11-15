@@ -3,11 +3,11 @@
 ID: `agent-instructions-local-config`
 Level: **Standard** — configuration loading and startup prompt changes with regression risk, but no command enforcement or integration scheduling changes.
 
-Status: **Review FAIL addressed on task branch; new independent review and final testing pending.**
+Status: **Second review FAIL addressed on task branch; revised developer CI, fresh independent code review, and final testing pending.**
 
 Initial implementation code revision: `ed16fc67f73d8d0f5a1f5fd0e8f0c885646fcd97`. Review-fix revision: `42a1261e1ea0c658328b64e57541fad083aef00e`.
 Developer CI: [MEŽS Core run 43717572046](https://github.com/DreigoUndead/Mezhs/actions/runs/43717572046) PASS (Windows solution build, agent policy regression suite, Agent API/UI, provider and concurrency/restart suites).
-The above full regression run preceded the review correction; revised CI is still required. Independent code review and final testing remain workflow gates. Codegraph regeneration was unavailable without a local checkout/codegraph CLI and remains a verification limitation.
+The first full regression run preceded review corrections. Revised CI passed at `77e263fe3ba40a0b3036429105f44083a04f054b` (run 43722850193); a new CI run is required for the later packaging correction. Independent code review and final testing remain workflow gates. Codegraph regeneration was unavailable without a local checkout/codegraph CLI and remains a verification limitation.
 
 ## Goal and scope
 
@@ -55,3 +55,7 @@ The above full regression run preceded the review correction; revised CI is stil
 - **Additional nonblocking compatibility correction:** Named instruction references now resolve only when the **whole** policy instruction field is a direct `{id}` reference. Ordinary literal prose containing lowercase brace tokens is not treated as a reference. No nested references or template engine were added.
 - **Regression checks added:** Explicit `agent.local.yaml` with no sidecar or text reference must load without copying; a manually provided matching sidecar is loaded if referenced. A policy with ordinary literal `{shell}` must load literally. The default-startup test now verifies automatic instructions-copy provisioning via the actual `FindLocal` overload rather than manually calling the copy helper.
 - **Disposition:** Re-review the corrected commit with a **new independent reviewer** after developer CI. Continue with final testing only after Code Reviewer PASS. This plan update is review bookkeeping and does not restart the plan-review stage.
+
+- **Second independent review FAIL (2026-11-15, at `77e263fe3ba40a0b3036429105f44083a04f054b`):** `src/Mezhs.Agent.Api/Mezhs.Agent.Api.csproj` copied `agent.yaml` and `mezhs.yaml` to build/publish output but omitted the newly required root `instructions.yaml`. An implicitly configured Agent launched from a standalone output directory outside the repository would try to create `instructions.local.yaml` from the missing file and fail before host startup. Independent source review is recorded in GitHub PR review `5911245573`; no standalone runtime reproduction was claimed.
+- **Packaging correction:** Added linked `instructions.yaml` to the Agent project's `CopyToOutputDirectory="PreserveNewest"` items (commit `45fe266a3db6649d533d30262c6b79f1fcc6c985`). Added a clean standalone `dotnet publish --no-build` output check asserting all three sample YAML files (commit `7d7a5ee75cee47dc35fdd6c6058d288a4f3b57ce`).
+- **Disposition:** Run exact-head CI for the packaging fix. Then a **new independent reviewer** must review the updated branch; final testing follows PASS. Neither the prior PASS CI nor the current reviewer's correction is independent approval of the new head.
