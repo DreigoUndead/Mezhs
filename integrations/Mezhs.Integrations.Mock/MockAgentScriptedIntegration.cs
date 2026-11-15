@@ -8,7 +8,8 @@ public sealed class MockAgentScriptedIntegration(IntegrationConnection connectio
     public override Task<IntegrationSendResult> SendMessageAsync(
         IntegrationSendContext context, CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        if (cancellationToken.IsCancellationRequested)
+            return Task.FromCanceled<IntegrationSendResult>(cancellationToken);
         const string marker = "\nTask:\n";
         var prompt = context.Message.Content.Replace("\r\n", "\n", StringComparison.Ordinal);
         var index = prompt.LastIndexOf(marker, StringComparison.Ordinal);
