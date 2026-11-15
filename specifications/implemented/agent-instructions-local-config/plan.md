@@ -3,11 +3,11 @@
 ID: `agent-instructions-local-config`
 Level: **Standard** — configuration loading and startup prompt changes with regression risk, but no command enforcement or integration scheduling changes.
 
-Status: **Implemented on task branch; independent review and final testing pending.**
+Status: **Review FAIL addressed on task branch; new independent review and final testing pending.**
 
-Implementation code revision: `ed16fc67f73d8d0f5a1f5fd0e8f0c885646fcd97`.
+Initial implementation code revision: `ed16fc67f73d8d0f5a1f5fd0e8f0c885646fcd97`. Review-fix revision: `42a1261e1ea0c658328b64e57541fad083aef00e`.
 Developer CI: [MEŽS Core run 43717572046](https://github.com/DreigoUndead/Mezhs/actions/runs/43717572046) PASS (Windows solution build, agent policy regression suite, Agent API/UI, provider and concurrency/restart suites).
-Full regression run succeeded before this documentation-only plan move. Independent code review and final testing remain workflow gates. Codegraph regeneration was unavailable without a local checkout/codegraph CLI and remains a verification limitation.
+The above full regression run preceded the review correction; revised CI is still required. Independent code review and final testing remain workflow gates. Codegraph regeneration was unavailable without a local checkout/codegraph CLI and remains a verification limitation.
 
 ## Goal and scope
 
@@ -47,3 +47,11 @@ Full regression run succeeded before this documentation-only plan move. Independ
 - Run existing config/agent policy tests, Agent API smoke/architecture tests, full relevant .NET builds and any available CI. Test actual prompt content and snapshot generation, not just source text.
 - Independent code review before final verification as Standard; independent tester where useful. Report exact tested revision, CI/local evidence, limitations and requested owner merge approval.
 - Keep `main` untouched until explicit owner approval of the complete implementation.
+
+## Independent review continuity
+
+- **FAIL (2026-11-15):** An independent Code Reviewer reviewed PR #61 at `cba66939ba010ea1aca37ae8716e3eff75c29be4`, reported in the PR review and discussion. The blocking finding was that explicit `--config <directory>/agent.local.yaml` triggered an implicit copy of `instructions.yaml`, violating explicit-path no-copy behavior and potentially failing startup if no sample sidecar exists. No independent runtime test was claimed.
+- **Correction:** Moved companion-file provisioning into `ConfigPath.FindLocal`, exclusively on the implicit/default selection path. `Mezhs.Agent.Api/Program.cs` passes `companionFileName: "instructions.yaml"` and no longer performs a basename-based copy. This retains normal first-run sidecar provisioning while explicit paths are loaded as supplied.
+- **Additional nonblocking compatibility correction:** Named instruction references now resolve only when the **whole** policy instruction field is a direct `{id}` reference. Ordinary literal prose containing lowercase brace tokens is not treated as a reference. No nested references or template engine were added.
+- **Regression checks added:** Explicit `agent.local.yaml` with no sidecar or text reference must load without copying; a manually provided matching sidecar is loaded if referenced. A policy with ordinary literal `{shell}` must load literally. The default-startup test now verifies automatic instructions-copy provisioning via the actual `FindLocal` overload rather than manually calling the copy helper.
+- **Disposition:** Re-review the corrected commit with a **new independent reviewer** after developer CI. Continue with final testing only after Code Reviewer PASS. This plan update is review bookkeeping and does not restart the plan-review stage.
