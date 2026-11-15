@@ -3,7 +3,7 @@
 ID: integration-config-ownership-wait-status
 Level: High-risk — configuration/DI boundary, integration admission activity, and Agent runtime status projection
 Base: main (release-only); branch: integration-config-ownership-wait-status
-Status: Implementation complete on the task branch; developer verification passed, independent code review and independent testing pending. Owner-approved architecture and independent plan re-review PASS `exec_e1f6ef14c1b549ba910176d35d7150eb` (2026-11-15). Not approved for merge.
+Status: Implementation complete on the task branch. Initial independent code review FAIL at `e56da443095701fd5ec9133998016dd2e3d27367`; review-driven test/docs corrections committed, targeted checks and fresh independent code review/testing still pending. Earlier developer checks covered the pre-correction implementation only. Owner-approved architecture and independent plan re-review PASS `exec_e1f6ef14c1b549ba910176d35d7150eb` (2026-11-15). Not approved for merge.
 
 ## Goal
 
