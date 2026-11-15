@@ -3,7 +3,7 @@
 ID: integration-config-ownership-wait-status
 Level: High-risk — configuration/DI boundary, integration admission activity, and Agent runtime status projection
 Base: main (release-only); branch: integration-config-ownership-wait-status
-Status: Implementation complete on the task branch. Initial independent code review FAIL at `e56da443095701fd5ec9133998016dd2e3d27367`; review-driven test/docs corrections committed, targeted checks and fresh independent code review/testing still pending. Earlier developer checks covered the pre-correction implementation only. Owner-approved architecture and independent plan re-review PASS `exec_e1f6ef14c1b549ba910176d35d7150eb` (2026-11-15). Not approved for merge.
+Status: Implementation and review-driven corrections complete on the task branch; corrected developer checks PASS through `c3bd3ebb507ac0fcbaddf3fc284a4541f1c5160f`. Initial independent code review FAIL at `e56da443095701fd5ec9133998016dd2e3d27367`; fresh independent code review and independent testing pending. Owner-approved architecture and independent plan re-review PASS `exec_e1f6ef14c1b549ba910176d35d7150eb` (2026-11-15). No owner merge approval.
 
 ## Goal
 
@@ -101,7 +101,20 @@ These are **developer** checks, not the required independent code review or inde
 - Additional test-harness hardening `42a718557d6854b40302ba0db1ed8605cc162f9b`: cleanup only deletes the test provider DLL if this run installed it; a pre-existing DLL is not overwritten or removed after a guarded startup failure.
 - Additional model-precedence test `399c883dad41f5d0fa51b95b63ef90cf79ba8235`: cover Core connection `defaultModel` fallback when policy does not override it.
 - Additional provider-failure test support and scenario `97d2d4bf57d50e5192b44bf3edc56c11673f105e` / `4da916e9717a4bea9f3629b475c2ef17398f5538`: a test-only provider can fail deliberately after admission; assert Waiting→Running→Failed with no stale Waiting.
-- **Next gate:** run focused developer checks on the corrected branch, obtain fresh independent code review at the exact finalized SHA, then independent runtime testing. The review-driven corrections are committed, but they are not yet evidence of successful execution or of independent review PASS. No merge is authorized.
+- **Next gate:** developer checks have now passed on the corrected candidate. Regenerate/commit Codegraph, then obtain fresh independent code review at its exact final SHA; only after review PASS may independent runtime testing begin. No merge is authorized.
+
+## Corrected-candidate developer verification (2026-11-15)
+
+At task branch commit `c3bd3ebb507ac0fcbaddf3fc284a4541f1c5160f`, after the review-driven corrections:
+
+- `tests/agent-admission-projection.ps1` — **PASS** on `c8740ccd00bcbd18cbab5d9a8b099935098905d6` (unchanged by the later Agent Web smoke assertion fix). Real isolated Agent API; test-only BrowserIntegrationBase provider; ordinary-chat/Agent shared capacity; exact execution/message identity; Waiting → Running → Completed and Waiting → Running → Failed; provider activity `waiting` does not govern effective status; queued unrelated same-chat message; cancel/terminal cleanup; start spacing; separately rooted YAML configurations. Test plugin creates no Electron sessions.
+- `tests/browser-admission-wait.ps1` — **PASS**, including monotonic verification of 5000 ms minimum start spacing (4900 ms tolerance), capacity 1/2/0, cancellation and permit cleanup.
+- `tests/agent-api-smoke.ps1` — **PASS**, including explicit provider Default (empty model), policy/Core model-default precedence, existing-chat inheritance, loopback-only API/Web and no listening socket after rejected non-loopback configs. The Agent Web negative-startup harness accepts the observed Windows/.NET error-written-but-process-lingering behavior, as already supported by the existing Agent API negative-startup harness.
+- `tests/agent-architecture.ps1`, `tests/policy-decoder.ps1`, `tests/browser-limits-config.ps1`, `tests/agent-provider-lifetime.ps1`, `tests/integration-cancellation-contract.ps1` — **PASS**.
+- `node tests/agent-status-unread-browser.test.cjs` — **PASS** in real Chromium on the corrected branch, testing effective status display and unread behavior.
+- `dotnet build Mezhs.sln -c Release` — **PASS**, zero errors, one pre-existing WhatsApp member-hiding warning (CS0114).
+- Verification used two isolated temporary worktrees, one for Chromium npm dependencies and one for clean .NET build outputs. A policy decoder build in the first worktree was blocked by DLL locks held by unidentified dotnet processes; the identical test **passed** in the fresh worktree without terminating those processes.
+- Refresh portable Codegraph before the new review candidate; independent code review and independent runtime testing are **not yet PASS**. No merge into `main`, version or changelog changes.
 
 ## Verification plan
 
