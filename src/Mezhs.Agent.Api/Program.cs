@@ -13,8 +13,10 @@ using Mezhs.Configuration;
 using Mezhs.Executor;
 using Mezhs.Services;
 
-var configPath = ConfigPath.Find(args, "agent.yaml");
-var coreConfigPath = ConfigPath.Find(args, "mezhs.yaml", "--mezhs-config");
+var configPath = ConfigPath.FindLocal(args, "agent.yaml");
+var coreConfigPath = ConfigPath.FindLocal(args, "mezhs.yaml", "--mezhs-config");
+if (string.Equals(Path.GetFileName(configPath), "agent.local.yaml", StringComparison.OrdinalIgnoreCase))
+    ConfigPath.EnsureLocalCopy(Path.Combine(Path.GetDirectoryName(configPath)!, "instructions.yaml"));
 var coreOptions = MezhsConfigLoader.Load(coreConfigPath);
 var options = AgentConfigLoader.Load(configPath, coreOptions.Connections.Select(connection => connection.Id).ToArray());
 var executorStorage = Path.Combine(
