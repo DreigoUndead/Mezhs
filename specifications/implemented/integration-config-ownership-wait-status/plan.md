@@ -98,7 +98,10 @@ These are **developer** checks, not the required independent code review or inde
 - The task branch subsequently gained `tests/AgentAdmissionProbe.cs` and `tests/agent-admission-projection.ps1` (controlled real Agent host with an ordinary chat and Agent competing for the same BrowserIntegrationBase permit), a monotonic minimum-spacing assertion in `tests/browser-admission-wait.ps1`, and an updated current Agent runtime specification. These are review-driven test and documentation corrections, not a change to approved architecture.
 - Follow-up correction `cba732d418c9cee4e804e89a2832a78a14c9eeac`: ensure the end-to-end test waits for the new Agent's own queued user message, rather than accepting an unrelated ordinary message in the same chat as evidence. Without the guard, the expected Queued assertion could target an already Running ordinary message.
 - Follow-up correction `3d69da1e433f2eb5f4d00e359a449bfee4764485`: cover explicit provider Default (`model: ""`) overriding both policy and Core defaults, and retaining the choice in an existing Agent chat, in `tests/agent-api-smoke.ps1`.
-- **Next gate:** run focused developer checks on the corrected branch, obtain fresh independent code review at the exact finalized SHA, then independent runtime testing. These corrections do not imply independent review PASS or authorize a merge.
+- Additional test-harness hardening `42a718557d6854b40302ba0db1ed8605cc162f9b`: cleanup only deletes the test provider DLL if this run installed it; a pre-existing DLL is not overwritten or removed after a guarded startup failure.
+- Additional model-precedence test `399c883dad41f5d0fa51b95b63ef90cf79ba8235`: cover Core connection `defaultModel` fallback when policy does not override it.
+- Additional provider-failure test support and scenario `97d2d4bf57d50e5192b44bf3edc56c11673f105e` / `4da916e9717a4bea9f3629b475c2ef17398f5538`: a test-only provider can fail deliberately after admission; assert Waiting→Running→Failed with no stale Waiting.
+- **Next gate:** run focused developer checks on the corrected branch, obtain fresh independent code review at the exact finalized SHA, then independent runtime testing. The review-driven corrections are committed, but they are not yet evidence of successful execution or of independent review PASS. No merge is authorized.
 
 ## Verification plan
 
