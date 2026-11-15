@@ -119,11 +119,11 @@ try
     Assert(ConfigPath.FindLocal([], "mezhs.yaml") == localCore &&
            File.ReadAllText(localCore) == "repo default",
         "Default Core config was not copied alongside its tracked sample.");
-    Assert(ConfigPath.FindLocal([], "agent.yaml") == localAgent,
+    Assert(ConfigPath.FindLocal([], "agent.yaml", companionFileName: "instructions.yaml") == localAgent,
         "Default Agent config was not copied.");
-    Assert(ConfigPath.EnsureLocalCopy(defaultTexts) == localTexts &&
+    Assert(File.Exists(localTexts) &&
            File.ReadAllText(localTexts).Contains("Default text", StringComparison.Ordinal),
-        "Default instructions were not copied.");
+        "Default startup did not create an instructions copy next to the Agent config.");
     File.WriteAllText(localCore, "my personalized config");
     File.WriteAllText(localTexts, "texts:\n  mezhs_default: |\n    Personal instructions on {OS}.\n    Use <SH>code</SH>.\n    Use <ATTACH>file</ATTACH>.\n");
     File.WriteAllText(defaultCore, "upgraded default");
@@ -135,6 +135,35 @@ try
     Assert(ConfigPath.FindLocal(["--config", explicitPath], "agent.yaml") == explicitPath &&
            ConfigPath.FindLocal(["--mezhs-config", explicitPath], "mezhs.yaml", "--mezhs-config") == explicitPath,
         "Explicit configuration paths were redirected to a local sample.");
+
+    var customDirectory = Path.Combine(configScratch, "separate config");
+    Directory.CreateDirectory(customDirectory);
+    var explicitLocalAgent = Path.Combine(customDirectory, "agent.local.yaml");
+    var explicitInstructions = Path.Combine(customDirectory, "instructions.local.yaml");
+    File.WriteAllText(explicitLocalAgent, File.ReadAllText(args[0]));
+    Assert(ConfigPath.FindLocal(["--config", explicitLocalAgent], "agent.yaml",
+               companionFileName: "instructions.yaml") == explicitLocalAgent &&
+           !File.Exists(explicitInstructions),
+        "Explicit agent.local.yaml incorrectly created an instructions sidecar.");
+    var noSidecar = AgentConfigLoader.Load(explicitLocalAgent, ["test", "test-alt"]);
+    Assert(noSidecar.Policies["low"].Settings.Instructions == "Complete the assigned deterministic test task.",
+        "Explicit legacy policy should load without an instructions sidecar.");
+
+    File.WriteAllText(explicitInstructions, "texts:\n  mezhs_default: Custom sidecar text\n");
+    var referencedExternalAgent = File.ReadAllText(args[0]).Replace(
+        "instructions: Complete the assigned deterministic test task.",
+        "instructions: \"{mezhs_default}\"", StringComparison.Ordinal);
+    File.WriteAllText(explicitLocalAgent, referencedExternalAgent);
+    var explicitWithSidecar = AgentConfigLoader.Load(explicitLocalAgent, ["test", "test-alt"]);
+    Assert(explicitWithSidecar.Policies["low"].Settings.Instructions == "Custom sidecar text",
+        "Explicit agent.local.yaml failed to use its manually supplied instructions sidecar.");
+
+    File.WriteAllText(explicitLocalAgent, File.ReadAllText(args[0]).Replace(
+        "instructions: Complete the assigned deterministic test task.",
+        "instructions: \"Print {shell} literally.\"", StringComparison.Ordinal));
+    var literalPolicy = AgentConfigLoader.Load(explicitLocalAgent, ["test", "test-alt"]);
+    Assert(literalPolicy.Policies["low"].Settings.Instructions == "Print {shell} literally.",
+        "Literal braces in a non-reference policy instruction were incorrectly expanded.");
 
     var referencedAgent = File.ReadAllText(defaultAgent).Replace(
         "instructions: Complete the assigned deterministic test task.",
