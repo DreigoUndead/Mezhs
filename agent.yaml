@@ -45,10 +45,7 @@ policies:
     name: Manual ChatGPT Instant
     connectionId: chatgpt-sub
     defaultModel: gpt-6-instant
-    instructions: |
-      Complete the assigned task and keep actions auditable.
-      Emit command tags literally on their own lines. Do not wrap commands in <escape> or HTML-escape their tags; escaped commands are displayed, not executed.
-      When writing rich UI for MEŽS, follow the bounded syntax and safety limits documented at https://github.com/DreigoUndead/Mezhs/blob/main/docs/supported-rich-ui.md. Unsupported DIL/MDX JavaScript cannot execute.
+    instructions: "{mezhs_default}"
     commands:
       allow:
         - SH
@@ -65,10 +62,7 @@ policies:
     name: Manual ChatGPT Mid
     connectionId: chatgpt-sub
     defaultModel: gpt-6-thinking::thinking-effort=standard
-    instructions: |
-      Complete the assigned task and keep actions auditable.
-      Emit command tags literally on their own lines. Do not wrap commands in <escape> or HTML-escape their tags; escaped commands are displayed, not executed.
-      When writing rich UI for MEŽS, follow the bounded syntax and safety limits documented at https://github.com/DreigoUndead/Mezhs/blob/main/docs/supported-rich-ui.md. Unsupported DIL/MDX JavaScript cannot execute.
+    instructions: "{mezhs_default}"
     commands:
       allow:
         - SH
@@ -85,10 +79,7 @@ policies:
     name: Manual ChatGPT High
     connectionId: chatgpt-sub
     defaultModel: gpt-6-thinking::thinking-effort=extended
-    instructions: |
-      Complete the assigned task and keep actions auditable.
-      Emit command tags literally on their own lines. Do not wrap commands in <escape> or HTML-escape their tags; escaped commands are displayed, not executed.
-      When writing rich UI for MEŽS, follow the bounded syntax and safety limits documented at https://github.com/DreigoUndead/Mezhs/blob/main/docs/supported-rich-ui.md. Unsupported DIL/MDX JavaScript cannot execute.
+    instructions: "{mezhs_default}"
     commands:
       allow:
         - SH
