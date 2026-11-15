@@ -220,6 +220,23 @@ policies:
     Await-Message $other.messageId 'Completed'
     Assert ((Projection $cancelChat) -eq 'Cancelled') 'Cancelled Agent retained stale capacity Waiting.'
 
+    # A provider failure after admission must end the root without retaining Waiting.
+    $failureHolder = Post '/v1/messages' @{ connectionId = 'cap'; content = 'provider failure holder' }
+    Until { Test-Path (ProbeFile 'cap' $failureHolder.messageId 'started') } 'provider failure holder admission'
+    $failureAgent = Post '/v1/executions' @{ policyId = 'capacity'; input = 'simulate provider failure' }
+    Until { (Get "/v1/executions/$($failureAgent.executionId)").chatId } 'failure Agent chat association'
+    $failureChat = (Get "/v1/executions/$($failureAgent.executionId)").chatId
+    $failureMessage = Await-Submitted $failureChat
+    Await-Projection $failureChat 'Waiting'
+    Release 'cap' $failureHolder.messageId
+    Await-Message $failureHolder.messageId 'Completed'
+    Until { Test-Path (ProbeFile 'cap' $failureMessage.messageId 'started') } 'failing Agent provider admission'
+    Await-Projection $failureChat 'Running'
+    [IO.File]::WriteAllText((ProbeFile 'cap' $failureMessage.messageId 'fail'), 'fail')
+    Await-Message $failureMessage.messageId 'Failed'
+    Await-Execution $failureAgent.executionId 'Failed'
+    Await-Projection $failureChat 'Failed'
+
     # Unlimited parallel capacity still reports positive configured start spacing.
     $spacingFirst = Post '/v1/messages' @{ connectionId = 'spacing'; content = 'spacing first' }
     Until { Test-Path (ProbeFile 'spacing' $spacingFirst.messageId 'started') } 'spacing first start'
