@@ -39,7 +39,7 @@ function Release([string]$connection, [string]$messageId) {
     [IO.File]::WriteAllText((ProbeFile $connection $messageId 'release'), 'release')
 }
 function Get-AgentMessage([string]$chatId, [string]$executionId) {
-    $prefix = "[MEŽS AGENT EXECUTION $executionId]"
+    $prefix = "[ME$([char]0x017D)S AGENT EXECUTION $executionId]"
     # Invoke-RestMethod in Windows PowerShell may emit a JSON array as one pipeline
     # object. Enumerate its returned value explicitly before examining each message.
     $response = Get "/v1/agent-chats/$chatId/messages"
