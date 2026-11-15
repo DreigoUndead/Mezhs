@@ -162,6 +162,14 @@ if (viaNative.Id != "native")
 Console.WriteLine("PASS: typed HTTP GET/POST/PATCH, HttpClient/Electron adapters, SSE/NDJSON, no-replay, cancellation and negative model validation.");
 
 
+static async Task ExpectFailureAsync<TException>(Func<Task> action)
+    where TException : Exception
+{
+    try { await action(); }
+    catch (TException) { return; }
+    throw new Exception("Expected " + typeof(TException).Name + " was not thrown.");
+}
+
 sealed class ProbeHost : IIntegrationHost
 {
     public string GetConnectionRoot(string connectionId) => "";
@@ -175,14 +183,6 @@ sealed class Fixture(IntegrationConnection connection, IIntegrationHost host) :
         Task.FromResult(new PromptResult(request.Text, "reply", request.Model ?? "default"));
 }
 
-
-static async Task ExpectFailureAsync<TException>(Func<Task> action)
-    where TException : Exception
-{
-    try { await action(); }
-    catch (TException) { return; }
-    throw new Exception("Expected " + typeof(TException).Name + " was not thrown.");
-}
 
 sealed record Dto(string Id);
 
