@@ -10,7 +10,7 @@ namespace Mezhs.Agent.Policy;
 
 public sealed class PolicyDecoder
 {
-    private static readonly Regex InstructionReference = new(@"\{([a-z][a-z0-9_-]*)\}", RegexOptions.CultureInvariant);
+    private static readonly Regex InstructionReference = new(@"^\{([a-z][a-z0-9_-]*)\}$", RegexOptions.CultureInvariant);
     private readonly ISerializer _serializer = new SerializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
         .DisableAliases()
@@ -78,18 +78,22 @@ public sealed class PolicyDecoder
     private static string ExpandInstructions(
         string policyId,
         string template,
-        IReadOnlyDictionary<string, string>? texts) =>
-        InstructionReference.Replace(template, match =>
-        {
-            var id = match.Groups[1].Value;
-            if (texts is null || !texts.TryGetValue(id, out var value))
-                throw new InvalidOperationException(
-                    $"policies.{policyId}.instructions references unknown text '{id}' in adjacent instructions.yaml.");
-            if (InstructionReference.IsMatch(value))
-                throw new InvalidOperationException(
-                    $"Instruction text '{id}' contains another reference. Only direct references are supported.");
-            return value;
-        });
+        IReadOnlyDictionary<string, string>? texts)
+    {
+        // A reference is the entire policy instruction field; ordinary prose stays literal.
+        var match = InstructionReference.Match(template);
+        if (!match.Success)
+            return template;
+
+        var id = match.Groups[1].Value;
+        if (texts is null || !texts.TryGetValue(id, out var value))
+            throw new InvalidOperationException(
+                $"policies.{policyId}.instructions references unknown text '{id}' in adjacent instructions.yaml.");
+        if (InstructionReference.IsMatch(value))
+            throw new InvalidOperationException(
+                $"Instruction text '{id}' contains another reference. Only direct references are supported.");
+        return value;
+    }
 
     private static Func<PolicyCompletionContext, bool> CompileCompletionClaim(
         PolicySettings settings) =>
