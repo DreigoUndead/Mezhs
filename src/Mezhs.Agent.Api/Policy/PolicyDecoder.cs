@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Mezhs.Agent.Commands;
 using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
@@ -9,12 +10,13 @@ namespace Mezhs.Agent.Policy;
 
 public sealed class PolicyDecoder
 {
+    private static readonly Regex InstructionReference = new(@"\{([a-z][a-z0-9_-]*)\}", RegexOptions.CultureInvariant);
     private readonly ISerializer _serializer = new SerializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
         .DisableAliases()
         .Build();
 
-    public IReadOnlyDictionary<string, PolicyContext> DecodePolicies(YamlMappingNode policiesNode)
+    public IReadOnlyDictionary<string, PolicyContext> DecodePolicies(YamlMappingNode policiesNode, IReadOnlyDictionary<string, string>? instructionTexts = null)
     {
         var definitions = YamlModelMapper.Map<Dictionary<string, PolicyDefinition>>(
             policiesNode,
@@ -28,13 +30,13 @@ public sealed class PolicyDecoder
             var id = rawId?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(id))
                 throw new InvalidOperationException("Agent policy id cannot be empty.");
-            if (!result.TryAdd(id, Compile(id, definition)))
+            if (!result.TryAdd(id, Compile(id, definition, instructionTexts)))
                 throw new InvalidOperationException($"Duplicate agent policy id '{id}'.");
         }
         return result;
     }
 
-    private PolicyContext Compile(string id, PolicyDefinition definition)
+    private PolicyContext Compile(string id, PolicyDefinition definition, IReadOnlyDictionary<string, string>? instructionTexts)
     {
         var commands = definition.Commands!;
         var completion = definition.Completion!;
@@ -44,7 +46,7 @@ public sealed class PolicyDecoder
         var defaultModel = string.IsNullOrWhiteSpace(definition.DefaultModel)
             ? null
             : definition.DefaultModel.Trim();
-        var instructions = definition.Instructions?.Trim() ?? string.Empty;
+        var instructions = ExpandInstructions(id, definition.Instructions?.Trim() ?? string.Empty, instructionTexts);
 
         var settings = new PolicySettings(
             name,
@@ -72,6 +74,22 @@ public sealed class PolicyDecoder
             CompileCompletionValidators(settings),
             CompileActionRules(settings));
     }
+
+    private static string ExpandInstructions(
+        string policyId,
+        string template,
+        IReadOnlyDictionary<string, string>? texts) =>
+        InstructionReference.Replace(template, match =>
+        {
+            var id = match.Groups[1].Value;
+            if (texts is null || !texts.TryGetValue(id, out var value))
+                throw new InvalidOperationException(
+                    $"policies.{policyId}.instructions references unknown text '{id}' in adjacent instructions.yaml.");
+            if (InstructionReference.IsMatch(value))
+                throw new InvalidOperationException(
+                    $"Instruction text '{id}' contains another reference. Only direct references are supported.");
+            return value;
+        });
 
     private static Func<PolicyCompletionContext, bool> CompileCompletionClaim(
         PolicySettings settings) =>
@@ -126,7 +144,8 @@ public sealed class PolicyDecoder
 
         var shell = Registry.Get(CommandBehavior.Shell);
         if (settings.Commands.Allow.Contains(shell.Name, StringComparer.OrdinalIgnoreCase) &&
-            !settings.Commands.Deny.Contains(shell.Name, StringComparer.OrdinalIgnoreCase))
+            !settings.Commands.Deny.Contains(shell.Name, StringComparer.OrdinalIgnoreCase) &&
+            !settings.Instructions.Contains($"<{shell.Name}>", StringComparison.Ordinal))
         {
             rules.Add(
                 $"To execute host shell text, return <{shell.Name}> on a line by itself, then the shell text, then </{shell.Name}> on a line by itself. " +
@@ -134,7 +153,8 @@ public sealed class PolicyDecoder
         }
 
         if (settings.Commands.Allow.Contains("ATTACH", StringComparer.OrdinalIgnoreCase) &&
-            !settings.Commands.Deny.Contains("ATTACH", StringComparer.OrdinalIgnoreCase))
+            !settings.Commands.Deny.Contains("ATTACH", StringComparer.OrdinalIgnoreCase) &&
+            !settings.Instructions.Contains("<ATTACH>", StringComparison.Ordinal))
             rules.Add("To stage locally generated attachments for your own next agent message, use <ATTACH> on its own line, list one file path per line, then </ATTACH>. Uploading does not send a message; the agent runtime includes the files in the next ordinary turn. Do not use /v1/messages from shell.");
 
         if (settings.Completion.RequireDone)
