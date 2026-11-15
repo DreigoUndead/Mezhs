@@ -88,11 +88,14 @@ var exampleExecution = new ExecutionRecord
 };
 var initialPrompt = new AgentPromptBuilder(defaultAgentOptions)
     .BuildInitial(exampleExecution, defaultAgentOptions.Policies["low"], true).Content;
-Assert(initialPrompt.Contains($"MEŽS runtime on {os}", StringComparison.Ordinal) &&
-       !initialPrompt.Contains("{OS}", StringComparison.Ordinal) &&
-       initialPrompt.Contains("Task:\nTest instructions", StringComparison.Ordinal) &&
-       initialPrompt.Contains("Host shell:", StringComparison.Ordinal),
-    "Runtime startup failed to resolve OS or preserve task/shell context.");
+Assert(initialPrompt.Contains($"MEŽS runtime on {os}", StringComparison.Ordinal),
+    "Runtime startup did not resolve the host OS in shared instructions.");
+Assert(!initialPrompt.Contains("{OS}", StringComparison.Ordinal),
+    "Runtime startup left an OS placeholder unresolved.");
+Assert(initialPrompt.Contains("Task:\nTest instructions", StringComparison.Ordinal),
+    "Runtime startup lost the task content: " + initialPrompt[^Math.Min(200, initialPrompt.Length)..]);
+Assert(initialPrompt.Contains("Host shell:", StringComparison.Ordinal),
+    "Runtime startup omitted the configured shell context.");
 Assert(!initialPrompt.Contains("return <SH> on a line", StringComparison.Ordinal),
     "Default SH guidance was duplicated by the policy compiler.");
 
