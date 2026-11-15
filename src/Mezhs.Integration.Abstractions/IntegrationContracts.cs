@@ -120,7 +120,8 @@ public sealed record IntegrationSendContext(
     IReadOnlyList<IntegrationMessageContext> History,
     IReadOnlyList<IntegrationInputFile> Files,
     bool RestoreConversation = false,
-    Action<IntegrationActivity>? ReportActivity = null)
+    Action<IntegrationActivity>? ReportActivity = null,
+    Action<IntegrationAdmissionWaitReason?>? ReportAdmissionWait = null)
 {
     public string Prompt
     {
@@ -156,6 +157,9 @@ public sealed record IntegrationOutputFile(
     string Name,
     string ContentType,
     bool DeleteAfterImport = true);
+
+// Transient model-send admission only; independent of provider activity.
+public enum IntegrationAdmissionWaitReason { Capacity, Spacing }
 
 public sealed record IntegrationActivity(
     string State,

@@ -65,7 +65,9 @@ function Start-Host([string]$name, [string]$project, [string]$config, [string]$u
     $logOut = Join-Path $temp "$name.out.log"
     $logErr = Join-Path $temp "$name.err.log"
     $dll = Join-Path $publish "$name.dll"
-    $p = Start-Process -FilePath 'dotnet' -ArgumentList @($dll, '--config', $config) -WorkingDirectory $root -RedirectStandardOutput $logOut -RedirectStandardError $logErr -PassThru -WindowStyle Hidden
+    $args = @($dll, '--config', $config)
+    if ($name -eq 'Mezhs.Agent.Api') { $args += @('--mezhs-config', $agentCoreConfig) }
+    $p = Start-Process -FilePath 'dotnet' -ArgumentList $args -WorkingDirectory $root -RedirectStandardOutput $logOut -RedirectStandardError $logErr -PassThru -WindowStyle Hidden
     $script:started += $p
     try { Wait-Health $url $p } catch {
         if (Test-Path $logOut) { Get-Content $logOut }
@@ -119,20 +121,22 @@ connections:
     $agentData = (Join-Path $temp 'agent-data').Replace('\', '/')
     $workspace = $root.Replace('\', '/')
     $agentText = $agentText.Replace('http://127.0.0.1:5199', $agentUrl).
-        Replace('electronDirectory: ../electron', "electronDirectory: $electron").
-        Replace('root: data-agent-test/core', "root: $agentData").
         Replace('agentStorage: data-agent-test/agent.sqlite', "agentStorage: $agentStorage").
         Replace('workspace: ..', "workspace: $workspace")
-    $agentText = $agentText.Replace('agentStorage:', @"
+    $agentCoreConfig = Join-Path $temp 'agent-core.yaml'
+    $agentCoreText = (Get-Content (Join-Path $root 'tests/mezhs.agent.core.test.yaml') -Raw).
+        Replace('electronDirectory: ../electron', "electronDirectory: $electron").
+        Replace('root: data-agent-test/core', "root: $agentData")
+    $agentCoreText += @"
+
   - id: test-diagnostics
     name: Diagnostic probe
     integration: mock-diagnostics
   - id: account
     name: Browser account
     integration: chatgpt-web-account
-
-agentStorage:
-"@)
+"@
+    Set-Content $agentCoreConfig $agentCoreText -Encoding UTF8
     Set-Content $agentConfig $agentText -Encoding UTF8
 
     $null = Start-Host 'Mezhs.Api' (Join-Path $root 'src/Mezhs.Api/Mezhs.Api.csproj') $genericConfig $apiUrl

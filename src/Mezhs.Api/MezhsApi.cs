@@ -14,9 +14,11 @@ public static class MezhsApi
 {
     public static WebApplicationBuilder AddMezhsApi(
         this WebApplicationBuilder builder,
-        MezhsOptions options)
+        MezhsOptions options,
+        string? listenerOverride = null)
     {
-        builder.WebHost.UseUrls(options.Server.Listen);
+        // The Agent host validates its own strict loopback listener before composition.
+        builder.WebHost.UseUrls(listenerOverride ?? options.Server.Listen);
         builder.Services.ConfigureHttpJsonOptions(json =>
             json.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
         builder.Services.AddExceptionHandler<ApiExceptionHandler>();

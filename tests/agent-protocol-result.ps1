@@ -18,11 +18,14 @@ $workspacePath = $root.Replace('\', '/')
 $tempPath = $temp.Replace('\', '/')
 $config = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mezhs.agent.test.yaml') -Raw).
     Replace('http://127.0.0.1:5199', $base).
-    Replace('electronDirectory: ../electron', "electronDirectory: $electronPath").
-    Replace('root: data-agent-test/core', "root: $tempPath/core").
     Replace('agentStorage: data-agent-test/agent.sqlite', "agentStorage: $tempPath/agent.sqlite").
     Replace('workspace: ..', "workspace: $workspacePath")
 Set-Content -LiteralPath $agentConfig -Value $config -Encoding UTF8
+$agentCoreConfig = Join-Path $temp 'core.yaml'
+$coreYaml = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mezhs.agent.core.test.yaml') -Raw).
+    Replace('electronDirectory: ../electron', "electronDirectory: $electronPath").
+    Replace('root: data-agent-test/core', "root: $tempPath/core")
+Set-Content -LiteralPath $agentCoreConfig -Value $coreYaml -Encoding UTF8
 
 function Wait-Health([string]$uri) {
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(25)
@@ -168,7 +171,7 @@ Console.WriteLine("PASS: Malformed uppercase commands, unexpected closings, and 
     if ($LASTEXITCODE -ne 0) { throw 'Isolated Agent publish failed.' }
     $agentDll = Join-Path $published 'Mezhs.Agent.Api.dll'
     $agent = Start-Process -FilePath 'dotnet' `
-        -ArgumentList @($agentDll, '--config', $agentConfig) `
+        -ArgumentList @($agentDll, '--config', $agentConfig, '--mezhs-config', $agentCoreConfig) `
         -WorkingDirectory $root -RedirectStandardOutput $agentOut -RedirectStandardError $agentErr -WindowStyle Hidden -PassThru
     Wait-Health "$base/health"
 
