@@ -31,6 +31,7 @@ using Mezhs.Agent.Policy;
 using Mezhs.Agent.Services;
 using Mezhs.Api.Contracts;
 using Mezhs.Executor;
+using Mezhs.Common.RichUi;
 using Microsoft.Data.Sqlite;
 
 var core = MezhsConfigLoader.Load(args[1]);
@@ -130,8 +131,15 @@ var deniedAction = done.ValidateAction(new PolicyActionContext(
 Assert(!deniedAction.Allowed, "Unconfigured SH action was not denied by default.");
 
 var parser = new Parser();
-Assert(parser.Parse(normal.ModelInstructions).Commands.Count == 0,
-    "Compiled model instructions accidentally contain executable command tags.");
+// Model instructions are prose, not Agent replies: rejected inline examples
+// must never produce executable candidates.
+var instructionsDocument = new RichDocumentParser().Parse(normal.ModelInstructions);
+Assert(instructionsDocument.Commands.Count == 0,
+    "Compiled model instructions unexpectedly produced executable command candidates.");
+var inlineExampleDocument = new RichDocumentParser().Parse(
+    "Instruction: use <SH> on its own line.\n<SH>\necho MUST_NOT_RUN\n</SH>");
+Assert(!inlineExampleDocument.Document.Valid && inlineExampleDocument.Commands.Count == 0,
+    "Malformed instructional prose exposed a later standalone shell command.");
 var parsed = parser.Parse("before\n<SH>\necho one\necho two\n</SH>\n<DONE>\nafter");
 Assert(parsed.Commands.Count == 2, "Parser did not retain SH and DONE commands.");
 Assert(parsed.Commands[0].Name == "SH" && parsed.Commands[0].Body == "echo one\necho two",
