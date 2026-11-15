@@ -1,0 +1,8 @@
+# Integration V2 — developer verification (not independent testing)
+
+- **High-risk architecture change**; task branch `integration-architecture-v2`, draft PR #57. Developer-tested implementation SHA before documentation: `07523e77023b1a91074e7e6f9ce8d644031d27f6`; reconciled release base `main` at `70be3d41a26cbf106e0db8ac0e86c29846ec1a0c`.
+- **GitHub Actions run 43656161412: PASS** at that SHA (Windows). Stages cover provider JavaScript, solution Release build, typed history/IDs probe, typed HTTP feasibility compile, ChatStore migration, Core API/Agent, real Chromium UI, diagnostics/Agent protocol, architecture, browser login/cancellation/limits, packaging, runtime recovery, frontend build outputs.
+- Focused local real Chromium Agent unread-status test: **1/1 pass**. Core API smoke, direct Grok/ChatGPT lifecycle, browser limits and model-warning contract tests also passed in developer checks.
+- Live ChatGPT authenticated **read-only models probe** produced six normalized models; no live prompt was sent. Post-merge Codegraph: 272 files, 714 edges. Primary working checkout `D:\Projects\Mezhs` remained clean on `main`.
+- Remaining: **no independent code review/test PASS**; no verified simultaneous live account prompts with different model/effort; no generalized normal HTTP/Electron typed executor with mutation/SSE; incomplete live guest validation. The latter HTTP requirement is **not approved for removal or deferral**.
+- Existing unrelated WhatsApp CS0114 warning and nonfatal SSR `useLayoutEffect` warnings seen in developer checks. No merge, version or changelog change on this task branch.

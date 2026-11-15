@@ -2,7 +2,7 @@
 
 ID: `integration-architecture-v2`
 
-**Status:** Proposed plan; architecture discussed with the owner through Q35 and revised following owner review decisions (2026-11-13). **No implementation approval or merge approval implied.**  
+**Status:** Development review candidate (2026-11-15). Independent code review and independent testing remain pending. The broad typed HTTP executor requirement is **unimplemented and not approved for deferral**. No merge approval is implied.  
 **Branch:** `integration-architecture-v2`, created from current `main` after browser-conversation-parallelism was incorporated.  
 **Classification:** **High-risk** — changes the integration contracts, message identity/persistence, Electron/auth boundaries, and Core/Agent/Web consumers. Requires **independent plan review before implementation**, then independent code review and independent testing. Follow `.agents/workflow.md` and `.agents/specification.md`.
 
@@ -223,4 +223,4 @@ The existing DOM-based ChatGPT Guest, Gemini Guest and Grok Account workflows ar
 5. **Existing link/output/progress features:** a minimal proposed result must not regress provider conversation links, files or activity UI. Prefer minimal provider methods over new generalized state.
 6. **Scope:** this touches many assemblies. Deliver in small reviewed changes on the same task branch and escalate if preserving an unrealistic guarantee causes disproportionate complexity.
 
-**Planning-only artifact.** This revision documents owner decisions on deferred DOM work, early Electron typed-HTTP feasibility, provider-selected model fallback, simple history, deferred non-browser behavior and placeholder API/local bases. No source, migrations, tests or runtime behavior are changed by this commit.
+**Developer handoff (2026-11-15):** Moved from `planned/` to `implemented/` before independent code review/testing; this is workflow bookkeeping, **not a return to plan review**. Delivered runtime contracts, Core persistence/lineage, provider compatibility, direct browser login/models/diagnostics, `AllowFiles`, model warning, read-only authenticated models GET, and tests. **Unresolved plan mismatch:** shared typed API/Browser HTTP executor including mutations and C# stream interpretation has not been implemented or approved for deferral. Review against the original acceptance criterion; do not treat passing CI as permission to waive it. See `verification.md` for exact evidence and limitations. DOM replacement is separately deferred. VERSION and CHANGELOG stay unchanged pending approved release.
