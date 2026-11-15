@@ -46,8 +46,7 @@ public sealed class ChatGptAccountIntegration : BrowserAccountIntegrationBase
     public override bool AllowFiles => true;
     public override string CreateMessageId() => Guid.NewGuid().ToString();
 
-    // Feasibility gate only: deliberately unused by normal model retrieval until
-    // an authenticated Electron run confirms transport, error and cancellation.
+    // Uses the existing authorized Electron session; no separate browser/token owner.
     public Task<ChatGptModelCatalogProbe> ProbeTypedHttpAsync(
         Action<BrowserOperationProgress>? reportProgress = null,
         CancellationToken cancellationToken = default) =>
@@ -61,9 +60,10 @@ public sealed class ChatGptAccountIntegration : BrowserAccountIntegrationBase
         CancellationToken cancellationToken = default) =>
         AccountSession.UseAuthorizedAsync<IReadOnlyList<IntegrationModel>>(async (transport, token) =>
         {
-            var discovered = await transport.InvokeAsync<IntegrationModel[]>(
-                "getModels", cancellationToken: token);
-            return [new IntegrationModel("default", "Default"), ..discovered
+            var catalog = await new BrowserHttpExecutor(transport).CallAsync(
+                ChatGptTypedHttpEndpoints.Models, new EmptyHttpRequest(),
+                cancellationToken: token);
+            return [new IntegrationModel("default", "Default"), ..catalog.ToModels()
                 .Where(model => !string.IsNullOrWhiteSpace(model.Id) &&
                                 !string.IsNullOrWhiteSpace(model.Name) &&
                                 !string.Equals(model.Id, "default", StringComparison.OrdinalIgnoreCase))
