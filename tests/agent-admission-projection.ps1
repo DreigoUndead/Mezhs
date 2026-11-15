@@ -38,9 +38,18 @@ function ProbeFile([string]$connection, [string]$messageId, [string]$suffix) {
 function Release([string]$connection, [string]$messageId) {
     [IO.File]::WriteAllText((ProbeFile $connection $messageId 'release'), 'release')
 }
-function Get-AgentMessage([string]$chatId) {
+function Get-AgentMessage([string]$chatId, [string]$executionId) {
+    $prefix = "[MEŽS AGENT EXECUTION $executionId]"
     $all = @(Get "/v1/agent-chats/$chatId/messages")
-    @($all | Where-Object { $_.role -eq 'user' }) | Select-Object -Last 1
+    $matches = @($all | Where-Object {
+        $_.role -eq 'user' -and
+        $null -ne $_.content -and
+        $_.content.StartsWith($prefix, [StringComparison]::Ordinal)
+    })
+    Assert ($matches.Count -le 1) "Multiple Agent model messages have the same execution envelope: $executionId"
+    if ($matches.Count -eq 1) {
+        return $matches[0]
+    }
 }
 function Projection([string]$chatId) { (Get "/v1/agent-chats/$chatId").executionStatus }
 function Await-Projection([string]$chatId, [string]$expected, [int]$timeout = 12) {
@@ -57,9 +66,9 @@ function Await-Execution([string]$id, [string]$expected) {
 function Await-Message([string]$id, [string]$expected) {
     Until { (Get "/v1/messages/$id").status -eq $expected } "Message $id $expected"
 }
-function Await-Submitted([string]$chatId) {
-    Until { $null -ne (Get-AgentMessage $chatId) } "Agent message created in $chatId"
-    Get-AgentMessage $chatId
+function Await-Submitted([string]$chatId, [string]$executionId) {
+    Until { $null -ne (Get-AgentMessage $chatId $executionId) } "Agent message created for $executionId"
+    Get-AgentMessage $chatId $executionId
 }
 
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
@@ -174,7 +183,7 @@ policies:
     $agentOne = Post '/v1/executions' @{ policyId = 'capacity'; input = 'capacity overlap' }
     Until { (Get "/v1/executions/$($agentOne.executionId)").chatId } 'first Agent chat association'
     $chatOne = (Get "/v1/executions/$($agentOne.executionId)").chatId
-    $agentMessage = Await-Submitted $chatOne
+    $agentMessage = Await-Submitted $chatOne $agentOne.executionId
     Await-Projection $chatOne 'Waiting'
     Assert ((Get "/v1/executions/$($agentOne.executionId)").status -eq 'Running') 'Persisted root must stay Running while effective status is Waiting.'
     Assert ((Get "/v1/messages/$($agentMessage.messageId)").status -eq 'Running') 'Waiting must relate to an active Agent model message.'
@@ -199,10 +208,10 @@ policies:
     $agentTwo = Post '/v1/executions' @{ policyId = 'capacity'; input = 'same chat isolation'; chatId = $chatOne }
     Until { (Get "/v1/executions/$($agentTwo.executionId)").status -eq 'Running' } 'next root running'
     Until {
-        $latest = Get-AgentMessage $chatOne
-        $null -ne $latest -and $latest.messageId -notin @($agentMessage.messageId, $unrelated.messageId)
+        $latest = Get-AgentMessage $chatOne $agentTwo.executionId
+        $null -ne $latest
     } 'second Agent message queued'
-    $secondMessage = Get-AgentMessage $chatOne
+    $secondMessage = Get-AgentMessage $chatOne $agentTwo.executionId
     Assert ((Get "/v1/messages/$($secondMessage.messageId)").status -eq 'Queued') 'Second Agent model should queue behind unrelated same-chat provider.'
     Await-Projection $chatOne 'Running'
     $null = Post "/v1/executions/$($agentTwo.executionId)/cancel" @{}
@@ -232,7 +241,7 @@ policies:
     $failureAgent = Post '/v1/executions' @{ policyId = 'capacity'; input = 'simulate provider failure' }
     Until { (Get "/v1/executions/$($failureAgent.executionId)").chatId } 'failure Agent chat association'
     $failureChat = (Get "/v1/executions/$($failureAgent.executionId)").chatId
-    $failureMessage = Await-Submitted $failureChat
+    $failureMessage = Await-Submitted $failureChat $failureAgent.executionId
     Await-Projection $failureChat 'Waiting'
     Release 'cap' $failureHolder.messageId
     Await-Message $failureHolder.messageId 'Completed'
@@ -253,7 +262,7 @@ policies:
     $spacingChat = (Get "/v1/executions/$($spacingAgent.executionId)").chatId
     Await-Projection $spacingChat 'Waiting'
     Assert ((Get "/v1/executions/$($spacingAgent.executionId)").status -eq 'Running') 'Spacing Waiting was incorrectly persisted.'
-    $spacingMessage = Await-Submitted $spacingChat
+    $spacingMessage = Await-Submitted $spacingChat $spacingAgent.executionId
     Until { Test-Path (ProbeFile 'spacing' $spacingMessage.messageId 'started') } 'spacing admission after interval' 12
     Await-Projection $spacingChat 'Running'
     Assert ((Get "/v1/messages/$($spacingMessage.messageId)").activity -eq 'waiting') 'Provider waiting after spacing admission must not keep Waiting.'
