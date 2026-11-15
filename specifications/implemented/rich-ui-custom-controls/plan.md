@@ -4,7 +4,7 @@ ID: rich-ui-custom-controls
 Branch: rich-ui-custom-controls
 PR: https://github.com/DreigoUndead/Mezhs/pull/53
 Level: **High-risk — cross-runtime parser/renderer redesign and host command authority**
-State: **IMPLEMENTED — owner-approved independent tag discovery controls and seventh-review corrections developer-verified; fresh independent High-risk code review and separate final testing pending**
+State: **IMPLEMENTED — corrected post-review testing regressions on the task branch, pre-review regression-verified; fresh independent High-risk code review and separate independent final testing pending**
 Dependency: existing Rich UI Custom Controls work on this branch; old incremental plan versions remain in Git history (last archived plan at 54686a1d591be4a806a1f3e17d559aa8175736b2).
 Owner decision (2026-11-12): adopt one canonical **C#** document/parser/validation model; React renders typed validated data and owns only local interactive state; commands can occur inside valid containers/lists.
 Owner clarification (2026-11-13): **Do not preserve legacy UI parsing/handling.** All supported old and new tags use the one canonical C# parser, DTO and typed React renderer. Remove the old frontend extraction, expression and markup paths instead of a compatibility fallback. Retire or migrate raw-text frontend tests to validate canonical DTOs and the inert provisional fallback; treat unsupported expression constructs as inert until explicitly added to the canonical grammar. Security/command boundary tests remain mandatory.
@@ -363,3 +363,39 @@ A previous verification at `23b0acaf` was **FAIL**, with 81/83 parser cases (rad
 Codegraph exporter left a locally modified `.agents/codegraph/graph.json` due to the observed LF-to-CRLF working-tree conversion warning; `git hash-object` nevertheless agreed with the committed tree blob. No Codegraph content update or main-checkout change was required.
 
 **Gate:** These checks are developer evidence only. Request a new independent High-risk code review of the exact SHA after this documentation update, against pinned base `179c0da50a17e7024d76eaa2571cb6ee2498348e`. Only reviewer PASS permits a different independent final tester on the same exact SHA. Never merge/release without explicit owner approval; main is release-only; VERSION and CHANGELOG stay untouched.
+
+## Independent tester FAIL, same-branch corrections, and review reset (2026-11-15)
+
+**Context and workflow stage:** A separate High-risk Code Reviewer recorded a **PASS for exact SHA `70f5358b5d90c41c2bf80191c79ec014f9ba0726`** against pinned base `179c0da50a17e7024d76eaa2571cb6ee2498348e`. That review applied **only to that old SHA**, not to later corrections. The ensuing independent Final Tester found concrete FAIL results on the reviewed old candidate: canonical C# parser **92/95**, typed React SSR **30/36**, shared Agent Web formatting **17/19**, headless Chromium **0/1**, and `git diff --check` (trailing blank line in `Style.ts`). The real Executor side-effect suite and backend build passed on the old candidate, but do not certify the corrected SHA.
+
+**Observed faults:** The canonical phrasing validator rejected GFM `taskCheckbox` children in Markdown paragraph/list contexts, and radio `questionButton` labels had a single Markdig paragraph wrapper incompatible with the native button's phrasing-content requirement. The Chromium fixture subsequently failed with an absent Agent transcript question. These were observed failures and source-level correlations; the correction passing tests alone does not establish a unique root cause of unrelated Electron/provider failures.
+
+**Corrective commits on the existing `rich-ui-custom-controls` branch** (no branch switch or main commit):
+- `5aa10e48f19ffb2d792557906401a792eae10ac3`: permit GFM `taskCheckbox` in the canonical phrasing-only content model while preserving the rejection of nested interactive descendants in link/button contexts.
+- `0943bf75c67fe8ef7eb2f9663026630c95ac23b9`: unwrap *only a single* Markdig `paragraph` for canonical `questionButton` label children, retain source spans, and leave multi-block invalid labels to canonical validation. This keeps the native button's children phrasing-only.
+- `7bf02e5f56916455292f4e3eafe794805cfdbf0e`: remove the blank EOF line in `src/Mezhs.Web.Lib/src/rich-elements/Style.ts`.
+- `e7dda440d3365e7fac27fe8b95e0d7e45ef9473b`: add C# parser regressions for checked/unchecked GFM task checkboxes and button phrasing children.
+
+**Pre-review regression/developer checks against exact corrected source SHA `e7dda440d3365e7fac27fe8b95e0d7e45ef9473b`:**
+
+| Area | Observed result and execution ID |
+| --- | --- |
+| Canonical C# parser, negative security, radio and GFM fixtures | **95/95 PASS**; MEŽS host execution **7243** |
+| Typed React server rendering | **36/36 PASS**; **7255** |
+| Agent Web rich formatting / shared wiring | **19/19 PASS** plus shared static checks; **7256** |
+| Headless Chromium, real DOM interaction, owner-only new-turn dispatch | **1/1 PASS**; **7260** |
+| Real Agent API/Executor and shell side effects | **PASS**; **7297**. The integration harness ran from a temporary copy with the configured Electron directory redirected to a verified nonexistent path so accidental browser startup would fail safely. The test used the scripted mock integration and real Executor; rejected/inert examples created no Shell records or filesystem effects, and authorized shells ran exactly once with durable records. The temporary script was removed; no tracked source changed |
+| Architecture guard and Agent API Release | **PASS**, build **0 warnings/0 errors**; **7261** |
+| Agent Web TypeScript + Vite production build | **PASS**; **7257** |
+| Pinned-base `git diff --check`, detached testing worktree and `main` cleanliness | **PASS**; **7242**, **7262** |
+| Temporary testing worktree cleanup | Fully removed without touching other worktrees; **7325** |
+
+**Important stage classification:** These are real observed passing regression checks, but the Final Tester itself authored the corrections. They therefore count as **pre-review corrective/developer evidence**, **not** a completed post-review independent High-risk final-testing gate.
+
+**New review attempt and blocker:** A distinct High-risk reviewer was started via the MEŽS Agent API for corrected SHA `e7dda440...` (`exec_6afb81640dbb4851a3734c2ffcf91cb4`); execution **FAILED before reviewing code** with `Electron provider operation failed: ChatGPT native requirements provider was not observed in this document (resourceEntries=92, cachedProvider=false)`. This is an *infrastructure/provider blocker*, **not** a review FAIL or PASS. The current available low/mid/high policies all use `chatgpt-sub` on the same Electron transport; avoid repeatedly launching this failing provider until its availability is restored.
+
+**Current High-risk gates:** Independent Code Reviewer on *the next exact branch HEAD* **BLOCKED/PENDING**; independent Final Tester **NOT STARTED** after a new reviewer PASS. The corrected-SHA pre-review regression suite **PASS**. The source changes above do not introduce a new approved architecture or invalidate the recorded owner decision on independent `SearchChildren` and `AllowAsChild`. Plan bookkeeping is kept here as the source of truth, without restarting plan review.
+
+**Next handoffs:** Verify the new exact SHA after this plan-only update and pin base `179c0da50a17e7024d76eaa2571cb6ee2498348e`; obtain a **fresh independent Code Reviewer PASS** on that exact revision using a working provider. Only then create a **different independent Final Tester** to rerun appropriate acceptance, security/side-effect, browser, build and regression checks. Record independent evidence, then ask the owner explicitly before merging. No merge/release/VERSION/CHANGELOG changes.
+
+**Proposed release summary (owner approval pending):** Introduce canonical C# rich UI/Markdown/Agent command parsing and validation, typed React controls (including radio questions, raw editors and bounded SVG), and fail-closed host-command authority with regression coverage. Proposed change type: **MINOR** subject to compatibility assessment during review; finalize version/changelog only at an explicitly approved release.
