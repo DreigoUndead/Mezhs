@@ -24,6 +24,8 @@ public class MockIntegration : IntegrationBase
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (!string.IsNullOrWhiteSpace(request.Model))
+            await SetModelAsync(chat, request.Model, cancellationToken);
         if (request.Text.Contains("MEZHS_TEST_INTEGRATION_FAILURE", StringComparison.Ordinal))
             throw new InvalidOperationException("Intentional mock integration failure.");
         await Task.Delay(25, cancellationToken);
