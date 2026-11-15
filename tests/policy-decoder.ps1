@@ -88,8 +88,10 @@ foreach (var name in new[] { "low", "mid", "high" })
         $"Default {name} snapshot did not retain compiled instructions before OS substitution.");
     Assert(policy.Settings.Commands.Allow.SequenceEqual(new[] { "SH", "ATTACH" }),
         $"Default {name} command permissions changed.");
-    Assert(new Parser().Parse(policy.ModelInstructions).Commands.Count == 0,
-        $"Default {name} text accidentally contains executable protocol commands.");
+    // Generated policy text may contain explanatory inline command tags.
+    // Invalid reply syntax is inert; it need not parse as a valid Agent reply.
+    Assert(new RichDocumentParser().Parse(policy.ModelInstructions).Commands.Count == 0,
+        $"Default {name} text accidentally contains executable command candidates.");
 }
 var exampleExecution = new ExecutionRecord
 {
