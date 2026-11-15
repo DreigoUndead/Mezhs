@@ -360,7 +360,9 @@ try {
 echo %TEST_AGENT_VALUE%
 </SH>
 "@
-    $environmentExecution = Start-AgentExecution "test" $environmentTask @{ TEST_AGENT_VALUE = "ENVIRONMENT_OK" }
+    # Return only the scripted Agent reply. The normal mock echoes bootstrap
+    # instructions and is not a valid model-side protocol fixture.
+    $environmentExecution = Start-AgentExecution "test" $environmentTask @{ TEST_AGENT_VALUE = "ENVIRONMENT_OK" } $null "test-scripted"
     $environmentRoot = Wait-AgentExecution $environmentExecution.executionId
     $environmentExecutions = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($environmentRoot.chatId)/executions")
     $environmentShell = $environmentExecutions | ForEach-Object { $_ } |
