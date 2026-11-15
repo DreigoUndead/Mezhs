@@ -6,6 +6,17 @@ New-Item -ItemType Directory -Path $temp -Force | Out-Null
 
 try {
     $agentProject = Join-Path $root 'src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj'
+    # Standalone publishing must carry all three samples: implicit startup copies
+    # instructions.yaml before the Agent config loader can read any policies.
+    $publishedAgent = Join-Path $temp 'standalone agent publish'
+    dotnet publish $agentProject -c Release --no-build --nologo -o $publishedAgent
+    if ($LASTEXITCODE -ne 0) { throw "Agent publish probe failed." }
+    foreach ($sample in @('agent.yaml', 'mezhs.yaml', 'instructions.yaml')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $publishedAgent $sample))) {
+            throw "Standalone Agent publish is missing required sample $sample."
+        }
+    }
+
     $configPath = Join-Path $PSScriptRoot 'mezhs.agent.test.yaml'
     @"
 <Project Sdk="Microsoft.NET.Sdk">
