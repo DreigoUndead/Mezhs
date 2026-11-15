@@ -40,12 +40,18 @@ function Release([string]$connection, [string]$messageId) {
 }
 function Get-AgentMessage([string]$chatId, [string]$executionId) {
     $prefix = "[MEŽS AGENT EXECUTION $executionId]"
-    $all = @(Get "/v1/agent-chats/$chatId/messages")
-    $matches = @($all | Where-Object {
-        $_.role -eq 'user' -and
-        $null -ne $_.content -and
-        $_.content.StartsWith($prefix, [StringComparison]::Ordinal)
-    })
+    # Invoke-RestMethod in Windows PowerShell may emit a JSON array as one pipeline
+    # object. Enumerate its returned value explicitly before examining each message.
+    $response = Get "/v1/agent-chats/$chatId/messages"
+    $matches = @(
+        foreach ($message in $response) {
+            if ($message.role -eq 'user' -and
+                $null -ne $message.content -and
+                $message.content.StartsWith($prefix, [StringComparison]::Ordinal)) {
+                $message
+            }
+        }
+    )
     Assert ($matches.Count -le 1) "Multiple Agent model messages have the same execution envelope: $executionId"
     if ($matches.Count -eq 1) {
         return $matches[0]
@@ -67,7 +73,15 @@ function Await-Message([string]$id, [string]$expected) {
     Until { (Get "/v1/messages/$id").status -eq $expected } "Message $id $expected"
 }
 function Await-Submitted([string]$chatId, [string]$executionId) {
-    Until { $null -ne (Get-AgentMessage $chatId $executionId) } "Agent message created for $executionId"
+    try {
+        Until { $null -ne (Get-AgentMessage $chatId $executionId) } "Agent message created for $executionId"
+    } catch {
+        $raw = Get "/v1/agent-chats/$chatId/messages"
+        $execution = Get "/v1/executions/$executionId"
+        Write-Host ("AGENT_MESSAGE_DIAGNOSTIC=" + ($raw | ConvertTo-Json -Compress -Depth 3))
+        Write-Host ("AGENT_EXECUTION_DIAGNOSTIC=" + ($execution | ConvertTo-Json -Compress -Depth 3))
+        throw
+    }
     Get-AgentMessage $chatId $executionId
 }
 
