@@ -145,7 +145,7 @@ test("typed POST/PATCH send exact serialized JSON once and stream remains raw fo
     if (String(url).endsWith("/api/auth/session"))
       return json({ accessToken: "test" });
     calls.push({ url, options });
-    return new Response("data: {\\"part\\":1}\\n\\ndata: [DONE]\\n\\n", {
+    return new Response("data: {\"part\":1}\n\ndata: [DONE]\n\n", {
       status: 200, headers: { "content-type": "text/event-stream" }
     });
   });
@@ -158,7 +158,7 @@ test("typed POST/PATCH send exact serialized JSON once and stream remains raw fo
     });
     assert.equal(result.statusCode, 200);
     assert.equal(result.contentType, "text/event-stream");
-    assert.equal(result.body, "data: {\\"part\\":1}\\n\\ndata: [DONE]\\n\\n");
+    assert.equal(result.body, "data: {\"part\":1}\n\ndata: [DONE]\n\n");
   }
   assert.equal(calls.length, 2, "one native fetch per mutation; never replay");
   assert.deepEqual(calls.map(call => call.options.method), ["POST", "PATCH"]);
