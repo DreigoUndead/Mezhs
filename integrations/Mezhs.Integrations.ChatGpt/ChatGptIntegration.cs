@@ -52,7 +52,7 @@ public sealed class ChatGptAccountIntegration : BrowserAccountIntegrationBase
         CancellationToken cancellationToken = default) =>
         AccountSession.UseAuthorizedAsync(
             (transport, token) => new BrowserHttpExecutor(transport).CallAsync(
-                ChatGptTypedHttpEndpoints.Models, new EmptyHttpRequest(),
+                ChatGptTypedHttpEndpoints.Models, request: null,
                 reportProgress, token),
             cancellationToken);
 
@@ -61,7 +61,7 @@ public sealed class ChatGptAccountIntegration : BrowserAccountIntegrationBase
         AccountSession.UseAuthorizedAsync<IReadOnlyList<IntegrationModel>>(async (transport, token) =>
         {
             var catalog = await new BrowserHttpExecutor(transport).CallAsync(
-                ChatGptTypedHttpEndpoints.Models, new EmptyHttpRequest(),
+                ChatGptTypedHttpEndpoints.Models, request: null,
                 cancellationToken: token);
             return [new IntegrationModel("default", "Default"), ..catalog.ToModels()
                 .Where(model => !string.IsNullOrWhiteSpace(model.Id) &&

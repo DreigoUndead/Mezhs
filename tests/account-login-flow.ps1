@@ -201,7 +201,7 @@ static async Task TestSessionOwnershipAsync(string root)
             "authenticated request did not report the expected session preparation stages");
         await integration.GetModelsAsync();
         Assert(host.Invocations.Select(x => x.Operation).SequenceEqual(
-            ["$diagnostics/snapshot", "newChat", "getModels"]),
+            ["$diagnostics/snapshot", "newChat", "typedHttp"]),
             "diagnostics, sending, and model discovery did not use the expected transport");
         Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
             "login, sending, or model discovery created a second transport");
@@ -436,8 +436,16 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         if (operation == "sendPrompt")
             return Result<TResult>(new { ok = true, text = "guest-ok" });
 
-        if (operation == "getModels")
-            return Result<TResult>(host.ModelResults);
+        if (operation == "typedHttp")
+        {
+            var catalog = new
+            {
+                models = host.ModelResults.Select(model =>
+                    new { slug = model.Id, title = model.Name }).ToArray()
+            };
+            return Result<TResult>(new HttpTransportResponse(200,
+                JsonSerializer.Serialize(catalog, JsonOptions), "application/json"));
+        }
         if (operation == "getProjects")
             return Result<TResult>(Array.Empty<object>());
 
