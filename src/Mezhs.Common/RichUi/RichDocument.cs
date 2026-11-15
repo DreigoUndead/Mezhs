@@ -102,7 +102,8 @@ public static class RichTagRegistry
             Presentation("divider", RichTagRole.Leaf),
             Presentation("icon", RichTagRole.Leaf),
             Presentation("Chart", RichTagRole.Leaf),
-            Presentation("Cite", RichTagRole.Leaf),
+            // Citation provenance is a security-sensitive namespace, not general presentation.
+            Tag("Cite", RichTagRole.Leaf, "ref", "refs"),
             Tag("CodeBlock", RichTagRole.RawEditor, "language", "editable"),
             Tag("WritingBlock", RichTagRole.RawEditor, "variant", "recipient", "cc", "bcc", "subject", "id"),
             Tag("escape", RichTagRole.OpaqueLiteral, "char"),

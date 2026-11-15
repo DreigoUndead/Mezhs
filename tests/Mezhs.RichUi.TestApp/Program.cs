@@ -21,6 +21,8 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Unsafe event attribute blocks nested shell", "<box onClick=\"alert(1)\">\n<SH>\necho NEVER\n</SH>\n</box>", false, []),
     ("Unsafe HTML style attribute rejected", "<badge style=\"color:red\">No</badge>", false, []),
     ("Unknown SVG attribute rejected", "<svg futureTheme=\"violet\"><rect width=\"5\" height=\"5\"/></svg>", false, []),
+    ("Citation source ID supported", "<Cite ref=\"turn0search0\"/>", true, []),
+    ("Citation arbitrary metadata rejected", "<Cite futureSource=\"javascript:evil\"/>", false, []),
     ("Inline text accepts phrasing descendants", "<text>Before <badge>status</badge> and <Link url=\"https://example.com\">a link</Link> after</text>", true, []),
     ("Inline Link accepts nested text and code", "<Link url=\"https://example.com\">Read <text strong>this</text> `literal`</Link>", true, []),
     ("Inline text accepts a Markdown link", "<text>Read [docs](https://example.com) here.</text>", true, []),

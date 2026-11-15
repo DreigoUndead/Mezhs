@@ -38,4 +38,3 @@ export function CanonicalQuestion({ node, renderChild }: { node: RichNode; rende
       props["data-mezhs-" + name.slice(4)] = value;
   return createElement(boxComponent, props, control);
 }
-

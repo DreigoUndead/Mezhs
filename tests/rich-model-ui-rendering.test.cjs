@@ -225,8 +225,10 @@ test("typed GFM task lists and semantic table headers remain accessible", () => 
 
 test("the documented one-state radio example is accepted by the canonical grammar", () => {
   const documented = fs.readFileSync(path.join(root, "docs/supported-rich-ui.md"), "utf8").replace(/\r\n/g, "\n");
-  const questionSection = documented.split("## One-state radio question")[1].split("## Rich question content")[0];
-  const sample = questionSection.split("```mdx\n")[1].split("\n```")[0];
+  const questionSection = documented.split("## Radio question")[1]?.split("## Raw editors")[0];
+  assert.ok(questionSection, "Model instructions must contain the radio question section");
+  const sample = questionSection.match(/```mdx\n([\s\S]*?)\n```/)?.[1];
+  assert.ok(sample, "Radio question must include a runnable mdx example");
   const doc = canonicalDocument(sample);
   assert.equal(doc.valid, true, doc.diagnostics?.[0]?.code || "invalid");
   assert.equal(kinds(doc.nodes, "question").length, 1);
