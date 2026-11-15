@@ -113,7 +113,7 @@ public sealed class RichDocumentParser
             if (phrasingOnly &&
                 !(node.Kind is "text" or "literal" or "inlineCode" or
                     "strong" or "emphasis" or "strikethrough" or
-                    "lineBreak" or "link" or "image" ||
+                    "lineBreak" or "link" or "image" or "taskCheckbox" ||
                   inlineElement || isElement && name == "svg"))
                 throw new RichDocumentException(
                     "Block or interactive content is forbidden inside inline rich elements.");
