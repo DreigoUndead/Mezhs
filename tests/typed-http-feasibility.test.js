@@ -57,27 +57,38 @@ test("typed feasibility endpoint reuses authenticated ChatGPT Electron session a
     signal: new AbortController().signal,
     reportProgress: value => progress.push(value)
   });
-  assert.equal(output.versions[0].id, "proof");
-  assert.equal(output.models[0].slug, "m1");
+  assert.equal(output.statusCode, 200);
+  const payload = JSON.parse(output.body);
+  assert.equal(payload.versions[0].id, "proof");
+  assert.equal(payload.models[0].slug, "m1");
   assert.equal(calls.length, 2);
   assert.ok(progress.some(value => value.state === "preparing"));
   assert.ok(progress.some(value => value.state === "retrieving" && /bytes/.test(value.detail)));
 });
 
-test("typed feasibility endpoint rejects unsupported endpoints before authentication", async () => {
+test("typed HTTP rejects unsupported methods, origin escapes and invalid request bodies before authentication", async () => {
   let contacted = false;
   const authenticated = session(async () => {
     contacted = true;
     throw new Error("Unauthorized request was dispatched.");
   });
   await assert.rejects(chatgpt.operations.typedHttp({
-    session: authenticated, args: { method: "POST", path: modelsPath }
+    session: authenticated, args: { method: "DELETE", path: modelsPath }
   }), /not allowed/);
   await assert.rejects(chatgpt.operations.typedHttp({
     session: authenticated, args: { method: "GET", path: "https://example.org/" }
   }), /not allowed/);
   await assert.rejects(chatgpt.operations.typedHttp({
     session: authenticated, args: { method: "GET", path: modelsPath, body: {} }
+  }), /not allowed/);
+  await assert.rejects(chatgpt.operations.typedHttp({
+    session: authenticated, args: { method: "GET", path: "/backend-api/../api/auth/session" }
+  }), /not allowed/);
+  await assert.rejects(chatgpt.operations.typedHttp({
+    session: authenticated, args: { method: "POST", path: modelsPath, body: { message: "raw-object" } }
+  }), /not allowed/);
+  await assert.rejects(chatgpt.operations.typedHttp({
+    session: authenticated, args: { method: "POST", path: modelsPath, body: "{}", accept: "Authorization: Bearer leaked" }
   }), /not allowed/);
   assert.equal(contacted, false);
 });
@@ -125,4 +136,51 @@ test("typed feasibility endpoint aborts an in-flight native fetch when its opera
   await started;
   controller.abort();
   await assert.rejects(pending, error => error.name === "AbortError");
+});
+
+test("typed POST/PATCH send exact serialized JSON once and stream remains raw for C# interpretation", async () => {
+  const calls = [];
+  const progress = [];
+  const authenticated = session(async (url, options = {}) => {
+    if (String(url).endsWith("/api/auth/session"))
+      return json({ accessToken: "test" });
+    calls.push({ url, options });
+    return new Response("data: {\\"part\\":1}\\n\\ndata: [DONE]\\n\\n", {
+      status: 200, headers: { "content-type": "text/event-stream" }
+    });
+  });
+  for (const method of ["POST", "PATCH"]) {
+    const body = JSON.stringify({ messageId: "id-1", value: 42 });
+    const result = await chatgpt.operations.typedHttp({
+      session: authenticated,
+      args: { method, path: "/backend-api/test/typed", body, accept: "text/event-stream" },
+      reportProgress: value => progress.push(value)
+    });
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.contentType, "text/event-stream");
+    assert.equal(result.body, "data: {\\"part\\":1}\\n\\ndata: [DONE]\\n\\n");
+  }
+  assert.equal(calls.length, 2, "one native fetch per mutation; never replay");
+  assert.deepEqual(calls.map(call => call.options.method), ["POST", "PATCH"]);
+  for (const call of calls) {
+    assert.equal(call.options.body, JSON.stringify({ messageId: "id-1", value: 42 }));
+    assert.equal(call.options.headers.Accept, "text/event-stream");
+    assert.equal(call.options.headers.Authorization, "Bearer test");
+  }
+  assert.ok(progress.some(x => x.state === "retrieving"));
+});
+
+test("typed HTTP ambiguous POST failure is surfaced without replay", async () => {
+  let submitted = 0;
+  const authenticated = session(async url => {
+    if (String(url).endsWith("/api/auth/session"))
+      return json({ accessToken: "test" });
+    submitted++;
+    throw new Error("connection interrupted after submission");
+  });
+  await assert.rejects(chatgpt.operations.typedHttp({
+    session: authenticated,
+    args: { method: "POST", path: "/backend-api/test/typed", body: "{}" }
+  }), /connection interrupted/);
+  assert.equal(submitted, 1);
 });
