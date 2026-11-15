@@ -67,12 +67,22 @@ requested non-default model with the integration-returned model through
 persisted reply parent IDs; it never changes the user selection, retries a
 prompt, or represents a selected model as independently verified execution.
 
-The ChatGPT Account `BrowserHttpExecutor` / `HttpEndpoint` endpoint is
-currently a **read-only feasibility bridge**, restricted to the authenticated
-models GET. Its JavaScript operation preserves Electron-owned
-authentication, cancellation, and streamed progress. It is **not** a
-general-purpose browser HTTP client and does not currently implement the
-plan's shared normal-`HttpClient` / Electron HTTP executor or migrate
-mutation/SSE payload interpretation to C#. Existing provider operations
-remain authoritative; an ambiguous submitted turn must not be replayed.
-The separate provider DOM/protocol refactor remains outside this task.
+`IntegrationHttpClient` owns typed GET/POST/PATCH request encoding, response
+interpretation (JSON and C# SSE/NDJSON helpers), response-size limits, and
+single-dispatch/no-implicit-replay semantics. This is composed by the
+lightweight `ApiIntegrationBase` through ordinary `HttpClient`, and by
+`BrowserHttpExecutor` through the existing `IChatBrowserTransport`. The
+browser operation `typedHttp` executes same-origin `/backend-api/` calls
+inside the Electron-owned authenticated session, without duplicating
+cookies, authorization or session ownership. Streaming HTTP content is
+buffered within a 16 MiB bound and produces retrieval progress; provider
+interpretation happens in C# after response completion, not through a new
+public incremental-text stream contract.
+
+ChatGPT Account model retrieval uses the typed HTTP GET and C# catalog
+normalization, retaining model/effort identifiers. ChatGPT prompt sending
+continues to use the existing provider-specific JavaScript protocol, which
+owns the native Sentinel/conduit preparation and reply recovery. The
+generic transport does not claim to replace those requirements or make
+prompt mutations safely replayable after an ambiguous outcome. The separate
+provider DOM/protocol refactor remains outside this task.
