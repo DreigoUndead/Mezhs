@@ -20,6 +20,387 @@ $agentConfig = Join-Path $temp 'agent.yaml'
 $electron = Join-Path $root 'electron'
 $coreYaml = (Get-Content (Join-Path $PSScriptRoot 'mezhs.test.yaml') -Raw).Replace('http://127.0.0.1:5198', $coreUrl).Replace('root: data', "root: $(Join-Path $temp 'core')").Replace('electronDirectory: ../electron', "electronDirectory: $electron")
 $agentYaml = (Get-Content (Join-Path $PSScriptRoot 'mezhs.agent.test.yaml') -Raw).Replace('http://127.0.0.1:5199', $agentUrl).Replace('agentStorage: data-agent-test/agent.sqlite', "agentStorage: $(Join-Path $temp 'agent.sqlite')").Replace('workspace: ..', "workspace: $(Join-Path $temp 'workspace')")
+# This fixture requires real long-running SH replies. Keep the normal mock for
+# failure-isolation checks; use the dedicated scripted protocol mock only for
+# the test-cancel policy in this temporary configuration.
+$agentYaml = [regex]::Replace($agentYaml,
+    '(?m)^(  test-cancel:\r?\n    connectionId: )test(?=\r?$)',
+    '${1}test-scripted')
+if ($agentYaml -notmatch '(?m)^  test-cancel:\r?\n    connectionId: test-scripted\r?
+$agentCoreYaml = (Get-Content (Join-Path $PSScriptRoot 'mezhs.agent.core.test.yaml') -Raw).Replace('root: data-agent-test/core', "root: $(Join-Path $temp 'agent-core')").Replace('electronDirectory: ../electron', "electronDirectory: $electron")
+Set-Content -LiteralPath $agentCoreConfig -Value $agentCoreYaml -Encoding UTF8
+Set-Content -LiteralPath $mezhsConfig -Value $coreYaml -Encoding UTF8
+Set-Content -LiteralPath $agentConfig -Value $agentYaml -Encoding UTF8
+$apiOut = Join-Path $temp 'core.out'
+$apiErr = Join-Path $temp 'core.err'
+$agentOut = Join-Path $temp 'agent.out'
+$agentErr = Join-Path $temp 'agent.err'
+$apiDll = (Resolve-Path (Join-Path $root 'src/Mezhs.Api/bin/Release/net10.0/Mezhs.Api.dll')).Path
+$agentDll = (Resolve-Path (Join-Path $root 'src/Mezhs.Agent.Api/bin/Release/net10.0/Mezhs.Agent.Api.dll')).Path
+
+function Wait-Health([string]$uri) {
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(25)
+    do {
+        try {
+            $health = Invoke-RestMethod -Uri $uri
+            if ($health.status -eq "ok") { return }
+        } catch {
+            if ([DateTimeOffset]::UtcNow -ge $deadline) { throw }
+        }
+        Start-Sleep -Milliseconds 150
+    } while ($true)
+}
+
+function Start-AgentProcess() {
+    return Start-Process -FilePath "dotnet" `
+        -ArgumentList @($agentDll, "--config", $agentConfig, "--mezhs-config", $agentCoreConfig) `
+        -WorkingDirectory $root -RedirectStandardOutput $agentOut -RedirectStandardError $agentErr -WindowStyle Hidden -PassThru
+}
+
+function Start-Execution([string]$policyId, [string]$taskInput, [string]$chatId = '') {
+    $body = @{ policyId = $policyId; input = $taskInput }
+    if ($chatId) { $body.chatId = $chatId }
+    return Invoke-RestMethod -Method Post -Uri "$agentUrl/v1/executions" `
+        -ContentType "application/json" -Body (ConvertTo-Json $body)
+}
+
+function Get-Execution([string]$executionId) {
+    return Invoke-RestMethod -Uri "$agentUrl/v1/executions/$executionId"
+}
+
+function Wait-ExecutionStatus([string]$executionId, [string[]]$statuses, [int]$seconds = 20) {
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($seconds)
+    do {
+        $execution = Get-Execution $executionId
+        if ($execution.status -in $statuses) { return $execution }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) {
+            throw "Execution $executionId did not reach [$($statuses -join ', ')]. Last state: $($execution.status)"
+        }
+        Start-Sleep -Milliseconds 100
+    } while ($true)
+}
+
+function Wait-AttachedRunningExecution([string]$executionId, [int]$seconds = 10) {
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($seconds)
+    do {
+        $execution = Get-Execution $executionId
+        if ($execution.status -eq "Running" -and $execution.chatId) { return $execution }
+        if ($execution.status -in @("Completed", "Failed", "Cancelled", "Interrupted")) {
+            throw "Execution $executionId became $($execution.status) before a chat was attached."
+        }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) {
+            throw "Execution $executionId did not attach a chat while running. Last state: $($execution.status), chatId=$($execution.chatId)"
+        }
+        Start-Sleep -Milliseconds 100
+    } while ($true)
+}
+
+function Get-ChatExecutions([string]$chatId) {
+    $response = Invoke-RestMethod -Uri "$agentUrl/v1/agent-chats/$chatId/executions"
+    return @($response | ForEach-Object { $_ })
+}
+
+function Wait-Shell([string]$chatId, [string[]]$statuses, [int]$seconds = 20) {
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($seconds)
+    do {
+        $executions = Get-ChatExecutions $chatId
+        $shell = @($executions | Where-Object { $_.kind -eq "Shell" -and $_.status -in $statuses } | Sort-Object createdAt -Descending)[0]
+        if ($null -ne $shell) { return $shell }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) {
+            $observed = @($executions | Where-Object { $_.kind -eq "Shell" } | ForEach-Object { "$($_.executionId):$($_.status)" })
+            throw "No shell in chat $chatId reached [$($statuses -join ', ')]. Observed: $($observed -join ', ')"
+        }
+        Start-Sleep -Milliseconds 100
+    } while ($true)
+}
+
+$api = Start-Process -FilePath "dotnet" `
+    -ArgumentList @($apiDll, "--config", $mezhsConfig) `
+    -WorkingDirectory $root -RedirectStandardOutput $apiOut -RedirectStandardError $apiErr -WindowStyle Hidden -PassThru
+$agent = $null
+
+try {
+    Wait-Health "$coreUrl/health"
+    $agent = Start-AgentProcess
+    Wait-Health "$agentUrl/health"
+
+    # Root Agent cancellation owns reasoning cancellation; shell execution has a separate Kill endpoint.
+    $longTask = @"
+<SH>
+ping -n 30 127.0.0.1 >nul
+</SH>
+"@
+    $cancel = Start-Execution "test-cancel" $longTask
+    $cancelRunning = Wait-AttachedRunningExecution $cancel.executionId
+    $runningShell = Wait-Shell $cancelRunning.chatId @("Running")
+
+    # Invalid input is rejected as a whole without disturbing the active Agent.
+    $invalidDeletion = Invoke-WebRequest -Method Delete -Uri "$agentUrl/v1/chats" `
+        -ContentType "application/json" `
+        -Body (ConvertTo-Json @{ chatIds = @($cancelRunning.chatId, "chat_missing") }) `
+        -SkipHttpErrorCheck
+    if ([int]$invalidDeletion.StatusCode -ne 404) {
+        throw "Invalid active-chat deletion returned $([int]$invalidDeletion.StatusCode), expected 404."
+    }
+    if (-not (Invoke-RestMethod -Uri "$agentUrl/v1/agent-chats/$($cancelRunning.chatId)")) {
+        throw "Rejected deletion affected an active Agent chat."
+    }
+
+    $childCancelClient = [Net.Http.HttpClient]::new()
+    try {
+        $childCancelResponse = $childCancelClient.PostAsync(
+            "$agentUrl/v1/executions/$($runningShell.executionId)/cancel",
+            $null).GetAwaiter().GetResult()
+        $childCancelText = $childCancelResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        try {
+            if ([int]$childCancelResponse.StatusCode -ne 400 -or $childCancelText -notmatch "use /kill") {
+                throw "Shell execution accepted Agent cancellation instead of preserving separate Kill ownership. HTTP $([int]$childCancelResponse.StatusCode): $childCancelText"
+            }
+        } finally { $childCancelResponse.Dispose() }
+    } finally { $childCancelClient.Dispose() }
+
+    $cancelResponse = Invoke-RestMethod -Method Post -Uri "$agentUrl/v1/executions/$($cancel.executionId)/cancel"
+    if ($cancelResponse.status -ne "CancelRequested") {
+        throw "Running cancellation skipped acknowledgement state: $($cancelResponse.status)"
+    }
+    $cancelledRoot = Wait-ExecutionStatus $cancel.executionId @("Cancelled") 10
+    $killedShell = Wait-Shell $cancelledRoot.chatId @("Killed") 10
+    if (-not $cancelledRoot.completedAt -or -not $killedShell.completedAt) {
+        throw "Cancellation/kill became terminal without durable completion timestamps."
+    }
+
+    # More than four independent shell-backed Agent executions must overlap in Running.
+    $parallelTask = @"
+<SH>
+ping -n 25 127.0.0.1 >nul
+</SH>
+"@
+    $parallel = @()
+    for ($i = 1; $i -le 6; $i++) {
+        $parallel += Start-Execution "test-cancel" $parallelTask
+    }
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(15)
+    $runningCount = 0
+    $runningShellCount = 0
+    do {
+        $parallelStates = @($parallel | ForEach-Object { Get-Execution $_.executionId })
+        $runningCount = @($parallelStates | Where-Object { $_.status -eq "Running" }).Count
+        $runningShellCount = 0
+        foreach ($state in $parallelStates) {
+            if ($state.chatId) {
+                $runningShellCount += @(Get-ChatExecutions $state.chatId | Where-Object {
+                    $_.kind -eq "Shell" -and $_.status -eq "Running"
+                }).Count
+            }
+        }
+        if ($runningCount -eq 6 -and $runningShellCount -eq 6) { break }
+        if ([DateTimeOffset]::UtcNow -ge $deadline) {
+            throw "Six independent roots did not overlap: running=$runningCount, runningShells=$runningShellCount; states=$(@($parallelStates | ForEach-Object { $_.status }) -join ',')"
+        }
+        Start-Sleep -Milliseconds 150
+    } while ($true)
+    $dbPath = Join-Path $temp 'agent.sqlite'
+    $sqliteCheck = Join-Path $temp 'sqlite-running.py'
+    @'
+import sqlite3
+import sys
+with sqlite3.connect(sys.argv[1]) as db:
+    print(db.execute("SELECT COUNT(*) FROM Executions WHERE Kind = 'Agent' AND Status = 'Running'").fetchone()[0])
+'@ | Set-Content -LiteralPath $sqliteCheck -Encoding UTF8
+    $dbRunning = [int](& python $sqliteCheck $dbPath)
+    if ($LASTEXITCODE -ne 0 -or $dbRunning -lt 6) {
+        throw "SQLite did not durably record six Running Agents: $dbRunning"
+    }
+    Write-Host "CONCURRENCY api_running=$runningCount sqlite_running=$dbRunning executor_shells_running=$runningShellCount"
+
+    # A failed integration request becomes Failed and must not stall another Agent.
+    $failed = Start-Execution "test" "MEZHS_TEST_INTEGRATION_FAILURE"
+    $healthy = Start-Execution "test" "independent success alongside failing execution"
+    $failedDone = Wait-ExecutionStatus $failed.executionId @("Failed") 12
+    $healthyDone = Wait-ExecutionStatus $healthy.executionId @("Completed") 12
+    if (-not $failedDone.completedAt -or -not $healthyDone.completedAt) {
+        throw "Failure isolation lacks durable terminal timestamps."
+    }
+    Write-Host "FAILURE_ISOLATION failed=$($failedDone.status) independent=$($healthyDone.status)"
+
+    # Cancelling one root kills only its child; all other independent shells continue.
+    $first = $parallel[0]
+    $firstCancelled = Invoke-RestMethod -Method Post -Uri "$agentUrl/v1/executions/$($first.executionId)/cancel"
+    $firstDone = Wait-ExecutionStatus $first.executionId @("Cancelled") 12
+    $firstShell = Wait-Shell $firstDone.chatId @("Killed") 12
+    $othersStillRunning = @($parallel[1..5] | Where-Object { (Get-Execution $_.executionId).status -eq "Running" }).Count
+    if ($othersStillRunning -ne 5) {
+        throw "Cancellation interrupted unrelated roots: stillRunning=$othersStillRunning"
+    }
+    foreach ($rootToCancel in $parallel[1..5]) {
+        Invoke-RestMethod -Method Post -Uri "$agentUrl/v1/executions/$($rootToCancel.executionId)/cancel" | Out-Null
+    }
+    foreach ($rootToCancel in $parallel[1..5]) {
+        $done = Wait-ExecutionStatus $rootToCancel.executionId @("Cancelled") 12
+        $shell = Wait-Shell $done.chatId @("Killed") 12
+    }
+    Write-Host "PARALLEL_CANCELLATION six_roots=Cancelled six_shells=Killed others_unaffected=5"
+
+    # SQLite, not a global worker slot, serializes two roots of the same existing Agent chat.
+    $seed = Start-Execution "test-cancel" "seed existing Agent chat"
+    $seedDone = Wait-ExecutionStatus $seed.executionId @("Completed") 12
+    $blocking = Start-Execution "test-cancel" $longTask $seedDone.chatId
+    $blockingRunning = Wait-AttachedRunningExecution $blocking.executionId
+    $blockingShell = Wait-Shell $blockingRunning.chatId @("Running")
+    # Cancel a queued execution before it is claimed; it must never start later.
+    $neverStart = Start-Execution "test-cancel" "cancel before claim" $seedDone.chatId
+    $neverStartQueued = Wait-ExecutionStatus $neverStart.executionId @("Queued") 5
+    $neverStartCancel = Invoke-RestMethod -Method Post -Uri "$agentUrl/v1/executions/$($neverStart.executionId)/cancel"
+    $neverStartDone = Wait-ExecutionStatus $neverStart.executionId @("Cancelled") 5
+    if ($neverStartDone.startedAt -or -not $neverStartDone.completedAt) {
+        throw "Cancelled queued execution was started or lacks durable cancellation."
+    }
+    Write-Host "QUEUED_CANCELLATION status=$($neverStartDone.status) startedAt=null"
+    $queued = Start-Execution "test-cancel" "queued behind same-chat blocker" $seedDone.chatId
+    $queuedRecord = Wait-ExecutionStatus $queued.executionId @("Queued") 5
+    if ($queuedRecord.startedAt) { throw "Durably queued same-chat execution already has a started timestamp." }
+
+    # An unrelated execution starts and finishes while the first shell remains active.
+    $independent = Start-Execution "test" "unrelated concurrent execution"
+    $independentDone = Wait-ExecutionStatus $independent.executionId @("Completed") 12
+    if (-not $independentDone.startedAt -or -not $independentDone.completedAt) {
+        throw "Independent execution did not run while the blocker was active."
+    }
+    if ((Get-Execution $blocking.executionId).status -ne "Running") {
+        throw "Blocking execution did not overlap independent execution."
+    }
+    if ((Get-Execution $queued.executionId).status -ne "Queued") {
+        throw "Same-chat execution did not stay queued while unrelated work ran."
+    }
+    # Preserve the restart-recovery fixture: invalid bulk deletion must be atomic.
+    $invalidBatch = Invoke-WebRequest -Method Delete -Uri "$agentUrl/v1/chats" `
+        -ContentType "application/json" `
+        -Body (ConvertTo-Json @{ chatIds = @($independentDone.chatId, $seedDone.chatId, "chat_missing") }) `
+        -SkipHttpErrorCheck
+    if ([int]$invalidBatch.StatusCode -ne 404) {
+        throw "Invalid mixed Agent deletion returned $([int]$invalidBatch.StatusCode), expected 404."
+    }
+    foreach ($id in @($independentDone.chatId, $seedDone.chatId)) {
+        if (-not (Invoke-RestMethod -Uri "$agentUrl/v1/chats/$id")) {
+            throw "Invalid batch partially removed chat '$id'."
+        }
+    }
+    Write-Host "DELETION_VALIDATION invalid_batch=404 no_partial_delete=true"
+
+    $state = @(Invoke-RestMethod -Uri "$agentUrl/v1/executions")
+    $runningRoots = @($state | Where-Object { $_.kind -eq "Agent" -and $_.status -eq "Running" })
+    $queuedRoots = @($state | Where-Object { $_.kind -eq "Agent" -and $_.status -eq "Queued" })
+    if ($runningRoots.Count -lt 1 -or $queuedRoots.Count -lt 1) {
+        throw "Persisted same-chat queue state missing: running=$($runningRoots.Count), queued=$($queuedRoots.Count)"
+    }
+    Write-Host "RESILIENCE persisted_running=$($runningRoots.Count) persisted_queued=$($queuedRoots.Count), independent=$($independentDone.status)"
+
+    # Kill only the actual Agent API process. Detached Executor shell must survive, then Agent must reattach to the same durable shell row.
+    Stop-Process -Id $agent.Id -Force
+    $agent.WaitForExit()
+    $agent = $null
+
+    Start-Sleep -Milliseconds 300
+    $agent = Start-AgentProcess
+    Wait-Health "$agentUrl/health"
+
+    $recoveredBlocking = Wait-ExecutionStatus $blocking.executionId @("Completed") 45
+    $recoveredShell = Wait-Shell $recoveredBlocking.chatId @("Completed") 45
+    if ($recoveredShell.executionId -ne $blockingShell.executionId) {
+        throw "Agent restart launched a duplicate shell row. Before=$($blockingShell.executionId), after=$($recoveredShell.executionId)"
+    }
+    $shellRows = @(Get-ChatExecutions $recoveredBlocking.chatId | Where-Object { $_.kind -eq "Shell" })
+    if ($shellRows.Count -ne 1) {
+        throw "Recovered Agent chat contains $($shellRows.Count) shell rows instead of reconnecting to one durable execution."
+    }
+
+    $recoveredQueued = Wait-ExecutionStatus $queued.executionId @("Completed") 20
+    if (-not $recoveredQueued.startedAt -or -not $recoveredQueued.completedAt) {
+        throw "Queued execution did not survive restart and run from durable storage."
+    }
+
+    $afterRestart = Start-Execution "test" "execution after restart"
+    $afterRestartDone = Wait-ExecutionStatus $afterRestart.executionId @("Completed") 15
+    if ($afterRestartDone.status -ne "Completed") { throw "Agent did not accept work after restart recovery." }
+
+    # After the first same-chat execution finishes, its successor must run without another API start.
+    $shortTask = @"
+<SH>
+ping -n 5 127.0.0.1 >nul
+</SH>
+"@
+    $serialOne = Start-Execution "test-cancel" $shortTask $seedDone.chatId
+    $serialRunning = Wait-AttachedRunningExecution $serialOne.executionId
+    $serialShell = Wait-Shell $serialRunning.chatId @("Running")
+    $serialTwo = Start-Execution "test-cancel" "next same-chat execution, no external wake" $seedDone.chatId
+    $serialQueued = Wait-ExecutionStatus $serialTwo.executionId @("Queued") 5
+    if ($serialQueued.startedAt) { throw "Same-chat successor started before its predecessor completed." }
+    $serialFirstDone = Wait-ExecutionStatus $serialOne.executionId @("Completed") 15
+    $serialSecondDone = Wait-ExecutionStatus $serialTwo.executionId @("Completed") 15
+    if (-not $serialSecondDone.startedAt -or -not $serialSecondDone.completedAt) {
+        throw "Same-chat successor did not start from completion notification."
+    }
+    $neverStartFinal = Get-Execution $neverStart.executionId
+    if ($neverStartFinal.status -ne "Cancelled" -or $neverStartFinal.startedAt) {
+        throw "Previously cancelled queued execution started after recovery or predecessor completion."
+    }
+    Write-Host "SAME_CHAT_WAKE first=$($serialFirstDone.status) successor=$($serialSecondDone.status) cancelled_queued=$($neverStartFinal.status)"
+
+    # Deletion uses normal Agent cancellation, including associated Executor shell kill.
+    # Validate single and mixed bulk routes without resurrecting deleted chats.
+    $detached = Start-Execution "test-cancel" $longTask
+    $detachedRunning = Wait-AttachedRunningExecution $detached.executionId
+    $detachedShell = Wait-Shell $detachedRunning.chatId @("Running")
+    $singleDeleted = Invoke-WebRequest -Method Delete `
+        -Uri "$agentUrl/v1/chats/$($detachedRunning.chatId)" -SkipHttpErrorCheck
+    if ([int]$singleDeleted.StatusCode -ne 204) {
+        throw "Active Agent deletion did not complete: HTTP $([int]$singleDeleted.StatusCode) $($singleDeleted.Content)"
+    }
+    $coreAfter = Invoke-WebRequest -Uri "$agentUrl/v1/chats/$($detachedRunning.chatId)" -SkipHttpErrorCheck
+    $agentAfter = Invoke-WebRequest -Uri "$agentUrl/v1/agent-chats/$($detachedRunning.chatId)" -SkipHttpErrorCheck
+    if ([int]$coreAfter.StatusCode -ne 404 -or [int]$agentAfter.StatusCode -ne 404) {
+        throw "Active Agent deletion left Agent/Core chat data visible."
+    }
+    $shellAfter = Wait-ExecutionStatus $detachedShell.executionId @("Killed") 15
+    if (-not $shellAfter.completedAt) { throw "Deleted chat shell kill lacks completion timestamp." }
+
+    $bulkActive = Start-Execution "test-cancel" $longTask
+    $bulkRunning = Wait-AttachedRunningExecution $bulkActive.executionId
+    $bulkShell = Wait-Shell $bulkRunning.chatId @("Running")
+    $bulkQueued = Start-Execution "test-cancel" "must never run after deletion" $bulkRunning.chatId
+    $queuedDuringDelete = Wait-ExecutionStatus $bulkQueued.executionId @("Queued") 5
+    $bulkRemoved = Invoke-RestMethod -Method Delete -Uri "$agentUrl/v1/chats" `
+        -ContentType "application/json" `
+        -Body (ConvertTo-Json @{ chatIds = @($afterRestartDone.chatId, $bulkRunning.chatId) })
+    if (@($bulkRemoved.deletedChatIds).Count -ne 2) {
+        throw "Mixed active bulk deletion did not commit both requested chats."
+    }
+    $bulkShellAfter = Wait-ExecutionStatus $bulkShell.executionId @("Killed") 15
+    if (-not $bulkShellAfter.completedAt) { throw "Mixed deletion shell kill lacks completion timestamp." }
+
+    # Shell termination must leave deleted chat/Agent data absent.
+    foreach ($deletedChatId in @($detachedRunning.chatId, $bulkRunning.chatId)) {
+        $lateCore = Invoke-WebRequest -Uri "$agentUrl/v1/chats/$deletedChatId" -SkipHttpErrorCheck
+        $lateAgent = Invoke-WebRequest -Uri "$agentUrl/v1/agent-chats/$deletedChatId" -SkipHttpErrorCheck
+        if ([int]$lateCore.StatusCode -ne 404 -or [int]$lateAgent.StatusCode -ne 404) {
+            throw "Detached shell completion resurrected deleted chat '$deletedChatId'."
+        }
+    }
+    Write-Host "DELETION_CANCEL_IMMEDIATE single=204 mixed_bulk=2 shells=Killed no_resurrection=true"
+
+    Write-Host "PASS: Concurrent roots, independent Executor shells, cancellation isolation, queued cancellation, same-chat wake, restart/recovery and cancellation-based deletion with associated shell kills."
+}
+finally {
+    if ($null -ne $agent -and -not $agent.HasExited) {
+        Stop-Process -Id $agent.Id -Force
+        $agent.WaitForExit()
+    }
+    if (-not $api.HasExited) { Stop-Process -Id $api.Id -Force; $api.WaitForExit() }
+    Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+}
+) {
+    throw 'The test-cancel policy was not isolated to the scripted mock.'
+}
 $agentCoreConfig = Join-Path $temp 'agent-core.yaml'
 $agentCoreYaml = (Get-Content (Join-Path $PSScriptRoot 'mezhs.agent.core.test.yaml') -Raw).Replace('root: data-agent-test/core', "root: $(Join-Path $temp 'agent-core')").Replace('electronDirectory: ../electron', "electronDirectory: $electron")
 Set-Content -LiteralPath $agentCoreConfig -Value $agentCoreYaml -Encoding UTF8
