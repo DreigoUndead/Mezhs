@@ -50,6 +50,8 @@ window.fetch = async input => {
     id: "mock", name: "Mock", integration: "mock", requiresLogin: false,
     allowFiles: false, defaultModel: null,
   }]);
+  if (pathname === "/v1/connections/mock/models")
+    return response([{ id: "default", name: "Default" }]);
   if (pathname === "/v1/categories") return response([]);
   if (pathname === "/v1/agent-chats") return response(window.fixtureChats);
   if (/^\/v1\/agent-chats\/[^/]+\/messages$/.test(pathname)) return response([]);
@@ -173,9 +175,16 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
     for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution"])
       assert.ok(report[2].includes(expected), "Missing scenario " + expected);
   } finally {
-    // Chromium may briefly retain an optimization-guide model handle on Windows
-    // after its headless process exits. Retry EBUSY cleanup instead of masking the
-    // actual browser assertions with an unrelated temporary-profile deletion error.
-    fs.rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+    // A Chrome child process can briefly retain a file handle after the headless
+    // parent exits. Cleanup must never hide an assertion/timeout from above.
+    // Leave an inaccessible temporary profile to OS cleanup rather than fail a
+    // completed UI test solely because of a Windows file lock.
+    try {
+      fs.rmSync(folder, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 });
+    } catch (error) {
+      if (process.platform !== "win32" || !["EBUSY", "EPERM"].includes(error?.code))
+        throw error;
+      process.stderr.write("WARN: Chromium temporary profile locked; cleanup deferred: " + error.code + "\\n");
+    }
   }
 });
