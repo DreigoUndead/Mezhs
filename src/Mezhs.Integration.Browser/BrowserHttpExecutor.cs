@@ -1,36 +1,25 @@
-using System.Net.Http;
 using Mezhs.Browser;
 
 namespace Mezhs.Integrations.Browser;
 
 /// <summary>
-/// Minimal typed-endpoint feasibility bridge. Do not migrate provider send paths
-/// until authenticated Electron transport checks establish its behavior.
+/// Binds typed HTTP operations to an existing Electron browser operation/context.
+/// It never creates a new browser host, login session or HTTP credential store.
 /// </summary>
-public sealed record HttpEndpoint<TRequest, TResponse>(HttpMethod Method, string Path);
-
 public sealed class BrowserHttpExecutor(IChatBrowserTransport transport)
 {
+    private readonly IntegrationHttpClient _http = new(async (request, report, token) =>
+        await transport.InvokeWithProgressAsync<HttpTransportResponse>(
+            "typedHttp", request,
+            progress => report?.Invoke(new HttpTransferProgress(progress.State, progress.Detail)),
+            token));
+
     public Task<TResponse> CallAsync<TRequest, TResponse>(
         HttpEndpoint<TRequest, TResponse> endpoint,
-        TRequest request,
+        TRequest? request,
         Action<BrowserOperationProgress>? reportProgress = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(endpoint);
-        if (string.IsNullOrWhiteSpace(endpoint.Path) ||
-            !endpoint.Path.StartsWith("/", StringComparison.Ordinal) ||
-            endpoint.Path.StartsWith("//", StringComparison.Ordinal) ||
-            endpoint.Path.Contains("://", StringComparison.Ordinal))
-            throw new ArgumentException("Typed HTTP path must be origin-relative.", nameof(endpoint));
-
-        // The provider operation owns HTTP authorization, cookies and integrity
-        // observations. Credentials never cross into this typed descriptor.
-        return transport.InvokeWithProgressAsync<TResponse>(
-            "typedHttp",
-            new { method = endpoint.Method.Method, path = endpoint.Path,
-                body = endpoint.Method == HttpMethod.Get ? null : (object?)request },
-            reportProgress,
-            cancellationToken);
-    }
+        CancellationToken cancellationToken = default) =>
+        _http.CallAsync(endpoint, request,
+            progress => reportProgress?.Invoke(new BrowserOperationProgress(
+                progress.State, progress.Detail)), cancellationToken);
 }

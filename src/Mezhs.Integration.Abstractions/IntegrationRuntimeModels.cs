@@ -1,3 +1,4 @@
+using System.Net.Http;
 using System.Text.Json;
 
 namespace Mezhs.Integrations;
@@ -146,9 +147,14 @@ public enum ErrorAction
     RetryIfSafe
 }
 
-// Deliberately minimal until an actual API or local-model integration requires more.
+// HTTP transport is composed rather than inherited from the browser base.
+// Concrete API providers supply their configured HttpClient when HTTP is needed.
 public abstract class ApiIntegrationBase(
-    IntegrationConnection connection, IIntegrationHost host) : IntegrationBase(connection, host);
+    IntegrationConnection connection, IIntegrationHost host) : IntegrationBase(connection, host)
+{
+    protected static IntegrationHttpClient Http(HttpClient client) =>
+        IntegrationHttpClient.ForHttpClient(client);
+}
 
 public abstract class LocalModelIntegrationBase(
     IntegrationConnection connection, IIntegrationHost host) : IntegrationBase(connection, host);
