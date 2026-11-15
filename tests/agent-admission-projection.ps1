@@ -25,7 +25,13 @@ function Until([scriptblock]$check, [string]$description, [int]$timeout = 12) {
 function Post([string]$route, [hashtable]$data) {
     Invoke-RestMethod -Method Post -Uri "$baseUrl$route" -ContentType 'application/json' -Body ($data | ConvertTo-Json -Depth 8)
 }
-function Get([string]$route) { Invoke-RestMethod -Method Get -Uri "$baseUrl$route" }
+function Get([string]$route) {
+    try {
+        Invoke-RestMethod -Method Get -Uri "$baseUrl$route"
+    } catch {
+        throw "GET $route failed: $($_.Exception.Message)"
+    }
+}
 function ProbeFile([string]$connection, [string]$messageId, [string]$suffix) {
     Join-Path $temp "$connection-$messageId.$suffix"
 }
