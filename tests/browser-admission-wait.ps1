@@ -20,6 +20,7 @@ try {
 "@ | Set-Content -LiteralPath (Join-Path $temp 'Test.csproj') -Encoding UTF8
     @'
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Reflection;
 using Mezhs.Browser;
 using Mezhs.Integrations;
@@ -103,6 +104,8 @@ static async Task CheckSpacingCancellationAsync()
         "subsequent spacing waiter", 2000);
     await UntilAsync(() => probe.Started.ContainsKey("admitted"), "spacing admission", 7000);
     Assert(!trace.IsBlocked("admitted"), "Spacing Waiting not cleared on admission.");
+    var elapsedMs = Stopwatch.GetElapsedTime(probe.StartTicks["first"], probe.StartTicks["admitted"]).TotalMilliseconds;
+    Assert(elapsedMs >= 4900, $"Configured 5000 ms spacing was violated: {elapsedMs:F1} ms.");
     Assert(trace.ProviderWaiting.ContainsKey("admitted"),
         "Probe must report provider waiting independently from admission.");
     probe.Release("admitted");
@@ -167,6 +170,7 @@ sealed class ProbeIntegration(int maxParallel, int minInterval)
 {
     private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> _holds = new();
     public ConcurrentDictionary<string, bool> Started { get; } = new();
+    public ConcurrentDictionary<string, long> StartTicks { get; } = new();
     protected override Assembly BrowserModuleAssembly => typeof(ProbeIntegration).Assembly;
     protected override string BrowserModuleResourceName => "unused";
 
@@ -182,6 +186,7 @@ sealed class ProbeIntegration(int maxParallel, int minInterval)
         var id = context.Message.MessageId;
         var hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!_holds.TryAdd(id, hold)) throw new InvalidOperationException("Duplicate provider send " + id);
+        StartTicks[id] = Stopwatch.GetTimestamp();
         Started[id] = true;
         context.ReportActivity?.Invoke(new IntegrationActivity("waiting"));
         await hold.Task.WaitAsync(cancellationToken);
