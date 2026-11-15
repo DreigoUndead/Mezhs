@@ -4,7 +4,8 @@ public static class ConfigPath
 {
     // Default launches use an editable personal copy next to the tracked sample.
     // Explicit --config paths retain their exact existing meaning.
-    public static string FindLocal(string[] args, string fileName, string argumentName = "--config")
+    public static string FindLocal(
+        string[] args, string fileName, string argumentName = "--config", string? companionFileName = null)
     {
         var path = Find(args, fileName, argumentName);
         for (var i = 0; i < args.Length - 1; i++)
@@ -12,7 +13,11 @@ public static class ConfigPath
             if (string.Equals(args[i], argumentName, StringComparison.OrdinalIgnoreCase))
                 return path;
         }
-        return EnsureLocalCopy(path);
+
+        var localPath = EnsureLocalCopy(path);
+        if (companionFileName is not null)
+            EnsureLocalCopy(Path.Combine(Path.GetDirectoryName(path)!, companionFileName));
+        return localPath;
     }
 
     public static string EnsureLocalCopy(string defaultPath)
