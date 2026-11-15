@@ -60,6 +60,119 @@ try
 }
 finally { File.Delete(legacyConfig); }
 
+
+var repositoryRoot = Directory.GetParent(Path.GetDirectoryName(args[0])!)!.FullName;
+var defaultAgentOptions = AgentConfigLoader.Load(Path.Combine(repositoryRoot, "agent.yaml"));
+var os = OperatingSystem.IsWindows() ? "Windows" :
+    OperatingSystem.IsLinux() ? "Linux" : OperatingSystem.IsMacOS() ? "macOS" : "Unknown OS";
+foreach (var name in new[] { "low", "mid", "high" })
+{
+    var policy = defaultAgentOptions.Policies[name];
+    Assert(policy.Settings.Instructions.Contains("You are a MEŽS agent operating", StringComparison.Ordinal),
+        $"Default {name} policy did not expand its shared instructions.");
+    Assert(!policy.ModelInstructions.Contains("{mezhs_default}", StringComparison.Ordinal),
+        $"Default {name} policy retained an unresolved shared instruction reference.");
+    Assert(policy.Snapshot.Contains("MEŽS runtime on {OS}", StringComparison.Ordinal),
+        $"Default {name} snapshot did not retain compiled instructions before OS substitution.");
+    Assert(policy.Settings.Commands.Allow.SequenceEqual(new[] { "SH", "ATTACH" }),
+        $"Default {name} command permissions changed.");
+    Assert(new Parser().Parse(policy.ModelInstructions).Commands.Count == 0,
+        $"Default {name} text accidentally contains executable protocol commands.");
+}
+var exampleExecution = new ExecutionRecord
+{
+    ExecutionId = "exec-config-probe", CorrelationId = "exec-config-probe",
+    Kind = AgentExecutionKind.Agent, PolicyId = "low", ConnectionId = "chatgpt-sub",
+    Source = "manual", Status = AgentExecutionStatus.Running, Request = "Test instructions",
+    PolicySnapshot = defaultAgentOptions.Policies["low"].Snapshot
+};
+var initialPrompt = new AgentPromptBuilder(defaultAgentOptions)
+    .BuildInitial(exampleExecution, defaultAgentOptions.Policies["low"], true).Content;
+Assert(initialPrompt.Contains($"MEŽS runtime on {os}", StringComparison.Ordinal) &&
+       !initialPrompt.Contains("{OS}", StringComparison.Ordinal) &&
+       initialPrompt.Contains("Task:\nTest instructions", StringComparison.Ordinal) &&
+       initialPrompt.Contains("Host shell:", StringComparison.Ordinal),
+    "Runtime startup failed to resolve OS or preserve task/shell context.");
+Assert(!initialPrompt.Contains("return <SH> on a line", StringComparison.Ordinal),
+    "Default SH guidance was duplicated by the policy compiler.");
+
+var configScratch = Path.Combine(Path.GetTempPath(), $"mezhs config copies {Guid.NewGuid():N}");
+Directory.CreateDirectory(configScratch);
+var savedDirectory = Environment.CurrentDirectory;
+try
+{
+    var defaultCore = Path.Combine(configScratch, "mezhs.yaml");
+    var localCore = Path.Combine(configScratch, "mezhs.local.yaml");
+    var defaultAgent = Path.Combine(configScratch, "agent.yaml");
+    var localAgent = Path.Combine(configScratch, "agent.local.yaml");
+    var defaultTexts = Path.Combine(configScratch, "instructions.yaml");
+    var localTexts = Path.Combine(configScratch, "instructions.local.yaml");
+    File.WriteAllText(defaultCore, "repo default");
+    File.WriteAllText(defaultAgent, File.ReadAllText(args[0]));
+    File.WriteAllText(defaultTexts, "texts:\n  mezhs_default: Default text\n");
+
+    Environment.CurrentDirectory = configScratch;
+    Assert(ConfigPath.FindLocal([], "mezhs.yaml") == localCore &&
+           File.ReadAllText(localCore) == "repo default",
+        "Default Core config was not copied alongside its tracked sample.");
+    Assert(ConfigPath.FindLocal([], "agent.yaml") == localAgent,
+        "Default Agent config was not copied.");
+    Assert(ConfigPath.EnsureLocalCopy(defaultTexts) == localTexts &&
+           File.ReadAllText(localTexts).Contains("Default text", StringComparison.Ordinal),
+        "Default instructions were not copied.");
+    File.WriteAllText(localCore, "my personalized config");
+    File.WriteAllText(localTexts, "texts:\n  mezhs_default: |\n    Personal instructions on {OS}.\n    Use <SH>code</SH>.\n    Use <ATTACH>file</ATTACH>.\n");
+    File.WriteAllText(defaultCore, "upgraded default");
+    Assert(ConfigPath.FindLocal([], "mezhs.yaml") == localCore &&
+           File.ReadAllText(localCore) == "my personalized config",
+        "Subsequent startup overwrote local settings.");
+    var explicitPath = Path.Combine(configScratch, "custom config.yaml");
+    File.WriteAllText(explicitPath, "custom");
+    Assert(ConfigPath.FindLocal(["--config", explicitPath], "agent.yaml") == explicitPath &&
+           ConfigPath.FindLocal(["--mezhs-config", explicitPath], "mezhs.yaml", "--mezhs-config") == explicitPath,
+        "Explicit configuration paths were redirected to a local sample.");
+
+    var referencedAgent = File.ReadAllText(defaultAgent).Replace(
+        "instructions: Complete the assigned deterministic test task.",
+        "instructions: \"{mezhs_default}\"", StringComparison.Ordinal);
+    File.WriteAllText(localAgent, referencedAgent);
+    File.WriteAllText(defaultAgent, referencedAgent);
+    var localPolicies = AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
+    var plainPolicies = AgentConfigLoader.Load(defaultAgent, ["test", "test-alt"]);
+    Assert(localPolicies.Policies["low"].Settings.Instructions.Contains("Personal instructions", StringComparison.Ordinal) &&
+           plainPolicies.Policies["low"].Settings.Instructions == "Default text",
+        "Local and default instruction sidecars were not selected independently.");
+
+    File.WriteAllText(localTexts, "texts:\n  some_other_id: Unrelated\n");
+    try
+    {
+        AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
+        throw new Exception("Unknown instruction reference was accepted.");
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("unknown text 'mezhs_default'", StringComparison.Ordinal)) { }
+
+    File.WriteAllText(localTexts, "texts:\n  mezhs_default: \"{nested}\" \n");
+    try
+    {
+        AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
+        throw new Exception("Nested instruction reference was accepted.");
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("another reference", StringComparison.Ordinal)) { }
+
+    File.WriteAllText(localTexts, "texts:\n  mezhs_default: one\n  mezhs_default: two\n");
+    try
+    {
+        AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
+        throw new Exception("Duplicate instruction ID was accepted.");
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("Invalid instructions file", StringComparison.Ordinal)) { }
+}
+finally
+{
+    Environment.CurrentDirectory = savedDirectory;
+    Directory.Delete(configScratch, recursive: true);
+}
+
 var normal = options.Policies["test"];
 var done = options.Policies["test-done"];
 var evidencePolicy = options.Policies["test-evidence"];
