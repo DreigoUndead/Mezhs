@@ -27,7 +27,7 @@ public sealed record ChatGptModelCatalogProbe(
         foreach (var version in Versions ?? [])
         {
             if (version.Enabled == false) continue;
-            var versionName = (version.DisplayName ?? version.DisplayText ?? "").Trim();
+            var versionName = FirstNonempty(version.DisplayName, version.DisplayText);
             if (version.IntelligencePresets is { Count: > 0 } presets)
             {
                 foreach (var preset in presets)
@@ -36,7 +36,7 @@ public sealed record ChatGptModelCatalogProbe(
                     var model = preset.ModelSlug?.Trim();
                     var effort = preset.ThinkingEffort?.Trim();
                     var id = string.IsNullOrEmpty(effort) ? model : model + "::thinking-effort=" + effort;
-                    var title = (preset.SelectedDisplayTitle ?? preset.Title ?? "").Trim();
+                    var title = FirstNonempty(preset.SelectedDisplayTitle, preset.Title);
                     Add(id, string.Join(" · ", new[] { versionName, title }
                         .Where(name => !string.IsNullOrEmpty(name))));
                 }
@@ -51,10 +51,14 @@ public sealed record ChatGptModelCatalogProbe(
         if (result.Count > 0) return result;
 
         foreach (var model in Models ?? [])
-            Add(model.Slug ?? model.Id, model.Title ?? model.DisplayName ?? model.Name ??
-                model.Slug ?? model.Id);
+            Add(FirstNonempty(model.Slug, model.Id),
+                FirstNonempty(model.Title, model.DisplayName, model.Name, model.Slug, model.Id));
         return result;
     }
+
+    private static string FirstNonempty(params string?[] values) =>
+        values.Select(value => value?.Trim())
+            .FirstOrDefault(value => !string.IsNullOrEmpty(value)) ?? "";
 }
 
 public sealed record ChatGptModelVersionProbe(

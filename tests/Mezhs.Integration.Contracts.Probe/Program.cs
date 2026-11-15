@@ -1,3 +1,4 @@
+using Mezhs.Integrations.ChatGpt;
 using System.Net.Http;
 using Mezhs.Browser;
 using Mezhs.Integrations.Browser;
@@ -160,6 +161,24 @@ var viaNative = await nativeHttp.PatchAsync<Dto, Dto>(
 if (viaNative.Id != "native")
     throw new Exception("Normal HttpClient adapter failed.");
 Console.WriteLine("PASS: typed HTTP GET/POST/PATCH, HttpClient/Electron adapters, SSE/NDJSON, no-replay, cancellation and negative model validation.");
+
+var catalog = new ChatGptModelCatalogProbe(
+    [new ChatGptModelVersionProbe("v1", "Reasoning", IntelligencePresets:
+        [new ChatGptModelPresetProbe("available", true, "gpt-sample", "extended", "Extended", null),
+         new ChatGptModelPresetProbe("available", false, "disabled", "fast", "Disabled", null)])],
+    null);
+var picker = catalog.ToModels();
+if (picker.Count != 1 || picker[0].Id != "gpt-sample::thinking-effort=extended" ||
+    picker[0].Name != "Reasoning · Extended")
+    throw new Exception("Native model preset/effort mapping changed.");
+var legacy = new ChatGptModelCatalogProbe(null, [
+    new ChatGptModelProbe("", "", Id: "fallback", DisplayName: "Fallback"),
+    new ChatGptModelProbe("fallback", "Duplicate")]);
+var fallback = legacy.ToModels();
+if (fallback.Count != 1 || fallback[0].Id != "fallback" || fallback[0].Name != "Fallback")
+    throw new Exception("Legacy model fallback or id deduplication changed.");
+Console.WriteLine("PASS: ChatGPT native model catalog, effort identifiers, disabled presets and legacy fallback.");
+
 
 
 static async Task ExpectFailureAsync<TException>(Func<Task> action)

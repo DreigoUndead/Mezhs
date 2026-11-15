@@ -9,5 +9,6 @@
     <ProjectReference Include="../../src/Mezhs.Integration.Abstractions/Mezhs.Integration.Abstractions.csproj" />
     <ProjectReference Include="../../src/Mezhs.Integration.Browser/Mezhs.Integration.Browser.csproj" />
     <ProjectReference Include="../../integrations/Mezhs.Integrations.Mock/Mezhs.Integrations.Mock.csproj" />
+    <ProjectReference Include="../../integrations/Mezhs.Integrations.ChatGpt/Mezhs.Integrations.ChatGpt.csproj" />
   </ItemGroup>
 </Project>
