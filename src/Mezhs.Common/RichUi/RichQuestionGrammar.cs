@@ -104,6 +104,12 @@ internal static class RichQuestionGrammar
         var buttonClose = FindStructuralClosing(source, buttonEnd, limit, "</button>", 400);
         if (buttonClose < 0) return false;
         if (!Content(source, buttonEnd, buttonClose, out var buttonDisplay)) return false;
+        // Markdig wraps a single-line label in a paragraph. A native button
+        // accepts phrasing content, not a nested <p>; unwrap only that one
+        // paragraph while preserving each child's original source spans.
+        // Multi-block labels remain invalid under canonical content validation.
+        if (buttonDisplay.Count == 1 && buttonDisplay[0].Kind == "paragraph")
+            buttonDisplay = buttonDisplay[0].Children ?? [];
         for (var i = 0; i < options.Count; i++)
         {
             var option = options[i];
