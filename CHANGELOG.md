@@ -2,6 +2,28 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.7.0] — 2026-11-15
+
+### Added
+- Shared `instructions.yaml` with a single `mezhs_default` text block referenced from all three default Agent policies.
+- Automatic adjacent, Git-ignored personal `mezhs.local.yaml`, `agent.local.yaml`, and `instructions.local.yaml` copies on implicit startup; existing personal edits survive subsequent starts.
+- Host operating-system substitution for `{OS}` when composing an Agent's initial prompt, without mutating stored policy snapshots.
+- Canonical Agent tools and command-protocol reference at `docs/agent-tools.md`.
+
+### Changed
+- Honor explicit `--config` and `--mezhs-config` paths without creating or redirecting to implicit personal copies. Explicit Agent configurations can load an adjacent instruction sidecar when referenced.
+- Resolve direct whole-field `{id}` instruction references while keeping ordinary literal braces inert; reject malformed, missing, duplicate and nested references with diagnostics.
+- Update setup/configuration guidance, relevant Agent runtime specification, and release-stage reference-document maintenance policy. Keep version/changelog updates at release finalization only.
+
+### Tests
+- Independent Standard code review PASS at `097d5ef3934ac020351fdd162b9e1a1b9d9ec7b5`.
+- Independent final testing PASS: Agent and solution Release builds, policy/prompt/negative-path regressions, clean standalone publish and two startup runs, personal edits preserved, explicit config and invalid-reference paths, API/command protocol, 78 frontend tests, concurrent execution/cancellation and restart/recovery. Evidence: PR #61, comment `6897003759`.
+- Exact-head GitHub Actions MEŽS Core CI PASS: run `43724564043`.
+
+### Known limitations
+- On Windows PowerShell 5.1, independently executed policy and resilience scripts needed temporary UTF-8 BOM / HTTP status compatibility wrappers; the unchanged repository tests passed in the intended PowerShell CI environment.
+- Codegraph regeneration was unavailable for this task. Browser provider sessions were covered through existing CI and controlled regressions rather than independently verified live authenticated sessions.
+
 ## [0.6.0] — 2026-11-15
 
 ### Added
