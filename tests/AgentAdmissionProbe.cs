@@ -21,8 +21,11 @@ public sealed class ProbeIntegration(IntegrationConnection connection, IIntegrat
         var prefix = Path.Combine(workspace, Connection.Id + "-" + context.Message.MessageId);
         File.WriteAllText(prefix + ".started", "started");
         context.ReportActivity?.Invoke(new IntegrationActivity("waiting", "Provider-side processing"));
-        while (!File.Exists(prefix + ".release"))
+        while (!File.Exists(prefix + ".release") && !File.Exists(prefix + ".fail"))
             await Task.Delay(25, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (File.Exists(prefix + ".fail"))
+            throw new InvalidOperationException("Deterministic probe provider failure.");
         File.WriteAllText(prefix + ".finished", "finished");
         return new IntegrationSendResult("Probe response completed.");
     }
