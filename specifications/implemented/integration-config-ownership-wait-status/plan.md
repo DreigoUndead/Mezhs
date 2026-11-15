@@ -92,6 +92,14 @@ Development implementation through commit `c9550ef840edb776441af6c58c135dec65ba2
 
 These are **developer** checks, not the required independent code review or independent testing. Admission-to-Agent projection, unusual races, actual same-host concurrent model sends and broader regressions remain important independent verification targets. Preserve owner merge approval boundary.
 
+## Independent code review FAIL and branch remediation (2026-11-15)
+
+- Independent static code review of exact candidate `e56da443095701fd5ec9133998016dd2e3d27367` returned **FAIL** (`exec_17284693d03745df8f2b500c4ade2c21`). Findings: (P1) no real Agent-host admission-to-effective-status projection regression test, (P2) no measured 5000 ms spacing assertion, (P2) `specifications/current/agent-runtime.md` missing the new behavior/configuration contract. No established production-code defect was reported.
+- The task branch subsequently gained `tests/AgentAdmissionProbe.cs` and `tests/agent-admission-projection.ps1` (controlled real Agent host with an ordinary chat and Agent competing for the same BrowserIntegrationBase permit), a monotonic minimum-spacing assertion in `tests/browser-admission-wait.ps1`, and an updated current Agent runtime specification. These are review-driven test and documentation corrections, not a change to approved architecture.
+- Follow-up correction `cba732d418c9cee4e804e89a2832a78a14c9eeac`: ensure the end-to-end test waits for the new Agent's own queued user message, rather than accepting an unrelated ordinary message in the same chat as evidence. Without the guard, the expected Queued assertion could target an already Running ordinary message.
+- Follow-up correction `3d69da1e433f2eb5f4d00e359a449bfee4764485`: cover explicit provider Default (`model: ""`) overriding both policy and Core defaults, and retaining the choice in an existing Agent chat, in `tests/agent-api-smoke.ps1`.
+- **Next gate:** run focused developer checks on the corrected branch, obtain fresh independent code review at the exact finalized SHA, then independent runtime testing. These corrections do not imply independent review PASS or authorize a merge.
+
 ## Verification plan
 
 - **Config/DI:** independent deserialization, reject removed Agent Core sections, policy ID validation, `--config`/`--mezhs-config` semantics and relative roots, Core/Agent host bind addresses, missing/bad Core YAML, no second integration registry in Agent host. Verify integration `workspace` / `defaultModel` / limits exist only in Core YAML, while Agent execution `workspace` and policy `defaultModel` remain Agent-owned; verify model precedence, explicit provider-default, existing-chat inheritance and explicit connection override.
