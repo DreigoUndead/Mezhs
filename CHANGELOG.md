@@ -2,6 +2,29 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.6.0] — 2026-11-15
+
+### Added
+- Transient Agent **Waiting** status (orange dot) while an Agent-owned model message is genuinely blocked by its browser integration's configured capacity or start-spacing gate; return to **Running** immediately upon admission.
+- Dedicated per-send admission signals and exact Agent execution/message association, without persisting Waiting or introducing a second scheduler.
+- Independent Core config flag `--mezhs-config <path>` for Agent API and startup validation of policy connection IDs against Core-owned connections.
+
+### Changed
+- Make `mezhs.yaml` the sole owner of Core connections, provider settings, integration workspaces/model defaults, and `maxParallel` / `minInterval` limits. Keep Agent-only listener, execution workspace, storage and policy overrides in `agent.yaml`; reject obsolete Core sections with a migration error.
+- Compose normal Core API services and Agent features in a single Agent API host and shared `IntegrationRegistry`, preserving the standalone Core API and loopback-only Agent listener. Independent processes do not coordinate browser admission.
+- Preserve explicit execution model, policy default and Core connection default precedence; preserve provider-default selection, existing-chat inheritance and connection overrides.
+- Keep provider-reported activity, including `waiting`/thinking/progress, separate from admission-based Agent status, and preserve unread/terminal/cancellation status precedence.
+
+### Tests
+- Independent High-risk code review PASS at implementation `bc55e64fb6b94212712be193bec12f467b2b687f`.
+- Independent testing PASS: 16 executed checks for config/DI, capacity and 5-second spacing, Agent/ordinary chat admission, status projection, cancellation/error/recovery, Chromium UI/accessibility, model precedence, file attachments, graceful shutdown and scoped builds. Full evidence and execution IDs: `specifications/implemented/integration-config-ownership-wait-status/verification.md`.
+- GitHub Actions MEŽS Core CI passed for the reviewed branch head `f37adf1e509cff8c3a7cfd5025e537750467ed52` (run 43714317064).
+
+### Known limitations
+- Windows PowerShell 5.1 cannot execute the unmodified resilience script's `-SkipHttpErrorCheck`; equivalent assertions passed with a temporary compatibility wrapper. Negative-startup process termination was inconclusive in one harness, while direct missing-file loader rejection passed.
+- Live authenticated/guest Electron provider sessions were not exercised during independent verification; browser admission and Agent status integration were validated using controlled providers and isolated Chromium UI.
+- Browser admission sharing applies only within the owning API process; separately running Core and Agent API instances do not share gates. Asynchronous remote-provider cancellation remains best-effort.
+
 ## [0.5.1] — 2026-11-14
 
 ### Changed
