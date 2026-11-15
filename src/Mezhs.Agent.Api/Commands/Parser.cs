@@ -1,3 +1,6 @@
+using System.Text;
+using Mezhs.Common.RichUi;
+
 namespace Mezhs.Agent.Commands;
 
 public sealed record Command(string Name, string? Body);
@@ -8,124 +11,40 @@ public sealed record CommandBatch(
 
 public sealed class CommandParseException(string message) : Exception(message);
 
+// One authoritative syntax tree. Agent policy and Registry remain the only
+// owners of command authority; this adapter never discovers text commands.
 public sealed class Parser
 {
     public CommandBatch Parse(string content)
     {
-        var lines = ReadLines(content);
-        var commands = new List<Command>();
-        var visible = new List<string>();
-        var insideEscape = false;
+        var parsed = new RichDocumentParser().Parse(content);
+        if (!parsed.Document.Valid)
+            throw new CommandParseException(parsed.Document.Diagnostics.FirstOrDefault()?.Code ??
+                "Invalid rich document.");
 
-        for (var i = 0; i < lines.Count; i++)
+        var commands = new List<Command>(parsed.Commands.Count);
+        var visible = new StringBuilder(content.Length);
+        var cursor = 0;
+        foreach (var candidate in parsed.Commands)
         {
-            var text = lines[i].Text.Trim();
-            // Escaped presentation text is literal, including command-shaped examples.
-            // Never promote escaped markup into executable Agent commands.
-            if (insideEscape || text.Contains("<escape>", StringComparison.Ordinal) ||
-                text.Contains("<escape ", StringComparison.Ordinal))
-            {
-                visible.Add(lines[i].Text);
-                insideEscape = !text.Contains("</escape>", StringComparison.Ordinal);
-                continue;
-            }
-            if (!TryTag(text, out var name, out var closing))
-            {
-                visible.Add(lines[i].Text);
-                continue;
-            }
-            if (closing)
-                throw new CommandParseException($"Unexpected closing command </{name}>.");
+            if (!Registry.TryGet(candidate.Name, out var definition) ||
+                (definition.Form == CommandForm.Block) != (candidate.Body is not null))
+                throw new CommandParseException($"Unsupported Agent command: {candidate.Name}.");
 
-            var closeIndex = FindClosingTag(lines, i + 1, name);
-            if (closeIndex < 0)
-            {
-                commands.Add(new Command(name, null));
-                continue;
-            }
-
-            var bodyStart = lines[i].End;
-            var bodyEnd = closeIndex == i + 1
-                ? bodyStart
-                : lines[closeIndex - 1].ContentEnd;
-            commands.Add(new Command(name, content.Substring(bodyStart, bodyEnd - bodyStart)));
-            i = closeIndex;
+            var start = candidate.SourceSpan.Start;
+            var end = candidate.SourceSpan.End;
+            if (start < cursor || end < start || end > content.Length)
+                throw new CommandParseException("Invalid command source range.");
+            // The canonical parser only accepts standalone command delimiters.
+            // Remove the full command lines from displayed content, not siblings.
+            var lineStart = content.LastIndexOf('\n', Math.Max(0, start - 1)) + 1;
+            if (lineStart < cursor) lineStart = cursor;
+            visible.Append(content, cursor, lineStart - cursor);
+            var lineEnd = content.IndexOf('\n', end);
+            cursor = lineEnd < 0 ? content.Length : lineEnd + 1;
+            commands.Add(new Command(candidate.Name, candidate.Body));
         }
-
-        return new CommandBatch(
-            commands,
-            string.Join('\n', visible).Trim());
+        visible.Append(content, cursor, content.Length - cursor);
+        return new CommandBatch(commands, visible.ToString().Trim());
     }
-
-    private static int FindClosingTag(IReadOnlyList<LineSlice> lines, int start, string name)
-    {
-        var closingTag = $"</{name}>";
-        for (var i = start; i < lines.Count; i++)
-        {
-            if (string.Equals(lines[i].Text.Trim(), closingTag, StringComparison.Ordinal))
-                return i;
-        }
-        return -1;
-    }
-
-    private static bool TryTag(string text, out string name, out bool closing)
-    {
-        name = string.Empty;
-        closing = false;
-        if (text.Length < 3 || text[0] != '<' || text[^1] != '>')
-            return false;
-
-        var value = text.AsSpan(1, text.Length - 2);
-        if (value.Length > 0 && value[0] == '/')
-        {
-            closing = true;
-            value = value[1..];
-        }
-        // Display markup uses lowercase tag names and may include attributes.
-        // Only command-shaped uppercase tags participate in the Agent protocol.
-        if (value.Length == 0 || value[0] is < 'A' or > 'Z')
-            return false;
-        if (!TryCommandName(value, out name))
-            throw new CommandParseException($"Malformed command tag '{text}'.");
-        return true;
-    }
-
-    private static bool TryCommandName(ReadOnlySpan<char> value, out string name)
-    {
-        name = string.Empty;
-        if (value.Length == 0 || value[0] is < 'A' or > 'Z')
-            return false;
-        foreach (var character in value)
-        {
-            if (character is >= 'A' and <= 'Z' or >= '0' and <= '9' or '_' or '-')
-                continue;
-            return false;
-        }
-        name = value.ToString();
-        return true;
-    }
-
-    private static IReadOnlyList<LineSlice> ReadLines(string content)
-    {
-        var result = new List<LineSlice>();
-        var position = 0;
-        while (position < content.Length)
-        {
-            var start = position;
-            while (position < content.Length && content[position] is not ('\r' or '\n'))
-                position++;
-            var contentEnd = position;
-            if (position < content.Length && content[position] == '\r')
-                position++;
-            if (position < content.Length && content[position] == '\n')
-                position++;
-            result.Add(new LineSlice(
-                content.Substring(start, contentEnd - start),
-                contentEnd,
-                position));
-        }
-        return result;
-    }
-
-    private sealed record LineSlice(string Text, int ContentEnd, int End);
 }

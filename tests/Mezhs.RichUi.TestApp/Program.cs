@@ -1,0 +1,375 @@
+using System.Text.Json;
+using Mezhs.Common.RichUi;
+
+if (args.Contains("--parse-stdin"))
+{
+    // The Windows host console may default to an OEM code page, even when
+    // Node feeds UTF-8 JSON bytes. Preserve non-ASCII radio choice payloads.
+    Console.InputEncoding = System.Text.Encoding.UTF8;
+    var inputs = JsonSerializer.Deserialize<string[]>(Console.In.ReadToEnd()) ?? [];
+    var results = inputs.Select(source => new RichDocumentParser().Parse(source).Document).ToArray();
+    Console.Write(JsonSerializer.Serialize(results, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+    return 0;
+}
+
+var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
+{
+    ("Plain Markdown", "# Hello\n\n**Strong** and [link](https://example.com)", true, []),
+    ("Nested box and text", "<box gap={2}>\n<text>hello</text>\n</box>", true, []),
+    ("Unknown presentation attribute is inert", "<text futureTone=\"violet\" strong>Visible</text>", true, []),
+    ("Unknown layout attribute does not revoke nested shell", "<box futureTheme=\"quiet\">\n<SH>\necho REAL\n</SH>\n</box>", true, ["SH"]),
+    ("Unsafe event attribute blocks nested shell", "<box onClick=\"alert(1)\">\n<SH>\necho NEVER\n</SH>\n</box>", false, []),
+    ("Unsafe HTML style attribute rejected", "<badge style=\"color:red\">No</badge>", false, []),
+    ("Unknown SVG attribute rejected", "<svg futureTheme=\"violet\"><rect width=\"5\" height=\"5\"/></svg>", false, []),
+    ("Citation source ID supported", "<Cite ref=\"turn0search0\"/>", true, []),
+    ("Citation arbitrary metadata rejected", "<Cite futureSource=\"javascript:evil\"/>", false, []),
+    ("Inline text accepts phrasing descendants", "<text>Before <badge>status</badge> and <Link url=\"https://example.com\">a link</Link> after</text>", true, []),
+    ("Inline Link accepts nested text and code", "<Link url=\"https://example.com\">Read <text strong>this</text> `literal`</Link>", true, []),
+    ("Inline text accepts a Markdown link", "<text>Read [docs](https://example.com) here.</text>", true, []),
+    ("Inline text rejects a box child", "<text>Before <box>block</box> after</text>", false, []),
+    ("Inline title rejects row child", "<title><row>block</row></title>", false, []),
+    ("Inline caption rejects list blocks", "<caption>Start\n\n- One\n- Two\n</caption>", false, []),
+    ("Inline badge rejects heading blocks", "<badge>Text\n\n# Heading\n</badge>", false, []),
+    ("Inline text rejects Markdown quote block", "<text>Start\n\n> Quote\n</text>", false, []),
+    ("Inline text rejects rich divider", "<text>Before <divider/> after</text>", false, []),
+    ("Rich Link rejects nested rich Link", "<Link url=\"https://a.test\">Outer <Link url=\"https://b.test\">Inner</Link></Link>", false, []),
+    ("Rich Link rejects Markdown anchor descendants", "<Link url=\"https://a.test\">Outer [inner](https://b.test)</Link>", false, []),
+    ("Markdown anchor rejects nested rich Link", "[Outer <Link url=\"https://b.test\">Inner</Link>](https://a.test)", false, []),
+    ("Opaque escape", "<escape>\n<SH>\necho NEVER\n</SH>\n<DONE>\n</escape>", true, []),
+    ("Shell body and DONE", "<SH>\r\necho first\r\n<DONE>\r\n</SH>\r\n<DONE>", true, ["SH", "DONE"]),
+    ("Nested command", "<box>\n<SH>\necho nested\n</SH>\n</box>\n<DONE>", true, ["SH", "DONE"]),
+    ("Command in grid item", "<grid>\n<grid-item>\n<SH>\necho nested\n</SH>\n</grid-item>\n</grid>", true, ["SH"]),
+    ("Command in text denied", "<text>\n<SH>\necho NEVER\n</SH>\n</text>", false, []),
+    ("ATTACH in Link denied", "<Link url=\"https://example.com\">\n<ATTACH>\nfile.txt\n</ATTACH>\n</Link>", false, []),
+    ("DONE in badge denied", "<badge>\n<DONE>\n</badge>", false, []),
+    ("Command in title denied", "<title>\n<SH>\necho NEVER\n</SH>\n</title>", false, []),
+    ("Command inside Markdown list", "- step\n  <SH>\n  echo listed\n  </SH>\n\n<DONE>", true, ["SH", "DONE"]),
+    ("Fenced command inside box list", "<box>\n- Example\n  ~~~text\n  <SH>\n  echo NEVER\n  </SH>\n  ~~~\n</box>", true, []),
+    ("Fenced command at root", "~~~text\n<SH>\necho NEVER\n</SH>\n~~~", true, []),
+    ("Quoted closing delimiter", "<box background=\"a > b\">hello</box>", true, []),
+    ("Unclosed escape fails closed", "<escape>\n<SH>\necho NEVER\n</SH>", false, []),
+    ("Bad closing scope fails closed", "<box>\n<SH>\necho NEVER\n</SH>\n</row>", false, []),
+    ("Early DONE fails closed", "<DONE>\n<SH>\necho NEVER\n</SH>", false, []),
+    ("Duplicate DONE fails closed", "<DONE>\n<DONE>", false, []),
+    ("Unknown command fails closed", "<UNKNOWN>\necho NEVER\n</UNKNOWN>", false, []),
+    ("Raw editor inert", "<CodeBlock language=\"text\">\n<SH>\necho NEVER\n</SH>\n</CodeBlock>", true, []),
+    ("Unclosed shell fails closed", "<SH>\necho NEVER", false, []),
+    ("Unclosed multiline code span inert", "`\n<SH>\necho NEVER\n</SH>\n<DONE>", true, []),
+    ("Unclosed HTML comment inert", "<!--\n<SH>\necho NEVER\n</SH>\n<DONE>", true, []),
+    ("Commented shell inert", "<!--\n<SH>\necho NEVER\n</SH>\n-->", true, []),
+    ("Blockquote lazy continuation shell inert", "> Example:\n<SH>\necho NEVER\n</SH>", true, []),
+    ("Blockquote lazy continuation shell followed by valid command", "> Example:\n<SH>\necho NEVER\n</SH>\n\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("Blockquote quoted DONE inert", "> Example:\n<DONE>", true, []),
+    ("Quoted shell inside box remains inert", "<box>\n> Example:\n<SH>\necho NEVER\n</SH>\n\n</box>\n<DONE>", true, ["DONE"]),
+    ("Quoted shell inside nested row remains inert", "<box>\n<row>\n> Example:\n<SH>\necho NEVER\n</SH>\n\n</row>\n</box>\n<DONE>", true, ["DONE"]),
+    ("Quoted command inside box followed by valid command", "<box>\n> Example:\n<SH>\necho NEVER\n</SH>\n\n</box>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("Lazy quote swallowing rich closer fails closed", "<box>\n> Example:\n<SH>\necho NEVER\n</SH>\n</box>\n<DONE>", false, []),
+    ("Markdown multiline emphasis shell inert", "**Example:\n<SH>\necho NEVER\n</SH>\n**", true, []),
+    ("Markdown multiline link label shell inert", "[Example:\n<SH>\necho NEVER\n</SH>\n](https://example.com)", true, []),
+    ("Markdown emphasis after valid shell cannot add a second command", "<SH>\necho REAL\n</SH>\n\n**Example:\n<SH>\necho NEVER\n</SH>\n**", true, ["SH"]),
+    ("Midline bold example interrupted by command is inert", "Intro **quoted\n<SH>\necho NEVER\n</SH>\nend**", true, []),
+    ("Bold example closed at paragraph end is inert", "**Intro\n<SH>\necho NEVER\n</SH>\nend**", true, []),
+    ("Midline italic example interrupted by command is inert", "Intro *quoted\n<SH>\necho NEVER\n</SH>\nend*", true, []),
+    ("Valid command after completed inline emphasis", "**intro**\n\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("Two-level Markdown list command", "- Parent\n  - Child\n    <SH>\n    echo NESTED\n    </SH>\n\n<DONE>", true, ["SH", "DONE"]),
+    ("Four-space root indented Markdown code inert", "    <SH>\n    echo NEVER\n    </SH>", true, []),
+    ("CodeBlock unmatched fence cannot hide later commands", "<CodeBlock language=\"text\">\n~~~\n</CodeBlock>\n<SH>\necho REAL\n</SH>\n<DONE>", true, ["SH", "DONE"]),
+    ("CodeBlock unmatched backtick cannot hide later commands", "<CodeBlock language=\"text\">\n`\n</CodeBlock>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("SH unmatched fence cannot hide later DONE", "<SH>\n~~~\n</SH>\n<DONE>", true, ["SH", "DONE"]),
+    ("SH unmatched backtick cannot hide later SH", "<SH>\n`\n</SH>\n<SH>\necho REAL\n</SH>\n<DONE>", true, ["SH", "SH", "DONE"]),
+    ("ATTACH unmatched fence cannot hide later SH", "<ATTACH>\n~~~\n</ATTACH>\n<SH>\necho REAL\n</SH>", true, ["ATTACH", "SH"]),
+    ("Escape unmatched fence cannot hide later SH", "<escape>\n~~~\n</escape>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("WritingBlock closed fence protects decoy closer and resumes shell", "<WritingBlock variant=\"document\">\n~~~\n</WritingBlock>\n~~~\n</WritingBlock>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("Fenced raw opener stays literal before valid SH", "~~~\n<CodeBlock language=\"text\">\n</CodeBlock>\n~~~\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("Markdown emphasis command inside box inert", "<box>\nIntro **quoted\n<SH>\necho NEVER\n</SH>\nend**\n</box>", true, []),
+    ("Markdown emphasis command inside box and row inert", "<box>\n<row>\n**Example:\n<SH>\necho NEVER\n</SH>\n**\n</row>\n</box>", true, []),
+    ("Markdown link-label command inside box inert", "<box>\n[Example:\n<SH>\necho NEVER\n</SH>\n](https://example.com)\n</box>", true, []),
+    ("Markdown box quote inert plus later valid command", "<box>\n**Example:\n<SH>\necho NEVER\n</SH>\n**\n</box>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("Two-level Markdown list command inside box", "<box>\n- Parent\n  - Child\n    <SH>\n    echo NESTED\n    </SH>\n\n</box>\n<DONE>", true, ["SH", "DONE"]),
+    ("Two-level Markdown list command inside row and box", "<box>\n<row>\n- Parent\n  - Child\n    <SH>\n    echo NESTED\n    </SH>\n\n</row>\n</box>", true, ["SH"]),
+    ("Inert emphasized shell opener must not erase following fenced shell", "**Example:\n<SH>\n**\n\n~~~\n<SH>\necho NEVER\n</SH>\n~~~\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("Inert emphasized shell opener inside box must not erase fenced shell", "<box>\n**Example:\n<SH>\n**\n\n~~~\n<SH>\necho NEVER\n</SH>\n~~~\n</box>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("Inert emphasized shell opener inside row must not erase fenced shell", "<box>\n<row>\n**Example:\n<SH>\n**\n\n~~~\n<SH>\necho NEVER\n</SH>\n~~~\n</row>\n</box>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
+    ("DONE may not be discovered as a nested control", "<box>\n<DONE>\n</box>", false, []),
+};
+var failures = 0;
+static IEnumerable<RichNode> Walk(RichNode node)
+{
+    yield return node;
+    if (node.Children is null) yield break;
+    foreach (var child in node.Children)
+        foreach (var descendant in Walk(child))
+            yield return descendant;
+}
+foreach (var (name, source, valid, commands) in checks)
+{
+    var result = new RichDocumentParser().Parse(source);
+    var names = result.Commands.Select(c => c.Name).ToArray();
+    var pass = result.Document.Valid == valid && names.SequenceEqual(commands);
+    if (name == "Shell body and DONE")
+        pass &= result.Commands.FirstOrDefault()?.Body == "echo first\r\n<DONE>";
+    if (name == "Opaque escape")
+        pass &= result.Document.Nodes.Any(n => n.Kind == "literal" && n.Text?.Contains("echo NEVER") == true);
+    if (name == "Nested box and text")
+        pass &= result.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "box" &&
+            n.Children?.Any(c => c.Kind == "paragraph" && c.Children?.Any(t =>
+                t.Kind == "element" && t.Name == "text" &&
+                t.Children?.Any(child => child.Text == "hello") == true) == true) == true);
+    Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; commands={string.Join(",", names)}; diagnostics={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
+    if (!pass) failures++;
+}
+// Every tag carries independent child-search and child-eligibility policies.
+var controlsPass =
+    RichTagRegistry.TryGet("box", out var boxDef) &&
+    boxDef.SearchChildren && boxDef.AllowAsChild &&
+    RichTagRegistry.TryGet("row", out var rowDef) &&
+    rowDef.SearchChildren && rowDef.AllowAsChild &&
+    RichTagRegistry.TryGet("SH", out var shellDef) &&
+    !shellDef.SearchChildren && shellDef.AllowAsChild &&
+    RichTagRegistry.TryGet("ATTACH", out var attachDef) &&
+    !attachDef.SearchChildren && attachDef.AllowAsChild &&
+    RichTagRegistry.TryGet("DONE", out var doneDef) &&
+    !doneDef.SearchChildren && !doneDef.AllowAsChild &&
+    RichTagRegistry.TryGet("escape", out var escapeDef) &&
+    !escapeDef.SearchChildren && escapeDef.AllowAsChild &&
+    RichTagRegistry.TryGet("WritingBlock", out var writingDef) &&
+    !writingDef.SearchChildren && writingDef.AllowAsChild;
+Console.WriteLine($"{(controlsPass ? "PASS" : "FAIL")}: Independent per-tag child search and child eligibility policies");
+if (!controlsPass) failures++;
+
+// A model can literally author the former private-use marker sequence.
+// The restored inline node must stay at its real UTF-16 position.
+var collisionSource = "pre " + (char)0xE000 + (char)0xE001 + " <text strong>node</text> post";
+var collisionResult = new RichDocumentParser().Parse(collisionSource);
+var collisionChildren = collisionResult.Document.Nodes.FirstOrDefault()?.Children;
+var collisionStart = collisionSource.IndexOf("<text strong>", StringComparison.Ordinal);
+var collisionElement = collisionChildren?.FirstOrDefault(n => n.Name == "text");
+var collisionPass = collisionResult.Document.Valid && collisionResult.Commands.Count == 0 &&
+    collisionChildren?.Count == 3 &&
+    collisionChildren[0].Text == ("pre " + (char)0xE000 + (char)0xE001 + " ") &&
+    collisionElement is not null && collisionElement.SourceSpan.Start == collisionStart &&
+    collisionElement.SourceSpan.End == collisionSource.IndexOf("</text>", StringComparison.Ordinal) + 7 &&
+    collisionElement.Id == $"{collisionStart}:element" &&
+    collisionChildren[2].Text == " post" &&
+    collisionChildren[0].SourceSpan.End == collisionStart &&
+    collisionChildren[2].SourceSpan.Start == collisionElement.SourceSpan.End;
+Console.WriteLine($"{(collisionPass ? "PASS" : "FAIL")}: Model-authored private-use marker collision preserves exact text, order, node IDs, UTF-16 spans");
+if (!collisionPass) failures++;
+
+// GFM task checkboxes are valid native phrasing inputs inside Markdown list
+// paragraphs, but remain forbidden inside interactive rich links/buttons.
+var taskSource = "- [x] Completed\n- [ ] Pending";
+var taskResult = new RichDocumentParser().Parse(taskSource);
+var taskNodes = taskResult.Document.Nodes.SelectMany(Walk)
+    .Where(node => node.Kind == "taskCheckbox").ToArray();
+var taskPass = taskResult.Document.Valid && taskResult.Commands.Count == 0 &&
+    taskNodes.Length == 2 && taskNodes[0].Attributes?.GetValueOrDefault("checked") == "true" &&
+    taskNodes[1].Attributes?.GetValueOrDefault("checked") == "false";
+Console.WriteLine($"{(taskPass ? "PASS" : "FAIL")}: GFM task checkboxes remain accessible inside Markdown paragraphs");
+if (!taskPass) failures++;
+
+var fixture = File.ReadAllText(Path.Combine("tests", "fixtures", "rich-model-ui", "custom-controls-question.md"));
+var parsedQuestion = new RichDocumentParser().Parse(fixture);
+var question = parsedQuestion.Document.Nodes.SingleOrDefault(n => n.Kind == "question");
+var choices = question?.Children?.Where(n => n.Kind == "questionOption").ToArray() ?? [];
+var buttons = question?.Children?.Where(n => n.Kind == "questionButton").ToArray() ?? [];
+var radioPass = parsedQuestion.Document.Valid && parsedQuestion.Commands.Count == 0 &&
+    question?.Attributes?["initial"] == "A" &&
+    choices.Length == 4 && buttons.Length == 1 &&
+    buttons[0].Children is { Count: > 0 } buttonChildren &&
+    buttonChildren.All(child => child.Kind is not ("paragraph" or "heading" or "list" or "taskCheckbox")) &&
+    string.Join("", choices.Select(n => n.Attributes!["value"])) == "ABCD" &&
+    choices.All(n => n.Attributes!["message"].StartsWith("Grill Me Q1: ", StringComparison.Ordinal)) &&
+    choices[0].Attributes!["message"].Contains("minimum interval between request starts") &&
+    choices[1].Attributes!["message"].Contains("cooldown after each completed request") &&
+    choices[2].Attributes!["message"].Contains("delay only after rate limiting") &&
+    choices[3].Attributes!["message"].Contains("different semantics");
+Console.WriteLine($"{(radioPass ? "PASS" : "FAIL")}: Real radio fixture; valid={parsedQuestion.Document.Valid}; choices={choices.Length}; diagnostics={string.Join(",", parsedQuestion.Document.Diagnostics.Select(d => d.Code))}");
+if (!radioPass) failures++;
+var wrappedFixture = File.ReadAllText(Path.Combine("tests", "fixtures", "rich-model-ui", "wrapped-question.md"));
+var wrappedResult = new RichDocumentParser().Parse(wrappedFixture);
+var wrappedQuestion = wrappedResult.Document.Nodes.SingleOrDefault(n => n.Kind == "question");
+var wrappedPass = wrappedResult.Document.Valid && wrappedResult.Commands.Count == 0 &&
+    wrappedQuestion?.Attributes?.GetValueOrDefault("initial") == "A" &&
+    wrappedQuestion.Attributes.GetValueOrDefault("box") == "true" &&
+    wrappedQuestion.Attributes.GetValueOrDefault("box.radius") == "xl" &&
+    wrappedQuestion.Children?.Count(n => n.Kind == "questionOption") == 2 &&
+    wrappedQuestion.Children.Any(n => n.Kind == "questionOption" &&
+        n.Attributes?.GetValueOrDefault("message") == "Choice: A");
+Console.WriteLine($"{(wrappedPass ? "PASS" : "FAIL")}: Original boxed radio fixture; valid={wrappedResult.Document.Valid}; diagnostics={string.Join("|", wrappedResult.Document.Diagnostics.Select(d => d.Code))}");
+if (!wrappedPass) failures++;
+
+// Closing-tag-looking code within radio labels/buttons is never structural.
+var radioCode = wrappedFixture
+    .Replace("**A — Send to the collector.** One pipeline, one endpoint.",
+        "Literal code: `</radio>` is a label example.")
+    .Replace("Confirm</button>", "Confirm `</button>` in code</button>");
+var radioCodeResult = new RichDocumentParser().Parse(radioCode);
+var radioCodeNode = radioCodeResult.Document.Nodes.SingleOrDefault(n => n.Kind == "question");
+var radioCodeOption = radioCodeNode?.Children?.FirstOrDefault(n => n.Kind == "questionOption");
+var radioCodeButton = radioCodeNode?.Children?.FirstOrDefault(n => n.Kind == "questionButton");
+var radioCodePass = radioCodeResult.Document.Valid && radioCodeResult.Commands.Count == 0 &&
+    radioCodeOption?.Children?.SelectMany(Walk).Any(n => n.Kind == "inlineCode" && n.Text == "</radio>") == true &&
+    radioCodeButton?.Children?.SelectMany(Walk).Any(n => n.Kind == "inlineCode" && n.Text == "</button>") == true &&
+    radioCodeOption.SourceSpan.End == radioCode.IndexOf("    </radio>", StringComparison.Ordinal) + 12;
+Console.WriteLine($"{(radioCodePass ? "PASS" : "FAIL")}: Radio and button delimiters inside inline Markdown code remain inert with original spans");
+if (!radioCodePass) failures++;
+
+var rejectedBox = new RichDocumentParser().Parse(wrappedFixture.Replace("<box border", "<box onClick=\"unsafe()\" border"));
+var rejectedBoxPass = !rejectedBox.Document.Valid && rejectedBox.Commands.Count == 0;
+Console.WriteLine($"{(rejectedBoxPass ? "PASS" : "FAIL")}: Unsafe radio box wrapper remains inert");
+if (!rejectedBoxPass) failures++;
+
+var staticStyle = new RichDocumentParser().Parse("<text textAlign=\"center\" tabularNums>42</text><title textAlign=\"center\" tabularNums>Title</title>");
+var staticStylePass = staticStyle.Document.Valid &&
+    staticStyle.Document.Nodes.SelectMany(Walk).Count(n => n.Kind == "element" &&
+        n.Name is "text" or "title" &&
+        n.Attributes?.GetValueOrDefault("textAlign") == "center" &&
+        n.Attributes.GetValueOrDefault("tabularNums") == "true") == 2;
+Console.WriteLine($"{(staticStylePass ? "PASS" : "FAIL")}: Previously supported text/title static attributes");
+if (!staticStylePass) failures++;
+
+// Inline rich elements must not fragment their containing Markdown block.
+// Recursion still validates each element and its children in C#.
+var inlineTests = new (string Name, string Source, Func<RichParseResult, bool> Check)[]
+{
+    ("Mixed paragraph", "Before <text strong>inside</text> after", r =>
+        r.Document.Valid && r.Commands.Count == 0 &&
+        r.Document.Nodes.Count == 1 && r.Document.Nodes[0].Kind == "paragraph" &&
+        r.Document.Nodes[0].Children?.Count == 3 &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Text == "Before " &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(1)?.Name == "text" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(1)?.Attributes?.GetValueOrDefault("strong") == "true" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(1)?.Children?.Count == 1 &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(1)?.Children?.ElementAtOrDefault(0)?.Kind == "text" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(1)?.Children?.ElementAtOrDefault(0)?.Text == "inside" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(2)?.Text == " after"),
+    ("Emphasis spanning an inline rich element", "**Before <text strong>inside</text> after**", r =>
+        r.Document.Valid && r.Document.Nodes.Count == 1 &&
+        r.Document.Nodes[0].Kind == "paragraph" &&
+        r.Document.Nodes[0].Children?.Count == 1 &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Kind == "strong" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.Any(c => c.Name == "text") == true),
+    ("Rich element inside list item", "- Before <text strong>inside</text> after", r =>
+        r.Document.Valid && r.Document.Nodes.Count == 1 &&
+        r.Document.Nodes[0].Kind == "list" &&
+        r.Document.Nodes[0].Children?.Count == 1 &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.Any(n =>
+            n.Kind == "paragraph" && n.Children?.Any(c => c.Name == "text") == true) == true),
+    ("Recursive box with inline rich child", "<box>hello <text strong>world</text></box>", r =>
+        r.Document.Valid && r.Document.Nodes.Count == 1 &&
+        r.Document.Nodes[0].Name == "box" &&
+        r.Document.Nodes[0].Children?.Count == 1 &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Kind == "paragraph" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.Any(n => n.Name == "text" &&
+            n.Children?.Count == 1 && n.Children?.ElementAtOrDefault(0)?.Text == "world") == true),
+    ("Standalone inline element has no paragraph inside span", "<text strong>world</text>", r =>
+        r.Document.Valid && r.Document.Nodes.Count == 1 &&
+        r.Document.Nodes[0].Kind == "paragraph" &&
+        r.Document.Nodes[0].Children?.Count == 1 &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Name == "text" &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.Count == 1 &&
+        r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.ElementAtOrDefault(0)?.Kind == "text"),
+};
+foreach (var (name, source, verify) in inlineTests)
+{
+    var parsed = new RichDocumentParser().Parse(source);
+    var pass = verify(parsed);
+    Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={parsed.Document.Valid}; errors={string.Join(",", parsed.Document.Diagnostics.Select(d => d.Code))}");
+    if (!pass) failures++;
+}
+
+var svgTests = new (string Name, string Source, bool Valid, Func<RichParseResult, bool> Extra)[]
+{
+    ("Representative SVG", File.ReadAllText(Path.Combine("tests","fixtures","rich-model-ui","representative-svg.md")), true, r => r.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "svg" && n.Children?.Any(c => c.Name == "text") == true && n.Children?.Any(c => c.Name == "g" && c.Children?.Any(x => x.Name == "rect") == true && c.Children?.Any(x => x.Name == "text" && x.Children?.Any(t => t.Text?.Contains("Collector") == true) == true) == true) == true)),
+    ("SVG embedded commands rejected", "<svg viewBox=\"0 0 100 100\"><SH>\necho NEVER\n</SH></svg>", false, r => r.Commands.Count == 0),
+    ("SVG injected event rejected", "<svg onload=\"alert(1)\"></svg>", false, r => r.Commands.Count == 0),
+    ("SVG forbidden url rejected", "<svg><rect x=\"1\" fill=\"url(#evil)\" /></svg>", false, r => r.Commands.Count == 0),
+    ("SVG text namespace accepted", "<svg viewBox=\"0 0 80 80\"><text x=\"15\" y=\"30\" fontSize=\"12\" >Hello</text></svg>", true, r => r.Document.Nodes.Any(n => n.Name == "svg" && n.Children?.Any(c => c.Name == "text" && c.Children?.Any(t => t.Text == "Hello") == true) == true)),
+    ("SVG nested foreign UI rejected", "<svg><box>bad</box></svg>", false, r => r.Commands.Count == 0),
+    ("SVG nested SVG rejected", "<svg><svg></svg></svg>", false, r => r.Commands.Count == 0),
+    ("SVG geometry over bound rejected", "<svg><circle r=\"100000000\" /></svg>", false, r => r.Commands.Count == 0),
+};
+foreach (var (name, source, valid, extra) in svgTests)
+{
+    var result = new RichDocumentParser().Parse(source);
+    var pass = result.Document.Valid == valid && extra(result);
+    Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; errors={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
+    if (!pass) failures++;
+}
+var fencedOpening = "<box>\n~~~md\n<box>\n~~~\n</box>";
+var fencedOpeningResult = new RichDocumentParser().Parse(fencedOpening);
+var fencedOpeningPass = fencedOpeningResult.Document.Valid && fencedOpeningResult.Commands.Count == 0 &&
+    fencedOpeningResult.Document.Nodes.Count == 1 &&
+    fencedOpeningResult.Document.Nodes[0].Name == "box" &&
+    fencedOpeningResult.Document.Nodes[0].Children?.Any(n => n.Kind == "code" && n.Text?.Contains("<box>") == true) == true;
+Console.WriteLine($"{(fencedOpeningPass ? "PASS" : "FAIL")}: Fenced opening-tag decoy stays literal inside box; valid={fencedOpeningResult.Document.Valid}; diagnostics={string.Join("|", fencedOpeningResult.Document.Diagnostics.Select(d => d.Code))}");
+if (!fencedOpeningPass) failures++;
+
+var nestedScope = "<box>\n~~~md\n</box>\n~~~\n<box><text>Nested sibling</text></box>\n</box>";
+var nestedParsed = new RichDocumentParser().Parse(nestedScope);
+var nestedPass = nestedParsed.Document.Valid && nestedParsed.Commands.Count == 0 &&
+    nestedParsed.Document.Nodes.Any(n => n.Name == "box" &&
+        n.Children?.Any(c => c.Kind == "code" && c.Text?.Contains("</box>") == true) == true &&
+        n.Children?.Any(c => c.Name == "box" &&
+            c.Children?.Any(p => p.Kind == "paragraph" &&
+                p.Children?.Any(x => x.Name == "text" &&
+                    x.Children?.Any(t => t.Text == "Nested sibling") == true) == true) == true) == true);
+Console.WriteLine($"{(nestedPass ? "PASS" : "FAIL")}: Fenced false closing delimiter inside nested layout; valid={nestedParsed.Document.Valid}; diagnostics={string.Join("|", nestedParsed.Document.Diagnostics.Select(d => d.Code))}; root={string.Join(",", nestedParsed.Document.Nodes.Select(n => n.Kind + ":" + n.Name))}");
+if (!nestedPass) failures++;
+
+// Adversarial raw-editor siblings: reparsing the full remaining suffix
+// for each opener used to grow quadratically before opaque scope isolation.
+var rawSiblings = string.Concat(Enumerable.Range(0, 1500)
+    .Select(i => $"<WritingBlock variant=\"document\">\\nDraft {i}\\n</WritingBlock>\\n")).Replace("\\n", "\n");
+var rawTimer = System.Diagnostics.Stopwatch.StartNew();
+GC.Collect();
+var rawBefore = GC.GetAllocatedBytesForCurrentThread();
+var rawResult = new RichDocumentParser().Parse(rawSiblings);
+rawTimer.Stop();
+var rawBytes = GC.GetAllocatedBytesForCurrentThread() - rawBefore;
+var rawCount = rawResult.Document.Nodes.SelectMany(Walk).Count(n => n.Name == "WritingBlock");
+var rawPass = rawResult.Document.Valid && rawResult.Commands.Count == 0 && rawCount == 1500 &&
+    rawTimer.Elapsed < TimeSpan.FromSeconds(8) && rawBytes < 128L * 1024 * 1024;
+Console.WriteLine($"{(rawPass ? "PASS" : "FAIL")}: 1500 WritingBlock siblings in {rawTimer.ElapsedMilliseconds} ms, {rawBytes / 1024:N0} KiB, raw nodes={rawCount}; diagnostics={string.Join("|", rawResult.Document.Diagnostics.Select(d => d.Code))}");
+if (!rawPass) failures++;
+
+var wideSource = string.Concat(Enumerable.Range(0, 900)
+    .Select(i => $"<box><text>Label {i}</text></box>\\n")).Replace("\\n", "\n");
+var timer = System.Diagnostics.Stopwatch.StartNew();
+var wideParsed = new RichDocumentParser().Parse(wideSource);
+timer.Stop();
+var widePass = wideParsed.Document.Valid && wideParsed.Commands.Count == 0 &&
+    wideParsed.Document.Nodes.Count(n => n.Name == "box") == 900 &&
+    timer.Elapsed < TimeSpan.FromSeconds(8);
+Console.WriteLine($"{(widePass ? "PASS" : "FAIL")}: 900 sibling containers bounded in {timer.ElapsedMilliseconds} ms");
+if (!widePass) failures++;
+
+var deepSource = string.Concat(Enumerable.Repeat("<box>\n", 20)) +
+    "~~~\n<SH>\necho NEVER\n</SH>\n~~~\n" +
+    string.Concat(Enumerable.Repeat("</box>\n", 20));
+timer.Restart();
+var deepParsed = new RichDocumentParser().Parse(deepSource);
+timer.Stop();
+var deepPass = deepParsed.Document.Valid && deepParsed.Commands.Count == 0 &&
+    timer.Elapsed < TimeSpan.FromSeconds(8);
+Console.WriteLine($"{(deepPass ? "PASS" : "FAIL")}: Nested protected code bounded in {timer.ElapsedMilliseconds} ms");
+if (!deepPass) failures++;
+
+var alternatingSource = string.Concat(Enumerable.Range(0, 600)
+    .Select(i => $"Part {i} <text strong>Value {i}</text> "));
+GC.Collect();
+var beforeAllocated = GC.GetAllocatedBytesForCurrentThread();
+timer.Restart();
+var alternatingParsed = new RichDocumentParser().Parse(alternatingSource);
+timer.Stop();
+var bytesAllocated = GC.GetAllocatedBytesForCurrentThread() - beforeAllocated;
+var inlineNodes = alternatingParsed.Document.Nodes.SelectMany(Walk).Count(n => n.Name == "text");
+var alternatingPass = alternatingParsed.Document.Valid && alternatingParsed.Commands.Count == 0 &&
+    inlineNodes == 600 && timer.Elapsed < TimeSpan.FromSeconds(8) &&
+    bytesAllocated < 128L * 1024 * 1024;
+Console.WriteLine($"{(alternatingPass ? "PASS" : "FAIL")}: 600 alternating rich/Markdown inlines in {timer.ElapsedMilliseconds} ms, {bytesAllocated / 1024:N0} KiB allocated; rich nodes={inlineNodes}");
+if (!alternatingPass) failures++;
+
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 12 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 12} passed");
+return failures == 0 ? 0 : 1;
