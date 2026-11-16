@@ -6,17 +6,19 @@ const { readConversationStream, mergeExecutionMetadata } = require('./account-st
 const { waitForConversation } = require('./account-results.js');
 
 async function sendAccountMessage(context, isNew) {
+  context.signal?.throwIfAborted();
   context.reportProgress?.({ state: "preparing", detail: "Checking ChatGPT account session." });
   const token = await requireToken(context.session);
   const selection = parseModelSelection(context.args.model);
   if (selection.model !== "auto")
     context.reportProgress?.({ state: "preparing", detail: "Applying ChatGPT model selection." });
   await setModelPreference(context.session, token, selection);
+  context.signal?.throwIfAborted();
   return sendApiAccountMessage(context, isNew, token, selection);
 }
 
 
-async function sendApiAccountMessage({ window, session, args, sleep, reportProgress }, isNew, token, selection) {
+async function sendApiAccountMessage({ window, session, args, sleep, reportProgress, signal }, isNew, token, selection) {
   if (!isNew) {
     reportProgress?.({ state: "preparing", detail: "Checking existing ChatGPT conversation." });
     const endpoint = API.conversationById(args.conversationId);
@@ -133,7 +135,8 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
     buildPayload(requestMessageId, isNew ? undefined : args.conversationId),
     args.conversationId,
     reportProgress,
-    clientSessionId
+    clientSessionId,
+    signal
   );
   let conversationId = posted.conversationId;
   mergeExecutionMetadata(execution, posted.execution);
@@ -154,8 +157,10 @@ async function postConversationTurn(
   payload,
   fallbackConversationId = null,
   reportProgress,
-  clientSessionId
+  clientSessionId,
+  signal
 ) {
+  signal?.throwIfAborted();
   const turnTraceId = randomUUID();
   reportProgress?.({ state: "preparing", detail: "Obtaining ChatGPT turn preparation token." });
   const conduitToken = await getConduitToken(
@@ -183,11 +188,13 @@ async function postConversationTurn(
     }
   );
 
+  signal?.throwIfAborted();
   reportProgress?.({ state: "submitting", detail: "Submitting prompt to ChatGPT." });
   const response = await apiFetch(session, token, API.conversation, {
     method: "POST",
     headers,
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal
   });
   reportProgress?.({
     state: "waiting",
