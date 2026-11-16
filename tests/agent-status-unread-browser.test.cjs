@@ -27,10 +27,29 @@ window.fixtureChats = [
   chat("chat-a", "Agent A", "Completed", "execution-a1"),
   chat("chat-b", "Agent B", "Completed", "execution-b1"),
 ];
-window.updateFixture = (id, status, executionId) => {
+window.fixtureMessages = {};
+window.fixtureExecutions = {};
+window.updateFixture = (id, status, executionId, waitReason = null, maxParallel = null) => {
   const target = window.fixtureChats.find(value => value.chatId === id);
   target.executionStatus = status;
   target.executionStatusId = executionId;
+  target.admissionWaitReason = waitReason;
+  target.admissionMaxParallel = maxParallel;
+};
+window.installActiveTurn = id => {
+  window.fixtureMessages[id] = [{
+    messageId: "message-b4", chatId: id, connectionId: "mock", role: "user",
+    origin: "command-result", content: "", displayContent: "", commands: [],
+    fileIds: [], completionClaimed: false, status: "Running",
+    activity: "waiting", activityDetail: "Prompt accepted; waiting for model activity.",
+    createdAt: date, startedAt: date,
+  }];
+  window.fixtureExecutions[id] = [{
+    executionId: "execution-b4", kind: "Agent", status: "Running", isTerminal: false,
+    chatId: id, policyId: "high", connectionId: "mock", source: "Manual",
+    correlationId: "execution-b4", request: "test", policySnapshot: "",
+    createdAt: date, startedAt: date,
+  }];
 };
 const response = data => new Response(JSON.stringify(data), {
   status: 200, headers: { "Content-Type": "application/json" },
@@ -53,10 +72,23 @@ window.fetch = async input => {
   }]);
   if (pathname === "/v1/categories") return response([]);
   if (pathname === "/v1/agent-chats") return response(window.fixtureChats);
-  if (/^\/v1\/agent-chats\/[^/]+\/messages$/.test(pathname)) return response([]);
-  if (/^\/v1\/agent-chats\/[^/]+\/executions$/.test(pathname)) return response([]);
-  if (/^\/v1\/agent-chats\/[^/]+\/runtime$/.test(pathname))
-    return response({ messageCount: 0, executions: [] });
+  const match = /^\/v1\/agent-chats\/([^/]+)\/(messages|executions|runtime)$/.exec(pathname);
+  if (match) {
+    const id = decodeURIComponent(match[1]);
+    const messages = window.fixtureMessages[id] || [];
+    const executions = window.fixtureExecutions[id] || [];
+    if (match[2] === "messages") return response(messages);
+    if (match[2] === "executions") return response(executions);
+    const activeMessage = messages.find(message => message.status === "Running");
+    return response({
+      messageCount: messages.length,
+      latestMessageId: messages.at(-1)?.messageId,
+      latestMessageStatus: messages.at(-1)?.status,
+      activeMessage,
+      executions: executions.map(({ executionId, kind, status, isTerminal, completedAt }) =>
+        ({ executionId, kind, status, isTerminal, completedAt })),
+    });
+  }
   throw new Error("Unexpected test request: " + pathname);
 };
 createRoot(document.getElementById("root")).render(<App />);
@@ -125,6 +157,30 @@ async function run() {
     await until(() => dot("chat-b")?.classList.contains("agent-status-running"), "admitted Running");
     requireCondition(document.querySelector(".agent-header-meta .agent-status")?.classList.contains("agent-status-running"), "Header/sidebar Running status differs");
     checked.push("waiting-orange-running-recovery");
+
+    // Real throttling supersedes provider activity, but provider waiting is still Running.
+    window.installActiveTurn("chat-b");
+    open("chat-a");
+    await until(() => document.querySelector(".agent-header h1")?.textContent === "Agent A", "switch away");
+    window.updateFixture("chat-b", "Waiting", "execution-b4", "Capacity", 3);
+    open("chat-b");
+    await until(() => document.querySelector(".thinking span")?.textContent ===
+      "Waiting for integration slot (3/3)…", "capacity status label", 15000);
+    requireCondition(dot("chat-b")?.classList.contains("agent-status-waiting"),
+      "Capacity blocked turn must have orange Waiting status");
+
+    window.updateFixture("chat-b", "Waiting", "execution-b4", "Spacing");
+    await until(() => document.querySelector(".thinking span")?.textContent ===
+      "Waiting for integration start interval…", "spacing status label", 15000);
+    requireCondition(dot("chat-b")?.classList.contains("agent-status-waiting"),
+      "Start spacing must remain in Waiting");
+
+    window.updateFixture("chat-b", "Running", "execution-b4");
+    await until(() => document.querySelector(".thinking span")?.textContent ===
+      "Prompt accepted; waiting for model activity.", "provider-only progress", 15000);
+    requireCondition(dot("chat-b")?.classList.contains("agent-status-running"),
+      "Provider waiting must remain Agent Running, not admission Waiting");
+    checked.push("capacity-spacing-provider-separation");
 
     const result = document.createElement("pre");
     result.id = "agent-status-browser-results";
