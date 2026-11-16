@@ -59,6 +59,24 @@ public abstract class BrowserIntegrationBase(
             guest: true));
     }
 
+    public sealed override async Task<IntegrationStopOutcome> StopAsync(
+        string chatId, string messageId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(chatId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
+        // Each provider uses either the account or the guest session, never both.
+        var session = _accountSession ?? _guestSession;
+        if (session is null) return IntegrationStopOutcome.NotActive;
+        var outcome = await session.StopAsync(chatId, messageId, cancellationToken);
+        return outcome switch
+        {
+            BrowserStopOutcome.NotActive => IntegrationStopOutcome.NotActive,
+            BrowserStopOutcome.Attempted => IntegrationStopOutcome.Attempted,
+            BrowserStopOutcome.ProviderConfirmed => IntegrationStopOutcome.ProviderConfirmed,
+            _ => IntegrationStopOutcome.Unsupported
+        };
+    }
+
     public override async ValueTask DisposeAsync()
     {
         if (_accountSession is not null) await _accountSession.DisposeAsync();
