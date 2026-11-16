@@ -390,6 +390,7 @@ async function stopProviderOperation(state) {
         window: context.window,
         session: context.session,
         args: { messageId: state.messageId },
+        ephemeral: state.ephemeral,
         page: {
           invoke: (operation, args, timeoutMs = 0) =>
             invokePageOperation(context.window, operation, args, timeoutMs)
