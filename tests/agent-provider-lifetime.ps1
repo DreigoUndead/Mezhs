@@ -36,8 +36,15 @@ if (-not $messageService.Contains('Channel<QueuedMessage>')) {
 if (-not $messageService.Contains('running.Add(ProcessAsync(queued.Message, queued.CancellationToken));')) {
     throw 'MessageService must preserve queued cancellation into processing.'
 }
-if ($messageService -notmatch '(?s)integration\.PromptAsync\(\s*chatContext,\s*new PromptRequest\(.*?\),\s*cancellationToken\);') {
-    throw 'MessageService must pass the operation cancellation token into the integration.'
+# The outer Agent token remains the cancellation owner. A separate provider
+# token is deliberately cancelled only after a bounded scoped Stop attempt.
+if (-not $messageService.Contains('PromptWithStopOnCancellationAsync(') -or
+    -not $messageService.Contains('integration.PromptAsync(chat, request, providerCancellation.Token)') -or
+    -not $messageService.Contains('await integration.StopAsync(chat.Id, request.MessageId, timeout.Token)') -or
+    -not $messageService.Contains('providerCancellation.Cancel();') -or
+    $messageService.IndexOf('await integration.StopAsync(chat.Id, request.MessageId, timeout.Token)') -gt
+      $messageService.IndexOf('providerCancellation.Cancel();')) {
+    throw 'MessageService must preserve Agent cancellation and attempt scoped Stop before provider cancellation.'
 }
 if (-not $messageService.Contains('message.Status = MessageStatus.Cancelled;')) {
     throw 'Cancelled provider work must be persisted as Cancelled.'
