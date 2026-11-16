@@ -251,3 +251,26 @@ This reopens the High-risk implementation after earlier live acceptance evidence
 - Assert stop before submission, during submitted/waiting, after completion, repeated stop, provider-stop failure/timeout, cancellation of one concurrent ChatId, guest ephemerality, and no unbounded waits or automatic replay. Distinguish local stop acknowledgement from actual remote confirmation.
 - Live test genuine remote stop when observable, ChatGPT Account, guest providers, Grok Account, output artifact generation/import, different-model overlap regression, and Agent capacity/spacing Waiting status. Independent tester must record exact SHA, sanitized evidence and limitations.
 - Do not modify VERSION/CHANGELOG or merge without separate owner approval.
+
+
+## 11. Stop continuation — owner decision and feasibility checkpoint (2026-11-16)
+
+**Owner decision:** Implement per-turn Stop (option A), then complete the High-risk workflow. This is not permission to merge or to relax the remote-stop requirement. Keep VERSION/CHANGELOG unchanged.
+
+**Read-only source observations at `a04da0440b54d641cb03d9ddfde384a9ba162bb8`:**
+- `AgentWorker.Cancel` cancels the execution token, which `MessageService` passes to `PromptAsync`.
+- `ElectronBrowserTransport.InvokeCoreAsync` reacts to cancellation by calling `/invoke/{operationId}/cancel`. Electron `cancelProviderOperation` aborts the local operation and destroys its scoped context; doing provider Stop afterward is too late.
+- Electron already owns the operation ID, chat context ID, and ephemeral context in `providerOperations`. Do not create a second context/session manager.
+- ChatGPT Account `sendAccountMessage` / `postConversationTurn` do not currently consume the passed AbortSignal or call a verified provider stop endpoint. Destroying the browser/aborting a stream does **not** establish remote model termination.
+- The public OpenAI Responses API cancellation endpoint belongs to a distinct API; it is not proof of a ChatGPT private-web stop endpoint. Do not invent or reuse it without live protocol evidence.
+- This GitHub-only review environment cannot access an isolated authenticated provider profile or the running Windows MEŽS host. The native remote-stop mechanism has **not** been demonstrated.
+
+**Design candidate for required independent pre-code review:**
+1. Expose a narrow `StopAsync` with local ChatId and exact persisted outbound message ID; return a bounded best-effort outcome that distinguishes `notActive`, `unsupported`, `attempted` and `providerConfirmed` (only with actual evidence).
+2. Keep the same integration singleton, `BrowserAccountSession`, Electron host and operation map; select the current **operation**, not a global connection or a different chat. Give the existing active context a bounded provider-stop attempt before local abort and context retirement. Handle stop/completion races and duplicate requests idempotently; never replay uncertain sends.
+3. Implement provider-native stop only after an isolated live synthetic-turn trace confirms the actual semantics and necessary identity. If safe stopping is unavailable, report that provider as `unsupported` rather than guessing an endpoint or adding global coordination.
+4. Preserve existing Agent/Core cancellation ownership, same-chat sequencing, peer-chat isolation, guest ephemeral sessions, capacity/positive-spacing admission Waiting, and Rich UI message projections.
+
+**Required verification matrix:** stop before submission; submitted/waiting; completed; repeated; provider stop failure/timeout; cancelled chat A while chat B continues; guest ephemerality; no replay; genuine remote-stop observation; ChatGPT Account/Guest, Gemini Guest, Grok Account, generated output/download/import and Agent admission-Waiting acceptance. Report simulated versus live evidence separately.
+
+**Gate:** Section 10 explicitly requires an *independent stop design review before code changes* and an isolated live proof of the native stop behavior. Neither is available in this session. This plan checkpoint makes **no implementation, runtime test, provider-stop success, independent review PASS or independent testing PASS claim**. Do not proceed to source changes until those prerequisites are met. After approval, implement on this same task branch, review code independently, then test independently; owner approval for merge remains separate.
