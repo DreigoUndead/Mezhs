@@ -2,34 +2,40 @@
 ID: ui-typing-lag
 
 ## Goal and scope
-Typing in the MEŽS Agent composer can stall visibly in long chats, especially with rich messages, command evidence, and execution records. Reduce unnecessary synchronous React rendering when only the draft text changes. Also protect shared rich-message rendering in the regular chat UI. Do not change message, submission, polling, scrolling, or agent execution semantics.
+Typing in the MEŽS Agent composer can stall visibly in long chats with rich messages, command evidence, and execution history. Prevent character input from rerendering the large application and transcript. Apply the same isolation to the ordinary MEŽS chat. Preserve message, send, pending-request, poll, replay, scrolling and Agent execution semantics.
 
-## Approach
-- Keep the Agent transcript element stable across draft-only updates; invalidate it when transcript data, execution evidence, active statuses, chat selection, or command-action state changes.
-- Memoize the ordinary chat's transcript viewport so draft-only updates do not rebuild unchanged rich messages.
-- Preserve all existing draft and send ownership and behavior. Avoid a new global draft state mechanism.
+## Approach (revised after owner simplicity review)
+- Move unsent per-chat draft values into a store scoped to the mounted app. Only the composer input and send control subscribe to draft changes. The Agent and ordinary chat application components read the current draft only when submitting.
+- Retain the established clear/move/restore rules: distinct drafts per chat and new-chat context; preserve edits made while a send is in flight; restore failed sends without overwriting newer input.
+- Restore ordinary transcript and execution-history JSX rendering, removing the three large manual useMemo wrappers and their invalidation dependency lists from the initial implementation.
+- Avoid replacing the Agent chat list on unchanged periodic polling responses; active messages and execution state still refresh on actual changes.
+- Prefer isolating frequent state changes over memoizing large, inline JSX trees. Do not change the rich renderer or scroll revision logic without evidence that it is a remaining bottleneck.
 
 ## Acceptance criteria
-- [x] Typing in a populated Agent chat does not regenerate the transcript solely because draft text changes.
-- [x] Messages, execution footers, active status labels, shell command actions and history restoration still refresh when their inputs change.
-- [x] Drafts stay isolated across chats and retain text across send/failed send.
-- [x] Normal MEŽS chat continues to render updated rich responses correctly.
+- [ ] Typing in a populated Agent chat does not rerender the Agent application or full transcript for draft-only updates.
+- [ ] Unchanged Agent chat-list polling does not redraw history; real message/status/evidence changes remain visible.
+- [ ] Drafts and pending state are isolated across chats, including new-chat transitions, submission, async handoff and failure restoration.
+- [ ] Ordinary chat composer and its send-button enabled state update without propagating character-level renders through the full chat app.
+- [ ] Rich content, execution actions, scrolling and replay remain correct.
 
 ## Verification
-- Build both frontends (TypeScript + Vite).
-- Targeted browser regression for draft transitions, transcript refresh and long conversations.
-- Existing rich UI tests and agent status tests where available.
-- Independent code review before final testing.
+- Build both frontends (TypeScript + Vite) in Windows CI.
+- Run Chromium Agent long-chat typing/poll/message-update regression and existing browser draft/scroll/history tests.
+- Run the existing rich UI, Agent and Core checks.
+- Independent code review of the revised solution before final testing, with an independent tester when valuable.
 
-## Risk
-The cached transcript must invalidate on every material state change; failing to include a dependency could leave stale buttons or output. Keep the cache scoped to only the transcript, not the composer or sidebar.
+## Risk / rationale
+The original useMemo approach made transcript invalidation depend on long, manually maintained state lists. The revised design removes those caches. Draft subscriptions introduce a small app-scoped store, but avoid app-level rerenders and retain the existing draft ownership behavior. Watch for lost updates, enabled-state regressions, per-chat isolation, and asynchronous send races.
 
 ## Implementation notes
-- The Agent UI memoizes its transcript and execution-history JSX at stable React-state boundaries, invalidating on message, execution, status, selection and shell-action changes. Unchanged chat-list polling preserves the memoized transcript.
-- The ordinary chat UI memoizes the conversation viewport so changing only the draft does not rebuild message markup. Draft state and send semantics are not modified.
-- The Chromium Agent-status browser test now instruments the real transcript component during a long-chat typing sequence, checks it remains stable, and checks incoming messages invalidate it.
-- Existing browser draft/scroll tests are intended to run unchanged. No new import or dependency edge requires Codegraph regeneration.
+- The shared draft utility now offers a per-app store with per-key subscriptions and preserves the original useConversationDrafts hook interface for existing callers/tests.
+- The Agent UI uses the shared DraftChatComposer and reads the latest draft at submit time.
+- Ordinary chat subscribes its textarea and send button separately, and reads the store when sending.
+- Both UIs' transcript JSX and the Agent execution-history JSX are again rendered normally; no new transcript cache is required.
+- Agent periodic chat-list refresh skips identical inventories, reducing unrelated whole-app rerenders.
+- Browser tests measure real transcript renders and (in this revision) application renders, not elapsed typing latency.
 
 ## Verification status
-- Developer static diff inspection complete; CI/browser execution and independent review pending.
-- No version, changelog or main-branch changes.
+- Revised implementation committed on task branch; Windows CI and independent review pending.
+- Direct measurement of latency in the running user's MEŽS app is not available from this environment.
+- No version, changelog, merge or main-branch changes.
