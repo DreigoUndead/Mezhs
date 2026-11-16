@@ -275,13 +275,13 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
               loader: "tsx",
             };
           });
-          build.onLoad({ filter: /src[\\/]App\\.tsx$/ }, (args) => {
+          build.onLoad({ filter: /App\.tsx$/ }, (args) => {
             const source = fs.readFileSync(args.path, "utf8");
             const needle = "export default function App() {";
             assert.ok(source.includes(needle), "Agent app render instrumentation point missing");
             return {
               contents: source.replace(needle,
-                needle + '\\n  (window as any).__agentAppRenderCount = ((window as any).__agentAppRenderCount || 0) + 1;'),
+                needle + '\n  (window as any).__agentAppRenderCount = ((window as any).__agentAppRenderCount || 0) + 1;'),
               loader: "tsx",
             };
           });
