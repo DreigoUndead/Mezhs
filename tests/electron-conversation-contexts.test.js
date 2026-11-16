@@ -215,9 +215,11 @@ test("closing the login window ends the current attempt instead of reopening it"
 test("stop preserves the active chat context until its scoped attempt completes", async () => {
   let finishStop;
   let reachedStop = false;
+  let stopCalls = 0;
   const h = harness({ stopGeneration: ({ abort, window }) => {
     assert.equal(window.destroyed, false, "stop must precede context retirement");
     reachedStop = true;
+    stopCalls++;
     return new Promise(resolve => { finishStop = () => { abort(); resolve({ outcome: "attempted" }); }; });
   } });
   const aId = h.queueProviderOperation({
@@ -231,13 +233,16 @@ test("stop preserves the active chat context until its scoped attempt completes"
   const b = h.operations.find(op => op.request.contextId === "chat-b");
   a.reportProgress({ state: "waiting" });
   const stopping = h.stopProviderOperation(h.providerOperations.get(aId));
+  const repeated = h.stopProviderOperation(h.providerOperations.get(aId));
   await flush();
   assert.equal(reachedStop, true);
+  assert.equal(stopCalls, 1, "repeated stop must reuse one provider attempt");
   assert.equal(a.context.window.destroyed, false);
   assert.equal(b.context.window.destroyed, false);
   assert.equal(b.signal.aborted, false);
   finishStop();
   assert.equal((await stopping).outcome, "attempted");
+  assert.equal((await repeated).outcome, "attempted");
   assert.equal(a.signal.aborted, true);
   assert.equal(b.signal.aborted, false);
   assert.equal(a.context.window.destroyed, false, "remote attempt alone must not retire context");
