@@ -224,3 +224,30 @@ The existing DOM-based ChatGPT Guest, Gemini Guest and Grok Account workflows ar
 6. **Scope:** this touches many assemblies. Deliver in small reviewed changes on the same task branch and escalate if preserving an unrealistic guarantee causes disproportionate complexity.
 
 **Developer handoff (updated 2026-11-15):** Moved from `planned/` to `implemented/` before independent code review/testing; this is workflow bookkeeping, **not a return to plan review**. Existing contract, persistence/lineage, provider, account, model and file migration work is preserved. Rework on this branch adds compositional `IntegrationHttpClient` typed GET/POST/PATCH and SSE/NDJSON interpreters, an `HttpClient` adapter, Electron's session-owned `typedHttp` GET/POST/PATCH adapter, typed ChatGPT Account model retrieval, and mock model-validation enforcement. Reuse of existing ChatGPT prompt submission and its native Sentinel/conduit preparation is intentional; migrating arbitrary prompt send semantics is **not** claimed. Prior independent code review **FAIL** predates rework; a fresh independent review and testing are still required, including assessment of streaming/replay semantics. See `verification.md` for evidence. DOM replacement is separately deferred. VERSION and CHANGELOG stay unchanged pending approved release.
+
+
+## 10. Owner-directed follow-up (2026-11-16)
+
+This reopens the High-risk implementation after earlier live acceptance evidence; it does not authorize merge. Latest remote main when examined: ecadcf112762839d6d296688da755a3f49d79135; original task head: 7f0032fe0fd9c5b444164221b659f1ad4fd46879. Reconcile the current main status and rich-UI work on this same task branch without modifying the main checkout or its local configuration.
+
+### Changed requirements
+
+- Provide an explicit Stop method for an active provider turn and best-effort remote generation stop. Preserve prompt cancellation and do not imply that closing a local context stops remote computation. Reuse the existing Core and Agent cancellation owners and shared Electron/browser session; no second session owner, scheduler, or global stop that affects other ChatIds.
+- Exactly-once delivery is not promised. Stop may race completion or be rejected by the provider; keep local cancellation prompt and context cleanup bounded and definitive. Do not automatically replay an ambiguous submission. Owner waived additional live no-replay instrumentation, not the existing safety rule.
+- Perform real acceptance tests for ChatGPT Guest, Gemini Guest, Grok Account, and generated output files/download/import; state unavailable authentication or unsupported output as BLOCKED, not PASS. Use test-owned profiles only and protect real user content.
+- Prior live evidence for distinct-model concurrent ChatGPT chats is sufficient unless regression occurs; do not add speculative backend-overlap instrumentation.
+- Preserve the newer main admission-wait status signals. Only capacity and positive start spacing mark admission Waiting; provider waiting/thinking remains activity detail. Agent status owner and Core message status remain independent. Preserve main Rich UI contract changes and tests as well.
+
+### Stop feasibility and implementation guardrails
+
+1. Independently inspect how current main and provider modules cancel/stop. Electron currently cancels local operation/context; do not claim it implements remote stop. Determine the actual authenticated provider stop mechanism using an isolated test profile and safe synthetic turn, without logging auth material. Do not assume undocumented endpoint semantics without a live check.
+2. Use a narrow integration Stop operation with chat/request identity; invoke it as a bounded best-effort step on explicit cancellation while the provider context is still usable, then perform local cancellation and context retirement. Avoid stopping unrelated chats or racing remote stop with context destruction. Document when a provider has no safe remote stop implementation.
+3. If an account/guest provider cannot be stopped reliably by the existing browser owner, report that concrete limitation to the owner before adding a global session manager, persistent coordination layer, or unbounded retries.
+4. Reconcile origin/main onto the existing task branch after plan review. Current merge preview contains nine content conflicts, including admission signals in IntegrationContracts, BrowserIntegrationBase, MessageService, Web API contracts and UI tests. Preserve both new V2 contracts and upstream status behavior.
+
+### Required independent verification
+
+- Review the revised high-risk stop design independently before code changes; review final implementation independently again after reconciliation.
+- Assert stop before submission, during submitted/waiting, after completion, repeated stop, provider-stop failure/timeout, cancellation of one concurrent ChatId, guest ephemerality, and no unbounded waits or automatic replay. Distinguish local stop acknowledgement from actual remote confirmation.
+- Live test genuine remote stop when observable, ChatGPT Account, guest providers, Grok Account, output artifact generation/import, different-model overlap regression, and Agent capacity/spacing Waiting status. Independent tester must record exact SHA, sanitized evidence and limitations.
+- Do not modify VERSION/CHANGELOG or merge without separate owner approval.
