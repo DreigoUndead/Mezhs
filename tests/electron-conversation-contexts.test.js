@@ -15,7 +15,7 @@ function section(start, end) {
 const contextSource = section("function closeContext(", "\nasync function initialize(");
 const operationSource = section("function queueProviderOperation(", "\nasync function start(");
 
-function harness({ guest = false, deferWindowReady = false } = {}) {
+function harness({ guest = false, deferWindowReady = false, stopGeneration } = {}) {
   const contexts = new Map();
   const providerOperations = new Map();
   const sessions = [];
@@ -27,6 +27,11 @@ function harness({ guest = false, deferWindowReady = false } = {}) {
   const env = {
     contexts, providerOperations, authenticatedSession, management, guest,
     AbortController,
+    browserModule: { operations: { stopGeneration: stopGeneration || (async ({ abort }) => {
+      abort();
+      return { outcome: "attempted" };
+    }) } },
+    invokePageOperation: async () => ({ outcome: "attempted" }),
     randomUUID: () => `operation-${++sequence}`,
     session: {
       fromPartition(partition) {
@@ -57,7 +62,7 @@ function harness({ guest = false, deferWindowReady = false } = {}) {
   };
   const runtime = vm.runInNewContext(
     contextSource + "\n" + operationSource +
-    "\n({ contextPromise, releaseContext, cancelProviderOperation, queueProviderOperation })",
+    "\n({ contextPromise, releaseContext, cancelProviderOperation, queueProviderOperation, stopProviderOperation })",
     env
   );
   return { ...runtime, contexts, providerOperations, windows, sessions, operations, authenticatedSession };
@@ -205,4 +210,107 @@ test("closing the login window ends the current attempt instead of reopening it"
   assert.equal(shown, 2);
   authorized = true;
   assert.equal((await auth.authorizeRequest(true, false)).authorized, true);
+});
+
+test("stop preserves the active chat context until its scoped attempt completes", async () => {
+  let finishStop;
+  let reachedStop = false;
+  const h = harness({ stopGeneration: ({ abort, window }) => {
+    assert.equal(window.destroyed, false, "stop must precede context retirement");
+    reachedStop = true;
+    return new Promise(resolve => { finishStop = () => { abort(); resolve({ outcome: "attempted" }); }; });
+  } });
+  const aId = h.queueProviderOperation({
+    contextId: "chat-a", operation: "send", arguments: { messageId: "user-a" }
+  });
+  const bId = h.queueProviderOperation({
+    contextId: "chat-b", operation: "send", arguments: { messageId: "user-b" }
+  });
+  await flush();
+  const a = h.operations.find(op => op.request.contextId === "chat-a");
+  const b = h.operations.find(op => op.request.contextId === "chat-b");
+  a.reportProgress({ state: "waiting" });
+  const stopping = h.stopProviderOperation(h.providerOperations.get(aId));
+  await flush();
+  assert.equal(reachedStop, true);
+  assert.equal(a.context.window.destroyed, false);
+  assert.equal(b.context.window.destroyed, false);
+  assert.equal(b.signal.aborted, false);
+  finishStop();
+  assert.equal((await stopping).outcome, "attempted");
+  assert.equal(a.signal.aborted, true);
+  assert.equal(b.signal.aborted, false);
+  assert.equal(a.context.window.destroyed, false, "remote attempt alone must not retire context");
+  assert.equal(h.cancelProviderOperation(aId), true);
+  assert.equal(a.context.window.destroyed, true);
+  assert.equal(b.context.window.destroyed, false);
+  b.resolve({ answer: "peer" });
+  await flush();
+  assert.equal(h.providerOperations.get(bId).status, "completed");
+  assert.equal(h.operations.length, 2, "stop must not replay a submitted turn");
+});
+
+test("stop before dispatch, after completion and repeated stop are bounded and do not send", async () => {
+  let calls = 0;
+  const h = harness({ deferWindowReady: true, stopGeneration: async () => {
+    calls++; return { outcome: "attempted" };
+  } });
+  const id = h.queueProviderOperation({ contextId: "loading", operation: "send",
+    arguments: { messageId: "outgoing" } });
+  assert.equal((await h.stopProviderOperation(h.providerOperations.get(id))).outcome, "notActive");
+  assert.equal(calls, 0);
+  assert.equal(h.cancelProviderOperation(id), true);
+  h.windows[0].finishLoading();
+  await flush();
+  assert.equal(h.operations.length, 0);
+  assert.equal((await h.stopProviderOperation(h.providerOperations.get(id))).outcome, "notActive");
+
+  const live = harness({ stopGeneration: async () => {
+    calls++; return { outcome: "attempted" };
+  } });
+  const completed = live.queueProviderOperation({ contextId: "done", operation: "send",
+    arguments: { messageId: "done-message" } });
+  await flush();
+  live.operations[0].resolve({ answer: "done" });
+  await flush();
+  assert.equal((await live.stopProviderOperation(live.providerOperations.get(completed))).outcome, "notActive");
+  assert.equal(calls, 0);
+});
+
+test("provider stop rejection and timeout never block local cancellation", async () => {
+  const failed = harness({ stopGeneration: () => { throw Error("provider rejected stop"); } });
+  const id = failed.queueProviderOperation({ contextId: "failed", operation: "send",
+    arguments: { messageId: "msg-failed" } });
+  await flush();
+  assert.equal((await failed.stopProviderOperation(failed.providerOperations.get(id))).outcome, "unsupported");
+  assert.equal(failed.cancelProviderOperation(id), true);
+  assert.equal(failed.windows[0].destroyed, true);
+
+  const hung = harness({ stopGeneration: () => new Promise(() => {}) });
+  const hungId = hung.queueProviderOperation({ contextId: "hung", operation: "send",
+    arguments: { messageId: "msg-hung" } });
+  await flush();
+  const began = Date.now();
+  assert.equal((await hung.stopProviderOperation(hung.providerOperations.get(hungId))).outcome, "unsupported");
+  assert.ok(Date.now() - began < 2300, "stop must time out promptly");
+  assert.equal(hung.cancelProviderOperation(hungId), true);
+  assert.equal(hung.windows[0].destroyed, true);
+});
+
+test("guest stop is scoped to its ephemeral window and never touches a peer", async () => {
+  const h = harness({ guest: true });
+  const a = h.queueProviderOperation({ contextId: "guest-a", ephemeral: true,
+    operation: "sendPrompt", arguments: { messageId: "guest-msg-a" } });
+  const b = h.queueProviderOperation({ contextId: "guest-b", ephemeral: true,
+    operation: "sendPrompt", arguments: { messageId: "guest-msg-b" } });
+  await flush();
+  const peer = h.operations.find(op => op.request.contextId === "guest-b");
+  assert.equal((await h.stopProviderOperation(h.providerOperations.get(a))).outcome, "attempted");
+  assert.equal(peer.signal.aborted, false);
+  h.cancelProviderOperation(a);
+  assert.equal(h.windows[0].destroyed, true);
+  assert.equal(h.windows[1].destroyed, false);
+  peer.resolve({ answer: "peer" });
+  await flush();
+  assert.equal(h.providerOperations.get(b).status, "completed");
 });
