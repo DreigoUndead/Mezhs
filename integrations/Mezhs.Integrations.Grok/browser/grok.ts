@@ -17,6 +17,10 @@ module.exports = {
   },
 
   operations: {
+    async stopGeneration(context) {
+      return context.page.invoke("stopGeneration", {}, 1200);
+    },
+
     async getModels(context) {
       await context.window.loadURL(module.exports.homeUrl);
       return context.page.invoke("models", {});
@@ -34,6 +38,13 @@ module.exports = {
   },
 
   pageOperations: {
+    stopGeneration() {
+      const button = findStopButton();
+      if (!button || button.matches(":disabled")) return { outcome: "unsupported" };
+      HTMLElement.prototype.click.call(button);
+      return { outcome: "attempted" };
+    },
+
     async models() {
       return (await discoverModeCatalog()).models;
     },
