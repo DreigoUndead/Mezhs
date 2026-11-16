@@ -21,6 +21,13 @@ module.exports = {
   },
 
   operations: {
+    // Aborts the active signed POST/SSE transport. The server may continue
+    // computing; this is an attempted stop, never provider confirmation.
+    async stopGeneration({ abort }) {
+      abort();
+      return { outcome: "attempted" };
+    },
+
 
     // Reusable transport mechanism; provider-specific preparation, credentials and
     // interpretation remain outside this operation. Never retry an uncertain mutation.
@@ -134,6 +141,16 @@ module.exports = {
   },
 
   pageOperations: {
+    // Guest only: click the stop control in the same ephemeral context.
+    stopGeneration() {
+      const button = document.querySelector(
+        'button[data-testid="stop-button"], button[aria-label="Stop streaming"], button[aria-label="Stop generating"]'
+      );
+      if (!button || button.disabled) return { outcome: "unsupported" };
+      button.click();
+      return { outcome: "attempted" };
+    },
+
     async sendPrompt({ args, sleep }) {
       const fail = (errorCode, error, submissionAttempted = false) =>
         ({ ok: false, errorCode, error, submissionAttempted });
