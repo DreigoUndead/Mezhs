@@ -3,13 +3,13 @@ import { Check, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import {
   apiJson,
   apiJsonOrEmpty,
-  ChatComposer,
+  DraftChatComposer,
   ChatProviderRegistry,
   ChatTranscript,
   ConnectionModelPicker,
   modelActivityLabel,
   useApiAvailability,
-  useConversationDrafts,
+  useConversationDraftStore,
   useConversationPending,
   type ChatSurfaceMessage,
   type Connection,
@@ -519,7 +519,7 @@ export default function App() {
 
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
   const draftKey = selectedChatId && !creating ? `chat:${selectedChatId}` : `new:${newChatSequence}:${policyId}:${connectionId}`;
-  const { draft, setDraft, clearDraft, moveDraft, restoreDraft } = useConversationDrafts(draftKey);
+  const draftStore = useConversationDraftStore();
   const { pending: sending, start: startSend, transfer: transferSend, finish: finishSend } = useConversationPending(draftKey);
   const selectedPolicy = policies.find((policy) =>
     policy.id === (selectedChat?.policyId ?? policyId));
@@ -977,7 +977,7 @@ useEffect(() => {
   }
 
   async function submit() {
-    const input = draft;
+    const input = draftStore.getDraft(draftKey);
     const effectivePolicyId = selectedChat?.policyId ?? policyId;
     if (!input.trim() || !effectivePolicyId || !connectionId || sending || activeExecution || selectedChat?.paused)
       return;
@@ -986,7 +986,7 @@ useEffect(() => {
     const epoch = selectionEpoch.current;
     let pendingKey = submittedKey;
     if (!startSend(pendingKey)) return;
-    clearDraft(submittedKey, input);
+    draftStore.clearDraft(submittedKey, input);
     let accepted = false;
     setNotice(null);
     try {
@@ -1011,7 +1011,7 @@ useEffect(() => {
       }
 
       const attachedChatId = await waitForAttachedChat(execution.executionId);
-      moveDraft(submittedKey, `chat:${attachedChatId}`, "");
+      draftStore.moveDraft(submittedKey, `chat:${attachedChatId}`, "");
       transferSend(pendingKey, `chat:${attachedChatId}`);
       pendingKey = `chat:${attachedChatId}`;
       await refreshChats();
@@ -1028,7 +1028,7 @@ useEffect(() => {
         }
       }
     } catch (error) {
-      if (!accepted) restoreDraft(submittedKey, input);
+      if (!accepted) draftStore.restoreDraft(submittedKey, input);
       if (selectionEpoch.current === epoch) setNotice(error instanceof Error ? error.message : "Agent execution could not be started.");
     } finally {
       finishSend(pendingKey);
@@ -1287,239 +1287,6 @@ useEffect(() => {
         ? "Describe the task for this agent"
         : "Continue this agent";
 
-  // Editing the composer must not rebuild a potentially large rich transcript.
-  // In particular, a periodic chat-list refresh with unchanged message inputs
-  // must not invalidate the transcript merely because chat objects were replaced.
-  const transcript = useMemo(() => selectedChat ? (
-            <ChatTranscript
-              messages={sharedMessages}
-              revisionItems={executions}
-              historyReady={historyLoadedChatId === selectedChat.chatId}
-              busy={!!activeExecution}
-              busyLabel={agentBusyLabel}
-              autoScroll
-              autoScrollResetKey={selectedChat.chatId}
-              emptyState={<div className="agent-empty-chat">No conversation messages yet.</div>}
-              getAuthorLabel={(message) => message.role === "assistant" ? "Agent" : originLabel(message.origin)}
-              getAvatarLabel={(message) => message.role === "assistant" ? "M" : originAvatar(message.origin)}
-              renderMessageFooter={(message) => {
-                const rawMessage = messageById.get(message.messageId);
-                const protocol = protocolByMessageId.get(message.messageId);
-                const commandStates = protocolCommandsByMessageId.get(message.messageId) ?? [];
-                const evidence = commandEvidenceByMessageId.get(message.messageId) ?? [];
-                const startPrompt = rawMessage && isStartPolicyPrompt(rawMessage)
-                  ? rawMessage.content
-                  : null;
-                const hasProtocol = !!protocol &&
-                  (protocol.commands.length > 0 || protocol.completionClaimed);
-                if (!startPrompt && evidence.length === 0 && !hasProtocol) return null;
-
-                return (
-                  <>
-                    {startPrompt && (
-                      <details className="agent-start-prompt">
-                        <summary>
-                          <div><strong>Start policy prompt</strong><span>{selectedChat.policyId}</span></div>
-                          <code>{policyPromptPreview(startPrompt)}</code>
-                        </summary>
-                        <div className="agent-start-prompt-body">
-                          <span>Exact prompt sent to the model for the first agent turn</span>
-                          <pre>{startPrompt}</pre>
-                        </div>
-                      </details>
-                    )}
-
-                    {evidence.length > 0 && (
-                      <div className="agent-command-results">
-                        {evidence.map((result, index) => {
-                          const output = evidenceOutput(result);
-                          const error = evidenceError(result);
-                          const request = evidenceRequest(result);
-                          const status = evidenceStatus(result);
-                          const exitCode = evidenceExitCode(result);
-                          return (
-                            <details className="agent-command-evidence agent-command-result" key={`${result.executionId ?? result.command}-${index}`}>
-                              <summary>
-                                <div className="agent-command-result-heading">
-                                  <strong>{result.command}</strong>
-                                  <span>{status}</span>
-                                  {exitCode !== undefined && <span>exit {exitCode}</span>}
-                                </div>
-                                <code>{compactPreview(output || error || request)}</code>
-                              </summary>
-                              <div className="agent-command-result-body">
-                                {result.executionId && (
-                                  <div className="agent-command-result-meta">
-                                    <span>execution</span><code>{result.executionId}</code>
-                                  </div>
-                                )}
-                                {request && (
-                                  <section>
-                                    <span>Command</span>
-                                    <pre>{request}</pre>
-                                  </section>
-                                )}
-                                {output && (
-                                  <section>
-                                    <span>Output</span>
-                                    <pre>{output}</pre>
-                                  </section>
-                                )}
-                                {error && (
-                                  <section className="agent-command-result-error">
-                                    <span>Error</span>
-                                    <pre>{error}</pre>
-                                  </section>
-                                )}
-                                {!request && !output && !error && <p>No command evidence was returned.</p>}
-                              </div>
-                            </details>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {hasProtocol && protocol && (
-                      <div className="agent-protocol-events">
-                        {commandStates.map((command, index) => {
-                          const execution = command.execution;
-                          const status = execution?.status ?? (activeExecution ? "Pending" : "Not executed");
-                          return (
-                            <details className="agent-protocol-card agent-command-evidence agent-command-request" key={`${command.name}-${index}`}>
-                              <summary>
-                                <div className="agent-command-request-heading">
-                                  <strong>{command.name}</strong>
-                                  <span className={execution ? `agent-execution-status ${statusTone(execution)}` : "agent-execution-status muted"}>
-                                    {status}
-                                  </span>
-                                  {execution?.exitCode !== undefined && <span>exit {execution.exitCode}</span>}
-                                  {execution && !execution.isTerminal && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
-                                </div>
-                                <code>{compactPreview(command.body, "Agent command requested")}</code>
-                              </summary>
-                              <div className="agent-command-request-body">
-                                {command.body && <pre>{command.body}</pre>}
-                                {execution && (
-                                  <div className="agent-command-request-meta">
-                                    <span>execution</span><code>{execution.executionId}</code>
-                                  </div>
-                                )}
-                                {execution?.restartedFromId && (
-                                  <div className="agent-command-request-meta">
-                                    <span>restarted from</span><code>{execution.restartedFromId}</code>
-                                  </div>
-                                )}
-                                {execution?.restartedAsId && (
-                                  <div className="agent-command-request-meta">
-                                    <span>restarted as</span><code>{execution.restartedAsId}</code>
-                                  </div>
-                                )}
-                                {execution?.result && (
-                                  <section>
-                                    <span>Latest result</span>
-                                    <pre>{execution.result}</pre>
-                                  </section>
-                                )}
-                                {execution?.error && (
-                                  <section className="agent-command-result-error">
-                                    <span>Error</span>
-                                    <pre>{execution.error}</pre>
-                                  </section>
-                                )}
-                                {execution?.kind === "Shell" && (
-                                  <div className="agent-header-actions">
-                                    {!execution.isTerminal && execution.status !== "KillRequested" && (
-                                      <button
-                                        type="button"
-                                        className="agent-danger agent-command-stop"
-                                        onClick={() => void shellAction(execution.executionId, "kill")}
-                                        disabled={!!shellActionExecutionId}
-                                      >
-                                        {shellActionExecutionId === execution.executionId ? "Updating…" : "Kill shell"}
-                                      </button>
-                                    )}
-                                    <button
-                                      type="button"
-                                      className="agent-secondary"
-                                      onClick={() => void shellAction(execution.executionId, "restart")}
-                                      disabled={!!shellActionExecutionId}
-                                    >
-                                      {shellActionExecutionId === execution.executionId ? "Updating…" : "Restart shell"}
-                                    </button>
-                                  </div>
-                                )}
-                                <small>Execution evidence and result are retained in Executor history.</small>
-                              </div>
-                            </details>
-                          );
-                        })}
-                        {protocol.completionClaimed && (
-                          <div className="agent-protocol-card agent-done-card">
-                            <div><strong>DONE</strong><span>Completion claimed</span></div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </>
-                );
-              }}
-            />
-  ) : null, [
-    selectedChat?.chatId, selectedChat?.policyId, selectedChatId,
-    sharedMessages, executions, historyLoadedChatId, activeExecution,
-    agentBusyLabel, messageById, protocolByMessageId, protocolCommandsByMessageId,
-    commandEvidenceByMessageId, shellActionExecutionId,
-  ]);
-
-  // The execution log can include large command outputs; draft edits should
-  // not rebuild it. Selected-chat refresh also keeps running elapsed labels live.
-  const executionHistory = useMemo(() => (
-            <details className="agent-execution-details">
-              <summary>Execution history {shellExecutions.length > 0 && <span>{shellExecutions.length} shell</span>}</summary>
-              <div className="agent-execution-list">
-                {executions.map((execution) => (
-                  <article className="agent-execution-row" key={execution.executionId}>
-                    <div className="agent-execution-topline">
-                      <strong>{execution.commandName ?? execution.kind}</strong>
-                      <span className={`agent-execution-status ${statusTone(execution)}`}>{execution.status}</span>
-                      {execution.exitCode !== undefined && <span>exit {execution.exitCode}</span>}
-                      {!execution.isTerminal && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
-                      <time>{formatTime(execution.createdAt)}</time>
-                    </div>
-                    {execution.kind === "Shell" ? <pre className="agent-command-code">{execution.request}</pre> : <code>{execution.request}</code>}
-                    {execution.restartedFromId && <small>restarted from {execution.restartedFromId}</small>}
-                    {execution.restartedAsId && <small>restarted as {execution.restartedAsId}</small>}
-                    {execution.result && <pre>{execution.result}</pre>}
-                    {execution.error && <pre className="agent-error-output">{execution.error}</pre>}
-                    {execution.kind === "Shell" && (
-                      <div className="agent-header-actions">
-                        {!execution.isTerminal && execution.status !== "KillRequested" && (
-                          <button
-                            type="button"
-                            className="agent-danger"
-                            onClick={() => void shellAction(execution.executionId, "kill")}
-                            disabled={!!shellActionExecutionId}
-                          >Kill</button>
-                        )}
-                        <button
-                          type="button"
-                          className="agent-secondary"
-                          onClick={() => void shellAction(execution.executionId, "restart")}
-                          disabled={!!shellActionExecutionId}
-                        >Restart</button>
-                      </div>
-                    )}
-                  </article>
-                ))}
-                {executions.length === 0 && <p>No execution records yet.</p>}
-              </div>
-            </details>
-  ), [
-    executions, shellExecutions, shellActionExecutionId, selectedChatId,
-    // Only non-terminal execution clocks need the periodic chat-list refresh.
-    executions.some((execution) => !execution.isTerminal && !!execution.startedAt) ? selectedChat : null,
-  ]);
-
   return (
     <div className="agent-shell">
       {showConversationManager && (
@@ -1735,9 +1502,9 @@ useEffect(() => {
               </div>
             </header>
 
-            <ChatComposer
-              value={draft}
-              onChange={setDraft}
+            <DraftChatComposer
+              draftStore={draftStore}
+              draftKey={draftKey}
               onSubmit={submit}
               placeholder={composerPlaceholder}
               disabled={!policyId || !connectionId}
@@ -1843,11 +1610,183 @@ useEffect(() => {
 
             {selectedChat.paused && <div className="agent-paused-banner">This agent is paused. New executions are blocked until it is resumed.</div>}
 
-            {transcript}
+            <ChatTranscript
+              messages={sharedMessages}
+              revisionItems={executions}
+              historyReady={historyLoadedChatId === selectedChat.chatId}
+              busy={!!activeExecution}
+              busyLabel={agentBusyLabel}
+              autoScroll
+              autoScrollResetKey={selectedChat.chatId}
+              emptyState={<div className="agent-empty-chat">No conversation messages yet.</div>}
+              getAuthorLabel={(message) => message.role === "assistant" ? "Agent" : originLabel(message.origin)}
+              getAvatarLabel={(message) => message.role === "assistant" ? "M" : originAvatar(message.origin)}
+              renderMessageFooter={(message) => {
+                const rawMessage = messageById.get(message.messageId);
+                const protocol = protocolByMessageId.get(message.messageId);
+                const commandStates = protocolCommandsByMessageId.get(message.messageId) ?? [];
+                const evidence = commandEvidenceByMessageId.get(message.messageId) ?? [];
+                const startPrompt = rawMessage && isStartPolicyPrompt(rawMessage)
+                  ? rawMessage.content
+                  : null;
+                const hasProtocol = !!protocol &&
+                  (protocol.commands.length > 0 || protocol.completionClaimed);
+                if (!startPrompt && evidence.length === 0 && !hasProtocol) return null;
 
-            <ChatComposer
-              value={draft}
-              onChange={setDraft}
+                return (
+                  <>
+                    {startPrompt && (
+                      <details className="agent-start-prompt">
+                        <summary>
+                          <div><strong>Start policy prompt</strong><span>{selectedChat.policyId}</span></div>
+                          <code>{policyPromptPreview(startPrompt)}</code>
+                        </summary>
+                        <div className="agent-start-prompt-body">
+                          <span>Exact prompt sent to the model for the first agent turn</span>
+                          <pre>{startPrompt}</pre>
+                        </div>
+                      </details>
+                    )}
+
+                    {evidence.length > 0 && (
+                      <div className="agent-command-results">
+                        {evidence.map((result, index) => {
+                          const output = evidenceOutput(result);
+                          const error = evidenceError(result);
+                          const request = evidenceRequest(result);
+                          const status = evidenceStatus(result);
+                          const exitCode = evidenceExitCode(result);
+                          return (
+                            <details className="agent-command-evidence agent-command-result" key={`${result.executionId ?? result.command}-${index}`}>
+                              <summary>
+                                <div className="agent-command-result-heading">
+                                  <strong>{result.command}</strong>
+                                  <span>{status}</span>
+                                  {exitCode !== undefined && <span>exit {exitCode}</span>}
+                                </div>
+                                <code>{compactPreview(output || error || request)}</code>
+                              </summary>
+                              <div className="agent-command-result-body">
+                                {result.executionId && (
+                                  <div className="agent-command-result-meta">
+                                    <span>execution</span><code>{result.executionId}</code>
+                                  </div>
+                                )}
+                                {request && (
+                                  <section>
+                                    <span>Command</span>
+                                    <pre>{request}</pre>
+                                  </section>
+                                )}
+                                {output && (
+                                  <section>
+                                    <span>Output</span>
+                                    <pre>{output}</pre>
+                                  </section>
+                                )}
+                                {error && (
+                                  <section className="agent-command-result-error">
+                                    <span>Error</span>
+                                    <pre>{error}</pre>
+                                  </section>
+                                )}
+                                {!request && !output && !error && <p>No command evidence was returned.</p>}
+                              </div>
+                            </details>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {hasProtocol && protocol && (
+                      <div className="agent-protocol-events">
+                        {commandStates.map((command, index) => {
+                          const execution = command.execution;
+                          const status = execution?.status ?? (activeExecution ? "Pending" : "Not executed");
+                          return (
+                            <details className="agent-protocol-card agent-command-evidence agent-command-request" key={`${command.name}-${index}`}>
+                              <summary>
+                                <div className="agent-command-request-heading">
+                                  <strong>{command.name}</strong>
+                                  <span className={execution ? `agent-execution-status ${statusTone(execution)}` : "agent-execution-status muted"}>
+                                    {status}
+                                  </span>
+                                  {execution?.exitCode !== undefined && <span>exit {execution.exitCode}</span>}
+                                  {execution && !execution.isTerminal && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
+                                </div>
+                                <code>{compactPreview(command.body, "Agent command requested")}</code>
+                              </summary>
+                              <div className="agent-command-request-body">
+                                {command.body && <pre>{command.body}</pre>}
+                                {execution && (
+                                  <div className="agent-command-request-meta">
+                                    <span>execution</span><code>{execution.executionId}</code>
+                                  </div>
+                                )}
+                                {execution?.restartedFromId && (
+                                  <div className="agent-command-request-meta">
+                                    <span>restarted from</span><code>{execution.restartedFromId}</code>
+                                  </div>
+                                )}
+                                {execution?.restartedAsId && (
+                                  <div className="agent-command-request-meta">
+                                    <span>restarted as</span><code>{execution.restartedAsId}</code>
+                                  </div>
+                                )}
+                                {execution?.result && (
+                                  <section>
+                                    <span>Latest result</span>
+                                    <pre>{execution.result}</pre>
+                                  </section>
+                                )}
+                                {execution?.error && (
+                                  <section className="agent-command-result-error">
+                                    <span>Error</span>
+                                    <pre>{execution.error}</pre>
+                                  </section>
+                                )}
+                                {execution?.kind === "Shell" && (
+                                  <div className="agent-header-actions">
+                                    {!execution.isTerminal && execution.status !== "KillRequested" && (
+                                      <button
+                                        type="button"
+                                        className="agent-danger agent-command-stop"
+                                        onClick={() => void shellAction(execution.executionId, "kill")}
+                                        disabled={!!shellActionExecutionId}
+                                      >
+                                        {shellActionExecutionId === execution.executionId ? "Updating…" : "Kill shell"}
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className="agent-secondary"
+                                      onClick={() => void shellAction(execution.executionId, "restart")}
+                                      disabled={!!shellActionExecutionId}
+                                    >
+                                      {shellActionExecutionId === execution.executionId ? "Updating…" : "Restart shell"}
+                                    </button>
+                                  </div>
+                                )}
+                                <small>Execution evidence and result are retained in Executor history.</small>
+                              </div>
+                            </details>
+                          );
+                        })}
+                        {protocol.completionClaimed && (
+                          <div className="agent-protocol-card agent-done-card">
+                            <div><strong>DONE</strong><span>Completion claimed</span></div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                );
+              }}
+            />
+
+            <DraftChatComposer
+              draftStore={draftStore}
+              draftKey={draftKey}
               onSubmit={submit}
               placeholder={composerPlaceholder}
               disabled={composerDisabled}
@@ -1885,7 +1824,46 @@ useEffect(() => {
               disclaimer="Agent actions are governed by policy and recorded in execution history."
             />
 
-            {executionHistory}
+            <details className="agent-execution-details">
+              <summary>Execution history {shellExecutions.length > 0 && <span>{shellExecutions.length} shell</span>}</summary>
+              <div className="agent-execution-list">
+                {executions.map((execution) => (
+                  <article className="agent-execution-row" key={execution.executionId}>
+                    <div className="agent-execution-topline">
+                      <strong>{execution.commandName ?? execution.kind}</strong>
+                      <span className={`agent-execution-status ${statusTone(execution)}`}>{execution.status}</span>
+                      {execution.exitCode !== undefined && <span>exit {execution.exitCode}</span>}
+                      {!execution.isTerminal && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
+                      <time>{formatTime(execution.createdAt)}</time>
+                    </div>
+                    {execution.kind === "Shell" ? <pre className="agent-command-code">{execution.request}</pre> : <code>{execution.request}</code>}
+                    {execution.restartedFromId && <small>restarted from {execution.restartedFromId}</small>}
+                    {execution.restartedAsId && <small>restarted as {execution.restartedAsId}</small>}
+                    {execution.result && <pre>{execution.result}</pre>}
+                    {execution.error && <pre className="agent-error-output">{execution.error}</pre>}
+                    {execution.kind === "Shell" && (
+                      <div className="agent-header-actions">
+                        {!execution.isTerminal && execution.status !== "KillRequested" && (
+                          <button
+                            type="button"
+                            className="agent-danger"
+                            onClick={() => void shellAction(execution.executionId, "kill")}
+                            disabled={!!shellActionExecutionId}
+                          >Kill</button>
+                        )}
+                        <button
+                          type="button"
+                          className="agent-secondary"
+                          onClick={() => void shellAction(execution.executionId, "restart")}
+                          disabled={!!shellActionExecutionId}
+                        >Restart</button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+                {executions.length === 0 && <p>No execution records yet.</p>}
+              </div>
+            </details>
           </>
         )}
       </main>
