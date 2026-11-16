@@ -93,7 +93,8 @@ static async Task VerifyInFlightCancellationAsync(Registration registration, str
     await using var fixture = CreateFixture(registration, tempRoot, "flight");
     using var cancellation = new CancellationTokenSource();
 
-    var send = Send(fixture.Integration, CreateContext(fixture.Integration), cancellation.Token);
+    var turn = CreateContext(fixture.Integration);
+    var send = Send(fixture.Integration, turn, cancellation.Token);
     var browserBacked = typeof(BrowserIntegrationBase).IsAssignableFrom(registration.Type);
     if (browserBacked)
         await fixture.Host.WaitForInvocationAsync(registration.Name, TimeSpan.FromSeconds(5));
@@ -119,6 +120,13 @@ static async Task VerifyInFlightCancellationAsync(Registration registration, str
     if (peerSend.IsCompleted)
         throw new InvalidOperationException("Peer browser turn did not remain active.");
 
+    var stop = await fixture.Integration.StopAsync(turn.Chat.Id, turn.Request.MessageId);
+    if (stop != IntegrationStopOutcome.Attempted ||
+        !fixture.Host.StopCalls.Any(call =>
+            call.ChatId == turn.Chat.Id && call.MessageId == turn.Request.MessageId))
+        throw new InvalidOperationException("Scoped Stop was not forwarded through the warm browser host.");
+    if (peerSend.IsCompleted)
+        throw new InvalidOperationException("Provider Stop unexpectedly completed peer chat B.");
     cancellation.Cancel();
     await ExpectCancelledAsync(send, registration.Name, "in-flight");
     if (peerSend.IsCompleted)
@@ -289,6 +297,7 @@ sealed class ProbeHost(string root) : IBrowserIntegrationHost
     private readonly ConcurrentQueue<ProbeTransport> _transports = new();
     private readonly SemaphoreSlim _invocations = new(0);
     private readonly ConcurrentQueue<long> _times = new();
+    public ConcurrentQueue<(string ChatId, string MessageId)> StopCalls { get; } = new();
     public TimeSpan InvocationGap { get { var values = _times.ToArray(); return values.Length < 2 ? TimeSpan.Zero : Stopwatch.GetElapsedTime(values[0], values[1]); } }
     private int _createdCount;
 
@@ -335,6 +344,8 @@ sealed class ProbeHost(string root) : IBrowserIntegrationHost
     }
 
     internal void MarkInvoked() { _times.Enqueue(Stopwatch.GetTimestamp()); _invocations.Release(); }
+    internal void MarkStopped(string chatId, string messageId) =>
+        StopCalls.Enqueue((chatId, messageId));
 }
 
 sealed class ProbeTransport(ProbeHost host) : IChatBrowserTransport
@@ -360,6 +371,14 @@ sealed class ProbeTransport(ProbeHost host) : IChatBrowserTransport
         host.MarkInvoked();
         await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
         throw new InvalidOperationException("Cancellation probe unexpectedly resumed.");
+    }
+
+    public Task<BrowserStopOutcome> StopTurnAsync(string chatId, string messageId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        host.MarkStopped(chatId, messageId);
+        return Task.FromResult(BrowserStopOutcome.Attempted);
     }
 
     public Task ShowAsync(CancellationToken cancellationToken = default)
