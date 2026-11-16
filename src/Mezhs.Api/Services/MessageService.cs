@@ -21,7 +21,17 @@ public sealed class MessageService(
     private readonly ConcurrentDictionary<string, IntegrationAdmissionWaitReason> _admissionWaits =
         new(StringComparer.OrdinalIgnoreCase);
 
-    public bool IsAdmissionWaiting(string messageId) => _admissionWaits.ContainsKey(messageId);
+    // Admission is transient and separate from the provider's activity state.
+    public (IntegrationAdmissionWaitReason Reason, int? MaxParallel)? GetAdmissionWait(
+        string messageId, string connectionId)
+    {
+        if (!_admissionWaits.TryGetValue(messageId, out var reason))
+            return null;
+        int? maxParallel = reason == IntegrationAdmissionWaitReason.Capacity
+            ? integrations.Get(connectionId).Connection.Limits?.MaxParallel ?? 1
+            : null;
+        return (reason, maxParallel);
+    }
 
     public ApiMessage Post(PostMessageRequest request)
     {

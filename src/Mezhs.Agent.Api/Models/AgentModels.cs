@@ -52,7 +52,9 @@ public sealed record AgentChatView(
     DateTimeOffset UpdatedAt,
     string? CategoryId,
     string? ExecutionStatus = null,
-    string? ExecutionStatusId = null);
+    string? ExecutionStatusId = null,
+    string? AdmissionWaitReason = null,
+    int? AdmissionMaxParallel = null);
 
 public sealed record AgentChatExecutionStatus(string ExecutionId, string Status);
 

@@ -38,6 +38,8 @@ type AgentChat = {
   categoryId?: string | null;
   executionStatus?: string | null;
   executionStatusId?: string | null;
+  admissionWaitReason?: "Capacity" | "Spacing" | null;
+  admissionMaxParallel?: number | null;
 };
 
 type AgentCategory = {
@@ -559,19 +561,28 @@ export default function App() {
   const activeShellExecution = executions.find((execution) =>
     execution.kind === "Shell" && !execution.isTerminal);
   const activeMessage = findActiveUserMessage(messages);
+  const admissionWaitLabel = selectedChat?.executionStatus === "Waiting"
+    ? selectedChat.admissionWaitReason === "Capacity"
+      ? selectedChat.admissionMaxParallel && selectedChat.admissionMaxParallel > 0
+        ? `Waiting for integration slot (${selectedChat.admissionMaxParallel}/${selectedChat.admissionMaxParallel})…`
+        : "Waiting for integration slot…"
+      : selectedChat.admissionWaitReason === "Spacing"
+        ? "Waiting for integration start interval…"
+        : "Waiting for integration admission…"
+    : null;
   const agentBusyLabel = activeShellExecution
     ? activeShellExecution.status === "KillRequested"
       ? "Stopping shell command…"
       : `Executing SH command${elapsedLabel(activeShellExecution) ? ` · ${elapsedLabel(activeShellExecution)}` : ""}`
-    : activeMessage?.activity
+    : admissionWaitLabel ?? (activeMessage?.activity
       ? modelActivityLabel(activeMessage.activity, activeMessage.activityDetail)
       : activeMessage?.origin === "command-result"
-        ? "Preparing command-result follow-up…"
+        ? "Continuing after command result…"
         : activeMessage
           ? "Preparing model request…"
           : activeExecution
             ? "Handling model reply or preparing next step…"
-            : undefined;
+            : undefined);
   const sharedMessages = useMemo(
     () => messages.map((message) => toSharedMessage(message, executions)),
     [messages, executions],
