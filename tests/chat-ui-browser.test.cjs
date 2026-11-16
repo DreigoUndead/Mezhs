@@ -21,7 +21,7 @@ import React, { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ConversationViewport } from "./node_modules/@mezhs/web-lib/src/ConversationViewport";
 import { useConversationPending } from './node_modules/@mezhs/web-lib/src/useConversationPending';
-import { useConversationDrafts } from "./node_modules/@mezhs/web-lib/src/useConversationDrafts";
+import { useConversationDrafts, useConversationDraftStore, useConversationDraftValue } from "./node_modules/@mezhs/web-lib/src/useConversationDrafts";
 import { MarkdownContent } from "./node_modules/@mezhs/web-lib/src/MarkdownContent";
 import "./node_modules/@mezhs/web-lib/src/styles.css";
 
@@ -33,6 +33,17 @@ const initial = (tag, count) => Array.from({ length: count }, (_, i) => ({
   status: "Completed",
   content: tag + " entry " + i + " " + "x".repeat(100),
 }));
+function ScopedDraftInput({ store }) {
+  const draft = useConversationDraftValue(store, "probe");
+  return <textarea id="scoped-draft" value={draft} onChange={event => store.setDraft("probe", event.target.value)} />;
+}
+
+function ScopedDraftHarness() {
+  const store = useConversationDraftStore();
+  (window as any).__scopedDraftParentRenders = ((window as any).__scopedDraftParentRenders || 0) + 1;
+  return <ScopedDraftInput store={store} />;
+}
+
 function App() {
   const [selected, setSelected] = useState("A");
   const [newSequence, setNewSequence] = useState(0);
@@ -88,6 +99,10 @@ function App() {
 }
 
 createRoot(document.getElementById("root")).render(<App />);
+const scopedDraftRoot = document.createElement("div");
+scopedDraftRoot.hidden = true;
+document.body.appendChild(scopedDraftRoot);
+createRoot(scopedDraftRoot).render(<ScopedDraftHarness />);
 
 const sleep = duration => new Promise(resolve => setTimeout(resolve, duration));
 async function settle(duration = 40) { await sleep(duration); }
@@ -106,6 +121,17 @@ const results = [];
 async function run() {
   try {
     await settle(100);
+    const scopedEditor = document.getElementById("scoped-draft");
+    check(scopedEditor && window.__scopedDraftParentRenders > 0, "Scoped draft fixture did not mount");
+    const scopedRenders = window.__scopedDraftParentRenders;
+    for (const value of ["one", "one two", "one two three"]) {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(scopedEditor, value);
+      scopedEditor.dispatchEvent(new Event("input", { bubbles: true }));
+      await settle();
+    }
+    check(scopedEditor.value === "one two three", "Scoped draft lost input");
+    check(window.__scopedDraftParentRenders === scopedRenders, "Scoped draft changes re-rendered the parent");
+    results.push("scoped-draft-isolation");
     check(current().scrollHeight > current().clientHeight + 1000, "A is not a long scrollable conversation");
     check(atBottom(), "initial A conversation did not open at bottom");
     results.push("initial-bottom");
@@ -276,6 +302,7 @@ test("real Chromium rendering: drafts, scroll transitions, controls and title la
     assert.match(report[2], /inline-rich-title/);
     assert.match(report[2], /provisional-rich-title-inert/);
     for (const scenario of [
+      "scoped-draft-isolation",
       "pending-ownership-and-draft-handoff",
       "failed-send-preserves-edits",
       "resize-preserves-manual-and-bottom-follow",
