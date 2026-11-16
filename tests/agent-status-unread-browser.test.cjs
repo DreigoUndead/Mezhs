@@ -29,6 +29,13 @@ window.fixtureChats = [
 ];
 window.fixtureMessages = {};
 window.fixtureExecutions = {};
+// A nontrivial history makes transcript re-rendering during typing observable.
+window.fixtureMessages["chat-b"] = Array.from({ length: 45 }, (_, index) => ({
+  messageId: "history-" + index, chatId: "chat-b", connectionId: "mock",
+  role: "assistant", origin: "model", content: "History entry " + index + " " + "x".repeat(700),
+  displayContent: "History entry " + index, commands: [], fileIds: [],
+  completionClaimed: false, status: "Completed", createdAt: date,
+}));
 window.updateFixture = (id, status, executionId, waitReason = null, maxParallel = null) => {
   const target = window.fixtureChats.find(value => value.chatId === id);
   target.executionStatus = status;
@@ -134,6 +141,35 @@ async function run() {
     requireCondition(JSON.parse(localStorage.getItem("mezhs.agent.read-executions.v1"))["chat-b"] === "execution-b1", "Read marker was not persisted");
     checked.push("blue-to-green-on-open");
 
+    // Instrument the actual shared transcript component, not a test-only stand-in.
+    // Draft-only updates must not invoke it for every typed character.
+    await until(() => document.querySelectorAll("article.message").length === 45, "long transcript");
+    const editor = document.querySelector('textarea[aria-label="Message"]');
+    requireCondition(editor && !editor.disabled, "Agent composer is not editable");
+    const firstRenderCount = window.__transcriptRenderCount || 0;
+    requireCondition(firstRenderCount > 0, "Transcript render probe did not mount");
+    for (const value of ["a", "ab", "abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh"]) {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(editor, value);
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      await sleep(45);
+    }
+    requireCondition(editor.value === "abcdefgh", "Composer dropped typed characters");
+    const draftRenderCount = window.__transcriptRenderCount;
+    requireCondition(draftRenderCount - firstRenderCount <= 2,
+      "Draft updates re-rendered the full transcript " + (draftRenderCount - firstRenderCount) + " times");
+    checked.push("draft-skips-long-transcript");
+
+    window.fixtureMessages["chat-b"].push({
+      messageId: "history-refresh", chatId: "chat-b", connectionId: "mock",
+      role: "assistant", origin: "model", content: "Transcript refresh marker",
+      displayContent: "Transcript refresh marker", commands: [], fileIds: [],
+      completionClaimed: false, status: "Completed", createdAt: date,
+    });
+    await until(() => [...document.querySelectorAll("article.message")]
+      .some(element => element.textContent.includes("Transcript refresh marker")), "live transcript refresh");
+    requireCondition(window.__transcriptRenderCount > draftRenderCount, "New messages did not invalidate transcript cache");
+    checked.push("message-update-refreshes-transcript");
+
     window.updateFixture("chat-b", "Completed", "execution-b2");
     await until(() => JSON.parse(localStorage.getItem("mezhs.agent.read-executions.v1"))["chat-b"] === "execution-b2", "selected new completion auto-read", 12500);
     requireCondition(!unread("chat-b"), "Selected chat completion became unread");
@@ -208,14 +244,29 @@ const chromeCandidates = [
 ];
 const chrome = chromeCandidates.find(candidate => candidate && fs.existsSync(candidate));
 
-test("Agent status: compact label, unread completion and read-on-open in real Chromium", { timeout: 110000 }, () => {
+test("Agent status: compact label, unread completion and read-on-open in real Chromium", { timeout: 110000 }, async () => {
   assert.ok(chrome, "Real Chromium is required for Agent status UI regression");
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), "mezhs-agent-status-"));
   try {
-    const build = esbuild.buildSync({
+    const build = await esbuild.build({
       stdin: { contents: browserSource, resolveDir: frontend, sourcefile: "agent-status-browser-harness.tsx", loader: "tsx" },
       bundle: true, format: "iife", platform: "browser", jsx: "automatic", preserveSymlinks: true,
       write: false, outdir: folder,
+      plugins: [{
+        name: "count-real-transcript-renders",
+        setup(build) {
+          build.onLoad({ filter: /ChatSurface\\.tsx$/ }, (args) => {
+            const source = fs.readFileSync(args.path, "utf8");
+            const needle = '  const apiBase = apiBaseUrl.replace(/\\/$/, "");';
+            assert.ok(source.includes(needle), "Transcript instrumentation point missing");
+            return {
+              contents: source.replace(needle,
+                '  (window as any).__transcriptRenderCount = ((window as any).__transcriptRenderCount || 0) + 1;\\n' + needle),
+              loader: "tsx",
+            };
+          });
+        },
+      }],
     });
     for (const asset of build.outputFiles)
       fs.writeFileSync(path.join(folder, path.basename(asset.path)), asset.contents);
@@ -238,7 +289,7 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
     const report = /<pre id="agent-status-browser-results" data-status="([^"]+)">([^<]*)<\/pre>/.exec(result.stdout);
     assert.ok(report, "Browser did not report: " + result.stdout.slice(-1500) + " " + result.stderr);
     assert.equal(report[1], "pass", report[2]);
-    for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution", "waiting-orange-running-recovery", "capacity-spacing-provider-separation"])
+    for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution", "waiting-orange-running-recovery", "capacity-spacing-provider-separation", "draft-skips-long-transcript", "message-update-refreshes-transcript"])
       assert.ok(report[2].includes(expected), "Missing scenario " + expected);
   } finally {
     fs.rmSync(folder, { recursive: true, force: true });
