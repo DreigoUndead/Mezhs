@@ -48,11 +48,8 @@ export function createConversationDraftStore() {
   }
 
   function subscribe(key: string, listener: () => void) {
-    let subscribers = listeners.get(key);
-    if (!subscribers) {
-      subscribers = new Set();
-      listeners.set(key, subscribers);
-    }
+    const subscribers = listeners.get(key) ?? new Set<() => void>();
+    listeners.set(key, subscribers);
     subscribers.add(listener);
     return () => {
       subscribers.delete(listener);
