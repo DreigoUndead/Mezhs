@@ -1,7 +1,7 @@
 const { ORIGIN, API, accessToken, requireToken, apiFetch, apiJson } = require('./account-transport.js');
 const { nativePickerModels } = require('./account-models.js');
 const { sendAccountMessage } = require('./account-messages.js');
-const { sendPrompt } = require('./guest.js');
+const { sendPrompt, stopGeneration } = require('./guest.js');
 
 module.exports = {
   name: "ChatGPT",
@@ -23,8 +23,11 @@ module.exports = {
   operations: {
     // Aborts the active signed POST/SSE transport. The server may continue
     // computing; this is an attempted stop, never provider confirmation.
-    async stopGeneration({ abort }) {
-      abort();
+    async stopGeneration(context) {
+      if (context.session?.getPartition?.().startsWith("mezhs-guest-"))
+        return stopGeneration(context);
+      // Authenticated POST/SSE transport abort only; no provider confirmation.
+      context.abort();
       return { outcome: "attempted" };
     },
 
