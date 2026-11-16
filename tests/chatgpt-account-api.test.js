@@ -1392,3 +1392,77 @@ test("ChatGPT account reports preparation, submission and final retrieval withou
   }
   assert.doesNotMatch(JSON.stringify(progress), /conduit-server-issued|native-requirements|native-proof|Bearer token/);
 });
+
+test("ChatGPT account Stop aborts the active signed POST once without replay", async () => {
+  const chatgpt = loadChatGptModule();
+  const controller = new AbortController();
+  const session = protocolSession({
+    conversationId: "conv-stop-test",
+    onConversationRead: () => { throw Error("Cancelled turn must not poll."); }
+  });
+  const originalFetch = session.fetch;
+  let posts = 0;
+  let inFlightSignal;
+  session.fetch = async (url, options = {}) => {
+    if (new URL(String(url)).pathname === "/backend-api/f/conversation" &&
+        options.method === "POST") {
+      posts++;
+      inFlightSignal = options.signal;
+      return new Promise((_, reject) => {
+        options.signal.addEventListener("abort", () => reject(
+          Object.assign(Error("request aborted"), { name: "AbortError" })
+        ), { once: true });
+      });
+    }
+    return originalFetch(url, options);
+  };
+  const running = chatgpt.operations.newChat({
+    ...nativeBrowserSurface(),
+    session,
+    args: { messageId: randomUUID(), prompt: "cancel one active request", files: [] },
+    sleep: async () => {},
+    signal: controller.signal
+  });
+  for (let i = 0; i < 100 && posts === 0; i++)
+    await new Promise(resolve => setImmediate(resolve));
+  assert.equal(posts, 1, "expected one signed submission before stop");
+  const result = await chatgpt.operations.stopGeneration({
+    session: { getPartition: () => "persist:account" },
+    abort: () => controller.abort()
+  });
+  assert.equal(result.outcome, "attempted");
+  assert.equal(inFlightSignal?.aborted, true);
+  await assert.rejects(running, /aborted/i);
+  assert.equal(posts, 1, "cancellation must not cause an ambiguous prompt replay");
+});
+
+test("ChatGPT Stop before submission is prevented by AbortSignal", async () => {
+  const chatgpt = loadChatGptModule();
+  const controller = new AbortController();
+  controller.abort();
+  let requests = 0;
+  const session = apiSession(async () => { requests++; throw Error("never send"); });
+  await assert.rejects(chatgpt.operations.newChat({
+    ...nativeBrowserSurface(), session, signal: controller.signal,
+    args: { messageId: randomUUID(), prompt: "never submit", files: [] },
+    sleep: async () => {}
+  }), /abort/i);
+  assert.equal(requests, 0);
+});
+
+test("ChatGPT Guest Stop dispatches to its own ephemeral page", async () => {
+  const chatgpt = loadChatGptModule();
+  let invocations = 0;
+  const result = await chatgpt.operations.stopGeneration({
+    session: { getPartition: () => "mezhs-guest-example" },
+    page: { invoke: async (name, args, timeout) => {
+      invocations++;
+      assert.equal(name, "stopGeneration");
+      assert.equal(timeout, 1200);
+      return { outcome: "attempted" };
+    } },
+    abort: () => { throw Error("Guest must use its own page stop."); }
+  });
+  assert.equal(invocations, 1);
+  assert.equal(result.outcome, "attempted");
+});
