@@ -147,13 +147,17 @@ async function run() {
     const editor = document.querySelector('textarea[aria-label="Message"]');
     requireCondition(editor && !editor.disabled, "Agent composer is not editable");
     const firstRenderCount = window.__transcriptRenderCount || 0;
-    requireCondition(firstRenderCount > 0, "Transcript render probe did not mount");
+    const firstAppRenderCount = window.__agentAppRenderCount || 0;
+    requireCondition(firstRenderCount > 0 && firstAppRenderCount > 0, "Render probes did not mount");
     for (const value of ["a", "ab", "abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh"]) {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(editor, value);
       editor.dispatchEvent(new Event("input", { bubbles: true }));
       await sleep(45);
     }
     requireCondition(editor.value === "abcdefgh", "Composer dropped typed characters");
+    requireCondition(window.__agentAppRenderCount === firstAppRenderCount,
+      "Typing re-rendered the Agent app " + (window.__agentAppRenderCount - firstAppRenderCount) + " times");
+    checked.push("draft-does-not-render-app");
     const draftRenderCount = window.__transcriptRenderCount;
     requireCondition(draftRenderCount - firstRenderCount <= 2,
       "Draft updates re-rendered the full transcript " + (draftRenderCount - firstRenderCount) + " times");
@@ -271,6 +275,16 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
               loader: "tsx",
             };
           });
+          build.onLoad({ filter: /src[\\/]App\\.tsx$/ }, (args) => {
+            const source = fs.readFileSync(args.path, "utf8");
+            const needle = "export default function App() {";
+            assert.ok(source.includes(needle), "Agent app render instrumentation point missing");
+            return {
+              contents: source.replace(needle,
+                needle + '\\n  (window as any).__agentAppRenderCount = ((window as any).__agentAppRenderCount || 0) + 1;'),
+              loader: "tsx",
+            };
+          });
         },
       }],
     });
@@ -295,7 +309,7 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
     const report = /<pre id="agent-status-browser-results" data-status="([^"]+)">([^<]*)<\/pre>/.exec(result.stdout);
     assert.ok(report, "Browser did not report: " + result.stdout.slice(-1500) + " " + result.stderr);
     assert.equal(report[1], "pass", report[2]);
-    for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution", "waiting-orange-running-recovery", "capacity-spacing-provider-separation", "draft-skips-long-transcript", "unchanged-chat-poll-skips-transcript", "message-update-refreshes-transcript"])
+    for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution", "waiting-orange-running-recovery", "capacity-spacing-provider-separation", "draft-skips-long-transcript", "draft-does-not-render-app", "unchanged-chat-poll-skips-transcript", "message-update-refreshes-transcript"])
       assert.ok(report[2].includes(expected), "Missing scenario " + expected);
   } finally {
     fs.rmSync(folder, { recursive: true, force: true });
