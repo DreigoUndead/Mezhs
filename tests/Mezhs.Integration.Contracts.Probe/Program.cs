@@ -49,6 +49,8 @@ if (!integration.GetModelsAsync().Result.Any(model => model.Id == "default") ||
     !integration.CreateMessageId().StartsWith("msg_", StringComparison.Ordinal) ||
     integration.AllowFiles)
     throw new Exception("Integration defaults are invalid.");
+if (await integration.StopAsync("chat-1", "user-1") != IntegrationStopOutcome.Unsupported)
+    throw new Exception("Non-browser Stop must report unsupported, not success.");
 var context = new ChatContext("x", "fixture", null,
     (_, _, _, _) => Task.FromResult<IReadOnlyList<ChatMessage>>([]));
 var result = await integration.PromptAsync(
