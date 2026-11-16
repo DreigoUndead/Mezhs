@@ -24,7 +24,7 @@ module.exports = {
     // Aborts the active signed POST/SSE transport. The server may continue
     // computing; this is an attempted stop, never provider confirmation.
     async stopGeneration(context) {
-      if (context.session?.getPartition?.().startsWith("mezhs-guest-"))
+      if (context.ephemeral === true)
         return stopGeneration(context);
       // Authenticated POST/SSE transport abort only; no provider confirmation.
       context.abort();
