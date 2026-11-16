@@ -2,6 +2,27 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.8.0] — 2026-11-16
+
+### Added
+- Canonical, bounded C# Rich UI/Markdown parser and typed document contract shared by ordinary chat and Agent responses.
+- Safe declarative layouts, text, citations, charts and SVG rendering; editable raw `CodeBlock` and `WritingBlock`; and host-owned radio question controls.
+- Validated structural/list contexts for nested Agent shell and attachment commands, with global `DONE` ordering.
+
+### Changed
+- Replace competing frontend markup/expression processing with a single C# source of truth and typed React rendering. Unsupported or provisional markup remains inert.
+- Harden command authorization, Markdown literal/opaque boundaries, SVG/URL restrictions, and rejection of invalid command-bearing documents before side effects.
+- Synchronize `docs/supported-rich-ui.md` with supported declarative syntax; retain the canonical Agent protocol reference in `docs/agent-tools.md`.
+
+### Verification and approval
+- Independent High-risk code review **PASS** at `4558c76618567519204f676161967e722715169b` (PR #53 review `5916965055`).
+- MEŽS Core GitHub Actions on that exact head: **SUCCESS**, run `43757137455`.
+- **Independent final testing on that exact head was not run.** The owner explicitly overrode this High-risk workflow gate on 2026-11-16 and authorized merging PR #53. Earlier independent final-testing evidence applied only to an earlier commit; it is not claimed as current-head signoff.
+- Owner-approved PR #53 merge: `0de3c60ed7f173c8c2bffc6aa5cd4ed44c34ec76`.
+
+### Known limitations
+- The Rich UI contract is a finite declarative subset, not arbitrary JavaScript/React/MDX execution. Adversarial independent final testing after the latest review remains unperformed under the owner's explicit override.
+
 ## [0.7.0] — 2026-11-15
 
 ### Added
