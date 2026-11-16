@@ -1427,7 +1427,7 @@ test("ChatGPT account Stop aborts the active signed POST once without replay", a
     await new Promise(resolve => setImmediate(resolve));
   assert.equal(posts, 1, "expected one signed submission before stop");
   const result = await chatgpt.operations.stopGeneration({
-    session: { getPartition: () => "persist:account" },
+    ephemeral: false,
     abort: () => controller.abort()
   });
   assert.equal(result.outcome, "attempted");
@@ -1454,7 +1454,7 @@ test("ChatGPT Guest Stop dispatches to its own ephemeral page", async () => {
   const chatgpt = loadChatGptModule();
   let invocations = 0;
   const result = await chatgpt.operations.stopGeneration({
-    session: { getPartition: () => "mezhs-guest-example" },
+    ephemeral: true,
     page: { invoke: async (name, args, timeout) => {
       invocations++;
       assert.equal(name, "stopGeneration");
