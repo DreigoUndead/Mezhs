@@ -41,7 +41,7 @@ public sealed class GrokAccountIntegration : BrowserAccountIntegrationBase
         {
             var prompt = await BuildRestorePromptAsync(chat, request.Text, token);
             var response = await transport.InvokeAsync<GrokSendResponse>(
-                "newChat", new GrokSendRequest(prompt, request.Model), token);
+                "newChat", new GrokSendRequest(prompt, request.Model, request.MessageId), token);
             return new PromptResult(
                 response.Text, CreateMessageId(), request.Model ?? "default",
                 RemoteChatUrl: response.ChatUrl);
@@ -55,6 +55,6 @@ public sealed class GrokAccountIntegration : BrowserAccountIntegrationBase
         return connection;
     }
 
-    private sealed record GrokSendRequest(string Prompt, string? Model);
+    private sealed record GrokSendRequest(string Prompt, string? Model, string MessageId);
     private sealed record GrokSendResponse(string Text, string? ChatUrl);
 }
