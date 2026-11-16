@@ -276,6 +276,7 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
             };
           });
           build.onLoad({ filter: /App\.tsx$/ }, (args) => {
+            if (path.basename(args.path) !== "App.tsx") return;
             const source = fs.readFileSync(args.path, "utf8");
             const needle = "export default function App() {";
             assert.ok(source.includes(needle), "Agent app render instrumentation point missing");
