@@ -43,6 +43,16 @@ jobs:
       - name: Build .NET solution
         run: dotnet build Mezhs.sln -c Release --nologo
 
+      - name: V2 typed integration and admission contracts
+        shell: pwsh
+        run: |
+          dotnet run --project tests/Mezhs.Integration.Contracts.Probe/Mezhs.Integration.Contracts.Probe.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh -NoProfile -File tests/browser-admission-wait.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh -NoProfile -File tests/agent-admission-projection.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: SQLite ChatStore migration and failure-injection regression
         shell: pwsh
         run: |
