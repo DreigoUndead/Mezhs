@@ -90,6 +90,13 @@ def main():
     agent_yml = agent_yml.replace('http://127.0.0.1:5199', agent_url).replace(
         'agentStorage: data-agent-test/agent.sqlite', f'agentStorage: {TMP / "agent.sqlite"}').replace(
         'workspace: ..', f'workspace: {workspace}')
+    # The shutdown scenario needs a long-running SH reply, not the ordinary
+    # mock's echo of bootstrap instructions. Override this temporary policy only.
+    cancel_policy = '  test-cancel:\n    connectionId: test\n'
+    if agent_yml.count(cancel_policy) != 1:
+        raise RuntimeError('test-cancel policy is missing or ambiguous')
+    agent_yml = agent_yml.replace(
+        cancel_policy, '  test-cancel:\n    connectionId: test-scripted\n')
     agent_core_yml = (ROOT / 'tests/mezhs.agent.core.test.yaml').read_text(encoding='utf-8').replace(
         'root: data-agent-test/core', f'root: {TMP / "agent-core"}').replace(
         'electronDirectory: ../electron', f'electronDirectory: {electron}')

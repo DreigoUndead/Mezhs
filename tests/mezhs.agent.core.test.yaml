@@ -22,6 +22,11 @@ connections:
     integration: mock
     defaultModel: mock-deep
 
+  - id: test-scripted
+    name: Deterministic Agent protocol integration
+    integration: mock-agent-scripted
+    defaultModel: mock-fast
+
   - id: test-login
     name: Deterministic login integration
     integration: mock-login

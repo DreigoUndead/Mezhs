@@ -42,6 +42,7 @@ using Mezhs.Agent.Policy;
 using Mezhs.Agent.Services;
 using Mezhs.Api.Contracts;
 using Mezhs.Executor;
+using Mezhs.Common.RichUi;
 using Microsoft.Data.Sqlite;
 
 var core = MezhsConfigLoader.Load(args[1]);
@@ -87,8 +88,10 @@ foreach (var name in new[] { "low", "mid", "high" })
         $"Default {name} snapshot did not retain compiled instructions before OS substitution.");
     Assert(policy.Settings.Commands.Allow.SequenceEqual(new[] { "SH", "ATTACH" }),
         $"Default {name} command permissions changed.");
-    Assert(new Parser().Parse(policy.ModelInstructions).Commands.Count == 0,
-        $"Default {name} text accidentally contains executable protocol commands.");
+    // Generated policy text may contain explanatory inline command tags.
+    // Invalid reply syntax is inert; it need not parse as a valid Agent reply.
+    Assert(new RichDocumentParser().Parse(policy.ModelInstructions).Commands.Count == 0,
+        $"Default {name} text accidentally contains executable command candidates.");
 }
 var exampleExecution = new ExecutionRecord
 {
@@ -287,9 +290,21 @@ var deniedAction = done.ValidateAction(new PolicyActionContext(
 Assert(!deniedAction.Allowed, "Unconfigured SH action was not denied by default.");
 
 var parser = new Parser();
-Assert(parser.Parse(normal.ModelInstructions).Commands.Count == 0,
-    "Compiled model instructions accidentally contain executable command tags.");
-var parsed = parser.Parse("before\n<SH>\necho one\necho two\n</SH>\n<DONE>\nafter");
+// Model instructions are prose, not Agent replies: rejected inline examples
+// must never produce executable candidates.
+var instructionsDocument = new RichDocumentParser().Parse(normal.ModelInstructions);
+Assert(instructionsDocument.Commands.Count == 0,
+    "Compiled model instructions unexpectedly produced executable command candidates.");
+var inlineExampleDocument = new RichDocumentParser().Parse(
+    "Instruction: use <SH> on its own line.\n<SH>\necho MUST_NOT_RUN\n</SH>");
+Assert(!inlineExampleDocument.Document.Valid && inlineExampleDocument.Commands.Count == 0,
+    "Malformed instructional prose exposed a later standalone shell command.");
+const string standaloneSource = "before\n<SH>\necho one\necho two\n</SH>\n<DONE>\nafter";
+var standaloneDocument = new RichDocumentParser().Parse(standaloneSource);
+Assert(standaloneDocument.Document.Valid,
+    "Standalone SH/DONE fixture failed canonical parsing: " +
+    string.Join("; ", standaloneDocument.Document.Diagnostics.Select(diagnostic => diagnostic.Code)));
+var parsed = parser.Parse(standaloneSource);
 Assert(parsed.Commands.Count == 2, "Parser did not retain SH and DONE commands.");
 Assert(parsed.Commands[0].Name == "SH" && parsed.Commands[0].Body == "echo one\necho two",
     "Shell body was rewritten while parsing.");
@@ -298,10 +313,15 @@ Assert(parsed.Commands[1].Name == "DONE" && parsed.Commands[1].Body is null,
 Assert(parsed.VisibleContent == "before\nafter",
     $"Protocol parser did not remove executable protocol from display content: '{parsed.VisibleContent}'.");
 
+const string mappedSource = "visible before\n<SH>\necho mapped\n</SH>\n<DONE>\nvisible after";
+var mappedDocument = new RichDocumentParser().Parse(mappedSource);
+Assert(mappedDocument.Document.Valid,
+    "Mapped SH/DONE fixture failed canonical parsing: " +
+    string.Join("; ", mappedDocument.Document.Diagnostics.Select(diagnostic => diagnostic.Code)));
 var mappedMessage = AgentApiMapper.ToView(
     new ApiChatHistoryMessage(
         "msg-view", "chat-view", normal.ConnectionId, "assistant", "agent",
-        "visible before\n<SH>\necho mapped\n</SH>\n<DONE>\nvisible after",
+        mappedSource,
         [], null, null, null, MessageStatus.Completed, null, now, now, now),
     parser);
 Assert(mappedMessage.DisplayContent == "visible before\nvisible after",

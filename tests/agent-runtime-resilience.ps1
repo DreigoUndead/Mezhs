@@ -20,6 +20,14 @@ $agentConfig = Join-Path $temp 'agent.yaml'
 $electron = Join-Path $root 'electron'
 $coreYaml = (Get-Content (Join-Path $PSScriptRoot 'mezhs.test.yaml') -Raw).Replace('http://127.0.0.1:5198', $coreUrl).Replace('root: data', "root: $(Join-Path $temp 'core')").Replace('electronDirectory: ../electron', "electronDirectory: $electron")
 $agentYaml = (Get-Content (Join-Path $PSScriptRoot 'mezhs.agent.test.yaml') -Raw).Replace('http://127.0.0.1:5199', $agentUrl).Replace('agentStorage: data-agent-test/agent.sqlite', "agentStorage: $(Join-Path $temp 'agent.sqlite')").Replace('workspace: ..', "workspace: $(Join-Path $temp 'workspace')")
+# Use the deterministic scripted protocol integration for long-running shell
+# tasks while retaining the ordinary mock for other resilience scenarios.
+$agentYaml = [regex]::Replace($agentYaml,
+    '(?m)^(  test-cancel:\r?\n    connectionId: )test(?=\r?$)',
+    '${1}test-scripted')
+if (-not $agentYaml.Contains('connectionId: test-scripted')) {
+    throw 'Scripted shell resilience connection was not selected.'
+}
 $agentCoreConfig = Join-Path $temp 'agent-core.yaml'
 $agentCoreYaml = (Get-Content (Join-Path $PSScriptRoot 'mezhs.agent.core.test.yaml') -Raw).Replace('root: data-agent-test/core', "root: $(Join-Path $temp 'agent-core')").Replace('electronDirectory: ../electron', "electronDirectory: $electron")
 Set-Content -LiteralPath $agentCoreConfig -Value $agentCoreYaml -Encoding UTF8

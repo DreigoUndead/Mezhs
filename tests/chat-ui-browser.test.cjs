@@ -9,6 +9,12 @@ const { test } = require("node:test");
 const frontend = path.resolve(__dirname, "../src/Mezhs.Agent.Web");
 const requireFrontend = createRequire(path.join(frontend, "package.json"));
 const esbuild = requireFrontend("esbuild");
+const { canonicalDocument } = require("./helpers/canonical-rich-document.cjs");
+
+// The real C# parser, not the browser, supplies completed-message rich UI.
+const titleSource = 'Before <title size="xl" color="success" tabularNums>123.45</title> After';
+const titleDocument = canonicalDocument(titleSource);
+if (!titleDocument.valid) throw new Error("Canonical title fixture failed C# validation");
 
 const appSource = String.raw`
 import React, { useRef, useState } from "react";
@@ -18,6 +24,9 @@ import { useConversationPending } from './node_modules/@mezhs/web-lib/src/useCon
 import { useConversationDrafts } from "./node_modules/@mezhs/web-lib/src/useConversationDrafts";
 import { MarkdownContent } from "./node_modules/@mezhs/web-lib/src/MarkdownContent";
 import "./node_modules/@mezhs/web-lib/src/styles.css";
+
+const titleSource = __MEZHS_TITLE_SOURCE__;
+const titleDocument = __MEZHS_TITLE_DOCUMENT__;
 
 const initial = (tag, count) => Array.from({ length: count }, (_, i) => ({
   messageId: tag + i,
@@ -69,7 +78,10 @@ function App() {
         ))}
       </ConversationViewport>
       <div id="inline-title-test" style={{ flexShrink: 0 }}>
-        <MarkdownContent content={'Before <title size="xl" color="success" tabularNums>123.45</title> After'} />
+        <MarkdownContent content={titleSource} document={titleDocument} />
+      </div>
+      <div id="provisional-title-test" style={{ flexShrink: 0 }}>
+        <MarkdownContent content={titleSource} />
       </div>
     </div>
   );
@@ -152,10 +164,17 @@ async function run() {
     check(atBottom(), "same-length content change did not invalidate saved scroll");
     results.push("equal-length-content-invalidates");
     const title = document.querySelector("#inline-title-test .rich-title");
-    check(title && ["inline", "inline-block"].includes(getComputedStyle(title).display),
+    check(title, "completed canonical document did not mount the inline rich title");
+    check(["inline", "inline-block"].includes(getComputedStyle(title).display),
       "inline <title> is laid out as a block");
     check(getComputedStyle(title).fontVariantNumeric === "tabular-nums", "tabular numeric title formatting lost");
     results.push("inline-rich-title");
+    const provisional = document.querySelector("#provisional-title-test");
+    check(provisional && !provisional.querySelector(".rich-title"),
+      "provisional source incorrectly mounted a rich title");
+    check(provisional.textContent.includes('<title size="xl"'),
+      "provisional source lost its literal markup");
+    results.push("provisional-rich-title-inert");
     click('new-chat'); await settle();
     await typeText('sent prompt');
     (window as any).draftTest.begin(); await settle();
@@ -212,7 +231,8 @@ function report(status, text) {
   document.body.appendChild(result);
 }
 setTimeout(run, 100);
-`;
+`.replace("__MEZHS_TITLE_SOURCE__", JSON.stringify(titleSource))
+  .replace("__MEZHS_TITLE_DOCUMENT__", JSON.stringify(titleDocument));
 
 const chromeCandidates = [
   process.env.CHROME_BIN,
@@ -253,6 +273,8 @@ test("real Chromium rendering: drafts, scroll transitions, controls and title la
     assert.ok(report, `Browser result was malformed: ${dom.slice(-2000)}`);
     assert.equal(report[1], "pass", report[2]);
     assert.match(report[2], /equal-length-content-invalidates/);
+    assert.match(report[2], /inline-rich-title/);
+    assert.match(report[2], /provisional-rich-title-inert/);
     for (const scenario of [
       "pending-ownership-and-draft-handoff",
       "failed-send-preserves-edits",

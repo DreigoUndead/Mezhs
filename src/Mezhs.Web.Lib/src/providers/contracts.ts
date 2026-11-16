@@ -1,3 +1,4 @@
+import type { RichDocument } from "../RichDocumentView";
 export type IntegrationCapabilities = {
   fileInput: boolean;
   imageInput: boolean;
@@ -46,6 +47,7 @@ export type ChatMessage = {
   role: "user" | "assistant";
   origin: string;
   content: string;
+  document?: RichDocument | null;
   model?: string | null;
   files: ApiFile[];
   status: "Queued" | "Running" | "Completed" | "Failed" | "Cancelled";

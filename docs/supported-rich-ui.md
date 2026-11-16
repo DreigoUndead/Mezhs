@@ -1,74 +1,60 @@
-# Supported rich UI in MEŽS model replies
+# Rich UI instructions for MEŽS replies
 
-The shared MEŽS renderer uses **safe subsets** of Markdown, DIL-like JSX and SVG. This document describes **supported rendering**, not an instruction to execute JSX, arbitrary JavaScript, or model-supplied callbacks. Ordinary Markdown, GFM tables, links and fenced code continue to work. All providers share the same renderer; Agent transcripts are read-only for model-authored actions.
+Write ordinary Markdown by default. Use supported declarative elements when layout, diagrams or interaction improve the answer. **No arbitrary HTML, JavaScript, React, CSS, expressions, imports or executable callbacks.** MEŽS parses the source once in C# and renders validated, typed nodes; unsupported or malformed documents are displayed inertly.
 
-## Static layout
+## Presentation
 
-The following inert elements support bounded literal or numeric attributes: `box`, `row`, `col`, `grid`, `grid-item`, `text`, `title`, `badge`, `divider`, `caption`, `icon`, `Link` (only verified http(s)/mailto URL syntax), and declarative `Chart` content. The rich layout respects nesting and regular Markdown between elements.
+- Layout: `box`, `row`, `col`, `grid`, `grid-item`; text: `text`, `title`, `caption`, `badge`, `divider`, `icon`.
+- Content: `Link` (literal safe HTTP(S) or mailto URL), `Cite` (unverified source indicator), `Chart` (literal `json:` data), `CodeBlock`, `WritingBlock`.
+- Attributes use quoted strings, standalone booleans, or numeric/boolean literals in braces, e.g. `gap={3}`. Each control interprets its own presentation attributes; unsupported ones have no effect. Event handlers, DOM injection and arbitrary style attributes are forbidden.
 
 ```mdx
-<box gap={3}>
-  <row align="start" gap={3}>
-    <box background="surface-secondary" radius="lg" padding={3}>
-      <icon name="scroll-text" size="lg" />
-    </box>
-    <box flex="1" gap={1}>
-      **Logs — What happened?**
-      A record emitted by `Log.Info()`.
-    </box>
+<box border radius="xl" padding={3} gap={2}>
+  <row align="center" gap={2}>
+    <icon name="info" />
+    <text strong>Summary</text>
   </row>
-  <divider color="subtle" />
-  <row gap={3}>
-    <icon name="git-branch" />
-    **Traces — How did the operation execute?**
-  </row>
+  Markdown **inside** layout remains Markdown.
 </box>
 ```
 
-The explicit icon subset includes `scroll-text`, `git-branch`, `chart-no-axes-combined`, `network`, `database`, `git-pull-request`, `check`, `check-circle`, `circle-check`, `alert-circle`, `x-circle`, `info`, and `arrow-down`. Other icon names display safely as text. `radius="xl"` is supported. Do not embed arbitrary React elements, HTML event handlers, code imports, CSS, or external assets.
+## SVG
 
-## Inline SVG diagrams
-
-Validated `svg` elements support bounded native drawing tags: `g`, `rect`, `path`, `line`, `polyline`, `polygon`, `circle`, `ellipse`, `text`, and `tspan`. Use numeric geometry, `viewBox`, `width="100%"`, and a plain accessible label. Static `fill`, `stroke`, `strokeWidth`, `fillOpacity`, `fontSize`, `fontWeight`, and `textAnchor` are supported. A restricted literal `{#each}` template for static data and safe numeric expressions can be expanded before rendering; dynamic arbitrary JS is not supported.
+Use only literal `svg` geometry with `g`, `rect`, `path`, `line`, `polyline`, `polygon`, `circle`, `ellipse`, `text`, or `tspan`. Geometry is bounded; script-capable tags, events, external resources, CSS and `url(...)` paint are rejected. No SVG loops or interpolated variables.
 
 ```mdx
-<svg viewBox="0 0 340 100" width="100%" aria-label="Telemetry flow">
-  <rect x="4" y="5" rx="5" width="130" height="40" fill="#64748b" fillOpacity={0.12} />
-  <text x="69" y="30" textAnchor="middle" fontSize={12}>Application</text>
-  <path d="M134 25 H205" stroke="#64748b" strokeWidth={2} />
-  <text x="220" y="30">Collector</text>
+<svg viewBox="0 0 160 60" width="100%" aria-label="Simple diagram">
+  <rect x="5" y="5" width="60" height="35" rx="5" fill="#64748b" />
+  <path d="M65 22 H100" stroke="currentColor" strokeWidth={2} />
+  <text x="106" y="27">Done</text>
 </svg>
 ```
 
-Unsafe SVG (events, `script`, `foreignObject`, `image`, `use`, CSS, `url(...)` paint, external resources, unrecognized attributes or excessive size) is shown as escaped source, not mounted as a partial SVG.
+## Radio question
 
-## One-state radio question
-
-Only one state declaration, two to twelve literal radio choices, and a button calling the single restricted `GenUI.issueNewTurn` template are supported. Values must match the initial state. `direction="col"` and boolean `block` are safe presentation options. Markdown, including multiline emphasis and inline code, is allowed within radio labels. The submission action is enabled **only** when the host explicitly grants the callback on a completed assistant message in the active chat.
+One `DIL.useState` declaration, 2–12 literal radio options, one button with a single `GenUI.issueNewTurn` message. The **finite supported grammar is interpreted as data**, not executed JavaScript. The host alone authorizes sending; Agent transcript buttons remain disabled. Only a literal `${answer}` template or a finite strict-equality conditional message is supported.
 
 ```mdx
 {@body const [answer,setAnswer] = DIL.useState("A")}
-<box border radius="xl" padding={3} gap={3}>
+<box border radius="xl" padding={3} gap={2}>
   <radio-group direction="col" value={answer} onChange={setAnswer}>
-    <radio value="A">
-      **A — Send to the collector.** One pipeline, one endpoint.
-    </radio>
-    <radio value="B">
-      **B — Separate exporters.** Independently configurable destinations.
-    </radio>
+    <radio value="A">**A** — First choice</radio>
+    <radio value="B">**B** — Second choice</radio>
   </radio-group>
   <button block onClick={() => GenUI.issueNewTurn(`Choice: ${answer}`)}>Confirm</button>
 </box>
 ```
 
-MEŽS interprets the exact form above **as data**. It does not execute the `{@body}` declaration, hooks, template interpolation or arrow function as supplied JavaScript. Unrecognized controls remain inert. Buttons are disabled without a host callback, including in Agent transcripts. Composer drafts/uploads are not used for these sends, which share the host's normal busy/offline/chat ownership checks.
+## Raw editors
 
-## Citations
+`CodeBlock` and `WritingBlock` must use standalone opening and closing tag lines. Their bodies are literal, inert editable/copyable source; nested markup never executes.
 
-`<Cite ref="turn123search3"/>` or `<Cite refs={["turn123search3","turn123search10"]}/>` accept only bounded literal source IDs. MEŽS currently has **no trusted citation-ID-to-URL provenance metadata** in the shared message contract. These render a compact *[source unavailable]* indicator; they are **not links** and must never be presented as independently verified sources. Use a normal supported Markdown link only when the real URL is known.
+```mdx
+<WritingBlock variant="email" recipient="person@example.com" subject="Update">
+Hello,
 
-## Safety and compatibility
+**Draft message**.
+</WritingBlock>
+```
 
-Fenced and inline code samples always remain literal. Escaped markup and unrecognized expressions remain inert. Model-authored scripts, arbitrary DIL hooks/components, event handlers, external SVG assets, remote citation IDs as URLs, dynamic code execution, and arbitrary CSS are **not supported**. The render pipeline bounds source size, AST depth, state/action grammar, SVG complexity and literal template expansion.
-
-The actual sanitized telemetry fixture and adversarial tests are in `tests/fixtures/rich-model-ui/` and `tests/rich-model-ui-rendering.test.cjs`. Rendering a model response does not imply those claims are verified facts.
+Markdown fences, inline code and escaped markup remain literal. Agent `SH`/`ATTACH`/`DONE` commands have separate execution policy: they may occur only at validated root/list/structural layout positions, never inside display-only elements, SVG or raw editor bodies. Untrusted examples should remain in code blocks; invalid command-bearing documents never execute a partial batch.
