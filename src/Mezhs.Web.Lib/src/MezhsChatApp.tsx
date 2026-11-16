@@ -131,6 +131,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
     () => connections.find((connection) => connection.id === connectionId),
     [connections, connectionId],
   );
+  const supportsFileInput = selectedConnection?.allowFiles ?? selectedConnection?.capabilities?.fileInput ?? false;
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
   const selectedGroup = categories.find((category) => sameCategoryId(category.categoryId, categoryFilter));
@@ -696,7 +697,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
   }
 
   async function selectFiles(files: FileList | null) {
-    if (!files || !connectionId || !selectedConnection?.allowFiles) return;
+    if (!files || !connectionId || !supportsFileInput) return;
     for (const file of Array.from(files)) {
       const key = `${Date.now()}-${Math.random()}`;
       const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
@@ -1063,7 +1064,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                     )}
                     {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
                   </div>
-                  {message.content && <div className="message-content"><MarkdownContent content={message.content}
+                  {message.content && <div className="message-content"><MarkdownContent content={message.content} document={message.document}
                       verbatim={message.role === "user"}
                       onIssueNewTurn={chatId && message.chatId === chatId &&
                         message.connectionId === connectionId && message.role === "assistant" &&
@@ -1139,8 +1140,8 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
               <button
                 type="button"
                 className="attach"
-                disabled={!selectedConnection?.allowFiles || sending}
-                title={selectedConnection?.allowFiles ? "Attach files" : "This connection does not support files"}
+                disabled={!supportsFileInput || sending}
+                title={supportsFileInput ? "Attach files" : "This connection does not support files"}
                 onClick={() => fileInputRef.current?.click()}
               >+</button>
               <span>Enter to send / Shift + Enter for a new line</span>

@@ -59,14 +59,17 @@ dotnet run --project src/Mezhs.Agent.Web -c Release --no-build
 
 Open **http://127.0.0.1:5174**. The Agent API listens at **http://127.0.0.1:5060** with the checked-in `agent.yaml`.
 
-The Agent API includes the ordinary API, so you usually run **either** the ordinary API or Agent API, not both against the same storage.
+The Agent API includes the ordinary API and its single shared integration registry, so you usually run **either** the ordinary API or Agent API, not both against the same storage. Independently started processes do not coordinate browser send capacity.
 
 ### Configuration
 
-- [`mezhs.yaml`](mezhs.yaml): standard API, integrations, Electron transport and storage.
+- [`mezhs.yaml`](mezhs.yaml): Core API, integrations and their model defaults / workspaces / parallelism / spacing limits, Electron transport and storage.
 - [`agent.yaml`](agent.yaml): Agent host, policies, workspace and execution settings.
+- [`instructions.yaml`](instructions.yaml): shared default Agent startup guidance referenced by policies.
 
-Change the configured connections for the providers you use. Account integrations may require a browser login. The APIs support a custom config path using `--config <path>`.
+On default startup MEŽS creates ignored personal copies (`mezhs.local.yaml`, `agent.local.yaml` and, for Agent mode, `instructions.local.yaml`) next to these committed samples, then loads the personal copies. Existing local files are preserved on subsequent starts and releases; update them manually when a new default requires a change. An explicit `--config` or `--mezhs-config` selects the exact file requested and skips that file's automatic copy.
+
+Change the configured connections for the providers you use. Account integrations may require a browser login. Both APIs support a custom primary config path using `--config <path>`; Agent API additionally accepts `--mezhs-config <path>` for its independently loaded Core configuration.
 
 **Security:** Agent mode can execute policy-approved shell commands with the host user's privileges. This is **not a sandbox**. Agent API and Agent Web are intended to run on loopback only. Review policies before allowing agents to act, especially on untrusted input.
 

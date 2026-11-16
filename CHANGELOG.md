@@ -2,6 +2,72 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.8.0] — 2026-11-16
+
+### Added
+- Canonical, bounded C# Rich UI/Markdown parser and typed document contract shared by ordinary chat and Agent responses.
+- Safe declarative layouts, text, citations, charts and SVG rendering; editable raw `CodeBlock` and `WritingBlock`; and host-owned radio question controls.
+- Validated structural/list contexts for nested Agent shell and attachment commands, with global `DONE` ordering.
+
+### Changed
+- Replace competing frontend markup/expression processing with a single C# source of truth and typed React rendering. Unsupported or provisional markup remains inert.
+- Harden command authorization, Markdown literal/opaque boundaries, SVG/URL restrictions, and rejection of invalid command-bearing documents before side effects.
+- Synchronize `docs/supported-rich-ui.md` with supported declarative syntax; retain the canonical Agent protocol reference in `docs/agent-tools.md`.
+
+### Verification and approval
+- Independent High-risk code review **PASS** at `4558c76618567519204f676161967e722715169b` (PR #53 review `5916965055`).
+- MEŽS Core GitHub Actions on that exact head: **SUCCESS**, run `43757137455`.
+- **Independent final testing on that exact head was not run.** The owner explicitly overrode this High-risk workflow gate on 2026-11-16 and authorized merging PR #53. Earlier independent final-testing evidence applied only to an earlier commit; it is not claimed as current-head signoff.
+- Owner-approved PR #53 merge: `0de3c60ed7f173c8c2bffc6aa5cd4ed44c34ec76`.
+
+### Known limitations
+- The Rich UI contract is a finite declarative subset, not arbitrary JavaScript/React/MDX execution. Adversarial independent final testing after the latest review remains unperformed under the owner's explicit override.
+
+## [0.7.0] — 2026-11-15
+
+### Added
+- Shared `instructions.yaml` with a single `mezhs_default` text block referenced from all three default Agent policies.
+- Automatic adjacent, Git-ignored personal `mezhs.local.yaml`, `agent.local.yaml`, and `instructions.local.yaml` copies on implicit startup; existing personal edits survive subsequent starts.
+- Host operating-system substitution for `{OS}` when composing an Agent's initial prompt, without mutating stored policy snapshots.
+- Canonical Agent tools and command-protocol reference at `docs/agent-tools.md`.
+
+### Changed
+- Honor explicit `--config` and `--mezhs-config` paths without creating or redirecting to implicit personal copies. Explicit Agent configurations can load an adjacent instruction sidecar when referenced.
+- Resolve direct whole-field `{id}` instruction references while keeping ordinary literal braces inert; reject malformed, missing, duplicate and nested references with diagnostics.
+- Update setup/configuration guidance, relevant Agent runtime specification, and release-stage reference-document maintenance policy. Keep version/changelog updates at release finalization only.
+
+### Tests
+- Independent Standard code review PASS at `097d5ef3934ac020351fdd162b9e1a1b9d9ec7b5`.
+- Independent final testing PASS: Agent and solution Release builds, policy/prompt/negative-path regressions, clean standalone publish and two startup runs, personal edits preserved, explicit config and invalid-reference paths, API/command protocol, 78 frontend tests, concurrent execution/cancellation and restart/recovery. Evidence: PR #61, comment `6897003759`.
+- Exact-head GitHub Actions MEŽS Core CI PASS: run `43724564043`.
+
+### Known limitations
+- On Windows PowerShell 5.1, independently executed policy and resilience scripts needed temporary UTF-8 BOM / HTTP status compatibility wrappers; the unchanged repository tests passed in the intended PowerShell CI environment.
+- Codegraph regeneration was unavailable for this task. Browser provider sessions were covered through existing CI and controlled regressions rather than independently verified live authenticated sessions.
+
+## [0.6.0] — 2026-11-15
+
+### Added
+- Transient Agent **Waiting** status (orange dot) while an Agent-owned model message is genuinely blocked by its browser integration's configured capacity or start-spacing gate; return to **Running** immediately upon admission.
+- Dedicated per-send admission signals and exact Agent execution/message association, without persisting Waiting or introducing a second scheduler.
+- Independent Core config flag `--mezhs-config <path>` for Agent API and startup validation of policy connection IDs against Core-owned connections.
+
+### Changed
+- Make `mezhs.yaml` the sole owner of Core connections, provider settings, integration workspaces/model defaults, and `maxParallel` / `minInterval` limits. Keep Agent-only listener, execution workspace, storage and policy overrides in `agent.yaml`; reject obsolete Core sections with a migration error.
+- Compose normal Core API services and Agent features in a single Agent API host and shared `IntegrationRegistry`, preserving the standalone Core API and loopback-only Agent listener. Independent processes do not coordinate browser admission.
+- Preserve explicit execution model, policy default and Core connection default precedence; preserve provider-default selection, existing-chat inheritance and connection overrides.
+- Keep provider-reported activity, including `waiting`/thinking/progress, separate from admission-based Agent status, and preserve unread/terminal/cancellation status precedence.
+
+### Tests
+- Independent High-risk code review PASS at implementation `bc55e64fb6b94212712be193bec12f467b2b687f`.
+- Independent testing PASS: 16 executed checks for config/DI, capacity and 5-second spacing, Agent/ordinary chat admission, status projection, cancellation/error/recovery, Chromium UI/accessibility, model precedence, file attachments, graceful shutdown and scoped builds. Full evidence and execution IDs: `specifications/implemented/integration-config-ownership-wait-status/verification.md`.
+- GitHub Actions MEŽS Core CI passed for the reviewed branch head `f37adf1e509cff8c3a7cfd5025e537750467ed52` (run 43714317064).
+
+### Known limitations
+- Windows PowerShell 5.1 cannot execute the unmodified resilience script's `-SkipHttpErrorCheck`; equivalent assertions passed with a temporary compatibility wrapper. Negative-startup process termination was inconclusive in one harness, while direct missing-file loader rejection passed.
+- Live authenticated/guest Electron provider sessions were not exercised during independent verification; browser admission and Agent status integration were validated using controlled providers and isolated Chromium UI.
+- Browser admission sharing applies only within the owning API process; separately running Core and Agent API instances do not share gates. Asynchronous remote-provider cancellation remains best-effort.
+
 ## [0.5.1] — 2026-11-14
 
 ### Changed

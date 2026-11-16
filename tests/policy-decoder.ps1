@@ -6,6 +6,17 @@ New-Item -ItemType Directory -Path $temp -Force | Out-Null
 
 try {
     $agentProject = Join-Path $root 'src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj'
+    # Standalone publishing must carry all three samples: implicit startup copies
+    # instructions.yaml before the Agent config loader can read any policies.
+    $publishedAgent = Join-Path $temp 'standalone agent publish'
+    dotnet publish $agentProject -c Release --no-build --nologo -o $publishedAgent
+    if ($LASTEXITCODE -ne 0) { throw "Agent publish probe failed." }
+    foreach ($sample in @('agent.yaml', 'mezhs.yaml', 'instructions.yaml')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $publishedAgent $sample))) {
+            throw "Standalone Agent publish is missing required sample $sample."
+        }
+    }
+
     $configPath = Join-Path $PSScriptRoot 'mezhs.agent.test.yaml'
     @"
 <Project Sdk="Microsoft.NET.Sdk">
@@ -24,15 +35,191 @@ try {
     @'
 using Mezhs.Agent.Commands;
 using Mezhs.Agent.Configuration;
+using Mezhs.Configuration;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
 using Mezhs.Agent.Services;
 using Mezhs.Api.Contracts;
 using Mezhs.Executor;
+using Mezhs.Common.RichUi;
 using Microsoft.Data.Sqlite;
 
-var options = AgentConfigLoader.Load(args[0]);
+var core = MezhsConfigLoader.Load(args[1]);
+var options = AgentConfigLoader.Load(args[0], core.Connections.Select(connection => connection.Id).ToArray());
+Assert(core.Connections.Single(connection => connection.Id == "test").DefaultModel == "mock-fast",
+    "Core connection default model was not loaded from independent Core YAML.");
+try
+{
+    AgentConfigLoader.Load(args[0], ["unknown"]);
+    throw new InvalidOperationException("Invalid policy connection was accepted.");
+}
+catch (InvalidOperationException ex) when (ex.Message.Contains("references unknown connection", StringComparison.Ordinal))
+{
+}
+var legacyConfig = Path.Combine(Path.GetTempPath(), $"mezhs-legacy-agent-{Guid.NewGuid():N}.yaml");
+try
+{
+    File.WriteAllText(legacyConfig, File.ReadAllText(args[0]) + "\nconnections: []\n");
+    try
+    {
+        AgentConfigLoader.Load(legacyConfig);
+        throw new InvalidOperationException("Legacy Agent connection definitions were silently accepted.");
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("move Core configuration to mezhs.yaml", StringComparison.Ordinal))
+    {
+    }
+}
+finally { File.Delete(legacyConfig); }
+
+
+var repositoryRoot = Directory.GetParent(Path.GetDirectoryName(args[0])!)!.FullName;
+var defaultAgentOptions = AgentConfigLoader.Load(Path.Combine(repositoryRoot, "agent.yaml"));
+var os = OperatingSystem.IsWindows() ? "Windows" :
+    OperatingSystem.IsLinux() ? "Linux" : OperatingSystem.IsMacOS() ? "macOS" : "Unknown OS";
+foreach (var name in new[] { "low", "mid", "high" })
+{
+    var policy = defaultAgentOptions.Policies[name];
+    Assert(policy.Settings.Instructions.Contains("You are a MEŽS agent operating", StringComparison.Ordinal),
+        $"Default {name} policy did not expand its shared instructions.");
+    Assert(!policy.ModelInstructions.Contains("{mezhs_default}", StringComparison.Ordinal),
+        $"Default {name} policy retained an unresolved shared instruction reference.");
+    Assert(policy.Snapshot.Contains("MEŽS runtime on {OS}", StringComparison.Ordinal),
+        $"Default {name} snapshot did not retain compiled instructions before OS substitution.");
+    Assert(policy.Settings.Commands.Allow.SequenceEqual(new[] { "SH", "ATTACH" }),
+        $"Default {name} command permissions changed.");
+    // Generated policy text may contain explanatory inline command tags.
+    // Invalid reply syntax is inert; it need not parse as a valid Agent reply.
+    Assert(new RichDocumentParser().Parse(policy.ModelInstructions).Commands.Count == 0,
+        $"Default {name} text accidentally contains executable command candidates.");
+}
+var exampleExecution = new ExecutionRecord
+{
+    ExecutionId = "exec-config-probe", CorrelationId = "exec-config-probe",
+    Kind = AgentExecutionKind.Agent, PolicyId = "low", ConnectionId = "chatgpt-sub",
+    Source = "manual", Status = AgentExecutionStatus.Running, Request = "Test instructions",
+    PolicySnapshot = defaultAgentOptions.Policies["low"].Snapshot
+};
+var initialPrompt = new AgentPromptBuilder(defaultAgentOptions)
+    .BuildInitial(exampleExecution, defaultAgentOptions.Policies["low"], true).Content;
+Assert(initialPrompt.Contains($"MEŽS runtime on {os}", StringComparison.Ordinal),
+    "Runtime startup did not resolve the host OS in shared instructions.");
+Assert(!initialPrompt.Contains("{OS}", StringComparison.Ordinal),
+    "Runtime startup left an OS placeholder unresolved.");
+Assert(initialPrompt.Replace("\r\n", "\n", StringComparison.Ordinal)
+       .Contains("Task:\nTest instructions", StringComparison.Ordinal),
+    "Runtime startup lost the task content.");
+Assert(initialPrompt.Contains("Host shell:", StringComparison.Ordinal),
+    "Runtime startup omitted the configured shell context.");
+Assert(!initialPrompt.Contains("return <SH> on a line", StringComparison.Ordinal),
+    "Default SH guidance was duplicated by the policy compiler.");
+
+var configScratch = Path.Combine(Path.GetTempPath(), $"mezhs config copies {Guid.NewGuid():N}");
+Directory.CreateDirectory(configScratch);
+var savedDirectory = Environment.CurrentDirectory;
+try
+{
+    var defaultCore = Path.Combine(configScratch, "mezhs.yaml");
+    var localCore = Path.Combine(configScratch, "mezhs.local.yaml");
+    var defaultAgent = Path.Combine(configScratch, "agent.yaml");
+    var localAgent = Path.Combine(configScratch, "agent.local.yaml");
+    var defaultTexts = Path.Combine(configScratch, "instructions.yaml");
+    var localTexts = Path.Combine(configScratch, "instructions.local.yaml");
+    File.WriteAllText(defaultCore, "repo default");
+    File.WriteAllText(defaultAgent, File.ReadAllText(args[0]));
+    File.WriteAllText(defaultTexts, "texts:\n  mezhs_default: Default text\n");
+
+    Environment.CurrentDirectory = configScratch;
+    Assert(ConfigPath.FindLocal([], "mezhs.yaml") == localCore &&
+           File.ReadAllText(localCore) == "repo default",
+        "Default Core config was not copied alongside its tracked sample.");
+    Assert(ConfigPath.FindLocal([], "agent.yaml", companionFileName: "instructions.yaml") == localAgent,
+        "Default Agent config was not copied.");
+    Assert(File.Exists(localTexts) &&
+           File.ReadAllText(localTexts).Contains("Default text", StringComparison.Ordinal),
+        "Default startup did not create an instructions copy next to the Agent config.");
+    File.WriteAllText(localCore, "my personalized config");
+    File.WriteAllText(localTexts, "texts:\n  mezhs_default: |\n    Personal instructions on {OS}.\n    Use <SH>code</SH>.\n    Use <ATTACH>file</ATTACH>.\n");
+    File.WriteAllText(defaultCore, "upgraded default");
+    Assert(ConfigPath.FindLocal([], "mezhs.yaml") == localCore &&
+           File.ReadAllText(localCore) == "my personalized config",
+        "Subsequent startup overwrote local settings.");
+    var explicitPath = Path.Combine(configScratch, "custom config.yaml");
+    File.WriteAllText(explicitPath, "custom");
+    Assert(ConfigPath.FindLocal(["--config", explicitPath], "agent.yaml") == explicitPath &&
+           ConfigPath.FindLocal(["--mezhs-config", explicitPath], "mezhs.yaml", "--mezhs-config") == explicitPath,
+        "Explicit configuration paths were redirected to a local sample.");
+
+    var customDirectory = Path.Combine(configScratch, "separate config");
+    Directory.CreateDirectory(customDirectory);
+    var explicitLocalAgent = Path.Combine(customDirectory, "agent.local.yaml");
+    var explicitInstructions = Path.Combine(customDirectory, "instructions.local.yaml");
+    File.WriteAllText(explicitLocalAgent, File.ReadAllText(args[0]));
+    Assert(ConfigPath.FindLocal(["--config", explicitLocalAgent], "agent.yaml",
+               companionFileName: "instructions.yaml") == explicitLocalAgent &&
+           !File.Exists(explicitInstructions),
+        "Explicit agent.local.yaml incorrectly created an instructions sidecar.");
+    var noSidecar = AgentConfigLoader.Load(explicitLocalAgent, ["test", "test-alt"]);
+    Assert(noSidecar.Policies["low"].Settings.Instructions == "Complete the assigned deterministic test task.",
+        "Explicit legacy policy should load without an instructions sidecar.");
+
+    File.WriteAllText(explicitInstructions, "texts:\n  mezhs_default: Custom sidecar text\n");
+    var referencedExternalAgent = File.ReadAllText(args[0]).Replace(
+        "instructions: Complete the assigned deterministic test task.",
+        "instructions: \"{mezhs_default}\"", StringComparison.Ordinal);
+    File.WriteAllText(explicitLocalAgent, referencedExternalAgent);
+    var explicitWithSidecar = AgentConfigLoader.Load(explicitLocalAgent, ["test", "test-alt"]);
+    Assert(explicitWithSidecar.Policies["low"].Settings.Instructions == "Custom sidecar text",
+        "Explicit agent.local.yaml failed to use its manually supplied instructions sidecar.");
+
+    File.WriteAllText(explicitLocalAgent, File.ReadAllText(args[0]).Replace(
+        "instructions: Complete the assigned deterministic test task.",
+        "instructions: \"Print {shell} literally.\"", StringComparison.Ordinal));
+    var literalPolicy = AgentConfigLoader.Load(explicitLocalAgent, ["test", "test-alt"]);
+    Assert(literalPolicy.Policies["low"].Settings.Instructions == "Print {shell} literally.",
+        "Literal braces in a non-reference policy instruction were incorrectly expanded.");
+
+    var referencedAgent = File.ReadAllText(defaultAgent).Replace(
+        "instructions: Complete the assigned deterministic test task.",
+        "instructions: \"{mezhs_default}\"", StringComparison.Ordinal);
+    File.WriteAllText(localAgent, referencedAgent);
+    File.WriteAllText(defaultAgent, referencedAgent);
+    var localPolicies = AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
+    var plainPolicies = AgentConfigLoader.Load(defaultAgent, ["test", "test-alt"]);
+    Assert(localPolicies.Policies["low"].Settings.Instructions.Contains("Personal instructions", StringComparison.Ordinal) &&
+           plainPolicies.Policies["low"].Settings.Instructions == "Default text",
+        "Local and default instruction sidecars were not selected independently.");
+
+    File.WriteAllText(localTexts, "texts:\n  some_other_id: Unrelated\n");
+    try
+    {
+        AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
+        throw new Exception("Unknown instruction reference was accepted.");
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("unknown text 'mezhs_default'", StringComparison.Ordinal)) { }
+
+    File.WriteAllText(localTexts, "texts:\n  mezhs_default: \"{nested}\" \n");
+    try
+    {
+        AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
+        throw new Exception("Nested instruction reference was accepted.");
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("another reference", StringComparison.Ordinal)) { }
+
+    File.WriteAllText(localTexts, "texts:\n  mezhs_default: one\n  mezhs_default: two\n");
+    try
+    {
+        AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
+        throw new Exception("Duplicate instruction ID was accepted.");
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("Invalid instructions file", StringComparison.Ordinal)) { }
+}
+finally
+{
+    Environment.CurrentDirectory = savedDirectory;
+    Directory.Delete(configScratch, recursive: true);
+}
+
 var normal = options.Policies["test"];
 var done = options.Policies["test-done"];
 var evidencePolicy = options.Policies["test-evidence"];
@@ -103,9 +290,21 @@ var deniedAction = done.ValidateAction(new PolicyActionContext(
 Assert(!deniedAction.Allowed, "Unconfigured SH action was not denied by default.");
 
 var parser = new Parser();
-Assert(parser.Parse(normal.ModelInstructions).Commands.Count == 0,
-    "Compiled model instructions accidentally contain executable command tags.");
-var parsed = parser.Parse("before\n<SH>\necho one\necho two\n</SH>\n<DONE>\nafter");
+// Model instructions are prose, not Agent replies: rejected inline examples
+// must never produce executable candidates.
+var instructionsDocument = new RichDocumentParser().Parse(normal.ModelInstructions);
+Assert(instructionsDocument.Commands.Count == 0,
+    "Compiled model instructions unexpectedly produced executable command candidates.");
+var inlineExampleDocument = new RichDocumentParser().Parse(
+    "Instruction: use <SH> on its own line.\n<SH>\necho MUST_NOT_RUN\n</SH>");
+Assert(!inlineExampleDocument.Document.Valid && inlineExampleDocument.Commands.Count == 0,
+    "Malformed instructional prose exposed a later standalone shell command.");
+const string standaloneSource = "before\n<SH>\necho one\necho two\n</SH>\n<DONE>\nafter";
+var standaloneDocument = new RichDocumentParser().Parse(standaloneSource);
+Assert(standaloneDocument.Document.Valid,
+    "Standalone SH/DONE fixture failed canonical parsing: " +
+    string.Join("; ", standaloneDocument.Document.Diagnostics.Select(diagnostic => diagnostic.Code)));
+var parsed = parser.Parse(standaloneSource);
 Assert(parsed.Commands.Count == 2, "Parser did not retain SH and DONE commands.");
 Assert(parsed.Commands[0].Name == "SH" && parsed.Commands[0].Body == "echo one\necho two",
     "Shell body was rewritten while parsing.");
@@ -114,10 +313,15 @@ Assert(parsed.Commands[1].Name == "DONE" && parsed.Commands[1].Body is null,
 Assert(parsed.VisibleContent == "before\nafter",
     $"Protocol parser did not remove executable protocol from display content: '{parsed.VisibleContent}'.");
 
+const string mappedSource = "visible before\n<SH>\necho mapped\n</SH>\n<DONE>\nvisible after";
+var mappedDocument = new RichDocumentParser().Parse(mappedSource);
+Assert(mappedDocument.Document.Valid,
+    "Mapped SH/DONE fixture failed canonical parsing: " +
+    string.Join("; ", mappedDocument.Document.Diagnostics.Select(diagnostic => diagnostic.Code)));
 var mappedMessage = AgentApiMapper.ToView(
     new ApiChatHistoryMessage(
         "msg-view", "chat-view", normal.ConnectionId, "assistant", "agent",
-        "visible before\n<SH>\necho mapped\n</SH>\n<DONE>\nvisible after",
+        mappedSource,
         [], null, null, null, MessageStatus.Completed, null, now, now, now),
     parser);
 Assert(mappedMessage.DisplayContent == "visible before\nvisible after",
@@ -145,10 +349,6 @@ Assert(promptBuilder.BuildContinue(done).Content.Contains("<DONE>", StringCompar
 var shellOptions = new AgentOptions
 {
     Version = options.Version,
-    Server = options.Server,
-    Transport = options.Transport,
-    Storage = options.Storage,
-    Connections = options.Connections,
     AgentStorage = Path.Combine(Path.GetTempPath(), $"mezhs-agent-policy-{Guid.NewGuid():N}.sqlite"),
     Workspace = options.Workspace,
     Messages = options.Messages,
@@ -293,7 +493,7 @@ static void Assert(bool condition, string message)
 }
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
-    dotnet run --project (Join-Path $temp 'Test.csproj') -c Release -- $configPath
+    dotnet run --project (Join-Path $temp 'Test.csproj') -c Release -- $configPath (Join-Path $PSScriptRoot "mezhs.agent.core.test.yaml")
     if ($LASTEXITCODE -ne 0) { throw "Policy/shell behavior test failed with exit code $LASTEXITCODE." }
 }
 finally {

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Mezhs;
 using Mezhs.Agent;
+using Mezhs.Api.Contracts;
 using Mezhs.Agent.Commands;
 using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
@@ -12,14 +13,16 @@ using Mezhs.Configuration;
 using Mezhs.Executor;
 using Mezhs.Services;
 
-var configPath = ConfigPath.Find(args, "agent.yaml");
-var options = AgentConfigLoader.Load(configPath);
+var configPath = ConfigPath.FindLocal(args, "agent.yaml", companionFileName: "instructions.yaml");
+var coreConfigPath = ConfigPath.FindLocal(args, "mezhs.yaml", "--mezhs-config");
+var coreOptions = MezhsConfigLoader.Load(coreConfigPath);
+var options = AgentConfigLoader.Load(configPath, coreOptions.Connections.Select(connection => connection.Id).ToArray());
 var executorStorage = Path.Combine(
     Path.GetDirectoryName(options.AgentStorage) ?? Environment.CurrentDirectory,
     "executor.sqlite");
 
 var builder = WebApplication.CreateBuilder(args);
-builder.AddMezhsApi(options);
+builder.AddMezhsApi(coreOptions, options.Server.Listen);
 builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
     policy.SetIsOriginAllowed(origin =>
             Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.IsLoopback)
@@ -80,23 +83,27 @@ app.MapGet("/v1/policies/{policyId}", (
 
 app.MapGet("/v1/agent-chats", (
     AgentStore agentStore,
-    ChatStore chatStore) =>
+    ChatStore chatStore,
+    AgentWorker worker,
+    MessageService messages) =>
 {
     var statuses = agentStore.GetLatestAgentStatuses();
     return Results.Ok(agentStore.GetAgentChats()
-        .Select(record => ToView(record, agentStore, chatStore, statuses))
+        .Select(record => ToView(record, agentStore, chatStore, worker, messages, statuses))
         .ToArray());
 });
 
 app.MapGet("/v1/agent-chats/{chatId}", (
     string chatId,
     AgentStore agentStore,
-    ChatStore chatStore) =>
+    ChatStore chatStore,
+    AgentWorker worker,
+    MessageService messages) =>
 {
     var chat = agentStore.GetAgentChat(chatId);
     return chat is null
         ? Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." })
-        : Results.Ok(ToView(chat, agentStore, chatStore));
+        : Results.Ok(ToView(chat, agentStore, chatStore, worker, messages));
 });
 
 app.MapPatch("/v1/agent-chats/{chatId}", (
@@ -104,10 +111,12 @@ app.MapPatch("/v1/agent-chats/{chatId}", (
     UpdateAgentChatRequest request,
     AgentService agents,
     AgentStore agentStore,
-    ChatStore chatStore) =>
+    ChatStore chatStore,
+    AgentWorker worker,
+    MessageService messages) =>
 {
     var chat = agents.SetPaused(chatId, request.Paused);
-    return Results.Ok(ToView(chat, agentStore, chatStore));
+    return Results.Ok(ToView(chat, agentStore, chatStore, worker, messages));
 });
 
 app.MapGet("/v1/agent-chats/{chatId}/messages", (
@@ -248,6 +257,7 @@ app.MapPost("/v1/executions/{executionId}/restart", (
 });
 
 Console.WriteLine($"MEŽS Agent config: {configPath}");
+Console.WriteLine($"MEŽS Core config: {coreConfigPath}");
 Console.WriteLine($"MEŽS Agent listening: {options.Server.Listen}");
 Console.WriteLine($"MEŽS Agent workspace: {options.Workspace}");
 Console.WriteLine($"MEŽS Executor storage: {executorStorage}");
@@ -273,6 +283,8 @@ static AgentChatView ToView(
     AgentChatRecord record,
     AgentStore store,
     ChatStore chats,
+    AgentWorker worker,
+    MessageService messages,
     IReadOnlyDictionary<string, AgentChatExecutionStatus>? statuses = null)
 {
     statuses ??= store.GetLatestAgentStatuses();
@@ -282,6 +294,14 @@ static AgentChatView ToView(
     var firstTask = store.GetFirstRootExecutionRequest(record.ChatId);
     var latestStatus = statuses.GetValueOrDefault(record.ChatId);
     var savedTitle = core?.Title;
+    var effectiveStatus = latestStatus?.Status;
+    if (string.Equals(effectiveStatus, nameof(AgentExecutionStatus.Running), StringComparison.Ordinal) &&
+        latestStatus is not null &&
+        worker.TryGetActiveModelMessage(latestStatus.ExecutionId, out var messageId) &&
+        chats.GetMessage(messageId) is { Status: MessageStatus.Running } activeMessage &&
+        string.Equals(activeMessage.ChatId, record.ChatId, StringComparison.OrdinalIgnoreCase) &&
+        messages.IsAdmissionWaiting(messageId))
+        effectiveStatus = "Waiting";
     return new AgentChatView(
         record.ChatId,
         record.PolicyId,
@@ -295,7 +315,7 @@ static AgentChatView ToView(
         record.CreatedAt,
         lastActivity,
         core?.CategoryId,
-        latestStatus?.Status,
+        effectiveStatus,
         latestStatus?.ExecutionId);
 }
 

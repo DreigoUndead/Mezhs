@@ -46,11 +46,14 @@ def await_condition(what, predicate, timeout=30):
     raise RuntimeError(f'timed out waiting for {what}; last error: {last}')
 
 
-def start(dll, config, label):
+def start(dll, config, label, core_config=None):
     path = TMP / (label + '.log')
     log = open(path, 'wb')
     try:
-        p = subprocess.Popen(['dotnet', str(dll), '--config', str(config)],
+        args = ['dotnet', str(dll), '--config', str(config)]
+        if core_config is not None:
+            args.extend(['--mezhs-config', str(core_config)])
+        p = subprocess.Popen(args,
                              cwd=ROOT, stdin=subprocess.DEVNULL, stdout=log,
                              stderr=subprocess.STDOUT,
                              creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
@@ -85,10 +88,20 @@ def main():
         'root: data', f'root: {TMP / "core"}').replace('electronDirectory: ../electron', f'electronDirectory: {electron}')
     agent_yml = (ROOT / 'tests/mezhs.agent.test.yaml').read_text(encoding='utf-8')
     agent_yml = agent_yml.replace('http://127.0.0.1:5199', agent_url).replace(
-        'root: data-agent-test/core', f'root: {TMP / "agent-core"}').replace(
         'agentStorage: data-agent-test/agent.sqlite', f'agentStorage: {TMP / "agent.sqlite"}').replace(
-        'workspace: ..', f'workspace: {workspace}').replace(
+        'workspace: ..', f'workspace: {workspace}')
+    # The shutdown scenario needs a long-running SH reply, not the ordinary
+    # mock's echo of bootstrap instructions. Override this temporary policy only.
+    cancel_policy = '  test-cancel:\n    connectionId: test\n'
+    if agent_yml.count(cancel_policy) != 1:
+        raise RuntimeError('test-cancel policy is missing or ambiguous')
+    agent_yml = agent_yml.replace(
+        cancel_policy, '  test-cancel:\n    connectionId: test-scripted\n')
+    agent_core_yml = (ROOT / 'tests/mezhs.agent.core.test.yaml').read_text(encoding='utf-8').replace(
+        'root: data-agent-test/core', f'root: {TMP / "agent-core"}').replace(
         'electronDirectory: ../electron', f'electronDirectory: {electron}')
+    agent_core_cfg = TMP / 'agent-core.yaml'
+    agent_core_cfg.write_text(agent_core_yml, encoding='utf-8')
     core_cfg = TMP / 'core.yaml'
     agent_cfg = TMP / 'agent.yaml'
     core_cfg.write_text(core_yml, encoding='utf-8')
@@ -96,7 +109,7 @@ def main():
 
     core = start(CORE, core_cfg, 'core')
     await_condition('core health', lambda: request(f'{core_url}/health'), 25)
-    agent = start(AGENT, agent_cfg, 'agent-first')
+    agent = start(AGENT, agent_cfg, 'agent-first', agent_core_cfg)
     await_condition('agent health', lambda: request(f'{agent_url}/health'), 25)
 
     long_task = '<SH>\nping -n 22 127.0.0.1 >nul\n</SH>'
@@ -126,7 +139,7 @@ def main():
         raise RuntimeError('Agent shutdown terminated the independent core API')
     print('GRACEFUL_SHUTDOWN exit=0 during_running_shell=1 successor_queued=1')
 
-    agent = start(AGENT, agent_cfg, 'agent-restarted')
+    agent = start(AGENT, agent_cfg, 'agent-restarted', agent_core_cfg)
     await_condition('restarted Agent health', lambda: request(f'{agent_url}/health'), 25)
     completed = await_condition('restored root Completed', lambda: (r if (r := status(agent_url, eid))['status'] == 'Completed' else None), 45)
     if not completed.get('completedAt'):

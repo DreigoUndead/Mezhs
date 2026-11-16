@@ -14,5 +14,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\agent.yaml" Link="agent.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\mezhs.yaml" Link="mezhs.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\instructions.yaml" Link="instructions.yaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

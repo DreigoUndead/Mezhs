@@ -121,6 +121,7 @@ public static class AgentApiMapper
             message.Analysis,
             message.ActivityAt,
             protocolCommands,
-            completionClaimed);
+            completionClaimed,
+            message.Document);
     }
 }

@@ -1,12 +1,15 @@
 using System.ComponentModel.DataAnnotations;
 using Mezhs.Agent.Policy;
-using Mezhs.Configuration;
 using YamlDotNet.Serialization;
 
 namespace Mezhs.Agent.Configuration;
 
-public sealed class AgentOptions : MezhsOptions
+public sealed class AgentOptions
 {
+    public int Version { get; set; } = 1;
+
+    public AgentServerOptions Server { get; set; } = new();
+
     [Required]
     public string AgentStorage { get; set; } = "data/agent.sqlite";
 
@@ -21,6 +24,11 @@ public sealed class AgentOptions : MezhsOptions
     [YamlIgnore]
     public IReadOnlyDictionary<string, PolicyContext> Policies { get; set; } =
         new Dictionary<string, PolicyContext>(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed class AgentServerOptions
+{
+    public string Listen { get; set; } = "http://127.0.0.1:5060";
 }
 
 public sealed class AgentRuntimeMessages

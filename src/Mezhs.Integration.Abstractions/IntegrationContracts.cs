@@ -52,6 +52,8 @@ public sealed record IntegrationOutputFile(
     string ContentType,
     bool DeleteAfterImport = true);
 
+public enum IntegrationAdmissionWaitReason { Capacity, Spacing }
+
 public sealed record IntegrationActivity(
     string State,
     string? Detail = null,

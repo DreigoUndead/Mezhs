@@ -4,6 +4,7 @@ Add-Type -AssemblyName System.Net.Http
 $root = Split-Path -Parent $PSScriptRoot
 $mezhsConfig = Join-Path $PSScriptRoot "mezhs.test.yaml"
 $agentConfig = Join-Path $PSScriptRoot "mezhs.agent.test.yaml"
+$agentCoreConfig = Join-Path $PSScriptRoot "mezhs.agent.core.test.yaml"
 $dataPath = Join-Path $PSScriptRoot "data-agent-test"
 $genericDataPath = Join-Path $PSScriptRoot "data"
 
@@ -79,17 +80,30 @@ function Get-Status([string]$uri) {
     "listen: http://0.0.0.0:5199") | Set-Content -LiteralPath $badConfig -Encoding UTF8
 $agentDll = (Resolve-Path (Join-Path $root "src\Mezhs.Agent.Api\bin\Release\net10.0\Mezhs.Agent.Api.dll")).Path
 $badAgent = Start-Process -FilePath "dotnet" `
-    -ArgumentList @($agentDll, "--config", $badConfig) `
+    -ArgumentList @($agentDll, "--config", $badConfig, "--mezhs-config", $agentCoreConfig) `
     -WorkingDirectory $root -RedirectStandardOutput $badOut -RedirectStandardError $badErr -WindowStyle Hidden -PassThru
 try {
-    if (-not $badAgent.WaitForExit(25000)) {
-        Stop-Process -Id $badAgent.Id -Force
-        $badAgent.WaitForExit()
-        throw "Non-loopback Agent startup did not exit within 25 seconds (PID $($badAgent.Id)); inspect $badErr."
-    }
-    $badText = (Get-Content -LiteralPath $badErr -Raw) + (Get-Content -LiteralPath $badOut -Raw)
-    if ($badAgent.ExitCode -eq 0 -or $badText -notmatch "loopback") {
+    # Windows crash reporting can leave an unhandled-exception process alive even
+    # after it has emitted the expected startup failure. Assert the actual
+    # fail-closed boundary, not prompt process termination by the OS.
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(25)
+    do {
+        $badErrorText = if (Test-Path -LiteralPath $badErr) {
+            Get-Content -LiteralPath $badErr -Raw -ErrorAction SilentlyContinue
+        } else { "" }
+        if ($badAgent.HasExited -or $badErrorText -match "server\.listen must use a loopback address") {
+            break
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTimeOffset]::UtcNow -lt $deadline)
+    $badText = (Get-Content -LiteralPath $badErr -Raw -ErrorAction SilentlyContinue) +
+        (Get-Content -LiteralPath $badOut -Raw -ErrorAction SilentlyContinue)
+    if (($badAgent.HasExited -and $badAgent.ExitCode -eq 0) -or
+        $badText -notmatch "server\.listen must use a loopback address") {
         throw "Non-loopback Agent API configuration did not fail specifically at the exposure boundary. Output: $badText"
+    }
+    if (Get-NetTCPConnection -LocalPort 5199 -State Listen -ErrorAction SilentlyContinue) {
+        throw "Non-loopback Agent API unexpectedly opened port 5199 despite rejecting configuration."
     }
 } finally {
     if (-not $badAgent.HasExited) { Stop-Process -Id $badAgent.Id -Force; $badAgent.WaitForExit() }
@@ -105,7 +119,7 @@ $web = $null
 try {
     Wait-Health "http://127.0.0.1:5198/health"
     $agent = Start-Process -FilePath "dotnet" `
-        -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $agentConfig) `
+        -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj"), "-c", "Release", "--no-build", "--", "--config", $agentConfig, "--mezhs-config", $agentCoreConfig) `
         -WorkingDirectory $root -RedirectStandardOutput $agentOut -RedirectStandardError $agentErr -WindowStyle Hidden -PassThru
     Wait-Health "http://127.0.0.1:5199/health"
 
@@ -170,10 +184,14 @@ try {
         throw "Whitespace regression execution did not finish."
     }
     $preservedMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($preservedResult.chatId)/messages"
-    $preservedUser = @($preservedMessages | Where-Object { $_.role -eq "user" })[-1]
+    # A model reply can require a correction turn. Verify the original prompt
+    # without assuming the last user message is the first Agent request.
+    $matchingPreservedUsers = @($preservedMessages | Where-Object {
+        $_.role -eq "user" -and $_.content.Contains($preservedInput)
+    })
     if ($preservedResult.request -cne $preservedInput -or
-        -not $preservedUser.content.Contains($preservedInput)) {
-        throw "Agent API changed prompt numbering or whitespace."
+        $matchingPreservedUsers.Count -ne 1) {
+        throw "Agent API changed prompt numbering or whitespace (matching original user messages: $($matchingPreservedUsers.Count))."
     }
 
     $created = Start-AgentExecution "low" "hello agent"
@@ -224,6 +242,39 @@ try {
         $highDefaultCompleted.connectionId -ne "test-alt" -or
         $highDefaultCompleted.model -ne "mock-deep") {
         throw "High policy did not materialize its configured integration/model default."
+    }
+
+    # With no policy model override, the Core connection default applies to the first send.
+    $coreFallback = Start-AgentExecution "test" "core model fallback"
+    $coreFallbackCompleted = Wait-AgentExecution $coreFallback.executionId
+    $coreFallbackMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($coreFallbackCompleted.chatId)/messages"
+    $coreFallbackUser = @($coreFallbackMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($coreFallbackCompleted.status -ne "Completed" -or
+        $null -ne $coreFallbackCompleted.model -or
+        $coreFallbackUser.model -ne "mock-fast") {
+        throw "Core connection model default was not used when the Agent policy left model unset."
+    }
+
+    # An explicit empty model selects provider Default, overriding policy and Core defaults.
+    # An omitted model on a subsequent turn must inherit that choice, not reinstate the defaults.
+    $providerDefault = Start-AgentExecution "low" "explicit provider default" $null $null "test" ""
+    $providerDefaultCompleted = Wait-AgentExecution $providerDefault.executionId
+    $providerDefaultMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($providerDefaultCompleted.chatId)/messages"
+    $providerDefaultUser = @($providerDefaultMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($providerDefaultCompleted.status -ne "Completed" -or
+        $providerDefaultCompleted.connectionId -ne "test" -or
+        $providerDefaultCompleted.model -cne "" -or
+        $null -ne $providerDefaultUser.model) {
+        throw "Explicit provider Default did not override the policy and Core model defaults."
+    }
+    $inheritedDefault = Start-AgentExecution "low" "inherit explicit provider default" $null $providerDefaultCompleted.chatId
+    $inheritedDefaultCompleted = Wait-AgentExecution $inheritedDefault.executionId
+    $inheritedDefaultMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($providerDefaultCompleted.chatId)/messages"
+    $inheritedDefaultUser = @($inheritedDefaultMessages | Where-Object { $_.role -eq "user" })[-1]
+    if ($inheritedDefaultCompleted.status -ne "Completed" -or
+        $null -ne $inheritedDefaultCompleted.model -or
+        $null -ne $inheritedDefaultUser.model) {
+        throw "Existing chat did not inherit an explicitly selected provider Default."
     }
 
     $changedModel = Start-AgentExecution "low" "switch model" $null $completed.chatId "test" "mock-deep"
@@ -309,7 +360,9 @@ try {
 echo %TEST_AGENT_VALUE%
 </SH>
 "@
-    $environmentExecution = Start-AgentExecution "test" $environmentTask @{ TEST_AGENT_VALUE = "ENVIRONMENT_OK" }
+    # Return only the scripted Agent reply. The normal mock echoes bootstrap
+    # instructions and is not a valid model-side protocol fixture.
+    $environmentExecution = Start-AgentExecution "test" $environmentTask @{ TEST_AGENT_VALUE = "ENVIRONMENT_OK" } $null "test-scripted"
     $environmentRoot = Wait-AgentExecution $environmentExecution.executionId
     $environmentExecutions = @(Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($environmentRoot.chatId)/executions")
     $environmentShell = $environmentExecutions | ForEach-Object { $_ } |
@@ -354,19 +407,33 @@ echo %TEST_AGENT_VALUE%
         throw "Debug log still exposes obsolete requester metadata."
     }
 
-    # Agent Web is the browser-facing half of the same local trust boundary and must also reject network exposure.
+    # Agent Web must fail closed on non-loopback exposure. Windows crash reporting
+    # can leave a rejected .NET process alive after stderr records the exception.
+    if (Get-NetTCPConnection -LocalPort 5201 -State Listen -ErrorAction SilentlyContinue) {
+        throw "Port 5201 is already listening; cannot safely verify Agent Web rejection."
+    }
     $badWeb = Start-Process -FilePath "dotnet" `
         -ArgumentList @("run", "--project", (Join-Path $root "src\Mezhs.Agent.Web\Mezhs.Agent.Web.csproj"), "-c", "Release", "--no-build", "--no-launch-profile", "--", "--urls", "http://0.0.0.0:5201", "--Agent:BaseUrl", "http://127.0.0.1:5199") `
         -WorkingDirectory $root -RedirectStandardOutput $badWebOut -RedirectStandardError $badWebErr -WindowStyle Hidden -PassThru
     try {
-        if (-not $badWeb.WaitForExit(25000)) {
-            Stop-Process -Id $badWeb.Id -Force
-            $badWeb.WaitForExit()
-            throw "Non-loopback Agent Web startup did not exit within 25 seconds (PID $($badWeb.Id)); inspect $badWebErr."
-        }
-        $badWebText = (Get-Content -LiteralPath $badWebErr -Raw) + (Get-Content -LiteralPath $badWebOut -Raw)
-        if ($badWeb.ExitCode -eq 0 -or $badWebText -notmatch "loopback") {
+        $deadline = [DateTimeOffset]::UtcNow.AddSeconds(25)
+        do {
+            $badWebErrorText = if (Test-Path -LiteralPath $badWebErr) {
+                Get-Content -LiteralPath $badWebErr -Raw -ErrorAction SilentlyContinue
+            } else { "" }
+            if ($badWeb.HasExited -or $badWebErrorText -match "Agent Web listen URL must use a loopback address") {
+                break
+            }
+            Start-Sleep -Milliseconds 100
+        } while ([DateTimeOffset]::UtcNow -lt $deadline)
+        $badWebText = (Get-Content -LiteralPath $badWebErr -Raw -ErrorAction SilentlyContinue) +
+            (Get-Content -LiteralPath $badWebOut -Raw -ErrorAction SilentlyContinue)
+        if (($badWeb.HasExited -and $badWeb.ExitCode -eq 0) -or
+            $badWebText -notmatch "Agent Web listen URL must use a loopback address") {
             throw "Non-loopback Agent Web configuration did not fail specifically at the exposure boundary. Output: $badWebText"
+        }
+        if (Get-NetTCPConnection -LocalPort 5201 -State Listen -ErrorAction SilentlyContinue) {
+            throw "Non-loopback Agent Web unexpectedly opened port 5201 despite rejecting configuration."
         }
     } finally {
         if (-not $badWeb.HasExited) { Stop-Process -Id $badWeb.Id -Force; $badWeb.WaitForExit() }

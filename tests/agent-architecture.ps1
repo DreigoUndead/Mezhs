@@ -40,12 +40,12 @@ $markdown = Read "src/Mezhs.Web.Lib/src/MarkdownContent.tsx"
 Assert ($program -notmatch 'AgentApiAuthentication|MEZHS_AGENT_API_KEY|StatusCodes\.Status401Unauthorized') "Decorative bearer authentication still exists in Agent API."
 Assert ($program -notmatch 'AllowAnyOrigin') "Agent API exposes unrestricted cross-origin access."
 Assert ($program -match 'AddCors' -and $program -match 'UseCors' -and $program -match 'SetIsOriginAllowed' -and $program -match 'uri\.IsLoopback') "Agent API does not restrict browser CORS to loopback origins."
-Assert ($program -match 'AddMezhsApi\(options\)' -and $program -match 'UseMezhsApi\(\)' -and $program -match 'MapMezhsApi\(deleteChats:') "Agent API is not composed from the reusable MEŽS API foundation."
+Assert ($program -match 'AddMezhsApi\(coreOptions, options\.Server\.Listen\)' -and $program -match 'UseMezhsApi\(\)' -and $program -match 'MapMezhsApi\(deleteChats:') "Agent API is not composed from the reusable MEŽS API foundation."
 Assert ($agentProject -match 'Mezhs\.Api\\Mezhs\.Api\.csproj' -and $agentProject -notmatch 'Mezhs\.Api\.Client') "Agent API still consumes the normal API through its HTTP client project."
 Assert ($worker -match 'ChatService' -and $worker -match 'MessageService' -and $worker -notmatch 'MezhsApiClient') "Agent worker still crosses an HTTP boundary instead of using core services directly."
 Assert ($agentClient -match ': MezhsApiClient') "Agent API client is not the normal MEŽS client plus Agent-specific operations."
 Assert ($coreComposition -match 'MapMezhsApi' -and $coreComposition -match 'AddMezhsApi' -and $coreComposition -match 'UseMezhsApi') "Reusable MEŽS API composition is incomplete."
-Assert ($options -match ': MezhsOptions' -and $config -match 'MezhsConfigLoader\.Load<AgentOptions>' -and $config -match 'options\.Server\.Listen' -and $config -match 'listen\.IsLoopback') "Agent configuration does not extend core MEŽS configuration while enforcing loopback binding."
+Assert ($options -notmatch ': MezhsOptions|Connections|Transport|StorageOptions|Extensions' -and $config -match 'coreConnectionIds' -and $program -match 'MezhsConfigLoader\.Load\(coreConfigPath\)' -and $program -match 'AgentConfigLoader\.Load\(configPath' -and $config -match 'listen\.IsLoopback') "Agent configuration does not independently compose Core MEŽS configuration while enforcing loopback binding."
 Assert ($agentWebHost -match 'RequireLoopbackUrls' -and $agentWebHost -match 'RequireLoopbackUri' -and $agentWebHost -match 'builder\.WebHost\.UseUrls') "Agent Web does not enforce its loopback listener boundary."
 Assert ($agentWebHost -notmatch 'Authorization|Bearer|MEZHS_AGENT_API_KEY') "Agent Web still carries redundant bearer authentication machinery."
 Assert ($options -match 'Workspace' -and $options -notmatch 'QueueCapacity|MaxConcurrentExecutions|AgentRuntimeOptions' -and $config -notmatch 'Validate\(options\.Runtime') "Global capacity settings or obsolete runtime configuration remain."
@@ -113,7 +113,7 @@ Assert ($agentService -match 'Policy does not allow environment variable' -and $
 Assert ($program -notmatch '/v1/metrics|AgentMetrics' -and $evaluation -notmatch 'AgentMetrics' -and $agentClient -notmatch 'GetMetricsAsync|AgentMetricsView') "Unused Agent metrics infrastructure still exists."
 Assert ($program -notmatch 'X-MEZHS-Requester|GetRequester|Requester' -and $agentWebHost -notmatch 'X-MEZHS-Requester|Requester' -and $agentClient -notmatch 'X-MEZHS-Requester|Requester') "Unauthenticated requester provenance still exists at API boundaries."
 Assert ($models -notmatch '\bRequester\b' -and $store -notmatch 'Requester TEXT|\$requester|record\.Requester|GetOrdinal\("Requester"\)' -and $shell -notmatch 'MEZHS_REQUESTER|\.Requester' -and $agentWebApp -notmatch '\brequester\b') "Requester residue remains in persistence, shell context, or dashboard."
-Assert ($sharedChat -match 'MarkdownContent' -and $markdown -match 'remarkGfm' -and $markdown -match 'remarkRichMarkup' -and $markdown -notmatch 'StaticMarkup|@mdx-js/mdx') "Shared chat rendering does not own safe Markdown presentation."
+Assert ($sharedChat -match 'MarkdownContent' -and $markdown -match 'RichDocumentView' -and $markdown -match 'prompt-text' -and $markdown -notmatch 'react-markdown|remark-gfm|remarkGfm|remarkRichMarkup|remarkMdx|extractRichQuestions|StaticMarkup|@mdx-js/mdx') "Shared chat rendering does not own safe canonical Markdown presentation."
 Assert ($targetPicker -match 'ConnectionModelPicker' -and
         $targetPicker -match 'target-picker-field' -and
         $targetPicker -notmatch 'className="connection-picker"|className="model-picker"|connection-avatar' -and

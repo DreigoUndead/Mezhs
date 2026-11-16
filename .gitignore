@@ -16,3 +16,4 @@ data/
 tests/data/
 /.vs
 .codegraph/
+/*.local.yaml

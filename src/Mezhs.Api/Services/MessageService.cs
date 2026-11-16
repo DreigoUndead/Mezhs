@@ -1,3 +1,4 @@
+using Mezhs.Common.RichUi;
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Mezhs;
@@ -15,6 +16,11 @@ public sealed class MessageService(
 {
     private readonly Channel<QueuedMessage> _queue = Channel.CreateUnbounded<QueuedMessage>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    private readonly ConcurrentDictionary<string, IntegrationAdmissionWaitReason> _admissionWaits =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsAdmissionWaiting(string messageId) => _admissionWaits.ContainsKey(messageId);
+
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _chatGates =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -253,7 +259,8 @@ public sealed class MessageService(
                 remoteParentMessageId: continueRemote ? remoteState?.RemoteParentMessageId : null,
                 remoteChatUrl: continueRemote ? remoteState?.RemoteChatUrl : null,
                 restoreConversation: !continueRemote,
-                reportActivity: activity => UpdateActivity(message, activity));
+                reportActivity: activity => UpdateActivity(message, activity),
+                reportAdmissionWait: reason => UpdateAdmissionWait(message, reason));
             var result = await integration.PromptAsync(
                 chatContext,
                 new PromptRequest(message.MessageId, message.Content, message.Model, inputFiles),
@@ -343,9 +350,18 @@ public sealed class MessageService(
         }
         finally
         {
+            _admissionWaits.TryRemove(message.MessageId, out _);
             if (gateTaken)
                 gate.Release();
         }
+    }
+
+    private void UpdateAdmissionWait(StoredMessage message, IntegrationAdmissionWaitReason? reason)
+    {
+        if (reason is not null && message.Status == MessageStatus.Running)
+            _admissionWaits[message.MessageId] = reason.Value;
+        else
+            _admissionWaits.TryRemove(message.MessageId, out _);
     }
 
     private void UpdateActivity(StoredMessage message, IntegrationActivity activity)
@@ -501,7 +517,10 @@ public sealed class MessageService(
             message.Analysis,
             message.ActivityAt,
             message.ActivityHistory,
-            message.ParentMessageId);
+            message.ParentMessageId,
+            string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
+            message.Status == MessageStatus.Completed
+                ? new RichDocumentParser().Parse(message.Content).Document : null);
     }
 
     private static string NormalizeStoredOrigin(StoredMessage message)

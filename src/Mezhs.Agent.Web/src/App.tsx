@@ -55,6 +55,7 @@ type AgentChatMessage = {
   origin: string;
   content: string;
   displayContent: string;
+  document?: ChatSurfaceMessage["document"];
   commands: ProtocolCommand[];
   completionClaimed: boolean;
   fileIds: string[];
@@ -200,7 +201,7 @@ function activityLabel(date: string) {
 
 function agentStatus(chat: AgentChat) {
   const state = chat.executionStatus ?? "Unknown";
-  return chat.paused && !["Queued", "Running", "CancelRequested"].includes(state)
+  return chat.paused && !["Queued", "Running", "Waiting", "CancelRequested"].includes(state)
     ? "Paused" : state;
 }
 
@@ -275,7 +276,7 @@ function executionFromEnvelope(content: string, executions: Execution[]) {
 function toSharedMessage(message: AgentChatMessage, executions: Execution[]): ChatSurfaceMessage {
   let content = message.content;
   if (message.role === "assistant") {
-    content = message.displayContent;
+    content = message.document ? message.content : message.displayContent;
   } else if (message.origin === "command-result") {
     content = "";
   } else if (message.origin !== "agent-runtime") {
@@ -290,6 +291,7 @@ function toSharedMessage(message: AgentChatMessage, executions: Execution[]): Ch
     role: message.role,
     origin: message.origin,
     content,
+    document: message.document,
     status: message.status,
     createdAt: message.createdAt,
     error: message.error,

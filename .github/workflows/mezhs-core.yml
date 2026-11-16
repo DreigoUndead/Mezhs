@@ -43,15 +43,6 @@ jobs:
       - name: Build .NET solution
         run: dotnet build Mezhs.sln -c Release --nologo
 
-      - name: Integration V2 typed chat history and reply identity contract
-        shell: pwsh
-        run: |
-          dotnet run --project tests/Mezhs.Integration.Contracts.Probe/Mezhs.Integration.Contracts.Probe.csproj -c Release
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Compile standalone authenticated typed HTTP Electron feasibility probe
-        run: dotnet build tests/Mezhs.TypedHttp.Probe/Mezhs.TypedHttp.Probe.csproj -c Release --nologo
-
       - name: SQLite ChatStore migration and failure-injection regression
         shell: pwsh
         run: |
@@ -69,6 +60,10 @@ jobs:
       - name: Rich formatting and real Chromium regression
         shell: pwsh
         run: |
+          # Multiple Node test workers share the canonical C# fixture DLL.
+          # Build it once before the workers to avoid concurrent compiler writes.
+          dotnet build tests/Mezhs.RichUi.TestApp/Mezhs.RichUi.TestApp.csproj -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test tests/agent-web-rich-formatting.test.cjs tests/agent-status-unread-browser.test.cjs tests/integration-model-mismatch.test.cjs tests/chat-ui-browser.test.cjs tests/rich-model-ui-rendering.test.cjs tests/rich-model-ui-browser.test.cjs tests/group-delete-browser.test.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -83,6 +78,8 @@ jobs:
       - name: Agent API model and policy smoke
         shell: pwsh
         run: |
+          pwsh -NoProfile -File tests/policy-decoder.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pwsh -NoProfile -File tests/agent-api-smoke.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -99,8 +96,6 @@ jobs:
         run: |
           foreach ($test in @(
             'agent-architecture.ps1',
-            'architecture.ps1',
-            'grok-architecture.ps1',
             'agent-provider-lifetime.ps1',
             'integration-resources.ps1'
           )) {

@@ -18,7 +18,8 @@ public sealed class ChatContext
         string? remoteParentMessageId = null,
         string? remoteChatUrl = null,
         bool restoreConversation = false,
-        Action<IntegrationActivity>? reportActivity = null)
+        Action<IntegrationActivity>? reportActivity = null,
+        Action<IntegrationAdmissionWaitReason?>? reportAdmissionWait = null)
     {
         Id = id;
         ConnectionId = connectionId;
@@ -27,6 +28,7 @@ public sealed class ChatContext
         RemoteChatUrl = remoteChatUrl;
         RestoreConversation = restoreConversation;
         ReportActivity = reportActivity;
+        ReportAdmissionWait = reportAdmissionWait;
         _getHistory = getHistory ?? throw new ArgumentNullException(nameof(getHistory));
     }
 
@@ -39,6 +41,7 @@ public sealed class ChatContext
     public string? RemoteChatUrl { get; }
     public bool RestoreConversation { get; }
     public Action<IntegrationActivity>? ReportActivity { get; }
+    public Action<IntegrationAdmissionWaitReason?>? ReportAdmissionWait { get; }
 
     public Task<IReadOnlyList<ChatMessage>> GetHistoryAsync(
         int? limit = null,
