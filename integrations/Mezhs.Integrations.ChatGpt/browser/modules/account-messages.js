@@ -146,7 +146,7 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
   reportProgress?.({ state: "retrieving", detail: "Retrieving final ChatGPT response." });
   return completeAccountMessage(
     session, token, conversationId, requestMessageId, sleep,
-    reportProgress, execution
+    reportProgress, execution, signal
   );
 }
 
