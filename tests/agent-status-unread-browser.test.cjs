@@ -255,13 +255,13 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
       plugins: [{
         name: "count-real-transcript-renders",
         setup(build) {
-          build.onLoad({ filter: /ChatSurface\\.tsx$/ }, (args) => {
+          build.onLoad({ filter: /ChatSurface\.tsx$/ }, (args) => {
             const source = fs.readFileSync(args.path, "utf8");
             const needle = '  const apiBase = apiBaseUrl.replace(/\\/$/, "");';
             assert.ok(source.includes(needle), "Transcript instrumentation point missing");
             return {
               contents: source.replace(needle,
-                '  (window as any).__transcriptRenderCount = ((window as any).__transcriptRenderCount || 0) + 1;\\n' + needle),
+                '  (window as any).__transcriptRenderCount = ((window as any).__transcriptRenderCount || 0) + 1;\n' + needle),
               loader: "tsx",
             };
           });
