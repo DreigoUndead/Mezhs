@@ -779,7 +779,9 @@ useEffect(() => {
       const values = await apiJson<AgentChat[]>("", "/v1/agent-chats", { signal });
       if (signal?.aborted || epoch !== chatRefreshEpoch.current) return;
       const visible = values.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId));
-      setChats((current) => JSON.stringify(current) === JSON.stringify(visible) ? current : visible);
+      // Running execution clocks still use the periodic list tick for elapsed labels.
+      const refreshElapsed = executionsRef.current.some((execution) => !execution.isTerminal && !!execution.startedAt);
+      setChats((current) => !refreshElapsed && JSON.stringify(current) === JSON.stringify(visible) ? current : visible);
       const currentId = selectedChatIdRef.current;
       if (currentId && !visible.some((chat) => chat.chatId === currentId)) {
         deletedChatIdsRef.current.add(currentId);
