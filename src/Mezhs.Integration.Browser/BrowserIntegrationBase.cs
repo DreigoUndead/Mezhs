@@ -172,7 +172,7 @@ public abstract class BrowserIntegrationBase(
                 ? await BuildRestorePromptAsync(chat, request.Text, token)
                 : request.Text;
             var response = await transport.InvokeAsync<BrowserSendResult>(
-                "sendPrompt", new { Prompt = prompt, NewChat = true }, token);
+                "sendPrompt", new { Prompt = prompt, NewChat = true, MessageId = request.MessageId }, token);
             if (!response.Ok)
                 throw new InvalidOperationException(response.Error ?? "Anonymous browser request failed.");
             return new PromptResult(response.Text, CreateMessageId(), request.Model ?? "default");
