@@ -6,7 +6,7 @@ Typing in the MEŽS Agent composer can stall visibly in long chats, especially w
 
 ## Approach
 - Keep the Agent transcript element stable across draft-only updates; invalidate it when transcript data, execution evidence, active statuses, chat selection, or command-action state changes.
-- Memoize the shared Markdown/rich-message component so unchanged content and parsed document do not re-render during unrelated parent updates.
+- Memoize the ordinary chat's transcript viewport so draft-only updates do not rebuild unchanged rich messages.
 - Preserve all existing draft and send ownership and behavior. Avoid a new global draft state mechanism.
 
 ## Acceptance criteria
@@ -25,7 +25,7 @@ Typing in the MEŽS Agent composer can stall visibly in long chats, especially w
 The cached transcript must invalidate on every material state change; failing to include a dependency could leave stale buttons or output. Keep the cache scoped to only the transcript, not the composer or sidebar.
 
 ## Implementation notes
-- The Agent UI memoizes its transcript and execution-history JSX at stable React-state boundaries, invalidating on message, execution, status, selection and shell-action changes.
+- The Agent UI memoizes its transcript and execution-history JSX at stable React-state boundaries, invalidating on message, execution, status, selection and shell-action changes. Unchanged chat-list polling preserves the memoized transcript.
 - The ordinary chat UI memoizes the conversation viewport so changing only the draft does not rebuild message markup. Draft state and send semantics are not modified.
 - The Chromium Agent-status browser test now instruments the real transcript component during a long-chat typing sequence, checks it remains stable, and checks incoming messages invalidate it.
 - Existing browser draft/scroll tests are intended to run unchanged. No new import or dependency edge requires Codegraph regeneration.
