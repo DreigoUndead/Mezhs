@@ -732,6 +732,92 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     return connections.find((connection) => connection.id === id);
   }
 
+  // Draft changes should update the composer, not reconcile every completed
+  // message (including rich documents) in a long conversation.
+  const transcript = useMemo(() => (
+        <ConversationViewport conversationKey={draftKey} messages={messages} historyReady={!chatId || historyLoadedChatId === chatId} busy={sending} empty={messages.length === 0}>
+          {messages.length === 0 ? (
+            <div className="welcome">
+              <div className="welcome-orbit"><span>M</span></div>
+              <p className="eyebrow">YOUR UNIVERSAL AI WORKSPACE</p>
+              <h2>One conversation layer across every AI.</h2>
+              <p>Bring subscriptions, free sessions, and local models into one interface while MEŽS keeps your history independent from every provider.</p>
+              <div className="product-points">
+                <article><b>01</b><strong>Connect</strong><p>Use the AI access you already have behind one consistent API.</p></article>
+                <article><b>02</b><strong>Continue</strong><p>Keep durable local conversations, even when a guest session forgets them.</p></article>
+                <article><b>03</b><strong>Organize</strong><p>Search and group work without depending on a provider's project system.</p></article>
+              </div>
+            </div>
+          ) : messages.map((message) => {
+            const messageEpoch = selectionEpoch.current;
+            const messageConnection = connectionFor(message.connectionId);
+            const messageModelName = message.model &&
+              message.connectionId === selectedConnection?.id
+              ? models.find((model) => model.id === message.model)?.name || message.model
+              : message.model;
+            return (
+              <article key={message.messageId} className={`message ${message.role}`}>
+                <div className="message-avatar">{message.role === "assistant" ? "M" : "YOU"}</div>
+                <div className="message-body">
+                  <div className="message-meta">
+                    <strong>{message.role === "assistant" ? messageConnection?.name || "Assistant" : "You"}</strong>
+                    <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    {message.model && (
+                      <span
+                        className="message-model"
+                        title={`${message.role === "user" ? "Requested" : "Provider-reported"} model ID: ${message.model}`}
+                      >
+                        {message.role === "user" ? "Requested: " : "Served: "}{messageModelName}
+                      </span>
+                    )}
+                    {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
+                  </div>
+                  {message.content && <div className="message-content"><MarkdownContent content={message.content} document={message.document}
+                      verbatim={message.role === "user"}
+                      onIssueNewTurn={chatId && message.chatId === chatId &&
+                        message.connectionId === connectionId && message.role === "assistant" &&
+                        message.status === "Completed" &&
+                        !["agent-runtime", "command-result"].includes(message.origin.toLowerCase()) &&
+                        !sending && !activeMessage && online
+                        ? (content) => issueNewTurn(message, messageEpoch, content)
+                        : undefined}
+                    /></div>}
+                  {message.files?.length > 0 && (
+                    <div className="message-files">
+                      {message.files.map((file) => file.contentType.startsWith("image/") ? (
+                        <a className="message-image" key={file.fileId} href={`${apiBase}${file.contentUrl}`} target="_blank" rel="noreferrer">
+                          <img src={`${apiBase}${file.contentUrl}`} alt={file.name} />
+                          <span>{file.name}<small>{formatBytes(file.size)}</small></span>
+                        </a>
+                      ) : (
+                        <a className="message-file" key={file.fileId} href={`${apiBase}${file.downloadUrl}`}>
+                          <b>FILE</b><span>{file.name}<small>{formatBytes(file.size)}</small></span><i>Download</i>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  {message.error && <p className="message-error">{message.error}</p>}
+                  {message.analysis && (
+                    <details className="message-analysis">
+                      <summary>Model analysis</summary>
+                      <pre>{message.analysis}</pre>
+                    </details>
+                  )}
+                  {message.role === "user" && terminalStatuses.has(message.status) && (
+                    <button className="replay" onClick={() => void replay(message.messageId)} disabled={sending}>Replay request</button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+          {sending && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>{busyLabel}</span></div>}
+        </ConversationViewport>
+  ), [
+    draftKey, messages, chatId, historyLoadedChatId, sending, busyLabel,
+    selectedConnection, connections, models, online, connectionId, modelId,
+    newChatCategoryId, pendingFiles, apiBase,
+  ]);
+
   return (
     <div className="app-shell">
       <button className="mobile-menu" onClick={() => setSidebarOpen(true)} aria-label="Open conversations">Menu</button>
@@ -1026,83 +1112,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
           </div>
         </header>
 
-        <ConversationViewport conversationKey={draftKey} messages={messages} historyReady={!chatId || historyLoadedChatId === chatId} busy={sending} empty={messages.length === 0}>
-          {messages.length === 0 ? (
-            <div className="welcome">
-              <div className="welcome-orbit"><span>M</span></div>
-              <p className="eyebrow">YOUR UNIVERSAL AI WORKSPACE</p>
-              <h2>One conversation layer across every AI.</h2>
-              <p>Bring subscriptions, free sessions, and local models into one interface while MEŽS keeps your history independent from every provider.</p>
-              <div className="product-points">
-                <article><b>01</b><strong>Connect</strong><p>Use the AI access you already have behind one consistent API.</p></article>
-                <article><b>02</b><strong>Continue</strong><p>Keep durable local conversations, even when a guest session forgets them.</p></article>
-                <article><b>03</b><strong>Organize</strong><p>Search and group work without depending on a provider's project system.</p></article>
-              </div>
-            </div>
-          ) : messages.map((message) => {
-            const messageEpoch = selectionEpoch.current;
-            const messageConnection = connectionFor(message.connectionId);
-            const messageModelName = message.model &&
-              message.connectionId === selectedConnection?.id
-              ? models.find((model) => model.id === message.model)?.name || message.model
-              : message.model;
-            return (
-              <article key={message.messageId} className={`message ${message.role}`}>
-                <div className="message-avatar">{message.role === "assistant" ? "M" : "YOU"}</div>
-                <div className="message-body">
-                  <div className="message-meta">
-                    <strong>{message.role === "assistant" ? messageConnection?.name || "Assistant" : "You"}</strong>
-                    <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                    {message.model && (
-                      <span
-                        className="message-model"
-                        title={`${message.role === "user" ? "Requested" : "Provider-reported"} model ID: ${message.model}`}
-                      >
-                        {message.role === "user" ? "Requested: " : "Served: "}{messageModelName}
-                      </span>
-                    )}
-                    {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
-                  </div>
-                  {message.content && <div className="message-content"><MarkdownContent content={message.content} document={message.document}
-                      verbatim={message.role === "user"}
-                      onIssueNewTurn={chatId && message.chatId === chatId &&
-                        message.connectionId === connectionId && message.role === "assistant" &&
-                        message.status === "Completed" &&
-                        !["agent-runtime", "command-result"].includes(message.origin.toLowerCase()) &&
-                        !sending && !activeMessage && online
-                        ? (content) => issueNewTurn(message, messageEpoch, content)
-                        : undefined}
-                    /></div>}
-                  {message.files?.length > 0 && (
-                    <div className="message-files">
-                      {message.files.map((file) => file.contentType.startsWith("image/") ? (
-                        <a className="message-image" key={file.fileId} href={`${apiBase}${file.contentUrl}`} target="_blank" rel="noreferrer">
-                          <img src={`${apiBase}${file.contentUrl}`} alt={file.name} />
-                          <span>{file.name}<small>{formatBytes(file.size)}</small></span>
-                        </a>
-                      ) : (
-                        <a className="message-file" key={file.fileId} href={`${apiBase}${file.downloadUrl}`}>
-                          <b>FILE</b><span>{file.name}<small>{formatBytes(file.size)}</small></span><i>Download</i>
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                  {message.error && <p className="message-error">{message.error}</p>}
-                  {message.analysis && (
-                    <details className="message-analysis">
-                      <summary>Model analysis</summary>
-                      <pre>{message.analysis}</pre>
-                    </details>
-                  )}
-                  {message.role === "user" && terminalStatuses.has(message.status) && (
-                    <button className="replay" onClick={() => void replay(message.messageId)} disabled={sending}>Replay request</button>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-          {sending && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>{busyLabel}</span></div>}
-        </ConversationViewport>
+        {transcript}
 
         <footer className="composer-wrap">
           {notice && <div className="notice"><span>{notice}</span><button onClick={() => setNotice(null)} aria-label="Dismiss">x</button></div>}
