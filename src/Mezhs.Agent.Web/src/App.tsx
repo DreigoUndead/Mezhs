@@ -779,7 +779,7 @@ useEffect(() => {
       const values = await apiJson<AgentChat[]>("", "/v1/agent-chats", { signal });
       if (signal?.aborted || epoch !== chatRefreshEpoch.current) return;
       const visible = values.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId));
-      setChats(visible);
+      setChats((current) => JSON.stringify(current) === JSON.stringify(visible) ? current : visible);
       const currentId = selectedChatIdRef.current;
       if (currentId && !visible.some((chat) => chat.chatId === currentId)) {
         deletedChatIdsRef.current.add(currentId);
