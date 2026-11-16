@@ -566,7 +566,7 @@ export default function App() {
     : activeMessage?.activity
       ? modelActivityLabel(activeMessage.activity, activeMessage.activityDetail)
       : activeMessage?.origin === "command-result"
-        ? "Preparing command-result follow-up…"
+        ? "Waiting to continue after command result…"
         : activeMessage
           ? "Preparing model request…"
           : activeExecution
