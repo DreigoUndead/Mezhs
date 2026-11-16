@@ -295,13 +295,22 @@ static AgentChatView ToView(
     var latestStatus = statuses.GetValueOrDefault(record.ChatId);
     var savedTitle = core?.Title;
     var effectiveStatus = latestStatus?.Status;
+    string? admissionWaitReason = null;
+    int? admissionMaxParallel = null;
     if (string.Equals(effectiveStatus, nameof(AgentExecutionStatus.Running), StringComparison.Ordinal) &&
         latestStatus is not null &&
         worker.TryGetActiveModelMessage(latestStatus.ExecutionId, out var messageId) &&
         chats.GetMessage(messageId) is { Status: MessageStatus.Running } activeMessage &&
-        string.Equals(activeMessage.ChatId, record.ChatId, StringComparison.OrdinalIgnoreCase) &&
-        messages.IsAdmissionWaiting(messageId))
-        effectiveStatus = "Waiting";
+        string.Equals(activeMessage.ChatId, record.ChatId, StringComparison.OrdinalIgnoreCase))
+    {
+        var admission = messages.GetAdmissionWait(messageId, activeMessage.ConnectionId);
+        if (admission is { } blocked)
+        {
+            effectiveStatus = "Waiting";
+            admissionWaitReason = blocked.Reason.ToString();
+            admissionMaxParallel = blocked.MaxParallel;
+        }
+    }
     return new AgentChatView(
         record.ChatId,
         record.PolicyId,
@@ -316,7 +325,9 @@ static AgentChatView ToView(
         lastActivity,
         core?.CategoryId,
         effectiveStatus,
-        latestStatus?.ExecutionId);
+        latestStatus?.ExecutionId,
+        admissionWaitReason,
+        admissionMaxParallel);
 }
 
 static string SafeFilePart(string value)
