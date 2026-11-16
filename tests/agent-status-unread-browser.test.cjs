@@ -208,7 +208,7 @@ const chromeCandidates = [
 ];
 const chrome = chromeCandidates.find(candidate => candidate && fs.existsSync(candidate));
 
-test("Agent status: compact label, unread completion and read-on-open in real Chromium", { timeout: 70000 }, () => {
+test("Agent status: compact label, unread completion and read-on-open in real Chromium", { timeout: 110000 }, () => {
   assert.ok(chrome, "Real Chromium is required for Agent status UI regression");
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), "mezhs-agent-status-"));
   try {
@@ -231,14 +231,14 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
       // Normal-motion transitions remain in the application; reduced-motion is a user-supported mode.
       "--headless=new", "--force-prefers-reduced-motion", "--no-sandbox", "--disable-gpu", "--disable-background-networking",
       "--no-first-run", "--user-data-dir=" + path.join(folder, "profile"),
-      "--virtual-time-budget=32000", "--dump-dom",
+      "--virtual-time-budget=65000", "--dump-dom",
       "file:///" + path.join(folder, "index.html").replace(/\\/g, "/"),
-    ], { encoding: "utf8", timeout: 60000, maxBuffer: 12 * 1024 * 1024 });
+    ], { encoding: "utf8", timeout: 100000, maxBuffer: 12 * 1024 * 1024 });
     assert.equal(result.status, 0, String(result.error || result.stderr));
     const report = /<pre id="agent-status-browser-results" data-status="([^"]+)">([^<]*)<\/pre>/.exec(result.stdout);
     assert.ok(report, "Browser did not report: " + result.stdout.slice(-1500) + " " + result.stderr);
     assert.equal(report[1], "pass", report[2]);
-    for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution", "waiting-orange-running-recovery"])
+    for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution", "waiting-orange-running-recovery", "capacity-spacing-provider-separation"])
       assert.ok(report[2].includes(expected), "Missing scenario " + expected);
   } finally {
     fs.rmSync(folder, { recursive: true, force: true });
