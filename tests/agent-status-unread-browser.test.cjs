@@ -159,6 +159,12 @@ async function run() {
       "Draft updates re-rendered the full transcript " + (draftRenderCount - firstRenderCount) + " times");
     checked.push("draft-skips-long-transcript");
 
+    // Normal five-second chat-list polling must not redraw unchanged history.
+    await sleep(5700);
+    requireCondition(window.__transcriptRenderCount === draftRenderCount,
+      "Unchanged chat-list polling re-rendered the transcript");
+    checked.push("unchanged-chat-poll-skips-transcript");
+
     window.fixtureMessages["chat-b"].push({
       messageId: "history-refresh", chatId: "chat-b", connectionId: "mock",
       role: "assistant", origin: "model", content: "Transcript refresh marker",
@@ -289,7 +295,7 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
     const report = /<pre id="agent-status-browser-results" data-status="([^"]+)">([^<]*)<\/pre>/.exec(result.stdout);
     assert.ok(report, "Browser did not report: " + result.stdout.slice(-1500) + " " + result.stderr);
     assert.equal(report[1], "pass", report[2]);
-    for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution", "waiting-orange-running-recovery", "capacity-spacing-provider-separation", "draft-skips-long-transcript", "message-update-refreshes-transcript"])
+    for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution", "waiting-orange-running-recovery", "capacity-spacing-provider-separation", "draft-skips-long-transcript", "unchanged-chat-poll-skips-transcript", "message-update-refreshes-transcript"])
       assert.ok(report[2].includes(expected), "Missing scenario " + expected);
   } finally {
     fs.rmSync(folder, { recursive: true, force: true });
