@@ -1469,6 +1469,51 @@ useEffect(() => {
     protocolCommandsByMessageId, commandEvidenceByMessageId, shellActionExecutionId,
   ]);
 
+  // The execution log can include large command outputs; draft edits should
+  // not rebuild it. Selected-chat refresh also keeps running elapsed labels live.
+  const executionHistory = useMemo(() => (
+            <details className="agent-execution-details">
+              <summary>Execution history {shellExecutions.length > 0 && <span>{shellExecutions.length} shell</span>}</summary>
+              <div className="agent-execution-list">
+                {executions.map((execution) => (
+                  <article className="agent-execution-row" key={execution.executionId}>
+                    <div className="agent-execution-topline">
+                      <strong>{execution.commandName ?? execution.kind}</strong>
+                      <span className={`agent-execution-status ${statusTone(execution)}`}>{execution.status}</span>
+                      {execution.exitCode !== undefined && <span>exit {execution.exitCode}</span>}
+                      {!execution.isTerminal && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
+                      <time>{formatTime(execution.createdAt)}</time>
+                    </div>
+                    {execution.kind === "Shell" ? <pre className="agent-command-code">{execution.request}</pre> : <code>{execution.request}</code>}
+                    {execution.restartedFromId && <small>restarted from {execution.restartedFromId}</small>}
+                    {execution.restartedAsId && <small>restarted as {execution.restartedAsId}</small>}
+                    {execution.result && <pre>{execution.result}</pre>}
+                    {execution.error && <pre className="agent-error-output">{execution.error}</pre>}
+                    {execution.kind === "Shell" && (
+                      <div className="agent-header-actions">
+                        {!execution.isTerminal && execution.status !== "KillRequested" && (
+                          <button
+                            type="button"
+                            className="agent-danger"
+                            onClick={() => void shellAction(execution.executionId, "kill")}
+                            disabled={!!shellActionExecutionId}
+                          >Kill</button>
+                        )}
+                        <button
+                          type="button"
+                          className="agent-secondary"
+                          onClick={() => void shellAction(execution.executionId, "restart")}
+                          disabled={!!shellActionExecutionId}
+                        >Restart</button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+                {executions.length === 0 && <p>No execution records yet.</p>}
+              </div>
+            </details>
+  ), [executions, shellExecutions, shellActionExecutionId, selectedChatId, selectedChat]);
+
   return (
     <div className="agent-shell">
       {showConversationManager && (
@@ -1834,46 +1879,7 @@ useEffect(() => {
               disclaimer="Agent actions are governed by policy and recorded in execution history."
             />
 
-            <details className="agent-execution-details">
-              <summary>Execution history {shellExecutions.length > 0 && <span>{shellExecutions.length} shell</span>}</summary>
-              <div className="agent-execution-list">
-                {executions.map((execution) => (
-                  <article className="agent-execution-row" key={execution.executionId}>
-                    <div className="agent-execution-topline">
-                      <strong>{execution.commandName ?? execution.kind}</strong>
-                      <span className={`agent-execution-status ${statusTone(execution)}`}>{execution.status}</span>
-                      {execution.exitCode !== undefined && <span>exit {execution.exitCode}</span>}
-                      {!execution.isTerminal && elapsedLabel(execution) && <span>{elapsedLabel(execution)}</span>}
-                      <time>{formatTime(execution.createdAt)}</time>
-                    </div>
-                    {execution.kind === "Shell" ? <pre className="agent-command-code">{execution.request}</pre> : <code>{execution.request}</code>}
-                    {execution.restartedFromId && <small>restarted from {execution.restartedFromId}</small>}
-                    {execution.restartedAsId && <small>restarted as {execution.restartedAsId}</small>}
-                    {execution.result && <pre>{execution.result}</pre>}
-                    {execution.error && <pre className="agent-error-output">{execution.error}</pre>}
-                    {execution.kind === "Shell" && (
-                      <div className="agent-header-actions">
-                        {!execution.isTerminal && execution.status !== "KillRequested" && (
-                          <button
-                            type="button"
-                            className="agent-danger"
-                            onClick={() => void shellAction(execution.executionId, "kill")}
-                            disabled={!!shellActionExecutionId}
-                          >Kill</button>
-                        )}
-                        <button
-                          type="button"
-                          className="agent-secondary"
-                          onClick={() => void shellAction(execution.executionId, "restart")}
-                          disabled={!!shellActionExecutionId}
-                        >Restart</button>
-                      </div>
-                    )}
-                  </article>
-                ))}
-                {executions.length === 0 && <p>No execution records yet.</p>}
-              </div>
-            </details>
+            {executionHistory}
           </>
         )}
       </main>
