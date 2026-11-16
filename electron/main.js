@@ -375,6 +375,12 @@ function queueProviderOperation(request) {
   return operationId;
 }
 
+function findActiveProviderTurn(contextId, messageId) {
+  return [...providerOperations.values()].find(state =>
+    state.contextId === contextId && state.messageId === messageId &&
+    state.status === "running" && !state.cancelled) || null;
+}
+
 // This is strictly one in-flight operation; never stop by account, session, or
 // conversation alone. A successful local request is not proof of remote stop.
 async function stopProviderOperation(state) {
@@ -454,10 +460,8 @@ async function start() {
         if (typeof contextId !== "string" || !contextId.trim() ||
             typeof messageId !== "string" || !messageId.trim())
           throw new Error("A contextId and messageId are required.");
-        const active = [...providerOperations.values()].find(state =>
-          state.contextId === contextId && state.messageId === messageId &&
-          state.status === "running" && !state.cancelled);
-        writeJson(response, 200, await stopProviderOperation(active));
+        writeJson(response, 200,
+          await stopProviderOperation(findActiveProviderTurn(contextId, messageId)));
       } else if (request.method === "POST" && /^\/invoke\/[^/]+\/cancel$/.test(requestUrl.pathname)) {
         const operationId = decodeURIComponent(requestUrl.pathname.slice(8, -7));
         writeJson(response, 200, { cancelled: cancelProviderOperation(operationId) });
