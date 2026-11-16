@@ -1,10 +1,10 @@
-import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Check, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
 import { modelActivityLabel } from "./ChatSurface";
 import { ConversationViewport } from "./ConversationViewport";
 import { useConversationPending } from './useConversationPending';
-import { useConversationDrafts } from "./useConversationDrafts";
+import { useConversationDraftStore, useConversationDraftValue, type ConversationDraftStore } from "./useConversationDrafts";
 import { MarkdownContent } from "./MarkdownContent";
 import { ConnectionModelPicker } from "./ConnectionModelPicker";
 import { ChatProviderRegistry } from "./providers/registry";
@@ -81,6 +81,42 @@ export type MezhsChatAppProps = {
   apiBaseUrl: string;
 };
 
+type DraftTextareaProps = {
+  store: ConversationDraftStore;
+  draftKey: string;
+  inputRef: RefObject<HTMLTextAreaElement>;
+  onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  placeholder: string;
+  disabled: boolean;
+};
+
+function DraftTextarea({ store, draftKey, inputRef, onKeyDown, placeholder, disabled }: DraftTextareaProps) {
+  const draft = useConversationDraftValue(store, draftKey);
+  useAutoResizeTextArea(inputRef, draft);
+  return (
+    <textarea
+      ref={inputRef}
+      value={draft}
+      onChange={(event) => store.setDraft(draftKey, event.target.value)}
+      onKeyDown={onKeyDown}
+      placeholder={placeholder}
+      rows={1}
+      disabled={disabled}
+      aria-label="Message"
+    />
+  );
+}
+
+function DraftSendButton({ store, draftKey, fileReady, blocked }: {
+  store: ConversationDraftStore;
+  draftKey: string;
+  fileReady: boolean;
+  blocked: boolean;
+}) {
+  const draft = useConversationDraftValue(store, draftKey);
+  return <button className="send" type="submit" disabled={(!draft.trim() && !fileReady) || blocked} aria-label="Send message">^</button>;
+}
+
 export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const apiBase = apiBaseUrl.replace(/\/$/, "");
   const apiAvailability = useApiAvailability(apiBase);
@@ -135,7 +171,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const activeChat = chats.find((chat) => chat.chatId === chatId);
   const selectedGroup = categories.find((category) => sameCategoryId(category.categoryId, categoryFilter));
   const draftKey = chatId ? `chat:${chatId}` : `new:${newChatSequence}:${connectionId}`;
-  const { draft, setDraft, clearDraft, moveDraft, restoreDraft } = useConversationDrafts(draftKey);
+  const draftStore = useConversationDraftStore();
   const { pending: sending, start: startSend, transfer: transferSend, finish: finishSend } = useConversationPending(draftKey);
   const activeMessage = [...messages].reverse().find((message) =>
     message.role === "user" && !terminalStatuses.has(message.status));
@@ -306,7 +342,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     const submittedKey = draftKey;
     let pendingKey = submittedKey;
     if (!startSend(pendingKey)) return;
-    if (fromComposer) clearDraft(submittedKey, content);
+    if (fromComposer) draftStore.clearDraft(submittedKey, content);
     let accepted = false;
     setNotice(null);
     try {
@@ -317,7 +353,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
       );
       accepted = true;
       if (!targetChatId) {
-        if (fromComposer) moveDraft(submittedKey, `chat:${request.chatId}`, "");
+        if (fromComposer) draftStore.moveDraft(submittedKey, `chat:${request.chatId}`, "");
         transferSend(pendingKey, `chat:${request.chatId}`);
         pendingKey = `chat:${request.chatId}`;
       }
@@ -329,7 +365,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
       }
       await poll(request.messageId, request.chatId, epoch);
     } catch (error) {
-      if (fromComposer && !accepted) restoreDraft(submittedKey, content);
+      if (fromComposer && !accepted) draftStore.restoreDraft(submittedKey, content);
       if (selectionEpoch.current === epoch)
         setNotice(error instanceof Error ? error.message : "Message could not be sent.");
     } finally {
@@ -341,7 +377,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     event?.preventDefault();
     if (pendingFiles.some((item) => item.uploading)) return;
     const files = pendingFiles.flatMap((item) => item.uploaded ? [item.uploaded] : []);
-    void sendTurn(draft, files, true);
+    void sendTurn(draftStore.getDraft(draftKey), files, true);
   }
 
   function issueNewTurn(source: Message, sourceEpoch: number, content: string) {
@@ -678,8 +714,6 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     setNewChatCategoryId(id === "all" || id === "uncategorized" ? "" : id);
   }
 
-  useAutoResizeTextArea(composerRef, draft);
-
   function handleComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -731,92 +765,6 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
   function connectionFor(id: string) {
     return connections.find((connection) => connection.id === id);
   }
-
-  // Draft changes should update the composer, not reconcile every completed
-  // message (including rich documents) in a long conversation.
-  const transcript = useMemo(() => (
-        <ConversationViewport conversationKey={draftKey} messages={messages} historyReady={!chatId || historyLoadedChatId === chatId} busy={sending} empty={messages.length === 0}>
-          {messages.length === 0 ? (
-            <div className="welcome">
-              <div className="welcome-orbit"><span>M</span></div>
-              <p className="eyebrow">YOUR UNIVERSAL AI WORKSPACE</p>
-              <h2>One conversation layer across every AI.</h2>
-              <p>Bring subscriptions, free sessions, and local models into one interface while MEŽS keeps your history independent from every provider.</p>
-              <div className="product-points">
-                <article><b>01</b><strong>Connect</strong><p>Use the AI access you already have behind one consistent API.</p></article>
-                <article><b>02</b><strong>Continue</strong><p>Keep durable local conversations, even when a guest session forgets them.</p></article>
-                <article><b>03</b><strong>Organize</strong><p>Search and group work without depending on a provider's project system.</p></article>
-              </div>
-            </div>
-          ) : messages.map((message) => {
-            const messageEpoch = selectionEpoch.current;
-            const messageConnection = connectionFor(message.connectionId);
-            const messageModelName = message.model &&
-              message.connectionId === selectedConnection?.id
-              ? models.find((model) => model.id === message.model)?.name || message.model
-              : message.model;
-            return (
-              <article key={message.messageId} className={`message ${message.role}`}>
-                <div className="message-avatar">{message.role === "assistant" ? "M" : "YOU"}</div>
-                <div className="message-body">
-                  <div className="message-meta">
-                    <strong>{message.role === "assistant" ? messageConnection?.name || "Assistant" : "You"}</strong>
-                    <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                    {message.model && (
-                      <span
-                        className="message-model"
-                        title={`${message.role === "user" ? "Requested" : "Provider-reported"} model ID: ${message.model}`}
-                      >
-                        {message.role === "user" ? "Requested: " : "Served: "}{messageModelName}
-                      </span>
-                    )}
-                    {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
-                  </div>
-                  {message.content && <div className="message-content"><MarkdownContent content={message.content} document={message.document}
-                      verbatim={message.role === "user"}
-                      onIssueNewTurn={chatId && message.chatId === chatId &&
-                        message.connectionId === connectionId && message.role === "assistant" &&
-                        message.status === "Completed" &&
-                        !["agent-runtime", "command-result"].includes(message.origin.toLowerCase()) &&
-                        !sending && !activeMessage && online
-                        ? (content) => issueNewTurn(message, messageEpoch, content)
-                        : undefined}
-                    /></div>}
-                  {message.files?.length > 0 && (
-                    <div className="message-files">
-                      {message.files.map((file) => file.contentType.startsWith("image/") ? (
-                        <a className="message-image" key={file.fileId} href={`${apiBase}${file.contentUrl}`} target="_blank" rel="noreferrer">
-                          <img src={`${apiBase}${file.contentUrl}`} alt={file.name} />
-                          <span>{file.name}<small>{formatBytes(file.size)}</small></span>
-                        </a>
-                      ) : (
-                        <a className="message-file" key={file.fileId} href={`${apiBase}${file.downloadUrl}`}>
-                          <b>FILE</b><span>{file.name}<small>{formatBytes(file.size)}</small></span><i>Download</i>
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                  {message.error && <p className="message-error">{message.error}</p>}
-                  {message.analysis && (
-                    <details className="message-analysis">
-                      <summary>Model analysis</summary>
-                      <pre>{message.analysis}</pre>
-                    </details>
-                  )}
-                  {message.role === "user" && terminalStatuses.has(message.status) && (
-                    <button className="replay" onClick={() => void replay(message.messageId)} disabled={sending}>Replay request</button>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-          {sending && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>{busyLabel}</span></div>}
-        </ConversationViewport>
-  ), [
-    draftKey, messages, chatId, historyLoadedChatId, sending, busyLabel,
-    selectedConnection, connections, models, online, connectionId, modelId,
-    newChatCategoryId, pendingFiles, apiBase,
-  ]);
 
   return (
     <div className="app-shell">
@@ -1112,7 +1060,83 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
           </div>
         </header>
 
-        {transcript}
+        <ConversationViewport conversationKey={draftKey} messages={messages} historyReady={!chatId || historyLoadedChatId === chatId} busy={sending} empty={messages.length === 0}>
+          {messages.length === 0 ? (
+            <div className="welcome">
+              <div className="welcome-orbit"><span>M</span></div>
+              <p className="eyebrow">YOUR UNIVERSAL AI WORKSPACE</p>
+              <h2>One conversation layer across every AI.</h2>
+              <p>Bring subscriptions, free sessions, and local models into one interface while MEŽS keeps your history independent from every provider.</p>
+              <div className="product-points">
+                <article><b>01</b><strong>Connect</strong><p>Use the AI access you already have behind one consistent API.</p></article>
+                <article><b>02</b><strong>Continue</strong><p>Keep durable local conversations, even when a guest session forgets them.</p></article>
+                <article><b>03</b><strong>Organize</strong><p>Search and group work without depending on a provider's project system.</p></article>
+              </div>
+            </div>
+          ) : messages.map((message) => {
+            const messageEpoch = selectionEpoch.current;
+            const messageConnection = connectionFor(message.connectionId);
+            const messageModelName = message.model &&
+              message.connectionId === selectedConnection?.id
+              ? models.find((model) => model.id === message.model)?.name || message.model
+              : message.model;
+            return (
+              <article key={message.messageId} className={`message ${message.role}`}>
+                <div className="message-avatar">{message.role === "assistant" ? "M" : "YOU"}</div>
+                <div className="message-body">
+                  <div className="message-meta">
+                    <strong>{message.role === "assistant" ? messageConnection?.name || "Assistant" : "You"}</strong>
+                    <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    {message.model && (
+                      <span
+                        className="message-model"
+                        title={`${message.role === "user" ? "Requested" : "Provider-reported"} model ID: ${message.model}`}
+                      >
+                        {message.role === "user" ? "Requested: " : "Served: "}{messageModelName}
+                      </span>
+                    )}
+                    {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
+                  </div>
+                  {message.content && <div className="message-content"><MarkdownContent content={message.content} document={message.document}
+                      verbatim={message.role === "user"}
+                      onIssueNewTurn={chatId && message.chatId === chatId &&
+                        message.connectionId === connectionId && message.role === "assistant" &&
+                        message.status === "Completed" &&
+                        !["agent-runtime", "command-result"].includes(message.origin.toLowerCase()) &&
+                        !sending && !activeMessage && online
+                        ? (content) => issueNewTurn(message, messageEpoch, content)
+                        : undefined}
+                    /></div>}
+                  {message.files?.length > 0 && (
+                    <div className="message-files">
+                      {message.files.map((file) => file.contentType.startsWith("image/") ? (
+                        <a className="message-image" key={file.fileId} href={`${apiBase}${file.contentUrl}`} target="_blank" rel="noreferrer">
+                          <img src={`${apiBase}${file.contentUrl}`} alt={file.name} />
+                          <span>{file.name}<small>{formatBytes(file.size)}</small></span>
+                        </a>
+                      ) : (
+                        <a className="message-file" key={file.fileId} href={`${apiBase}${file.downloadUrl}`}>
+                          <b>FILE</b><span>{file.name}<small>{formatBytes(file.size)}</small></span><i>Download</i>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  {message.error && <p className="message-error">{message.error}</p>}
+                  {message.analysis && (
+                    <details className="message-analysis">
+                      <summary>Model analysis</summary>
+                      <pre>{message.analysis}</pre>
+                    </details>
+                  )}
+                  {message.role === "user" && terminalStatuses.has(message.status) && (
+                    <button className="replay" onClick={() => void replay(message.messageId)} disabled={sending}>Replay request</button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+          {sending && messages.length > 0 && <div className="thinking"><i /><i /><i /><span>{busyLabel}</span></div>}
+        </ConversationViewport>
 
         <footer className="composer-wrap">
           {notice && <div className="notice"><span>{notice}</span><button onClick={() => setNotice(null)} aria-label="Dismiss">x</button></div>}
@@ -1128,15 +1152,13 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                 ))}
               </div>
             )}
-            <textarea
-              ref={composerRef}
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+            <DraftTextarea
+              store={draftStore}
+              draftKey={draftKey}
+              inputRef={composerRef}
               onKeyDown={handleComposerKey}
               placeholder={online ? `Message ${selectedConnection?.name || "an AI"}...` : "Start the API to send a message"}
-              rows={1}
               disabled={!online || !connectionId}
-              aria-label="Message"
             />
             <input
               ref={fileInputRef}
@@ -1154,12 +1176,12 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                 onClick={() => fileInputRef.current?.click()}
               >+</button>
               <span>Enter to send / Shift + Enter for a new line</span>
-              <button
-                className="send"
-                type="submit"
-                disabled={(!draft.trim() && !pendingFiles.some((item) => item.uploaded)) || pendingFiles.some((item) => item.uploading) || sending || !online}
-                aria-label="Send message"
-              >^</button>
+              <DraftSendButton
+                store={draftStore}
+                draftKey={draftKey}
+                fileReady={pendingFiles.some((item) => item.uploaded)}
+                blocked={pendingFiles.some((item) => item.uploading) || sending || !online}
+              />
             </div>
           </form>
           <small className="disclaimer">Responses come directly from the selected web AI connection.</small>
