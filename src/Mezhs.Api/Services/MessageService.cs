@@ -261,7 +261,8 @@ public sealed class MessageService(
                 restoreConversation: !continueRemote,
                 reportActivity: activity => UpdateActivity(message, activity),
                 reportAdmissionWait: reason => UpdateAdmissionWait(message, reason));
-            var result = await integration.PromptAsync(
+            var result = await PromptWithStopOnCancellationAsync(
+                integration,
                 chatContext,
                 new PromptRequest(message.MessageId, message.Content, message.Model, inputFiles),
                 cancellationToken);
@@ -354,6 +355,44 @@ public sealed class MessageService(
             if (gateTaken)
                 gate.Release();
         }
+    }
+
+    // The Agent/Core cancellation owner requests provider Stop while the turn is
+    // still active. Only then cancel the provider token, whose transport fallback
+    // also stops by operation ID before retiring the Electron context.
+    private static async Task<PromptResult> PromptWithStopOnCancellationAsync(
+        IntegrationBase integration, ChatContext chat, PromptRequest request,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!cancellationToken.CanBeCanceled)
+            return await integration.PromptAsync(chat, request, cancellationToken);
+
+        using var providerCancellation = new CancellationTokenSource();
+        var prompt = integration.PromptAsync(chat, request, providerCancellation.Token);
+        var cancelled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = cancellationToken.Register(() => cancelled.TrySetResult(true));
+        if (await Task.WhenAny(prompt, cancelled.Task) == prompt)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return await prompt;
+        }
+
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            await integration.StopAsync(chat.Id, request.MessageId, timeout.Token)
+                .WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        catch (Exception)
+        {
+            // Provider Stop is best effort, never a reason to delay definitive
+            // local cancellation or retry a potentially submitted prompt.
+        }
+        providerCancellation.Cancel();
+        try { await prompt.WaitAsync(TimeSpan.FromSeconds(6)); }
+        catch (Exception) { /* Observe cancellation/failure, preserving local Cancelled. */ }
+        throw new OperationCanceledException(cancellationToken);
     }
 
     private void UpdateAdmissionWait(StoredMessage message, IntegrationAdmissionWaitReason? reason)
