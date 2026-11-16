@@ -135,6 +135,12 @@ public abstract class IntegrationBase(
         CancellationToken cancellationToken = default) =>
         Task.FromResult(ErrorAction.Throw);
 
+    // Stop is scoped to an already active local chat/request. Local cancellation is
+    // definitive; an attempted provider stop is not remote confirmation.
+    public virtual Task<IntegrationStopOutcome> StopAsync(
+        string chatId, string messageId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(IntegrationStopOutcome.Unsupported);
+
     public virtual ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
 
@@ -143,6 +149,14 @@ public sealed record IntegrationError(
     string Operation,
     int Attempt,
     bool SubmissionMayHaveOccurred);
+
+public enum IntegrationStopOutcome
+{
+    NotActive,
+    Unsupported,
+    Attempted,
+    ProviderConfirmed
+}
 
 public enum ErrorAction
 {
