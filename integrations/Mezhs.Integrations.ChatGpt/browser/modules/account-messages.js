@@ -223,7 +223,8 @@ async function completeAccountMessage(
   requestMessageId,
   sleep,
   reportProgress,
-  execution
+  execution,
+  signal
 ) {
   const result = await waitForConversation(
     session,
@@ -232,7 +233,8 @@ async function completeAccountMessage(
     requestMessageId,
     sleep,
     reportProgress,
-    execution
+    execution,
+    signal
   );
 
   if (result.files?.size)
