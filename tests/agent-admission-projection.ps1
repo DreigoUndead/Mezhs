@@ -64,7 +64,12 @@ function Await-Projection([string]$chatId, [string]$expected, [int]$timeout = 12
     $list = @(Get '/v1/agent-chats')
     $matching = @($list | Where-Object { $_.chatId -eq $chatId })
     Assert ($matching.Count -eq 1 -and $matching[0].executionStatus -eq $expected -and
-        $matching[0].executionStatusId -eq $detail.executionStatusId) "Agent list and detail disagree at $expected for $chatId."
+        $matching[0].executionStatusId -eq $detail.executionStatusId -and
+        $matching[0].admissionWaitReason -eq $detail.admissionWaitReason -and
+        $matching[0].admissionMaxParallel -eq $detail.admissionMaxParallel) "Agent list and detail disagree at $expected for $chatId."
+    if ($expected -ne 'Waiting') {
+        Assert ($null -eq $detail.admissionWaitReason -and $null -eq $detail.admissionMaxParallel) "Non-Waiting Agent exposed stale admission details."
+    }
 }
 function Await-Execution([string]$id, [string]$expected) {
     Until { (Get "/v1/executions/$id").status -eq $expected } "Execution $id $expected"
@@ -199,6 +204,8 @@ policies:
     $chatOne = (Get "/v1/executions/$($agentOne.executionId)").chatId
     $agentMessage = Await-Submitted $chatOne $agentOne.executionId
     Await-Projection $chatOne 'Waiting'
+    $capacityWait = Get "/v1/agent-chats/$chatOne"
+    Assert ($capacityWait.admissionWaitReason -eq 'Capacity' -and $capacityWait.admissionMaxParallel -eq 1) 'Capacity blocked status must report the actual maxParallel, not a provider wait.'
     Assert ((Get "/v1/executions/$($agentOne.executionId)").status -eq 'Running') 'Persisted root must stay Running while effective status is Waiting.'
     Assert ((Get "/v1/messages/$($agentMessage.messageId)").status -eq 'Running') 'Waiting must relate to an active Agent model message.'
     Assert ((Get "/v1/messages/$($agentMessage.messageId)").activity -ne 'waiting') 'Capacity Waiting must not depend on provider activity.'
@@ -275,6 +282,8 @@ policies:
     Until { (Get "/v1/executions/$($spacingAgent.executionId)").chatId } 'spacing Agent chat'
     $spacingChat = (Get "/v1/executions/$($spacingAgent.executionId)").chatId
     Await-Projection $spacingChat 'Waiting'
+    $spacingWait = Get "/v1/agent-chats/$spacingChat"
+    Assert ($spacingWait.admissionWaitReason -eq 'Spacing' -and $null -eq $spacingWait.admissionMaxParallel) 'Start-spacing throttling must not claim capacity is exhausted.'
     Assert ((Get "/v1/executions/$($spacingAgent.executionId)").status -eq 'Running') 'Spacing Waiting was incorrectly persisted.'
     $spacingMessage = Await-Submitted $spacingChat $spacingAgent.executionId
     Until { Test-Path (ProbeFile 'spacing' $spacingMessage.messageId 'started') } 'spacing admission after interval' 12
@@ -286,7 +295,7 @@ policies:
 
     Assert (Test-Path (Join-Path $coreFolder 'data\core\chats.sqlite')) 'Core storage did not resolve relative to Core YAML.'
     Assert (Test-Path (Join-Path $agentFolder 'data\agent.sqlite')) 'Agent storage did not resolve relative to Agent YAML.'
-    Write-Host 'PASS: real Agent API admission projection, ordinary/Agent shared capacity, provider activity isolation, exact same-chat association, cancellation, terminal cleanup, spacing and separately rooted config.'
+    Write-Host 'PASS: real Agent API admission reason and capacity, ordinary/Agent shared slots, provider waiting remains Running after admission, list/detail parity, cancellation, terminal cleanup, spacing and separately rooted config.'
 } finally {
     if ($null -ne $agent -and -not $agent.HasExited) {
         Stop-Process -Id $agent.Id -Force -ErrorAction SilentlyContinue
