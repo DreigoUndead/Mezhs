@@ -2,6 +2,22 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.8.1] — 2026-11-16
+
+### Changed
+- Distinguish MEŽS-owned integration admission waits: capacity displays `Waiting for integration slot (N/N)…` (occupied slots / configured limit) and configured start spacing displays `Waiting for integration start interval…`.
+- Keep Agent execution status Running while an admitted provider reports waiting, thinking, or progress; use neutral `Continuing after command result…` wording for other follow-up activity.
+- Expose transient admission reason and positive `maxParallel` in Agent chat list/detail for the exact active running execution and model message. No persisted status or concurrency/scheduler changes.
+
+### Verification and approval
+- Independent Standard code review PASS at `406adb0bd193c33751155f5f1f8206e24818031e` (PR #62).
+- MEŽS Core CI PASS on that exact head (GitHub Actions run `43839565954`), including real-host admission-projection and real-Chromium Agent status regressions, with .NET and Agent Web builds.
+- No separate independent final-testing cycle; owner accepted the reviewed scope and green CI and explicitly authorized merging PR #62 on 2026-11-16.
+- Owner-approved merge commit: `8457c462f5c65805047dc1be84096687e9db2788`.
+
+### Known limitations
+- `N/N` shows fully occupied integration slots, not queue position. The real-host admission test covers `1/1`; the Chromium UI tests the `3/3` label with a mock API.
+
 ## [0.8.0] — 2026-11-16
 
 ### Added
