@@ -62,7 +62,7 @@ function harness({ guest = false, deferWindowReady = false, stopGeneration } = {
   };
   const runtime = vm.runInNewContext(
     contextSource + "\n" + operationSource +
-    "\n({ contextPromise, releaseContext, cancelProviderOperation, queueProviderOperation, stopProviderOperation })",
+    "\n({ contextPromise, releaseContext, cancelProviderOperation, queueProviderOperation, stopProviderOperation, findActiveProviderTurn })",
     env
   );
   return { ...runtime, contexts, providerOperations, windows, sessions, operations, authenticatedSession };
@@ -313,4 +313,19 @@ test("guest stop is scoped to its ephemeral window and never touches a peer", as
   peer.resolve({ answer: "peer" });
   await flush();
   assert.equal(h.providerOperations.get(b).status, "completed");
+});
+
+test("a scoped Stop cannot match a peer request or the wrong chat ID", async () => {
+  const h = harness();
+  const a = h.queueProviderOperation({ contextId: "chat-A", operation: "send",
+    arguments: { messageId: "msg-A" } });
+  h.queueProviderOperation({ contextId: "chat-B", operation: "send",
+    arguments: { messageId: "msg-B" } });
+  await flush();
+  assert.equal(h.findActiveProviderTurn("chat-A", "msg-A"), h.providerOperations.get(a));
+  assert.equal(h.findActiveProviderTurn("chat-A", "msg-B"), null);
+  assert.equal(h.findActiveProviderTurn("chat-B", "msg-A"), null);
+  assert.equal(h.findActiveProviderTurn("chat-A", "missing"), null);
+  h.cancelProviderOperation(a);
+  assert.equal(h.findActiveProviderTurn("chat-A", "msg-A"), null);
 });
