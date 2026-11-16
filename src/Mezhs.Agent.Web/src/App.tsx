@@ -1288,7 +1288,8 @@ useEffect(() => {
         : "Continue this agent";
 
   // Editing the composer must not rebuild a potentially large rich transcript.
-  // Runtime/polling updates still invalidate this element through its inputs.
+  // In particular, a periodic chat-list refresh with unchanged message inputs
+  // must not invalidate the transcript merely because chat objects were replaced.
   const transcript = useMemo(() => selectedChat ? (
             <ChatTranscript
               messages={sharedMessages}
@@ -1464,9 +1465,10 @@ useEffect(() => {
               }}
             />
   ) : null, [
-    selectedChat, selectedChatId, sharedMessages, executions, historyLoadedChatId,
-    activeExecution, agentBusyLabel, messageById, protocolByMessageId,
-    protocolCommandsByMessageId, commandEvidenceByMessageId, shellActionExecutionId,
+    selectedChat?.chatId, selectedChat?.policyId, selectedChatId,
+    sharedMessages, executions, historyLoadedChatId, activeExecution,
+    agentBusyLabel, messageById, protocolByMessageId, protocolCommandsByMessageId,
+    commandEvidenceByMessageId, shellActionExecutionId,
   ]);
 
   // The execution log can include large command outputs; draft edits should
@@ -1512,7 +1514,11 @@ useEffect(() => {
                 {executions.length === 0 && <p>No execution records yet.</p>}
               </div>
             </details>
-  ), [executions, shellExecutions, shellActionExecutionId, selectedChatId, selectedChat]);
+  ), [
+    executions, shellExecutions, shellActionExecutionId, selectedChatId,
+    // Only non-terminal execution clocks need the periodic chat-list refresh.
+    executions.some((execution) => !execution.isTerminal && !!execution.startedAt) ? selectedChat : null,
+  ]);
 
   return (
     <div className="agent-shell">
