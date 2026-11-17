@@ -47,7 +47,7 @@ One `DIL.useState` declaration, 2–12 literal radio options, one button with a 
 
 ## Raw editors
 
-`CodeBlock` and `WritingBlock` must use standalone opening and closing tag lines. Their bodies are literal, inert editable/copyable source; nested markup never executes.
+`CodeBlock` and `WritingBlock` accept opening and closing tags anywhere, not only on separate lines. Their bodies display literal editable/copyable text; complete Agent command pairs inside them are still recognized separately by the shared parser.
 
 ```mdx
 <WritingBlock variant="email" recipient="person@example.com" subject="Update">
@@ -57,4 +57,4 @@ Hello,
 </WritingBlock>
 ```
 
-Markdown fences, inline code and escaped markup remain literal. Agent `SH`/`ATTACH`/`DONE` commands have separate execution policy: they may occur only at validated root/list/structural layout positions, never inside display-only elements, SVG or raw editor bodies. Untrusted examples should remain in code blocks; invalid command-bearing documents never execute a partial batch.
+All supported paired tags use position-independent matching. A missing paired closing tag makes its opener ordinary text. Agent `SH`/`ATTACH`/`DONE` markers are recognized anywhere in an Agent reply, including Markdown code, SVG, `<escape>` and raw editor content; these contexts **do not** suppress command execution. Do not author complete paired shell examples in Agent replies unless you intend them to execute. Agent policy and whole-batch validation still control actions.
