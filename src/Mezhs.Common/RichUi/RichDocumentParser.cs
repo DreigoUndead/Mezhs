@@ -24,7 +24,7 @@ public sealed class RichDocumentParser
     private string _source = "";
     private bool[] _radioLiteral = [];
     // The same tag tokenizer discovers commands regardless of their surrounding text.
-    private readonly Dictionary<int, RichSourceSpan> _commandSpans = [];
+    private readonly Dictionary<int, RichSourceSpan> _commandSpans = new();
     private List<RichCommandCandidate> _commands = [];
     private int _count;
     private int _svgCount;
