@@ -99,7 +99,7 @@ test("MarkdownContent does not depend on deleted frontend grammar or extractors"
     assert.doesNotMatch(source, new RegExp(legacy));
 });
 
-test("raw editors keep shell-shaped bodies literal, within layout containers", () => {
+test("raw editors display source with matched command spans removed", () => {
   const input = [
     '<box border radius="lg">',
     '<WritingBlock variant="document">',
@@ -120,25 +120,28 @@ test("raw editors keep shell-shaped bodies literal, within layout containers", (
   const output = html(input, { document: doc });
   assert.match(output, /rich-writing-block/);
   assert.match(output, /rich-code-block/);
-  assert.match(output, /echo NEVER_EXECUTE/);
+  assert.doesNotMatch(output, /echo NEVER_EXECUTE|&lt;SH&gt;INERT/);
   assert.match(output, /Sibling/);
 });
 
-test("standalone raw openers inside fenced Markdown remain code, not editor UI", () => {
+test("paired raw editor matches even inside fenced Markdown", () => {
   const source = '~~~mdx\n<CodeBlock language="js">\nunsafe()\n</CodeBlock>\n~~~';
-  assert.equal(kinds(canonicalDocument(source).nodes, "raw").length, 0);
-  assert.doesNotMatch(html(source), /class="rich-code-block"/);
+  assert.equal(kinds(canonicalDocument(source).nodes, "raw").length, 1);
+  assert.match(html(source), /class="rich-code-block"/);
 });
 
-test("escaped and commented tags are not converted to rich nodes", () => {
+test("UI tag matching is independent of Markdown literal context", () => {
   const inputs = [
     '`<box><text>Inline</text></box>`',
     '<!-- <box><text>Comment</text></box> -->',
     '~~~mdx\n<box><text>Fenced</text></box>\n~~~',
   ];
-  for (const [input, doc] of inputs.map((s,i)=>[s,canonicalDocuments(inputs)[i]])) {
-    assert.equal(kinds(doc.nodes, "element").length, 0, input);
-    assert.doesNotMatch(html(input, { document: doc }), /class="rich-box/);
+  const documents = canonicalDocuments(inputs);
+  for (const [i, input] of inputs.entries()) {
+    const doc = documents[i];
+    assert.equal(doc.valid, true, input);
+    assert.ok(kinds(doc.nodes, "element").length >= 2, input);
+    assert.match(html(input, { document: doc }), /class="rich-box/);
   }
 });
 
@@ -392,11 +395,11 @@ test("a fenced question stays inert even with an adjacent enabled host callback"
   assert.equal(calls,0);
 });
 
-test("malformed ancestors reject any previously valid display controls", () => {
+test("unclosed paired UI opener remains ordinary text without blocking prior controls", () => {
   const input='<badge>Safe</badge>\n<box><text>Unclosed</text>';
   const doc=canonicalDocument(input);
-  assert.equal(doc.valid,false);
-  assert.doesNotMatch(html(input,{document:doc}),/class="rich-badge"/);
+  assert.equal(doc.valid,true);
+  assert.match(html(input,{document:doc}),/class="rich-badge"/);
 });
 
 
