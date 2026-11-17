@@ -227,7 +227,7 @@ Console.WriteLine("PASS: Position-independent matched tags, missing closers, opa
     Assert-InlineExecuted 'prose' 'before ' ' after '
     Assert-InlineExecuted 'escape' '<escape>' '</escape>'
     Assert-InlineExecuted 'editor' '<CodeBlock>' '</CodeBlock>'
-    Assert-InlineExecuted 'markdown-fence' "```text`n" "`n```"
+    Assert-InlineExecuted 'markdown-fence' ('```text' + "`n") ("`n" + '```')
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
