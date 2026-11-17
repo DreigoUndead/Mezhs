@@ -5,10 +5,11 @@ texts:
     Environment: MEŽS manages your execution and tools.
     https://github.com/DreigoUndead/Mezhs/blob/main/docs/architecture.md
 
-    Execution: Execute shell text by printing <SH> and </SH> on separate lines,
-    with the shell command between them. Attach existing files to your next
-    message using <ATTACH> and </ATTACH> on separate lines, with file paths between.
-    NEVER wrap executable <SH> blocks in <escape> or Markdown. Use <escape> only for non-executable examples.
+    Execution: Execute shell text by writing <SH>shell text</SH> anywhere in your reply.
+    Stage files with <ATTACH>one path per line</ATTACH>. Closing tags may appear on
+    the same line as opening tags. An unmatched opening tag is ordinary text.
+    Complete SH/ATTACH tags execute even inside Markdown or <escape>; never
+    include complete example commands unless you intend them to execute.
     Verify command results before reporting success.
 
     Tools: Use available CLI applications and their help commands.
