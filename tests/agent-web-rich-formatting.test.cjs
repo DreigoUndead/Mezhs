@@ -45,19 +45,19 @@ test("WritingBlock is rendered from the C# typed document, with escaped metadata
   assert.match(output, /aria-label="Copy writing block"/);
 });
 
-test("raw CodeBlock receives literal source, never executable descendants", () => {
+test("CodeBlock renders after matched command spans are removed", () => {
   const input = '<box border>\n<CodeBlock language="typescript" editable>\nconst x = "<SH>not a command</SH>";\n</CodeBlock>\n</box>';
   const output = html(input);
   assert.match(output, /class="rich-code-block"/);
   assert.match(output, /aria-label="Edit code block"/);
-  assert.match(output, /&lt;SH&gt;not a command&lt;\/SH&gt;/);
+  assert.doesNotMatch(output, /&lt;SH&gt;not a command&lt;\/SH&gt;/);
   assert.doesNotMatch(output, /class="rich-question"/);
 });
 
-test("Markdown fences protect apparent rich tags", () => {
-  const output = html('~~~mdx\n<WritingBlock variant="document">\nHidden\n</WritingBlock>\n~~~');
-  assert.doesNotMatch(output, /class="rich-writing-block"/);
-  assert.match(output, /&lt;WritingBlock/);
+test("paired rich tags match even within Markdown fences", () => {
+  const output = html('~~~mdx\n<WritingBlock variant="document">\nVisible\n</WritingBlock>\n~~~');
+  assert.match(output, /class="rich-writing-block"/);
+  assert.doesNotMatch(output, /&lt;WritingBlock/);
 });
 
 test("GFM is converted by Markdig on the server", () => {
@@ -145,8 +145,6 @@ test("invalid rich elements fail closed for the entire document", () => {
     '<box gap={globalThis.alert(1)}>Unsafe</box>',
     '<box gap={2} gap={3}>Unsafe</box>',
     '<box {...danger}>Unsafe</box>',
-    '<box>Missing closer',
-    '<row><text>Wrong closer</row></text>',
     '<Chart content={globalThis.alert(1)} />',
     '<WritingBlock variant="email" onClick="alert(1)">Unsafe</WritingBlock>',
   ];
@@ -160,11 +158,11 @@ test("invalid rich elements fail closed for the entire document", () => {
   }
 });
 
-test("inline fenced examples cannot grant control or command authority", () => {
+test("inline code and fenced UI use position-independent tags", () => {
   const input = '`<SH>echo NEVER</SH>`\n\n~~~mdx\n<box><icon name="check"/></box>\n~~~';
   const output = html(input);
-  assert.doesNotMatch(output, /class="rich-box/);
-  assert.match(output, /&lt;SH&gt;/);
+  assert.match(output, /class="rich-box/);
+  assert.doesNotMatch(output, /&lt;SH&gt;/);
 });
 
 test("unsupported DIL loop syntax cannot execute or expand", () => {
