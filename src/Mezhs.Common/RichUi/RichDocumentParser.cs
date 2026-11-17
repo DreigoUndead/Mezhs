@@ -16,10 +16,6 @@ public sealed class RichDocumentParser
     private const int MaxDepth = 32;
     private const int MaxTagLength = 4_096;
     private const int MaxAttributes = 16;
-    // Only structural layout scopes may contain Agent command nodes.
-    // Display-only tags (text, badge, title, caption, Link, etc.) never grant authority.
-    private static readonly IReadOnlySet<string> ExecutableContainers =
-        new HashSet<string>(["box", "row", "col", "grid", "grid-item"], StringComparer.Ordinal);
     // These display-only elements participate in their parent's inline Markdown
     // flow. Their bodies are still parsed recursively by this same C# parser.
     private static readonly IReadOnlySet<string> InlineElements =
@@ -30,20 +26,12 @@ public sealed class RichDocumentParser
     // "{item.property}" model text as Markdown metadata. It is intentionally off.
     private readonly MarkdownPipeline _markdown = new MarkdownPipelineBuilder().UsePipeTables().UseEmphasisExtras().Build();
     private string _source = "";
-    // Same-length Markdown view of the source with validated opaque bodies
-    // replaced by inert whitespace. Original source and spans are unchanged.
-    private string _markdownSource = "";
-    private bool[] _opaqueBody = [];
-    private bool[] _literal = [];
-    // Context is derived from the same Markdig AST as literal/code protection.
-    // Presentation-only Markdown inline ancestors never grant Agent authority.
-    private bool[] _inlineContext = [];
-    private bool[] _listContext = [];
+    // The same tag tokenizer discovers commands regardless of their surrounding text.
+    private readonly Dictionary<int, RichSourceSpan> _commandSpans = [];
     private List<RichCommandCandidate> _commands = [];
     private int _count;
     private int _svgCount;
     private int _svgChars;
-    private int _markdownScanChars;
 
     public RichParseResult Parse(string source)
     {
@@ -54,23 +42,10 @@ public sealed class RichDocumentParser
         _count = 0;
         _svgCount = 0;
         _svgChars = 0;
-        _markdownScanChars = 0;
+        _commandSpans.Clear();
         try
         {
-            // Markdown establishes code/escaped/comment semantics. Rich tags
-            // are scanned only outside protected source ranges.
-            _inlineContext = new bool[source.Length];
-            _listContext = new bool[source.Length];
-            // Collect original-source inline/list authorization contexts
-            // *before* opaque discovery. An apparent SH inside emphasis must
-            // not be allowed to shield a later Markdown fence. Opaque bodies
-            // do not grant execution through these original contexts.
-            _ = MarkdownLiteralMask(_source, collectContext: true);
-            _markdownSource = ShieldOpaqueBodies();
-            // Literal Markdown masking uses only the protected same-length
-            // view, so unmatched markers inside completed opaque blocks
-            // cannot hide valid later commands.
-            _literal = MarkdownLiteralMask(_markdownSource, collectContext: true);
+            ScanCommands();
             var nodes = ReadChildren(0, source.Length, null, 0, out _);
             // Validate the final typed tree before releasing any command
             // candidates. Rich inline wrappers render as HTML phrasing
@@ -144,305 +119,103 @@ public sealed class RichDocumentParser
             [new RichDiagnostic(reason, new RichSourceSpan(0, source.Length))]),
         []);
 
-    private bool[] MarkdownLiteralMask(string source, bool collectContext = false,
-        int contextOffset = 0)
+    // Markdown semantics are used for the finite radio-question grammar only,
+    // not for detecting rich or Agent tags.
+    private static bool[] MarkdownLiteralMask(string source)
     {
         var mask = new bool[source.Length];
-        // Markdig's outer document AST can treat a rich <box> as an HTML block,
-        // hiding nested Markdown lists/emphasis. Each structural rich container
-        // is validated against its own Markdig scope. Merge source-relative
-        // contexts into global UTF-16 spans before scanning its Agent commands.
-        var inlineContext = collectContext ? new bool[source.Length] : null;
-        var listContext = collectContext ? new bool[source.Length] : null;
-        var document = Markdown.Parse(source, _markdown);
-        static void Mark(bool[] target, int from, int through)
-        {
-            var start = Math.Clamp(from, 0, target.Length);
-            var end = Math.Clamp(through + 1, start, target.Length);
-            Array.Fill(target, true, start, end - start);
-        }
+        var markdown = Markdown.Parse(source, new MarkdownPipelineBuilder()
+            .UsePipeTables().UseEmphasisExtras().Build());
         void Visit(MarkdownObject node)
         {
-            if (listContext is not null && node is ListItemBlock)
-                Mark(listContext, node.Span.Start, node.Span.End);
-            if (inlineContext is not null && node is EmphasisInline or LinkInline)
-                Mark(inlineContext, node.Span.Start, node.Span.End);
-            // A Markdown blockquote is presentation, never an Agent command
-            // authority scope. Mask its *entire* canonical AST range, including
-            // lazy continuation lines that have no leading '>' marker. Tags
-            // inside quoted source stay literal, while Markdig still renders
-            // the preserved source as a blockquote in the typed display AST.
-            if (node is QuoteBlock || node is CodeBlock || node is CodeInline || IsComment(node, source))
+            if (node is QuoteBlock or CodeBlock or CodeInline || IsComment(node, source))
             {
                 var from = Math.Clamp(node.Span.Start, 0, source.Length);
-                var to = Math.Clamp(node.Span.End + 1, from, source.Length);
-                for (var i = from; i < to; i++) mask[i] = true;
+                var until = Math.Clamp(node.Span.End + 1, from, source.Length);
+                Array.Fill(mask, true, from, until - from);
                 return;
             }
             if (node is ContainerBlock block)
                 foreach (var child in block) Visit(child);
-            else if (node is LeafBlock leaf && leaf.Inline is not null)
-                Visit(leaf.Inline);
+            else if (node is LeafBlock { Inline: { } inlines })
+                Visit(inlines);
             else if (node is ContainerInline inline)
                 foreach (var child in inline) Visit(child);
         }
-        Visit(document);
-        // HTML comments not always become isolated AST nodes inside HTML
-        // blocks. Recognize them as opaque only outside Markdown code.
-        for (var i = 0; i < source.Length - 3; i++)
+        Visit(markdown);
+        for (var at = 0; at < source.Length - 3; at++)
         {
-            if (mask[i] || !source.AsSpan(i).StartsWith("<!--", StringComparison.Ordinal)) continue;
-            var end = source.IndexOf("-->", i + 4, StringComparison.Ordinal);
-            var until = end < 0 ? source.Length : end + 3;
-            for (var j = i; j < until; j++) mask[j] = true;
-            i = until - 1;
-        }
-        // HTML-block recognition can swallow Markdown fences when an outer
-        // rich container resembles an HTML tag. Mark fenced lines conservatively
-        // as literal before interpreting any rich closing tags. This supplements
-        // the Markdig AST, which remains the sole Markdown structure authority.
-        var fenceStart = -1;
-        var fenceMarker = '\0';
-        var fenceWidth = 0;
-        for (var lineStart = 0; lineStart < source.Length;)
-        {
-            var newline = source.IndexOf('\n', lineStart);
-            var lineEnd = newline < 0 ? source.Length : newline;
-            var nextLine = newline < 0 ? source.Length : newline + 1;
-            var contentEnd = lineEnd > lineStart && source[lineEnd - 1] == '\r'
-                ? lineEnd - 1 : lineEnd;
-            var at = lineStart;
-            while (at < contentEnd && at - lineStart < 4 && source[at] == ' ') at++;
-            if (at - lineStart <= 3 && at < contentEnd &&
-                source[at] is '`' or '~')
-            {
-                var marker = source[at];
-                var runEnd = at;
-                while (runEnd < contentEnd && source[runEnd] == marker) runEnd++;
-                var width = runEnd - at;
-                if (width >= 3)
-                {
-                    var suffix = source.AsSpan(runEnd, contentEnd - runEnd);
-                    if (fenceStart < 0 &&
-                        (marker == '~' || !suffix.Contains('`')))
-                    {
-                        fenceStart = lineStart;
-                        fenceMarker = marker;
-                        fenceWidth = width;
-                    }
-                    else if (marker == fenceMarker && width >= fenceWidth &&
-                             suffix.Trim().IsEmpty)
-                    {
-                        for (var i = fenceStart; i < nextLine; i++) mask[i] = true;
-                        fenceStart = -1;
-                        fenceMarker = '\0';
-                        fenceWidth = 0;
-                    }
-                }
-            }
-            lineStart = nextLine;
-        }
-        if (fenceStart >= 0)
-            for (var i = fenceStart; i < source.Length; i++) mask[i] = true;
-        // A standalone HTML-looking command line can interrupt Markdown
-        // emphasis recognition. Conservatively protect paired, line-delimited
-        // emphasis examples from Agent command discovery, even if Markdig
-        // cannot emit one EmphasisInline spanning the HTML-like line. This is
-        // an authorization guard; display lowering still uses canonical AST.
-        if (inlineContext is not null)
-        {
-            int exampleStart = -1;
-            char exampleMarker = '\0';
-            int exampleWidth = 0;
-            for (var lineStart = 0; lineStart < source.Length;)
-            {
-                var newline = source.IndexOf('\n', lineStart);
-                var lineEnd = newline < 0 ? source.Length : newline;
-                var nextLine = newline < 0 ? source.Length : newline + 1;
-                var at = lineStart;
-                while (at < lineEnd && at - lineStart < 4 && source[at] == ' ') at++;
-                if (at - lineStart <= 3 && at < lineEnd &&
-                    !mask[at] && source[at] is '*' or '_')
-                {
-                    var marker = source[at];
-                    var runEnd = at;
-                    while (runEnd < lineEnd && source[runEnd] == marker) runEnd++;
-                    var width = runEnd - at;
-                    if (width is 1 or 2)
-                    {
-                        var rest = source.AsSpan(runEnd, lineEnd - runEnd).Trim();
-                        if (exampleStart >= 0 && marker == exampleMarker &&
-                            width == exampleWidth && rest.IsEmpty)
-                        {
-                            Array.Fill(inlineContext, true, exampleStart, nextLine - exampleStart);
-                            exampleStart = -1;
-                        }
-                        else if (exampleStart < 0 && !rest.IsEmpty &&
-                                 !char.IsWhiteSpace(source[runEnd]))
-                        {
-                            exampleStart = at;
-                            exampleMarker = marker;
-                            exampleWidth = width;
-                        }
-                    }
-                }
-                lineStart = nextLine;
-            }
-        }
-        // Markdig masks completed code spans. Conservatively mask a dangling
-        // backtick run through EOF: unmatched Markdown literals must not grant
-        // command authority to later command-shaped text. One linear pass.
-        var unmatchedAt = -1;
-        var unmatchedWidth = 0;
-        for (var i = 0; i < source.Length;)
-        {
-            if (mask[i] || source[i] != (char)96) { i++; continue; }
-            var until = i;
-            while (until < source.Length && !mask[until] && source[until] == (char)96)
-                until++;
-            var width = until - i;
-            if (unmatchedAt == -1) { unmatchedAt = i; unmatchedWidth = width; }
-            else if (width == unmatchedWidth)
-            {
-                for (var j = unmatchedAt; j < until; j++) mask[j] = true;
-                unmatchedAt = -1;
-                unmatchedWidth = 0;
-            }
-            i = until;
-        }
-        if (unmatchedAt >= 0)
-            for (var i = unmatchedAt; i < source.Length; i++) mask[i] = true;
-        if (collectContext)
-        {
-            if (contextOffset < 0 || source.Length > _source.Length - contextOffset)
-                throw new RichDocumentException("Invalid Markdown context source span.");
-            for (var i = 0; i < source.Length; i++)
-            {
-                if (inlineContext![i]) _inlineContext[contextOffset + i] = true;
-                if (listContext![i]) _listContext[contextOffset + i] = true;
-            }
+            if (mask[at] || !source.AsSpan(at).StartsWith("<!--", StringComparison.Ordinal))
+                continue;
+            var close = source.IndexOf("-->", at + 4, StringComparison.Ordinal);
+            var until = close < 0 ? source.Length : close + 3;
+            Array.Fill(mask, true, at, until - at);
+            at = until - 1;
         }
         return mask;
     }
 
-    // Discover only syntactically complete opaque spans, checking each opener
-    // against the canonical Markdown context since the previous opaque close.
-    // Doing this before Markdown validation stops raw-editor/command examples
-    // (including unmatched fences/backticks) from changing the interpretation
-    // of subsequent, unrelated source. The whitespace shadow preserves every
-    // source offset, line boundary and the immutable executable body.
-    private string ShieldOpaqueBodies()
+    internal static bool[] MarkdownProtectionMask(string source) => MarkdownLiteralMask(source);
+
+    private static bool IsComment(MarkdownObject node, string source) =>
+        (node is HtmlInline or HtmlBlock) && node.Span.Start >= 0 &&
+        node.Span.Start < source.Length &&
+        source.AsSpan(node.Span.Start).StartsWith("<!--", StringComparison.Ordinal);
+
+    // A matched command has authority regardless of presentation context.
+    // Opaque SH/ATTACH bodies do not recursively expose nested commands.
+    private void ScanCommands()
     {
-        var shadow = _source.ToCharArray();
-        _opaqueBody = new bool[_source.Length];
-        var segmentStart = 0;
-        for (var pos = 0; pos < _source.Length;)
+        for (var at = 0; at < _source.Length;)
         {
-            pos = _source.IndexOf('<', pos);
-            if (pos < 0) break;
-            if (IsEscaped(pos) || !TryTag(pos, _source.Length, out var tag))
-            {
-                pos++;
-                continue;
-            }
-            // Rich block layouts start a new Markdown parsing scope. The
-            // enclosing <box> is an HTML block to Markdig; without a scope
-            // reset, a Markdown quote inside that box is invisible while
-            // discovering an opaque SH candidate. Only reset at a real
-            // standalone boundary outside existing Markdown literal ranges.
-            if (ExecutableContainers.Contains(tag.Name) && !tag.SelfClosing &&
-                WhitespaceLine(pos, tag.End))
-            {
-                var length = tag.End - segmentStart;
-                _markdownScanChars += length;
-                if (_markdownScanChars > 8_000_000)
-                    throw new RichDocumentException("Markdown validation work budget exceeded.");
-                var scopeMask = MarkdownLiteralMask(_source[segmentStart..tag.End]);
-                if (!scopeMask[pos - segmentStart])
-                    segmentStart = tag.End;
-                pos = tag.End;
-                continue;
-            }
-            if (tag.Closing || tag.SelfClosing ||
+            at = _source.IndexOf('<', at);
+            if (at < 0) break;
+            if (!TryTag(at, _source.Length, out var tag) || tag.Closing ||
                 !RichTagRegistry.TryGet(tag.Name, out var definition) ||
-                definition.SearchChildren ||
-                definition.Role is RichTagRole.Leaf or RichTagRole.Marker)
+                definition.Role is not (RichTagRole.Command or RichTagRole.Marker))
             {
-                pos = tag.End;
+                at++;
                 continue;
             }
-            // Match actual command discovery: Markdown emphasis and link-label
-            // openers are not opaque boundaries. Shielding an inert opener
-            // could otherwise erase a code fence protecting a later SH.
-            if (definition.Role is RichTagRole.Command && _inlineContext[pos])
+            if (tag.SelfClosing)
+                throw new RichDocumentException($"{tag.Name} cannot be self-closing.");
+            var after = tag.End;
+            string? body = null;
+            if (definition.Role == RichTagRole.Command)
             {
-                pos = tag.End;
-                continue;
+                var close = _source.IndexOf("</" + tag.Name + ">", tag.End,
+                    StringComparison.Ordinal);
+                if (close < 0) { at = tag.End; continue; }
+                body = _source[tag.End..close];
+                after = close + tag.Name.Length + 3;
             }
-            var inline = definition.Role == RichTagRole.OpaqueLiteral;
-            if (!inline && !WhitespaceLine(pos, tag.End))
-            {
-                pos = tag.End;
-                continue;
-            }
-            // Restrict Markdown parsing to each disjoint non-opaque prefix.
-            // Many fake openers inside one Markdown fence have a cumulative
-            // validation work budget rather than an unbounded retry loop.
-            var prefixLength = tag.End - segmentStart;
-            _markdownScanChars += prefixLength;
-            if (_markdownScanChars > 8_000_000)
-                throw new RichDocumentException("Markdown validation work budget exceeded.");
-            var preceding = MarkdownLiteralMask(_source[segmentStart..tag.End]);
-            if (preceding[pos - segmentStart])
-            {
-                pos = tag.End;
-                continue;
-            }
-            var closer = FindOpaqueClosing(tag.Name, tag.End, _source.Length,
-                inline, tag.Name == "WritingBlock", relaxed: true);
-            if (closer < 0)
-            {
-                // A malformed opener will fail validation in ReadChildren if
-                // structural. Never treat an unproven body as a safe scope.
-                pos = tag.End;
-                continue;
-            }
-            for (var i = tag.End; i < closer; i++)
-            {
-                _opaqueBody[i] = true;
-                if (_source[i] is not ('\r' or '\n')) shadow[i] = ' ';
-            }
-            pos = closer + tag.Name.Length + 3;
-            segmentStart = pos;
+            ParseAttributes(tag, definition);
+            if (_commands.Count == MaxNodes)
+                throw new RichDocumentException("Command count exceeds limit.");
+            var span = new RichSourceSpan(at, after);
+            _commandSpans.Add(at, span);
+            _commands.Add(new RichCommandCandidate(tag.Name, body, span));
+            at = after;
         }
-        return new string(shadow);
     }
 
-    private bool WhitespaceLine(int start, int end)
+    private string VisibleBody(int from, int end)
     {
-        var beginning = _source.LastIndexOf('\n', Math.Max(0, start - 1)) + 1;
-        var ending = _source.IndexOf('\n', end);
-        if (ending < 0) ending = _source.Length;
-        return _source.AsSpan(beginning, start - beginning).Trim(' ').IsEmpty &&
-            _source.AsSpan(end, ending - end).Trim().IsEmpty;
-    }
-
-    // The radio compatibility grammar delegates label/closing-tag Markdown
-    // protection to this same canonical C# parser, not a second text grammar.
-    internal static bool[] MarkdownProtectionMask(string source) =>
-        new RichDocumentParser().MarkdownLiteralMask(source);
-
-    private static bool IsComment(MarkdownObject node, string source)
-    {
-        if (node is not HtmlInline && node is not HtmlBlock) return false;
-        var start = node.Span.Start;
-        return start >= 0 && start < source.Length &&
-            source.AsSpan(start).StartsWith("<!--", StringComparison.Ordinal);
+        var visible = new System.Text.StringBuilder(end - from);
+        var cursor = from;
+        foreach (var command in _commands)
+        {
+            var span = command.SourceSpan;
+            if (span.Start < cursor || span.End > end) continue;
+            visible.Append(_source, cursor, span.Start - cursor);
+            cursor = span.End;
+        }
+        visible.Append(_source, cursor, end - cursor);
+        return visible.ToString();
     }
 
     private IReadOnlyList<RichNode> ReadChildren(int start, int end, string? expected,
-        int depth, out int position, bool svgScope = false, bool commandsAllowed = true,
-        bool inlineScope = false)
+        int depth, out int position, bool svgScope = false, bool inlineScope = false)
     {
         if (depth > MaxDepth) throw new RichDocumentException("Document nesting exceeds limit.");
         var result = new List<RichNode>();
@@ -458,8 +231,16 @@ public sealed class RichDocumentParser
         }
         while (cursor < end)
         {
-            if (!svgScope && commandsAllowed && _source[cursor] == '{' && !_literal[cursor] && !IsEscaped(cursor) &&
-                RichQuestionGrammar.TryParse(_source, cursor, end, _literal, out var question, out var questionEnd))
+            if (_commandSpans.TryGetValue(cursor, out var command))
+            {
+                Flush(cursor);
+                cursor = command.End;
+                plainFrom = cursor;
+                continue;
+            }
+            if (!svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
+                RichQuestionGrammar.TryParse(_source, cursor, end,
+                    MarkdownLiteralMask(_source), out var question, out var questionEnd))
             {
                 Flush(cursor);
                 Add(result, question);
@@ -467,42 +248,42 @@ public sealed class RichDocumentParser
                 plainFrom = cursor;
                 continue;
             }
-            if (_source[cursor] != '<' ||
-                (!svgScope && (_literal[cursor] || _opaqueBody[cursor])) ||
-                IsEscaped(cursor) ||
-                !TryTag(cursor, end, out var tag))
+            if (_source[cursor] != '<' || !TryTag(cursor, end, out var tag))
             {
                 cursor++;
                 continue;
             }
-            // In an emphasized passage or Markdown link label, protocol-looking
-            // source remains Markdown. Do not split the inline structure or
-            // collect a host command; this applies to both opener and closer.
-            // Other rich elements still recurse and render inside emphasis.
-            if (!svgScope && _inlineContext[cursor] &&
-                tag.Name is "SH" or "ATTACH" or "DONE")
-            {
-                cursor = tag.End;
-                continue;
-            }
             if (tag.Closing)
             {
-                if (expected != tag.Name)
-                    throw new RichDocumentException($"Unexpected closing tag: {tag.Name}.");
-                Flush(cursor);
-                position = tag.End;
-                return result;
+                if (expected == tag.Name)
+                {
+                    Flush(cursor);
+                    position = tag.End;
+                    return result;
+                }
+                cursor = tag.End; // A closing delimiter without an opener is ordinary text.
+                continue;
             }
             if (!RichTagRegistry.TryGet(tag.Name, svgScope, out var definition))
                 throw new RichDocumentException($"Unsupported tag: {tag.Name}.");
-            // Discovery as a child is independent of searching this tag's
-            // own contents. Ineligible nested elements invalidate the whole
-            // document rather than accidentally promoting inner commands.
-            if (expected is not null && !definition.AllowAsChild)
-                throw new RichDocumentException($"{tag.Name} cannot be discovered as a child.");
-            if ((definition.Role is RichTagRole.Command or RichTagRole.Marker) &&
-                (!commandsAllowed || svgScope))
-                throw new RichDocumentException("Agent protocol commands are forbidden inside display-only elements.");
+            // Commands were already discovered with no context exceptions.
+            if (definition.Role is RichTagRole.Command or RichTagRole.Marker)
+            {
+                cursor = tag.End; // An unmatched opener is ordinary text.
+                continue;
+            }
+
+            var from = cursor;
+            var inlineElement = !svgScope && InlineElements.Contains(tag.Name);
+            var closer = -1;
+            if (!tag.SelfClosing && definition.Role != RichTagRole.Leaf)
+            {
+                closer = definition.SearchChildren
+                    ? FindContainerClose(tag.Name, tag.End, end)
+                    : FindOpaqueClosing(tag.Name, tag.End, end);
+                if (closer < 0) { cursor = tag.End; continue; }
+            }
+
             var attributes = ParseAttributes(tag, definition);
             if ((svgScope || tag.Name == "svg") &&
                 (svgScope && !RichSvgValidation.AllowsChild(expected, tag.Name) ||
@@ -516,66 +297,32 @@ public sealed class RichDocumentParser
                 if (_svgChars > 24_000)
                     throw new RichDocumentException("SVG content budget exceeded.");
             }
-
-            var from = cursor;
-            var inlineElement = !svgScope && InlineElements.Contains(tag.Name);
             if (!inlineElement) Flush(from);
             cursor = tag.End;
-            if (definition.Role is RichTagRole.OpaqueLiteral or RichTagRole.RawEditor or RichTagRole.Command)
+            if (definition.Role is RichTagRole.OpaqueLiteral or RichTagRole.RawEditor)
             {
                 if (tag.SelfClosing)
                     throw new RichDocumentException($"{tag.Name} requires a closing delimiter.");
-                if (definition.Role != RichTagRole.OpaqueLiteral && !Standalone(from, tag.End))
-                    throw new RichDocumentException($"{tag.Name} must begin on its own line.");
-                var closer = FindOpaqueClosing(tag.Name, tag.End, end,
-                    definition.Role == RichTagRole.OpaqueLiteral, tag.Name == "WritingBlock");
-                if (closer < 0)
-                    throw new RichDocumentException($"Unclosed {tag.Name} block.");
-                var closeEnd = closer + tag.Name.Length + 3;
-                var bodyStart = tag.End;
-                var bodyEnd = closer;
-                if (definition.Role != RichTagRole.OpaqueLiteral)
-                {
-                    bodyStart = SkipLineBreak(bodyStart);
-                    bodyEnd = TrimOneLineBreak(bodyEnd);
-                }
-                if (bodyEnd < bodyStart) bodyEnd = bodyStart;
-                var body = _source[bodyStart..bodyEnd];
-                if (definition.Role == RichTagRole.Command)
-                    _commands.Add(new RichCommandCandidate(tag.Name, body, new RichSourceSpan(from, closeEnd)));
-                else
-                    Add(result, new RichNode(definition.Role == RichTagRole.OpaqueLiteral ? "literal" : "raw",
-                        $"{from}:raw", new RichSourceSpan(from, closeEnd), Text: body, Name: tag.Name,
-                        Attributes: attributes));
-                cursor = closeEnd;
-            }
-            else if (definition.Role == RichTagRole.Marker)
-            {
-                if (tag.SelfClosing || attributes.Count != 0 || !Standalone(from, tag.End))
-                    throw new RichDocumentException("DONE is a bodyless standalone marker.");
-                _commands.Add(new RichCommandCandidate(tag.Name, null, new RichSourceSpan(from, cursor)));
+                var after = closer + tag.Name.Length + 3;
+                Add(result, new RichNode(definition.Role == RichTagRole.OpaqueLiteral ? "literal" : "raw",
+                    $"{from}:raw", new RichSourceSpan(from, after),
+                    Text: VisibleBody(tag.End, closer), Name: tag.Name, Attributes: attributes));
+                cursor = after;
             }
             else if (definition.Role == RichTagRole.Leaf || tag.SelfClosing)
             {
                 if (definition.Role == RichTagRole.Leaf && !tag.SelfClosing)
                     throw new RichDocumentException($"{tag.Name} must be self-closing.");
-                var elementNode = new RichNode("element", $"{from}:element", new RichSourceSpan(from, cursor),
+                var element = new RichNode("element", $"{from}:element", new RichSourceSpan(from, cursor),
                     Name: tag.Name, Attributes: attributes);
-                if (inlineElement) inline.Add(elementNode);
-                else Add(result, elementNode);
+                if (inlineElement) inline.Add(element);
+                else Add(result, element);
             }
             else if (!definition.SearchChildren)
             {
-                // A container can independently opt out of child discovery.
-                // Its body stays literal; it is never rescanned for tags.
-                var closer = FindOpaqueClosing(tag.Name, tag.End, end, inline: true,
-                    markdownAware: false);
-                if (closer < 0)
-                    throw new RichDocumentException($"Unclosed {tag.Name} block.");
                 var after = closer + tag.Name.Length + 3;
-                var body = _source[tag.End..closer];
                 var literal = new RichNode("literal", $"{tag.End}:literal",
-                    new RichSourceSpan(tag.End, closer), Text: body);
+                    new RichSourceSpan(tag.End, closer), Text: VisibleBody(tag.End, closer));
                 var element = new RichNode("element", $"{from}:element",
                     new RichSourceSpan(from, after), Name: tag.Name,
                     Attributes: attributes, Children: [literal]);
@@ -585,100 +332,74 @@ public sealed class RichDocumentParser
             }
             else
             {
-                // Reparse Markdown only through this container's own matching
-                // close. Parsing every remaining suffix for every sibling box
-                // was quadratic in document width and exposed API/history reads
-                // to excessive CPU work. SVG has an independent literal grammar.
-                var childEnd = end;
-                if (!svgScope && tag.Name != "svg")
-                {
-                    var closing = FindContainerClose(tag.Name, cursor, end);
-                    childEnd = closing + tag.Name.Length + 3;
-                }
-                var children = ReadChildren(cursor, childEnd, tag.Name, depth + 1, out var after,
-                    svgScope || tag.Name == "svg",
-                    commandsAllowed && ExecutableContainers.Contains(tag.Name),
-                    inlineElement);
-                var elementNode = new RichNode("element", $"{from}:element", new RichSourceSpan(from, after),
-                    Name: tag.Name, Attributes: attributes, Children: children);
-                if (inlineElement) inline.Add(elementNode);
-                else Add(result, elementNode);
+                var afterClose = closer + tag.Name.Length + 3;
+                var children = ReadChildren(cursor, afterClose, tag.Name, depth + 1,
+                    out var after, svgScope || tag.Name == "svg", inlineElement);
+                var element = new RichNode("element", $"{from}:element",
+                    new RichSourceSpan(from, after), Name: tag.Name,
+                    Attributes: attributes, Children: children);
+                if (inlineElement) inline.Add(element);
+                else Add(result, element);
                 cursor = after;
             }
             if (!inlineElement) plainFrom = cursor;
         }
-        if (expected is not null)
-            throw new RichDocumentException($"Unclosed {expected} container.");
         Flush(end);
         position = end;
         return result;
     }
 
-    // Locate a bounded matching rich-container closing delimiter before
-    // reparsing Markdown. Recognized opaque bodies are skipped, and candidate
-    // closers inside Markdown code are ignored. Repeated ambiguous closers
-    // have a strict retry limit; malformed input fails closed.
+    // Return the first matching close, with balanced nesting for UI containers.
+    // Command bodies and raw elements do not contribute fake delimiters.
     private int FindContainerClose(string name, int from, int end)
     {
-        var ignored = new HashSet<int>();
-        for (var attempt = 0; attempt < 5; attempt++)
+        var nesting = 1;
+        for (var at = from; at < end;)
         {
-            var nesting = 1;
-            var candidate = -1;
-            for (var pos = from; pos < end;)
+            at = _source.IndexOf('<', at);
+            if (at < 0 || at >= end) break;
+            if (_commandSpans.TryGetValue(at, out var command))
             {
-                // Fenced/quoted markup has no structural authority, even
-                // when it looks like another opener for this same container.
-                if (_source[pos] != '<' || _literal[pos] || _opaqueBody[pos] || IsEscaped(pos) ||
-                    !TryTag(pos, end, out var tag))
-                {
-                    pos++;
-                    continue;
-                }
-                if (!tag.Closing && !_inlineContext[pos] &&
-                    RichTagRegistry.TryGet(tag.Name, out var definition) &&
-                    !definition.SearchChildren &&
-                    definition.Role is not (RichTagRole.Leaf or RichTagRole.Marker))
-                {
-                    var close = _source.IndexOf("</" + tag.Name + ">", tag.End, StringComparison.Ordinal);
-                    if (close >= 0 && close < end)
-                    {
-                        pos = close + tag.Name.Length + 3;
-                        continue;
-                    }
-                }
-                if (tag.Name == name)
-                {
-                    if (tag.Closing && !ignored.Contains(pos) && --nesting == 0)
-                    {
-                        candidate = pos;
-                        break;
-                    }
-                    if (!tag.Closing && !tag.SelfClosing) nesting++;
-                }
-                pos = tag.End;
-            }
-            if (candidate < 0)
-                throw new RichDocumentException($"Unclosed {name} container.");
-            var spanEnd = candidate + name.Length + 3;
-            var length = spanEnd - from;
-            _markdownScanChars += length;
-            if (_markdownScanChars > 8_000_000)
-                throw new RichDocumentException("Markdown validation work budget exceeded.");
-            _ = MarkdownLiteralMask(_source[from..spanEnd],
-                collectContext: true, contextOffset: from);
-            var mask = MarkdownLiteralMask(_markdownSource[from..spanEnd],
-                collectContext: true, contextOffset: from);
-            if (mask[candidate - from])
-            {
-                ignored.Add(candidate);
+                at = command.End;
                 continue;
             }
-            for (var i = 0; i < mask.Length; i++)
-                if (mask[i]) _literal[from + i] = true;
-            return candidate;
+            if (!TryTag(at, end, out var tag)) { at++; continue; }
+            if (!tag.Closing && !tag.SelfClosing &&
+                RichTagRegistry.TryGet(tag.Name, out var definition) &&
+                !definition.SearchChildren &&
+                definition.Role is not (RichTagRole.Leaf or RichTagRole.Marker))
+            {
+                var opaqueClose = FindOpaqueClosing(tag.Name, tag.End, end);
+                if (opaqueClose >= 0)
+                {
+                    at = opaqueClose + tag.Name.Length + 3;
+                    continue;
+                }
+            }
+            if (tag.Name == name)
+            {
+                if (tag.Closing && --nesting == 0) return at;
+                if (!tag.Closing && !tag.SelfClosing) nesting++;
+            }
+            at = tag.End;
         }
-        throw new RichDocumentException("Ambiguous rich container closing delimiters.");
+        return -1;
+    }
+
+    private int FindOpaqueClosing(string name, int from, int end)
+    {
+        var closing = "</" + name + ">";
+        for (var at = from; at < end;)
+        {
+            at = _source.IndexOf(closing, at, StringComparison.Ordinal);
+            if (at < 0 || at >= end) return -1;
+            // A closing-looking token inside an opaque command body is text.
+            var insideCommand = _commands.Any(c =>
+                c.SourceSpan.Start < at && c.SourceSpan.End > at);
+            if (!insideCommand) return at;
+            at += closing.Length;
+        }
+        return -1;
     }
 
     private void Add(List<RichNode> nodes, RichNode node)
@@ -731,69 +452,8 @@ public sealed class RichDocumentParser
     private bool IsEscaped(int index)
     {
         var backslashes = 0;
-        for (var i = index - 1; i >= 0 && _source[i] == '\\'; i--) backslashes++;
+        for (var i = index - 1; i >= 0 && _source[i] == '\\'; i++) backslashes++;
         return (backslashes & 1) == 1;
-    }
-
-    private bool Standalone(int start, int end)
-    {
-        var lineStart = _source.LastIndexOf('\n', Math.Max(0, start - 1)) + 1;
-        var lineEnd = _source.IndexOf('\n', end);
-        if (lineEnd < 0) lineEnd = _source.Length;
-        // Root commands need at most three leading spaces. A nested Markdown
-        // list item can require four or more *continuation* spaces: admit only
-        // when the canonical Markdig list-item span contains this delimiter.
-        // Code blocks / quotes remain masked before this check, including
-        // four-space indented code that is not a list continuation.
-        var prefix = _source.AsSpan(lineStart, start - lineStart);
-        return (prefix.Length <= 3 || _listContext[start]) &&
-               prefix.IndexOfAnyExcept((char)32) < 0 &&
-               string.IsNullOrWhiteSpace(_source[end..lineEnd]);
-    }
-
-    private int SkipLineBreak(int start)
-    {
-        if (start < _source.Length && _source[start] == '\r') start++;
-        if (start < _source.Length && _source[start] == '\n') start++;
-        return start;
-    }
-
-    private int TrimOneLineBreak(int end)
-    {
-        if (end > 0 && _source[end - 1] == '\n') end--;
-        if (end > 0 && _source[end - 1] == '\r') end--;
-        return end;
-    }
-
-    private int FindOpaqueClosing(string name, int from, int end, bool inline,
-        bool markdownAware, bool relaxed = false)
-    {
-        var closer = "</" + name + ">";
-        var pos = from;
-        while ((pos = _source.IndexOf(closer, pos, StringComparison.Ordinal)) >= 0 && pos < end)
-        {
-            // A WritingBlock's Markdown applies only within its raw body.
-            // Parse no more than the prefix ending at each candidate closer.
-            // Combined with the cumulative budget this bounds fake-closer
-            // retries and avoids reparsing every subsequent sibling's suffix.
-            if (markdownAware)
-            {
-                var length = pos + closer.Length - from;
-                _markdownScanChars += length;
-                if (_markdownScanChars > 8_000_000)
-                    throw new RichDocumentException("Markdown validation work budget exceeded.");
-                var mask = MarkdownLiteralMask(_source[from..(pos + closer.Length)]);
-                if (mask[pos - from]) { pos += closer.Length; continue; }
-            }
-            // Only structural, line-delimited closers may terminate an editor
-            // or protocol block. The discovery prepass admits indentation
-            // conservatively; ReadChildren still enforces actual list context.
-            if (inline || (relaxed ? WhitespaceLine(pos, pos + closer.Length) :
-                Standalone(pos, pos + closer.Length)))
-                return pos;
-            pos += closer.Length;
-        }
-        return -1;
     }
 
     private sealed record Tag(string Name, bool Closing, bool SelfClosing, int Start, int End,
@@ -835,7 +495,7 @@ public sealed class RichDocumentParser
             tag = new Tag(name, closing, selfClosing, from, i + 1, attributes);
             return true;
         }
-        throw new RichDocumentException("Unclosed or oversized tag opening.");
+        return false; // Incomplete tag syntax remains ordinary text.
     }
 
     // Unknown *presentation* attributes stay inert data: React components read only
