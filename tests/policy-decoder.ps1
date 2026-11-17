@@ -111,8 +111,8 @@ Assert(initialPrompt.Replace("\r\n", "\n", StringComparison.Ordinal)
     "Runtime startup lost the task content.");
 Assert(initialPrompt.Contains("Host shell:", StringComparison.Ordinal),
     "Runtime startup omitted the configured shell context.");
-Assert(!initialPrompt.Contains("return <SH> on a line", StringComparison.Ordinal),
-    "Default SH guidance was duplicated by the policy compiler.");
+Assert(initialPrompt.Contains("Closing tags may appear", StringComparison.Ordinal),
+    "Default instructions lost position-independent tag guidance.");
 
 var configScratch = Path.Combine(Path.GetTempPath(), $"mezhs config copies {Guid.NewGuid():N}");
 Directory.CreateDirectory(configScratch);
@@ -290,15 +290,14 @@ var deniedAction = done.ValidateAction(new PolicyActionContext(
 Assert(!deniedAction.Allowed, "Unconfigured SH action was not denied by default.");
 
 var parser = new Parser();
-// Model instructions are prose, not Agent replies: rejected inline examples
-// must never produce executable candidates.
-var instructionsDocument = new RichDocumentParser().Parse(normal.ModelInstructions);
-Assert(instructionsDocument.Commands.Count == 0,
-    "Compiled model instructions unexpectedly produced executable command candidates.");
-var inlineExampleDocument = new RichDocumentParser().Parse(
-    "Instruction: use <SH> on its own line.\n<SH>\necho MUST_NOT_RUN\n</SH>");
-Assert(!inlineExampleDocument.Document.Valid && inlineExampleDocument.Commands.Count == 0,
-    "Malformed instructional prose exposed a later standalone shell command.");
+// Instructions are not Agent replies. Their inline syntax examples are never
+// dispatched as host actions, even if they are recognizable in isolation.
+Assert(normal.ModelInstructions.Contains("shell text", StringComparison.Ordinal),
+    "Compiled instructions must teach inline tag matching.");
+var inlineReply = parser.Parse("before <SH>echo INLINE</SH> after");
+Assert(inlineReply.Commands.SequenceEqual([new Command("SH", "echo INLINE")]) &&
+       inlineReply.VisibleContent == "before  after",
+    "Inline SH syntax or exact display subtraction failed.");
 const string standaloneSource = "before\n<SH>\necho one\necho two\n</SH>\n<DONE>\nafter";
 var standaloneDocument = new RichDocumentParser().Parse(standaloneSource);
 Assert(standaloneDocument.Document.Valid,
@@ -306,11 +305,11 @@ Assert(standaloneDocument.Document.Valid,
     string.Join("; ", standaloneDocument.Document.Diagnostics.Select(diagnostic => diagnostic.Code)));
 var parsed = parser.Parse(standaloneSource);
 Assert(parsed.Commands.Count == 2, "Parser did not retain SH and DONE commands.");
-Assert(parsed.Commands[0].Name == "SH" && parsed.Commands[0].Body == "echo one\necho two",
+Assert(parsed.Commands[0].Name == "SH" && parsed.Commands[0].Body == "\necho one\necho two\n",
     "Shell body was rewritten while parsing.");
 Assert(parsed.Commands[1].Name == "DONE" && parsed.Commands[1].Body is null,
     "DONE marker was not parsed as a marker command.");
-Assert(parsed.VisibleContent == "before\nafter",
+Assert(parsed.VisibleContent == "before\n\n\nafter",
     $"Protocol parser did not remove executable protocol from display content: '{parsed.VisibleContent}'.");
 
 const string mappedSource = "visible before\n<SH>\necho mapped\n</SH>\n<DONE>\nvisible after";
@@ -324,11 +323,11 @@ var mappedMessage = AgentApiMapper.ToView(
         mappedSource,
         [], null, null, null, MessageStatus.Completed, null, now, now, now),
     parser);
-Assert(mappedMessage.DisplayContent == "visible before\nvisible after",
+Assert(mappedMessage.DisplayContent == "visible before\n\n\nvisible after",
     "Agent API did not own protocol stripping for Web display.");
 Assert(mappedMessage.Commands.Count == 1 &&
        mappedMessage.Commands[0].Name == "SH" &&
-       mappedMessage.Commands[0].Body == "echo mapped" &&
+       mappedMessage.Commands[0].Body == "\necho mapped\n" &&
        mappedMessage.Commands[0].CommandIndex == 0 &&
        mappedMessage.CompletionClaimed,
     "Agent API protocol view lost SH body/index or DONE claim.");
@@ -411,7 +410,7 @@ try
         record.Id.ToString(System.Globalization.CultureInfo.InvariantCulture) == simple.Results[0].ExecutionId);
     Assert(simpleChild.TriggerMessageId == "msg-simple" && simpleChild.CommandIndex == 0,
         "Executor shell execution did not persist message/index identity.");
-    Assert(simpleChild.Command == "echo MEZHS_SHELL_OK", "Shell command text was rewritten before persistence/execution.");
+    Assert(simpleChild.Command == "\necho MEZHS_SHELL_OK\n", "Shell command text was rewritten before persistence/execution.");
     Assert(simpleChild.ParentExecutionId == root.ExecutionId && simpleChild.CorrelationId == root.CorrelationId,
         "Executor shell execution lost Agent causal identity.");
 
@@ -427,7 +426,7 @@ try
         .ToArray();
     Assert(duplicateChildren.Length == 2 && duplicateChildren[0].CommandIndex == 0 && duplicateChildren[1].CommandIndex == 1,
         "Identical commands are not durably distinguishable by command index.");
-    Assert(duplicateChildren.All(record => record.Command == "echo DUPLICATE_OK"),
+    Assert(duplicateChildren.All(record => record.Command == "\necho DUPLICATE_OK\n"),
         "Duplicate command identity depends on rewriting command text.");
 
     var multilineText = OperatingSystem.IsWindows()
