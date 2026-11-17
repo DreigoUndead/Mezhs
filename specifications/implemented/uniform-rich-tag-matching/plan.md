@@ -3,7 +3,7 @@
 ID: uniform-rich-tag-matching
 Branch: `uniform-rich-tag-matching`
 Level: **Standard (owner override, 2026-11-17)** — fix an existing inconsistent parsing rule, not a new feature.
-State: **Implemented on task branch — developer CI and independent review pending**
+State: **Implemented on task branch - independent code review pending**
 
 ## Requirement
 
@@ -41,3 +41,10 @@ Standard development on this branch; targeted developer checks, independent code
 - GitHub Actions on SHA `198f7cb3` confirmed full .NET solution build, provider tests and SQLite/API smoke passed; rich UI tests failed on outdated context exemptions. CI on `a8b57483` confirmed build passed again; rich tests had two failures (unrelated group-delete focus/escape and a now-overstrict pre-code count), both recorded rather than called PASS. Corrections on branch continue through normal CI; exact final pass SHA must be added when available.
 - Sanity: fewer parser lines and decisions; no new async, service, abstraction, duplicated tokenizer, DOM automation or state persistence. One globally recognized command-source scan plus the existing bounded UI tree/parser.
 - Release suggestion: patch; `VERSION` and `CHANGELOG.md` unchanged. Independent Standard code review and final verification still required; no merge without owner approval.
+
+## Local regression follow-up (2026-11-17)
+
+- Earlier GitHub Actions run 44088974401 passed on ea7c366. A direct local C# parser run exposed one regression (61/62): a radio label containing an inline-code closing delimiter was recognized too early because the candidate prefix ended before its closing backtick.
+- The bounded radio compatibility grammar now evaluates the complete current line, preserving source offsets. The canonical SH/ATTACH command discovery rules are unchanged.
+- Developer verification after the fix: C# parser 62/62 PASS; Node/real Chromium 61/61 PASS; Release solution build PASS; git diff --check PASS. The machine lacks pwsh, so the Agent protocol PowerShell script could not run locally.
+- The Windows CI workflow now runs the C# test application assertions rather than only building it. Full CI on the amended commit and independent Standard code review remain pending; no merge authorization.

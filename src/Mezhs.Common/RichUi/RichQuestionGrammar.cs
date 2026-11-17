@@ -161,8 +161,10 @@ internal static class RichQuestionGrammar
             // Parsing the raw indented span would classify every real closing
             // delimiter as Markdown indented code and reject valid questions.
             // Body and option counts are strictly bounded.
+            var lineEnd = source.IndexOf((char)10, at);
+            if (lineEnd < 0 || lineEnd > limit) lineEnd = limit;
             var (normalized, positions) =
-                NormalizeLabel(source[from..(at + delimiter.Length)], from);
+                NormalizeLabel(source[from..lineEnd], from);
             var candidateIndex = Array.BinarySearch(positions, at);
             if (candidateIndex >= 0 && candidateIndex < normalized.Length &&
                 !RichDocumentParser.MarkdownProtectionMask(normalized)[candidateIndex])
