@@ -2,6 +2,22 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.8.2] — 2026-11-17
+
+### Fixed
+- Keep typing responsive in long Agent and ordinary chat histories by moving unsent per-conversation drafts out of the application-level render state and subscribing only the relevant composer controls.
+- Preserve draft handoff, newer edits and failed-send restoration across new chats, existing chats and asynchronous submissions.
+- Skip unchanged Agent chat-list polling renders while retaining active execution elapsed-time updates; restore ordinary transcript and execution-history JSX without manually maintained large memoization wrappers.
+
+### Verification and approval
+- Independent Standard code review **PASS** for PR #63 at `b9a791e17418e1a95edb52009f7498d50822bf8b`.
+- Exact-head MEŽS Core Windows CI **PASS** (run `43963941068`), including frontend builds, real Chromium Agent long-history typing/render isolation, unchanged polling, live transcript updates, scoped drafts and existing handoff/restore/scroll regressions, plus Core/Agent/provider checks.
+- No separate independent final-testing execution; owner explicitly approved merging this reviewed, CI-green candidate on 2026-11-17.
+- Owner-approved PR #63 merge commit: `f50fb9bf7a02c9a7569423076243c47b7ca45672`.
+
+### Known limitations
+- Automated checks establish render isolation, not measured end-to-end keyboard latency in the owner's live Windows app; ordinary chat draft isolation is also covered by a scoped harness rather than direct parent-render instrumentation of the full chat app.
+
 ## [0.8.1] — 2026-11-16
 
 ### Changed
