@@ -1,7 +1,8 @@
 export { default as MezhsChatApp } from "./MezhsChatApp";
 export type { MezhsChatAppProps } from "./MezhsChatApp";
-export { ChatComposer, ChatTranscript, modelActivityLabel } from "./ChatSurface";
-export { useConversationDrafts } from "./useConversationDrafts";
+export { ChatComposer, DraftChatComposer, ChatTranscript, modelActivityLabel } from "./ChatSurface";
+export { useConversationDrafts, useConversationDraftStore, useConversationDraftValue } from "./useConversationDrafts";
+export type { ConversationDraftStore } from "./useConversationDrafts";
 export { ConnectionModelPicker } from "./ConnectionModelPicker";
 export type { ConnectionModelPickerProps } from "./ConnectionModelPicker";
 export type {

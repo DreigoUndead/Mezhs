@@ -1,48 +1,88 @@
-import { useState } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 
-// Unsent text belongs to a chat (or a distinct new-chat context), not the active textbox.
-export function useConversationDrafts(key: string) {
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const draft = drafts[key] ?? "";
+// Draft edits belong to the composer, not the application that renders the history.
+// This store is scoped to one app instance and notifies only the active draft's readers.
+export function createConversationDraftStore() {
+  const drafts = new Map<string, string>();
+  const listeners = new Map<string, Set<() => void>>();
 
-  function setDraft(value: string) {
-    setDrafts((current) => ({ ...current, [key]: value }));
+  function notify(key: string) {
+    listeners.get(key)?.forEach((listener) => listener());
   }
 
-  function clearDraft(targetKey: string, expected: string) {
-    setDrafts((current) => {
-      if (current[targetKey] !== expected) return current;
-      const next = { ...current };
-      delete next[targetKey];
-      return next;
-    });
+  function getDraft(key: string) {
+    return drafts.get(key) ?? "";
   }
 
-  // Rename only the draft from the submitted context; keep edits made while awaiting the API.
+  function setDraft(key: string, value: string) {
+    if (getDraft(key) === value) return;
+    drafts.set(key, value);
+    notify(key);
+  }
+
+  function clearDraft(key: string, expected: string) {
+    if (drafts.get(key) !== expected) return;
+    drafts.delete(key);
+    notify(key);
+  }
+
   function moveDraft(sourceKey: string, targetKey: string, submitted: string) {
     if (sourceKey === targetKey) return;
-    setDrafts((current) => {
-      const remaining = current[sourceKey];
-      if (remaining === undefined) return current;
-      const next = { ...current };
-      delete next[sourceKey];
-      if (remaining !== submitted) {
-        const existing = next[targetKey];
-        next[targetKey] = existing && existing !== remaining
-          ? existing + String.fromCharCode(10, 10) + remaining : remaining;
-      }
-      return next;
-    });
+    const remaining = drafts.get(sourceKey);
+    if (remaining === undefined) return;
+    drafts.delete(sourceKey);
+    notify(sourceKey);
+    if (remaining !== submitted) {
+      const existing = drafts.get(targetKey);
+      drafts.set(targetKey, existing && existing !== remaining
+        ? existing + String.fromCharCode(10, 10) + remaining : remaining);
+      notify(targetKey);
+    }
   }
 
-  // Roll back a failed request without discarding text entered afterward.
-  function restoreDraft(targetKey: string, submitted: string) {
-    setDrafts((current) => {
-      const newer = current[targetKey];
-      if (newer === submitted) return current;
-      return { ...current, [targetKey]: newer ? submitted + String.fromCharCode(10, 10) + newer : submitted };
-    });
+  function restoreDraft(key: string, submitted: string) {
+    const newer = drafts.get(key);
+    if (newer === submitted) return;
+    drafts.set(key, newer ? submitted + String.fromCharCode(10, 10) + newer : submitted);
+    notify(key);
   }
 
-  return { draft, setDraft, clearDraft, moveDraft, restoreDraft };
+  function subscribe(key: string, listener: () => void) {
+    const subscribers = listeners.get(key) ?? new Set<() => void>();
+    listeners.set(key, subscribers);
+    subscribers.add(listener);
+    return () => {
+      subscribers.delete(listener);
+      if (subscribers.size === 0) listeners.delete(key);
+    };
+  }
+
+  return { getDraft, setDraft, clearDraft, moveDraft, restoreDraft, subscribe };
+}
+
+export type ConversationDraftStore = ReturnType<typeof createConversationDraftStore>;
+
+export function useConversationDraftStore() {
+  const store = useRef<ConversationDraftStore | null>(null);
+  if (!store.current) store.current = createConversationDraftStore();
+  return store.current;
+}
+
+export function useConversationDraftValue(store: ConversationDraftStore, key: string) {
+  const subscribe = useCallback((listener: () => void) => store.subscribe(key, listener), [store, key]);
+  const snapshot = useCallback(() => store.getDraft(key), [store, key]);
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
+}
+
+// Preserve the original hook for callers that intentionally own their draft state.
+export function useConversationDrafts(key: string) {
+  const store = useConversationDraftStore();
+  const draft = useConversationDraftValue(store, key);
+  return {
+    draft,
+    setDraft: (value: string) => store.setDraft(key, value),
+    clearDraft: store.clearDraft,
+    moveDraft: store.moveDraft,
+    restoreDraft: store.restoreDraft,
+  };
 }
