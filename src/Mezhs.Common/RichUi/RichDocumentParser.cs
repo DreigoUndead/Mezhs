@@ -21,11 +21,8 @@ public sealed class RichDocumentParser
     private static readonly IReadOnlySet<string> InlineElements =
         new HashSet<string>(["text", "title", "badge", "caption", "Link", "icon", "Cite"],
             StringComparer.Ordinal);
-    // Keep the syntax used for literal masking aligned with typed Markdown lowering.
-    // AdvancedExtensions includes GenericAttributes, which swallows literal
-    // "{item.property}" model text as Markdown metadata. It is intentionally off.
-    private readonly MarkdownPipeline _markdown = new MarkdownPipelineBuilder().UsePipeTables().UseEmphasisExtras().Build();
     private string _source = "";
+    private bool[] _radioLiteral = [];
     // The same tag tokenizer discovers commands regardless of their surrounding text.
     private readonly Dictionary<int, RichSourceSpan> _commandSpans = [];
     private List<RichCommandCandidate> _commands = [];
@@ -46,6 +43,7 @@ public sealed class RichDocumentParser
         try
         {
             ScanCommands();
+            _radioLiteral = MarkdownLiteralMask(_source);
             var nodes = ReadChildren(0, source.Length, null, 0, out _);
             // Validate the final typed tree before releasing any command
             // candidates. Rich inline wrappers render as HTML phrasing
@@ -240,7 +238,7 @@ public sealed class RichDocumentParser
             }
             if (!svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
                 RichQuestionGrammar.TryParse(_source, cursor, end,
-                    MarkdownLiteralMask(_source), out var question, out var questionEnd))
+                    _radioLiteral, out var question, out var questionEnd))
             {
                 Flush(cursor);
                 Add(result, question);
