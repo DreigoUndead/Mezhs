@@ -216,7 +216,7 @@ Console.WriteLine("PASS: Position-independent matched tags, missing closers, opa
         Write-Host "PASS: Rejected $label batch produced no shell execution or filesystem side effect."
     }
 
-    Assert-RejectedBatch 'unknown' '<UNKNOWN>'
+    Assert-RejectedBatch 'invalid-registered' '<box onClick="evil"/>'
     Assert-RejectedBatch 'empty-shell' "<SH>`n `n</SH>"
     Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"
     Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"

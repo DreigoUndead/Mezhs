@@ -22,6 +22,10 @@ public sealed class RichDocumentParser
         new HashSet<string>(["text", "title", "badge", "caption", "Link", "icon", "Cite"],
             StringComparer.Ordinal);
     private string _source = "";
+    // These names must not bypass active-content validation as unknown markup.
+    // Markdown code literals may still show them as non-executable examples.
+    private static readonly IReadOnlySet<string> UnsafeRawTags =
+        new HashSet<string>(["script", "style", "iframe", "object", "embed", "foreignObject", "image", "use", "animate", "animateMotion", "animateTransform", "set", "feImage"], StringComparer.OrdinalIgnoreCase);
     private bool[] _radioLiteral = [];
     // The same tag tokenizer discovers commands regardless of their surrounding text.
     private readonly Dictionary<int, RichSourceSpan> _commandSpans = new();
@@ -266,8 +270,11 @@ public sealed class RichDocumentParser
             {
                 // Only registered tags have rich syntax. Preserve unknown markup
                 // as ordinary text while still discovering registered tags within it.
-                if (RichTagRegistry.IsSvgTag(tag.Name))
-                    throw new RichDocumentException($"SVG tag outside supported scope: {tag.Name}.");
+                if (RichTagRegistry.IsSvgTag(tag.Name) ||
+                    (svgScope && RichTagRegistry.TryGet(tag.Name, out var registered) &&
+                     registered.Role is not (RichTagRole.Command or RichTagRole.Marker)) ||
+                    (UnsafeRawTags.Contains(tag.Name) && (svgScope || !_radioLiteral[cursor])))
+                    throw new RichDocumentException($"Unsupported or unsafe tag in this context: {tag.Name}.");
                 cursor = tag.End;
                 continue;
             }

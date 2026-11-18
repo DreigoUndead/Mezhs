@@ -56,6 +56,8 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Unknown wrapper with registered rich child", "<widget>pre <text strong>rich</text> post</widget>", true, []),
     ("Unknown XML example before registered command", "~~~xml\n<widget>example</widget>\n~~~\n<SH>echo OK</SH>", true, ["SH"]),
     ("Registered SVG child outside SVG still rejected", "<path d=\"M0 0\"/>", false, []),
+    ("Raw script outside Markdown rejected", "<script>alert(1)</script>", false, []),
+    ("Raw script inside Markdown fence is literal", "~~~\n<script>alert(1)</script>\n~~~", true, []),
 };
 var failures = 0;
 static IEnumerable<RichNode> Walk(RichNode node)
@@ -300,6 +302,9 @@ var svgTests = new (string Name, string Source, bool Valid, Func<RichParseResult
     ("SVG forbidden url rejected", "<svg><rect x=\"1\" fill=\"url(#evil)\" /></svg>", false, r => r.Commands.Count == 0),
     ("SVG text namespace accepted", "<svg viewBox=\"0 0 80 80\"><text x=\"15\" y=\"30\" fontSize=\"12\" >Hello</text></svg>", true, r => r.Document.Nodes.Any(n => n.Name == "svg" && n.Children?.Any(c => c.Name == "text" && c.Children?.Any(t => t.Text == "Hello") == true) == true)),
     ("SVG nested foreign UI rejected", "<svg><box>bad</box></svg>", false, r => r.Commands.Count == 0),
+    ("SVG foreign UI under unknown wrapper rejected", "<svg><widget><box>bad</box></widget></svg>", false, r => r.Commands.Count == 0),
+    ("SVG unknown wrapper is ordinary text", "<svg><widget>literal</widget></svg>", true, r => r.Document.Nodes.Any(n => n.Name == "svg" && n.Children?.Any(c => c.Kind == "text" && c.Text?.Contains("<widget>literal</widget>", StringComparison.Ordinal) == true) == true)),
+    ("SVG unknown wrapper keeps global SH matching", "<svg><widget><SH>echo YES</SH></widget></svg>", true, r => r.Commands.Count == 1 && r.Commands[0].Body == "echo YES"),
     ("SVG nested SVG rejected", "<svg><svg></svg></svg>", false, r => r.Commands.Count == 0),
     ("SVG geometry over bound rejected", "<svg><circle r=\"100000000\" /></svg>", false, r => r.Commands.Count == 0),
 };
