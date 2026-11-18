@@ -11,6 +11,7 @@ State: **Implemented on task branch - independent code review pending**
 - An opening paired tag without a matching close is ordinary text, not a rejected batch or actionable command. No special fallback rules.
 - Keep tag forms distinct: `SH`/`ATTACH` are opaque blocks (first matching closer); UI containers match balanced nested tags; `DONE` remains a bodyless marker; self-closing UI leaves stay self-closing.
 - Strip only matched command spans from Agent visible text, retaining the exact surrounding content. Preserve the exact command body bytes.
+- Owner clarification (2026-11-18): unregistered tag names are ordinary text, not a document validation error; nested registered tags and Agent command pairs are still discovered. Registered tags retain their own validation.
 
 ## Approach and coding sanity
 
