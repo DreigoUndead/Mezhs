@@ -231,9 +231,9 @@ public sealed class RichDocumentParser
         {
             if (_commandSpans.TryGetValue(cursor, out var command))
             {
-                Flush(cursor);
+                // Commands are invisible in display Markdown, but removing them
+                // must not split the surrounding paragraph or emphasis scope.
                 cursor = command.End;
-                plainFrom = cursor;
                 continue;
             }
             if (!svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
@@ -423,7 +423,11 @@ public sealed class RichDocumentParser
         // Inline rich nodes occupy original source spans while Markdig parses
         // surrounding text as one Markdown context. Their descendants were
         // already counted by the recursive parser; count only new AST nodes.
-        var parsed = RichMarkdownNodes.Convert(_source[start..end], start, inlineScope, inline);
+        var hidden = _commands.Select(c => c.SourceSpan)
+            .Where(span => span.Start >= start && span.End <= end &&
+                !inline.Any(node => span.Start >= node.SourceSpan.Start &&
+                    span.End <= node.SourceSpan.End)).ToArray();
+        var parsed = RichMarkdownNodes.Convert(_source[start..end], start, inlineScope, inline, hidden);
         var priorChildren = inline.Sum(n => n.Children?.Sum(CountNodes) ?? 0);
         var convertedCount = parsed.Sum(CountNodes);
         if (inline.Count > 0)

@@ -148,18 +148,16 @@ public sealed class PolicyDecoder
 
         var shell = Registry.Get(CommandBehavior.Shell);
         if (settings.Commands.Allow.Contains(shell.Name, StringComparer.OrdinalIgnoreCase) &&
-            !settings.Commands.Deny.Contains(shell.Name, StringComparer.OrdinalIgnoreCase) &&
-            !settings.Instructions.Contains($"<{shell.Name}>", StringComparison.Ordinal))
+            !settings.Commands.Deny.Contains(shell.Name, StringComparer.OrdinalIgnoreCase))
         {
             rules.Add(
-                $"To execute host shell text, write <{shell.Name}>shell text</{shell.Name}> anywhere in the reply. " +
-                "The body is passed to the host shell unchanged, including whitespace. Complete command pairs inside Markdown or UI still execute.");
+                $"Authoritative runtime protocol, overriding conflicting older local instructions: to execute shell text, write <{shell.Name}>shell text</{shell.Name}> anywhere in the reply. " +
+                "The body is passed to the host shell unchanged, including whitespace. Complete command pairs inside Markdown, inline code, code fences, escape blocks, raw editors, or UI execute; never include complete command pairs as inert examples.");
         }
 
         if (settings.Commands.Allow.Contains("ATTACH", StringComparer.OrdinalIgnoreCase) &&
-            !settings.Commands.Deny.Contains("ATTACH", StringComparer.OrdinalIgnoreCase) &&
-            !settings.Instructions.Contains("<ATTACH>", StringComparison.Ordinal))
-            rules.Add("To stage locally generated attachments, write <ATTACH>one file path per line</ATTACH> anywhere in your reply. Staging alone does not send a message; MEŽS includes the files in the next ordinary turn. Do not use /v1/messages from shell.");
+            !settings.Commands.Deny.Contains("ATTACH", StringComparer.OrdinalIgnoreCase))
+            rules.Add("Authoritative runtime protocol, overriding conflicting older local instructions: to stage attachments, write <ATTACH>one file path per line</ATTACH> anywhere in your reply. Staging alone does not send a message; MEŽS includes the files in the next ordinary turn. Do not use /v1/messages from shell.");
 
         if (settings.Completion.RequireDone)
         {

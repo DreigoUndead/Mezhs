@@ -66,7 +66,7 @@ foreach (var (name, source, valid, commands) in checks)
     var result = new RichDocumentParser().Parse(source);
     var names = result.Commands.Select(c => c.Name).ToArray();
     var pass = result.Document.Valid == valid && names.SequenceEqual(commands);
-    if (name == "Shell body and DONE")
+    if (name == "Multiline SH preserves body bytes")
         pass &= result.Commands.FirstOrDefault()?.Body == "\r\necho first\r\n<DONE>\r\n";
     if (name == "Nested box and text")
         pass &= result.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "box" &&
@@ -76,6 +76,56 @@ foreach (var (name, source, valid, commands) in checks)
     Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; commands={string.Join(",", names)}; diagnostics={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
     if (!pass) failures++;
 }
+// Regression: the rendered tree, not only VisibleContent, must keep Markdown flow.
+var shellOpen = string.Concat((char)60, "SH", (char)62);
+var shellClose = string.Concat((char)60, "/SH", (char)62);
+var shellTag = shellOpen + "echo HIDDEN" + shellClose;
+var inlineSource = "Before " + shellTag + " after";
+var inlineDoc = new RichDocumentParser().Parse(inlineSource);
+var paragraph = inlineDoc.Document.Nodes.SingleOrDefault();
+var inlineOk = inlineDoc.Document.Valid && inlineDoc.Commands.Count == 1 &&
+    inlineDoc.Commands[0].Body == "echo HIDDEN" && paragraph?.Kind == "paragraph" &&
+    paragraph.Children?.Count == 2 && paragraph.Children[0].Text == "Before " &&
+    paragraph.Children[1].Text == " after" &&
+    paragraph.Children[0].SourceSpan.End == inlineSource.IndexOf(shellOpen, StringComparison.Ordinal) &&
+    paragraph.Children[1].SourceSpan.Start == inlineSource.IndexOf(" after", StringComparison.Ordinal);
+Console.WriteLine($"{(inlineOk ? "PASS" : "FAIL")}: Rendered inline command retains one paragraph and exact spans");
+if (!inlineOk) failures++;
+var strongDoc = new RichDocumentParser().Parse("**Before " + shellTag + " after**");
+var strongNode = strongDoc.Document.Nodes.SingleOrDefault()?.Children?.SingleOrDefault();
+var strongOk = strongDoc.Document.Valid && strongNode?.Kind == "strong" &&
+    strongNode.Children?.Count == 2 && strongNode.Children[0].Text == "Before " &&
+    strongNode.Children[1].Text == " after";
+Console.WriteLine($"{(strongOk ? "PASS" : "FAIL")}: Rendered command preserves spanning strong emphasis");
+if (!strongOk) failures++;
+var listDoc = new RichDocumentParser().Parse("- Before " + shellTag + " after");
+var listParagraphs = listDoc.Document.Nodes.SelectMany(Walk).Where(n => n.Kind == "paragraph").ToArray();
+var listOk = listDoc.Document.Valid && listDoc.Document.Nodes.Count == 1 &&
+    listDoc.Document.Nodes[0].Kind == "list" && listParagraphs.Length == 1 &&
+    listParagraphs[0].Children?.Count == 2;
+Console.WriteLine($"{(listOk ? "PASS" : "FAIL")}: Rendered command retains one Markdown list item");
+if (!listOk) failures++;
+var codeDoc = new RichDocumentParser().Parse("`pre " + shellTag + " post`");
+var codeNodes = codeDoc.Document.Nodes.SelectMany(Walk).Where(n => n.Kind == "inlineCode").ToArray();
+var codeOk = codeDoc.Document.Valid && codeNodes.Length == 1 && codeNodes[0].Text == "pre  post";
+Console.WriteLine($"{(codeOk ? "PASS" : "FAIL")}: Removed command leaves intact inline code text");
+if (!codeOk) failures++;
+var fenceDoc = new RichDocumentParser().Parse("~~~\npre " + shellTag + " post\n~~~");
+var fenceNodes = fenceDoc.Document.Nodes.SelectMany(Walk).Where(n => n.Kind == "code").ToArray();
+var fenceOk = fenceDoc.Document.Valid && fenceNodes.Length == 1 &&
+    fenceNodes[0].Text?.Contains("pre  post", StringComparison.Ordinal) == true;
+Console.WriteLine($"{(fenceOk ? "PASS" : "FAIL")}: Removed command leaves intact fenced code text");
+if (!fenceOk) failures++;
+// A command surrounded by blank lines must not leave an empty paragraph.
+var blankLineDoc = new RichDocumentParser().Parse("Before\n\n" + shellTag + "\n\nAfter");
+var blankLineOk = blankLineDoc.Document.Valid && blankLineDoc.Commands.Count == 1 &&
+    blankLineDoc.Document.Nodes.Count == 2 &&
+    blankLineDoc.Document.Nodes.All(n => n.Kind == "paragraph" && n.Children?.Count == 1) &&
+    blankLineDoc.Document.Nodes[0].Children![0].Text == "Before" &&
+    blankLineDoc.Document.Nodes[1].Children![0].Text == "After";
+Console.WriteLine($"{(blankLineOk ? "PASS" : "FAIL")}: Standalone command leaves no empty rendered paragraph");
+if (!blankLineOk) failures++;
+
 // Every tag carries independent child-search and child-eligibility policies.
 var controlsPass =
     RichTagRegistry.TryGet("box", out var boxDef) &&
@@ -317,5 +367,5 @@ var alternatingPass = alternatingParsed.Document.Valid && alternatingParsed.Comm
 Console.WriteLine($"{(alternatingPass ? "PASS" : "FAIL")}: 600 alternating rich/Markdown inlines in {timer.ElapsedMilliseconds} ms, {bytesAllocated / 1024:N0} KiB allocated; rich nodes={inlineNodes}");
 if (!alternatingPass) failures++;
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 12 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 12} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 18 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 18} passed");
 return failures == 0 ? 0 : 1;

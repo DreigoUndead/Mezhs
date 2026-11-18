@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
 $temp = Join-Path ([System.IO.Path]::GetTempPath()) ('mezhs-policy-test-' + [Guid]::NewGuid().ToString('N'))
@@ -189,6 +189,22 @@ try
     Assert(localPolicies.Policies["low"].Settings.Instructions.Contains("Personal instructions", StringComparison.Ordinal) &&
            plainPolicies.Policies["low"].Settings.Instructions == "Default text",
         "Local and default instruction sidecars were not selected independently.");
+
+    // Simulate upgrade with a contradictory legacy local sidecar. Preserve
+    // user-authored text on disk, but append an authoritative runtime protocol.
+    var legacyText = "texts:\n  mezhs_default: |\n    Older personalized text.\n    Escape examples never execute.\n    Example: " +
+        string.Concat((char)60, "SH", (char)62, "echo EXAMPLE", (char)60, "/SH", (char)62) + "\n";
+    File.WriteAllText(localTexts, legacyText);
+    var upgraded = AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
+    var upgradedInstructions = upgraded.Policies["low"].ModelInstructions;
+    Assert(upgradedInstructions.Contains("Older personalized text", StringComparison.Ordinal) &&
+           upgradedInstructions.Contains("Authoritative runtime protocol", StringComparison.Ordinal) &&
+           upgradedInstructions.Contains("Complete command pairs inside Markdown", StringComparison.Ordinal) &&
+           upgradedInstructions.IndexOf("Authoritative runtime protocol", StringComparison.Ordinal) >
+           upgradedInstructions.IndexOf("never execute", StringComparison.OrdinalIgnoreCase),
+        "Older local instruction examples suppressed or overrode upgraded command semantics.");
+    Assert(File.ReadAllText(localTexts) == legacyText,
+        "Upgrading an old installation rewrote personalized instructions.");
 
     File.WriteAllText(localTexts, "texts:\n  some_other_id: Unrelated\n");
     try
