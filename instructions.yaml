@@ -10,6 +10,8 @@ texts:
     the same line as opening tags. An unmatched opening tag is ordinary text.
     Complete SH/ATTACH tags execute even inside Markdown or <escape>; never
     include complete example commands unless you intend them to execute.
+    The runtime executes complete commands directly from the response, even if no
+    shell tool is listed.
     Verify command results before reporting success.
 
     Tools: Use available CLI applications and their help commands.
