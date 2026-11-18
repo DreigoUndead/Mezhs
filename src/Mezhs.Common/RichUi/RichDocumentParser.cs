@@ -27,8 +27,6 @@ public sealed class RichDocumentParser
     private static readonly IReadOnlySet<string> UnsafeRawTags =
         new HashSet<string>(["script", "style", "iframe", "object", "embed", "foreignObject", "image", "use", "animate", "animateMotion", "animateTransform", "set", "feImage"], StringComparer.OrdinalIgnoreCase);
     private bool[] _radioLiteral = [];
-    // The same tag tokenizer discovers commands regardless of their surrounding text.
-    private readonly Dictionary<int, RichSourceSpan> _commandSpans = new();
     private List<RichCommandCandidate> _commands = [];
     private int _count;
     private int _svgCount;
@@ -43,10 +41,8 @@ public sealed class RichDocumentParser
         _count = 0;
         _svgCount = 0;
         _svgChars = 0;
-        _commandSpans.Clear();
         try
         {
-            ScanCommands();
             _radioLiteral = MarkdownLiteralMask(_source);
             var nodes = ReadChildren(0, source.Length, null, 0, out _);
             // Validate the final typed tree before releasing any command
@@ -164,58 +160,6 @@ public sealed class RichDocumentParser
         node.Span.Start < source.Length &&
         source.AsSpan(node.Span.Start).StartsWith("<!--", StringComparison.Ordinal);
 
-    // A matched command has authority regardless of presentation context.
-    // Opaque SH/ATTACH bodies do not recursively expose nested commands.
-    private void ScanCommands()
-    {
-        for (var at = 0; at < _source.Length;)
-        {
-            at = _source.IndexOf('<', at);
-            if (at < 0) break;
-            if (!TryTag(at, _source.Length, out var tag) || tag.Closing ||
-                !RichTagRegistry.TryGet(tag.Name, out var definition) ||
-                definition.Role is not (RichTagRole.Command or RichTagRole.Marker))
-            {
-                at++;
-                continue;
-            }
-            if (tag.SelfClosing)
-                throw new RichDocumentException($"{tag.Name} cannot be self-closing.");
-            var after = tag.End;
-            string? body = null;
-            if (definition.Role == RichTagRole.Command)
-            {
-                var close = _source.IndexOf("</" + tag.Name + ">", tag.End,
-                    StringComparison.Ordinal);
-                if (close < 0) { at = tag.End; continue; }
-                body = _source[tag.End..close];
-                after = close + tag.Name.Length + 3;
-            }
-            ParseAttributes(tag, definition);
-            if (_commands.Count == MaxNodes)
-                throw new RichDocumentException("Command count exceeds limit.");
-            var span = new RichSourceSpan(at, after);
-            _commandSpans.Add(at, span);
-            _commands.Add(new RichCommandCandidate(tag.Name, body, span));
-            at = after;
-        }
-    }
-
-    private string VisibleBody(int from, int end)
-    {
-        var visible = new System.Text.StringBuilder(end - from);
-        var cursor = from;
-        foreach (var command in _commands)
-        {
-            var span = command.SourceSpan;
-            if (span.Start < cursor || span.End > end) continue;
-            visible.Append(_source, cursor, span.Start - cursor);
-            cursor = span.End;
-        }
-        visible.Append(_source, cursor, end - cursor);
-        return visible.ToString();
-    }
-
     private IReadOnlyList<RichNode> ReadChildren(int start, int end, string? expected,
         int depth, out int position, bool svgScope = false, bool inlineScope = false)
     {
@@ -233,13 +177,6 @@ public sealed class RichDocumentParser
         }
         while (cursor < end)
         {
-            if (_commandSpans.TryGetValue(cursor, out var command))
-            {
-                // Commands are invisible in display Markdown, but removing them
-                // must not split the surrounding paragraph or emphasis scope.
-                cursor = command.End;
-                continue;
-            }
             if (!svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
                 RichQuestionGrammar.TryParse(_source, cursor, end,
                     _radioLiteral, out var question, out var questionEnd))
@@ -278,10 +215,40 @@ public sealed class RichDocumentParser
                 cursor = tag.End;
                 continue;
             }
-            // Commands were already discovered with no context exceptions.
+            // One traversal enforces the registry eligibility policy. A
+            // forbidden opaque child stays literal without exposing its body.
+            if (expected is not null && !definition.AllowAsChild)
+            {
+                if (!tag.SelfClosing && !definition.SearchChildren &&
+                    definition.Role is not (RichTagRole.Leaf or RichTagRole.Marker))
+                {
+                    var close = FindOpaqueClosing(tag.Name, tag.End, end);
+                    cursor = close < 0 ? tag.End : close + tag.Name.Length + 3;
+                }
+                else cursor = tag.End;
+                continue;
+            }
+            // Commands use the same tokenizer and structural traversal as UI;
+            // they produce host-only spans, not display nodes.
             if (definition.Role is RichTagRole.Command or RichTagRole.Marker)
             {
-                cursor = tag.End; // An unmatched opener is ordinary text.
+                if (tag.SelfClosing)
+                    throw new RichDocumentException($"{tag.Name} cannot be self-closing.");
+                var after = tag.End;
+                string? body = null;
+                if (definition.Role == RichTagRole.Command)
+                {
+                    var close = FindOpaqueClosing(tag.Name, tag.End, end);
+                    if (close < 0) { cursor = tag.End; continue; }
+                    body = _source[tag.End..close];
+                    after = close + tag.Name.Length + 3;
+                }
+                ParseAttributes(tag, definition);
+                if (_commands.Count == MaxNodes)
+                    throw new RichDocumentException("Command count exceeds limit.");
+                _commands.Add(new RichCommandCandidate(tag.Name, body,
+                    new RichSourceSpan(cursor, after)));
+                cursor = after;
                 continue;
             }
 
@@ -318,7 +285,7 @@ public sealed class RichDocumentParser
                 var after = closer + tag.Name.Length + 3;
                 Add(result, new RichNode(definition.Role == RichTagRole.OpaqueLiteral ? "literal" : "raw",
                     $"{from}:raw", new RichSourceSpan(from, after),
-                    Text: VisibleBody(tag.End, closer), Name: tag.Name, Attributes: attributes));
+                    Text: _source[tag.End..closer], Name: tag.Name, Attributes: attributes));
                 cursor = after;
             }
             else if (definition.Role == RichTagRole.Leaf || tag.SelfClosing)
@@ -334,7 +301,7 @@ public sealed class RichDocumentParser
             {
                 var after = closer + tag.Name.Length + 3;
                 var literal = new RichNode("literal", $"{tag.End}:literal",
-                    new RichSourceSpan(tag.End, closer), Text: VisibleBody(tag.End, closer));
+                    new RichSourceSpan(tag.End, closer), Text: _source[tag.End..closer]);
                 var element = new RichNode("element", $"{from}:element",
                     new RichSourceSpan(from, after), Name: tag.Name,
                     Attributes: attributes, Children: [literal]);
@@ -370,11 +337,6 @@ public sealed class RichDocumentParser
         {
             at = _source.IndexOf('<', at);
             if (at < 0 || at >= end) break;
-            if (_commandSpans.TryGetValue(at, out var command))
-            {
-                at = command.End;
-                continue;
-            }
             if (!TryTag(at, end, out var tag)) { at++; continue; }
             if (!tag.Closing && !tag.SelfClosing &&
                 RichTagRegistry.TryGet(tag.Name, out var definition) &&
@@ -400,18 +362,8 @@ public sealed class RichDocumentParser
 
     private int FindOpaqueClosing(string name, int from, int end)
     {
-        var closing = "</" + name + ">";
-        for (var at = from; at < end;)
-        {
-            at = _source.IndexOf(closing, at, StringComparison.Ordinal);
-            if (at < 0 || at >= end) return -1;
-            // A closing-looking token inside an opaque command body is text.
-            var insideCommand = _commands.Any(c =>
-                c.SourceSpan.Start < at && c.SourceSpan.End > at);
-            if (!insideCommand) return at;
-            at += closing.Length;
-        }
-        return -1;
+        var close = _source.IndexOf("</" + name + ">", from, StringComparison.Ordinal);
+        return close >= 0 && close < end ? close : -1;
     }
 
     private void Add(List<RichNode> nodes, RichNode node)
@@ -426,40 +378,19 @@ public sealed class RichDocumentParser
         if (end <= start) return;
         if (svgScope)
         {
-            // Count original SVG input, including command bytes, towards the budget.
-            _svgChars += end - start;
+            var raw = _source[start..end];
+            _svgChars += raw.Length;
             if (_svgChars > 24_000)
                 throw new RichDocumentException("SVG content budget exceeded.");
-
-            void AddVisibleText(int from, int until)
-            {
-                if (until <= from) return;
-                var visible = _source[from..until];
-                if (!string.IsNullOrWhiteSpace(visible))
-                    Add(nodes, new RichNode("text", $"{from}:text",
-                        new RichSourceSpan(from, until), Text: visible));
-            }
-
-            // Each visible segment retains its own original source positions.
-            // Commands discovered globally must not reappear in SVG display text.
-            var at = start;
-            foreach (var command in _commands)
-            {
-                var span = command.SourceSpan;
-                if (span.Start < at || span.End > end) continue;
-                AddVisibleText(at, span.Start);
-                at = span.End;
-            }
-            AddVisibleText(at, end);
+            if (!string.IsNullOrWhiteSpace(raw))
+                Add(nodes, new RichNode("text", $"{start}:text", new RichSourceSpan(start, end), Text: raw));
             return;
         }
         // Inline rich nodes occupy original source spans while Markdig parses
         // surrounding text as one Markdown context. Their descendants were
         // already counted by the recursive parser; count only new AST nodes.
         var hidden = _commands.Select(c => c.SourceSpan)
-            .Where(span => span.Start >= start && span.End <= end &&
-                !inline.Any(node => span.Start >= node.SourceSpan.Start &&
-                    span.End <= node.SourceSpan.End)).ToArray();
+            .Where(span => span.Start >= start && span.End <= end).ToArray();
         var parsed = RichMarkdownNodes.Convert(_source[start..end], start, inlineScope, inline, hidden);
         var priorChildren = inline.Sum(n => n.Children?.Sum(CountNodes) ?? 0);
         var convertedCount = parsed.Sum(CountNodes);

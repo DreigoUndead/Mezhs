@@ -152,7 +152,7 @@ public sealed class PolicyDecoder
         {
             rules.Add(
                 $"Authoritative runtime protocol, overriding conflicting older local instructions: to execute shell text, write <{shell.Name}>shell text</{shell.Name}> anywhere in the reply. " +
-                "The body is passed to the host shell unchanged, including whitespace. Complete command pairs inside Markdown, inline code, code fences, escape blocks, raw editors, or UI execute; never include complete command pairs as inert examples.");
+                "The body is passed to the host shell unchanged, including whitespace. Complete command pairs inside Markdown, inline code and code fences execute when outside registered rich elements; inside SVG, escape blocks, raw editors and other registered rich UI, they remain inert text.");
         }
 
         if (settings.Commands.Allow.Contains("ATTACH", StringComparer.OrdinalIgnoreCase) &&
