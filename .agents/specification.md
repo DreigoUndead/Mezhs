@@ -1,40 +1,70 @@
-# Planning and task classification
+# Planning
 
-Start by checking the request, existing code and relevant `specifications/current/` documents. The first planner must assess feasibility, complexity, risks and conflicts with existing decisions or architecture, and report that assessment to the owner before planning.
+The Planner defines the task's scope and execution plan.
 
-**Before editing or committing any plan, create the task branch `<id>` from current `main` (or a documented dependent branch for stacked work). All planning and review corrections are committed on that branch; never commit plans directly to `main`.** This applies equally to changes to workflow and planning instructions.
+## Workflow level
 
-## Choose a level
+Choose the appropriate level for the task.
 
-- **Small:** limited scope and low regression risk (e.g. a typo or isolated CSS). Create the task branch first; one chat may do the change, self-review, run checks and pause for owner approval. Record a brief goal and verification note in the PR description or branch.
-- **Standard:** normal feature or bug fix. Commit `specifications/planned/<id>/plan.md` to the existing task branch before implementation. Independent review is the default; independent testing depends on risk.
-- **High-risk:** architecture, security, concurrency, sensitive data or migrations. Commit the plan to the task branch; have a **separate agent** review it on that branch before implementation. Independent code review and testing are mandatory.
+| Level | Typical changes | Default process |
+| --- | --- | --- |
+| **Small** | Labels, isolated CSS, typos, minor documentation | One chat can perform all required roles. No separate plan file or independent review required. |
+| **Standard** | Most features, bug fixes and moderate refactoring | Written plan, independent Code Review and targeted verification. Additional independent roles when justified. |
+| **High-risk** | Security, architecture, concurrency, migrations, sensitive data | Written plan, independent initial Plan Review before development, Code Review and Testing. |
 
-State the chosen level, why it fits, and intended checks before coding. Escalate if new risks appear. The owner can explicitly override the process, except that implementation merging always needs their **separate explicit approval**.
+Assess feasibility and risks before planning, and present the initial assessment to the owner. State the selected level, rationale and intended verification before development.
 
-Use [Grill Me](skills/grill-me/SKILL.md) when requirements are unclear. Keep the plan proportional to the task:
+## Task branch
+
+Create or reuse the task branch before the first repository change, including the plan itself.
+
+Base it on current `main`, or document its dependency on another unmerged task branch.
+
+## Task plan
+
+For Small changes, a brief task description or PR summary is sufficient.
+
+For Standard and High-risk changes, create and commit `specifications/planned/<id>/plan.md` on the task branch before implementation.
+
+The plan defines the scope, approach, execution steps, required roles, dependencies and verification. Keep it proportional to the task.
+
+Before committing the initial plan, present the proposed scope, approach and consequential decisions to the owner.
 
 ```markdown
-# <Change title>
-ID: <kebab-case-id>
+# [Task title]
+
+ID: [task-id]
 
 ## Goal and scope
-What changes and why? What is out of scope?
-
-## Approach
-Which component owns the behavior?
+[What should change and what is excluded.]
 
 ## Acceptance criteria
-- [ ] Observable result
+- [ ] [Observable result]
+
+## Approach
+[Important design decisions and responsibilities.]
+
+## Workflow
+Level: [Small / Standard / High-risk]
+Roles: [Required roles and independence]
+
+## Steps
+1. [Step name] — [Responsible role]
+   - Deliverable: [Expected result]
+   - Dependencies: [If any]
+   - Done when: [Completion condition]
 
 ## Verification
-How do we prove it works?
+[Required checks, including live testing where applicable.]
+
+## Decisions and risks
+[Only when relevant.]
 ```
 
-For complex work, add constraints, risks, alternatives or tasks **inside the plan**.
+For larger tasks, define independent workstreams when they can be developed in parallel. Assign their roles, dependencies and integration steps.
 
-Before committing a plan on the task branch, the planner must show the owner a summary of the proposed scope and approach, including significant risks or decisions. Plan approval is not release or merge approval.
+Include additional technical details, constraints, risks or rollout instructions only when needed. Do not turn the plan into a transcript of the implementation.
 
-A plan reviewer checks the plan against the code and reports findings. **Inform the owner of proposed changes before editing the plan.** If the plan has already gone through a Grill Me session or records owner-agreed decisions, discuss each meaningful issue through [Grill Me](skills/grill-me/SKILL.md) and change the plan **only after explicit owner approval of that correction**. Keep undecided findings outside the plan. Otherwise, the reviewer may edit after informing the owner and repeat review until stable. Then hand off development using the final plan. A fresh agent is required for the **High-risk independent plan review**, not each minor edit.
+The plan is the source of truth for the task's selected workflow. Update its steps, roles and verification requirements when the work changes or an escalation results in a new decision. Subsequent plan updates do not restart initial Plan Review.
 
-Plans are allowed to evolve in development on the **same task branch**. The final plan describes the result; Git contains the earlier drafts. Move it from `planned/` to `implemented/` on that branch **before final review/testing**. Only an owner-approved completed release is merged into `main`.
+Use [Grill Me](skills/grill-me/SKILL.md) when requirements need clarification.
