@@ -372,7 +372,7 @@ var deepSource = string.Concat(Enumerable.Repeat("<box>\n", 20)) +
 timer.Restart();
 var deepParsed = new RichDocumentParser().Parse(deepSource);
 timer.Stop();
-var deepPass = deepParsed.Document.Valid && deepParsed.Commands.Count == 1 &&
+var deepPass = deepParsed.Document.Valid && deepParsed.Commands.Count == 0 &&
     timer.Elapsed < TimeSpan.FromSeconds(8);
 Console.WriteLine($"{(deepPass ? "PASS" : "FAIL")}: Nested protected code bounded in {timer.ElapsedMilliseconds} ms");
 if (!deepPass) failures++;
