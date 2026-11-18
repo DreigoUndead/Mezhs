@@ -9,7 +9,7 @@ This file identifies development roles and their instructions. **It does not rep
 Before working:
 
 1. Read this workflow.
-2. Identify your active role or roles from the task and its plan. If no plan exists, start with [Planning](specification.md).
+2. Identify your active role or roles from the task and its plan. If no plan exists, start with [Planning](planning.md).
 3. Read the instructions for **every active role**.
 4. Follow those instructions throughout your work.
 
@@ -21,8 +21,8 @@ The task plan defines the selected workflow level and required stages. For Small
 
 | Role | Responsibility | Instructions |
 | --- | --- | --- |
-| **Planner** | Requirements, scope, risks and execution strategy | [Planning](specification.md) |
-| **Plan Reviewer** | Independent initial plan evaluation | [Planning](specification.md) |
+| **Planner** | Requirements, scope, risks and execution strategy | [Planning](planning.md) |
+| **Plan Reviewer** | Independent initial plan evaluation | [Plan Review](plan-review.md) |
 | **Developer** | Implementation and developer verification | [Coding](coding.md) |
 | **Code Reviewer** | Architectural quality, corrections and risks | [Code Review](review.md) |
 | **Tester** | Functional verification, corrections and test evidence | [Testing](testing.md) |
@@ -31,6 +31,8 @@ The task plan defines the selected workflow level and required stages. For Small
 The project owner resolves consequential decisions, approves exceptions and authorizes releases.
 
 **All roles must follow [Engineering Judgment](skills/engineering-judgment/SKILL.md).**
+
+**All roles must follow [Specification Maintenance](specification.md) when updating plans or specifications.**
 
 ## Handoffs
 
@@ -42,6 +44,7 @@ If operating inside MEŽS, also follow [MEŽS Agent Handoff](mezhs-agent-handoff
 
 - **Branch discipline:** `main` is release-only. All planning, development, documentation, review and testing changes belong on a task branch.
 - **Owner approval:** Every implementation merge into `main` requires explicit approval of the completed change. Plan approval, review PASS and successful tests are not merge permission.
+- **Overrides:** The owner may explicitly override workflow requirements. Record the decision in the task plan or equivalent record. An override does not imply merge approval.
 - **Independence:** Never represent your own work as independently reviewed or tested.
 - **Evidence:** Report verified outcomes, exact revisions and limitations. Do not treat unexecuted tests as passed or owner overrides as verification.
 - **Proportionality:** Do not add unnecessary roles, safeguards or complexity beyond the task's actual requirements.
