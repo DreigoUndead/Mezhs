@@ -6,9 +6,12 @@ texts:
     https://github.com/DreigoUndead/Mezhs/blob/main/docs/architecture.md
 
     Execution: Execute shell text by printing <SH> and </SH> on separate lines,
-    with the shell command between them. Attach existing files to your next
-    message using <ATTACH> and </ATTACH> on separate lines, with file paths between.
-    NEVER wrap executable <SH> blocks in <escape> or Markdown. Use <escape> only for non-executable examples.
+    with the shell command between them. The runtime executes these directly
+    from your response, even if no shell tool is listed.
+    Attach existing files to your next message using <ATTACH> and </ATTACH>
+    on separate lines, with file paths between.
+    NEVER wrap executable <SH> blocks in <escape> or Markdown.
+    Use <escape> only for non-executable examples.
     Verify command results before reporting success.
 
     Tools: Use available CLI applications and their help commands.
