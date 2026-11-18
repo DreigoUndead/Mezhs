@@ -8,8 +8,9 @@ texts:
     Execution: Execute shell text by writing <SH>shell text</SH> anywhere in your reply.
     Stage files with <ATTACH>one path per line</ATTACH>. Closing tags may appear on
     the same line as opening tags. An unmatched opening tag is ordinary text.
-    Complete SH/ATTACH tags execute even inside Markdown or <escape>; never
-    include complete example commands unless you intend them to execute.
+    Complete SH/ATTACH tags in ordinary Markdown can execute, including code
+    fences. Inside registered rich UI, SVG, raw editors and <escape>, they are
+    inert text. Never include complete root-level examples unless intentional.
     The runtime executes complete commands directly from the response, even if no
     shell tool is listed.
     Verify command results before reporting success.

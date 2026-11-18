@@ -8,7 +8,7 @@ MEŽS Agent exposes a small built-in command protocol. The **active policy** det
 - **`ATTACH` (files):** Write `<ATTACH>file paths</ATTACH>` anywhere in a message. Its body is parsed as file paths by the attachment interpreter; the delimiters need no special line placement. The runtime stages those files for the next ordinary Agent message; staging alone does not send a message.
 - **`DONE` (completion marker):** If the active policy requires explicit completion, write `<DONE>` anywhere; it has no body and must remain the final Agent command. Completion constraints (such as required successful shell evidence) are checked independently. Do not claim completion before required command results are available.
 
-These tags are a structured protocol, not HTML. All recognized paired tags use the same position-independent matching rule; an unclosed opener is ordinary text. Matched Agent commands are discoverable even inside Markdown fences, `<escape>`, raw editors or other UI elements. Do **not** include real paired shell examples in an Agent reply unless execution is intended. Registry, policy and whole-batch validation still apply.
+These tags are a structured protocol, not HTML. Paired tags match independently of line placement; an unclosed opener is ordinary text. SH, ATTACH and DONE are root-only and are not discovered inside registered rich UI elements (including SVG, `<escape>` and raw editors). Ordinary Markdown and unregistered wrappers are not registered rich parents, so complete command pairs there remain actionable. Registry, policy and whole-batch validation still apply.
 
 ## Host and connected tools
 
