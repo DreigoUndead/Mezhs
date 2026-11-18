@@ -167,8 +167,20 @@ Reject(parser, "<DONE><DONE>", "Duplicate DONE must be rejected.");
 Reject(parser, "<SH extra=\"true\">echo NEVER</SH>",
       "Invalid complete SH attributes must be rejected.");
 Reject(parser, "<DONE/>", "Self-closing DONE must be rejected.");
-Reject(parser, "<UNKNOWN>body</UNKNOWN>",
-      "Unknown complete tag remains unsupported.");
+var unknownMarkup = parser.Parse("<widget>pre <SH>echo OK</SH> post</widget>");
+Check(unknownMarkup.Commands.SequenceEqual([new Command("SH", "echo OK")]) &&
+      unknownMarkup.VisibleContent == "<widget>pre  post</widget>",
+      "Unknown wrapper must stay visible while nested registered commands execute.");
+var unknownXml = parser.Parse("~~~xml\n<widget>example</widget>\n~~~\n<SH>echo OK</SH>");
+Check(unknownXml.Commands.SequenceEqual([new Command("SH", "echo OK")]) &&
+      unknownXml.VisibleContent == "~~~xml\n<widget>example</widget>\n~~~\n",
+      "Unknown XML example must not invalidate independent Agent commands.");
+var malformedUnknown = parser.Parse("prose </unknown bad> tail");
+Check(malformedUnknown.Commands.Count == 0 &&
+      malformedUnknown.VisibleContent == "prose </unknown bad> tail",
+      "Malformed unknown closing markup must remain ordinary text.");
+Reject(parser, "<path d=\"M0 0\"/>",
+      "Registered SVG tag outside an SVG scope must remain invalid.");
 Check(!Registry.TryGet("UNKNOWN", out _) && Registry.TryGet("SH", out var shell) &&
       shell.Form == CommandForm.Block, "Registry must remain the only command authority.");
 Console.WriteLine("PASS: Position-independent matched tags, missing closers, opaque bodies, and exact source spans.");
