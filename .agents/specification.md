@@ -1,70 +1,46 @@
-# Planning
+# Specification Maintenance
 
-The Planner defines the task's scope and execution plan.
+This file defines how to update existing task plans and specifications.
+It applies to every role that changes them.
 
-## Workflow level
+## Keep specifications current
 
-Choose the appropriate level for the task.
+- Update the existing document when implementation, requirements, workflow steps or accepted decisions change.
+- Keep the main content consistent with the current intended result.
+- Do not preserve obsolete requirements as though they remain active.
+- Do not restart Planning or Plan Review merely because a document changed.
 
-| Level | Typical changes | Default process |
-| --- | --- | --- |
-| **Small** | Labels, isolated CSS, typos, minor documentation | One chat can perform all required roles. No separate plan file or independent review required. |
-| **Standard** | Most features, bug fixes and moderate refactoring | Written plan, independent Code Review and targeted verification. Additional independent roles when justified. |
-| **High-risk** | Security, architecture, concurrency, migrations, sensitive data | Written plan, independent initial Plan Review before development, Code Review and Testing. |
+## Record decisions
 
-Assess feasibility and risks before planning, and present the initial assessment to the owner. State the selected level, rationale and intended verification before development.
+Record consequential changes to architecture, requirements, guarantees, workflow or accepted limitations.
 
-## Task branch
+Use a concise decision record:
 
-Create or reuse the task branch before the first repository change, including the plan itself.
+### D-01 — [Title]
 
-Base it on current `main`, or document its dependency on another unmerged task branch.
+**Decision:** [What was decided]
+**Reason:** [Why]
+**Trade-off:** [Accepted consequences or limitations]
+**Authority:** [Who decided, with evidence or reference]
+**Supersedes:** [Previous decision, if any]
 
-## Task plan
+Omit fields that do not apply.
 
-For Small changes, a brief task description or PR summary is sufficient.
+Do not record ordinary edits, minor corrections or every review finding as separate decisions.
 
-For Standard and High-risk changes, create and commit `specifications/planned/<id>/plan.md` on the task branch before implementation.
+## Preserve decision history
 
-The plan defines the scope, approach, execution steps, required roles, dependencies and verification. Keep it proportional to the task.
+- Update the main specification to reflect the latest accepted decision.
+- Preserve the rationale for superseded decisions.
+- Reference the replacement decision rather than silently deleting history.
+- Distinguish proposed changes from accepted decisions.
+- Do not silently reverse accepted decisions.
+- If new evidence challenges an existing decision, identify what changed and escalate when the decision requires owner authority.
 
-Before committing the initial plan, present the proposed scope, approach and consequential decisions to the owner.
+## Consistency
 
-```markdown
-# [Task title]
+Keep relevant task plans and current specifications consistent with the actual implementation.
 
-ID: [task-id]
+Use the existing task document as the source of truth. Avoid copying the same decisions into multiple documents unless they describe different responsibilities.
 
-## Goal and scope
-[What should change and what is excluded.]
-
-## Acceptance criteria
-- [ ] [Observable result]
-
-## Approach
-[Important design decisions and responsibilities.]
-
-## Workflow
-Level: [Small / Standard / High-risk]
-Roles: [Required roles and independence]
-
-## Steps
-1. [Step name] — [Responsible role]
-   - Deliverable: [Expected result]
-   - Dependencies: [If any]
-   - Done when: [Completion condition]
-
-## Verification
-[Required checks, including live testing where applicable.]
-
-## Decisions and risks
-[Only when relevant.]
-```
-
-For larger tasks, define independent workstreams when they can be developed in parallel. Assign their roles, dependencies and integration steps.
-
-Include additional technical details, constraints, risks or rollout instructions only when needed. Do not turn the plan into a transcript of the implementation.
-
-The plan is the source of truth for the task's selected workflow. Update its steps, roles and verification requirements when the work changes or an escalation results in a new decision. Subsequent plan updates do not restart initial Plan Review.
-
-Use [Grill Me](skills/grill-me/SKILL.md) when requirements need clarification.
+Ensure the next role can identify the current requirements, accepted limitations and reasons for consequential changes.
