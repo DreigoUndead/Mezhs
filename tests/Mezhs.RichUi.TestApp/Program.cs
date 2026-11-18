@@ -50,7 +50,12 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Empty SH parsed", "<SH></SH>", true, ["SH"]),
     ("DONE must be final", "<DONE><SH>echo NO</SH>", false, []),
     ("Duplicate DONE rejected", "<DONE><DONE>", false, []),
-    ("Unknown complete tag rejected", "<UNKNOWN>text</UNKNOWN>", false, []),
+    ("Unknown complete tag is ordinary text", "<UNKNOWN>text</UNKNOWN>", true, []),
+    ("Unknown tag with inert attributes", "<widget onClick=\"alert(1)\">text</widget>", true, []),
+    ("Unknown wrapper with registered command", "<widget>pre <SH>echo OK</SH> post</widget>", true, ["SH"]),
+    ("Unknown wrapper with registered rich child", "<widget>pre <text strong>rich</text> post</widget>", true, []),
+    ("Unknown XML example before registered command", "~~~xml\n<widget>example</widget>\n~~~\n<SH>echo OK</SH>", true, ["SH"]),
+    ("Registered SVG child outside SVG still rejected", "<path d=\"M0 0\"/>", false, []),
 };
 var failures = 0;
 static IEnumerable<RichNode> Walk(RichNode node)
