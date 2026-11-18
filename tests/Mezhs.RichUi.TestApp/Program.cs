@@ -68,6 +68,17 @@ static IEnumerable<RichNode> Walk(RichNode node)
         foreach (var descendant in Walk(child))
             yield return descendant;
 }
+static bool SvgTextMatchesSource(RichParseResult result, string source, params string[] texts)
+{
+    var svg = result.Document.Nodes.SingleOrDefault(n => n.Kind == "element" && n.Name == "svg");
+    var visible = svg?.Children?.Where(n => n.Kind == "text").ToArray();
+    return visible is not null &&
+        visible.Select(n => n.Text).SequenceEqual(texts) &&
+        visible.All(n => n.SourceSpan.Start >= 0 && n.SourceSpan.End <= source.Length &&
+            n.Text == source[n.SourceSpan.Start..n.SourceSpan.End]) &&
+        !result.Document.Nodes.SelectMany(Walk).Any(n => n.Text?.Contains("<SH>", StringComparison.Ordinal) == true ||
+            n.Text?.Contains("<ATTACH>", StringComparison.Ordinal) == true);
+}
 foreach (var (name, source, valid, commands) in checks)
 {
     var result = new RichDocumentParser().Parse(source);
@@ -294,10 +305,19 @@ foreach (var (name, source, verify) in inlineTests)
     if (!pass) failures++;
 }
 
+var svgShellAttachSource = "<svg>before<SH>echo HIDDEN</SH>middle<ATTACH>path.txt</ATTACH>after<circle r='2'/></svg>";
+var svgWrappedShellSource = "<svg><widget>before<SH>echo HIDDEN</SH>after</widget></svg>";
 var svgTests = new (string Name, string Source, bool Valid, Func<RichParseResult, bool> Extra)[]
 {
     ("Representative SVG", File.ReadAllText(Path.Combine("tests","fixtures","rich-model-ui","representative-svg.md")), true, r => r.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "svg" && n.Children?.Any(c => c.Name == "text") == true && n.Children?.Any(c => c.Name == "g" && c.Children?.Any(x => x.Name == "rect") == true && c.Children?.Any(x => x.Name == "text" && x.Children?.Any(t => t.Text?.Contains("Collector") == true) == true) == true) == true)),
     ("SVG embedded commands recognized", "<svg viewBox=\"0 0 100 100\"><SH>echo YES</SH></svg>", true, r => r.Commands.Count == 1 && r.Commands[0].Name == "SH"),
+    ("SVG hides SH and ATTACH with accurate text source spans", svgShellAttachSource, true, r =>
+        r.Commands.Select(c => c.Name).SequenceEqual(["SH", "ATTACH"]) &&
+        SvgTextMatchesSource(r, svgShellAttachSource, "before", "middle", "after") &&
+        r.Document.Nodes.Single().Children?.Any(n => n.Name == "circle") == true),
+    ("SVG unknown wrapper hides nested SH with accurate text source spans", svgWrappedShellSource, true, r =>
+        r.Commands.Count == 1 && r.Commands[0].Body == "echo HIDDEN" &&
+        SvgTextMatchesSource(r, svgWrappedShellSource, "<widget>before", "after</widget>")),
     ("SVG injected event rejected", "<svg onload=\"alert(1)\"></svg>", false, r => r.Commands.Count == 0),
     ("SVG forbidden url rejected", "<svg><rect x=\"1\" fill=\"url(#evil)\" /></svg>", false, r => r.Commands.Count == 0),
     ("SVG text namespace accepted", "<svg viewBox=\"0 0 80 80\"><text x=\"15\" y=\"30\" fontSize=\"12\" >Hello</text></svg>", true, r => r.Document.Nodes.Any(n => n.Name == "svg" && n.Children?.Any(c => c.Name == "text" && c.Children?.Any(t => t.Text == "Hello") == true) == true)),

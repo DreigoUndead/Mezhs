@@ -426,12 +426,31 @@ public sealed class RichDocumentParser
         if (end <= start) return;
         if (svgScope)
         {
-            var raw = _source[start..end];
-            _svgChars += raw.Length;
+            // Count original SVG input, including command bytes, towards the budget.
+            _svgChars += end - start;
             if (_svgChars > 24_000)
                 throw new RichDocumentException("SVG content budget exceeded.");
-            if (!string.IsNullOrWhiteSpace(raw))
-                Add(nodes, new RichNode("text", $"{start}:text", new RichSourceSpan(start, end), Text: raw));
+
+            void AddVisibleText(int from, int until)
+            {
+                if (until <= from) return;
+                var visible = _source[from..until];
+                if (!string.IsNullOrWhiteSpace(visible))
+                    Add(nodes, new RichNode("text", $"{from}:text",
+                        new RichSourceSpan(from, until), Text: visible));
+            }
+
+            // Each visible segment retains its own original source positions.
+            // Commands discovered globally must not reappear in SVG display text.
+            var at = start;
+            foreach (var command in _commands)
+            {
+                var span = command.SourceSpan;
+                if (span.Start < at || span.End > end) continue;
+                AddVisibleText(at, span.Start);
+                at = span.End;
+            }
+            AddVisibleText(at, end);
             return;
         }
         // Inline rich nodes occupy original source spans while Markdig parses
