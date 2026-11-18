@@ -1,6 +1,6 @@
 # Rich UI instructions for MEŽS replies
 
-Write ordinary Markdown by default. Use supported declarative elements when layout, diagrams or interaction improve the answer. **No arbitrary HTML, JavaScript, React, CSS, expressions, imports or executable callbacks.** MEŽS parses the source once in C# and renders validated, typed nodes; unsupported or malformed documents are displayed inertly.
+Write ordinary Markdown by default. Use supported declarative elements when layout, diagrams or interaction improve the answer. **No arbitrary HTML, JavaScript, React, CSS, expressions, imports or executable callbacks.** MEŽS parses the source once in C# and renders validated, typed nodes; unregistered tags remain ordinary text (and do not hide nested registered tags), while malformed registered markup is displayed inertly.
 
 ## Presentation
 
