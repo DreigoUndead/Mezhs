@@ -153,8 +153,10 @@ var acrossContexts = parser.Parse(
     "`<SH>inline-code</SH>`" +
     "<!-- <SH>comment</SH> -->");
 Check(acrossContexts.Commands.Select(c => c.Body).SequenceEqual([
-      "escape", "raw", "text", "svg", "inline-code", "comment"]),
-      "Command discovery still depends on Markdown or presentation context.");
+      "inline-code", "comment"]) &&
+      acrossContexts.VisibleContent.Contains("<SH>escape</SH>", StringComparison.Ordinal) &&
+      acrossContexts.VisibleContent.Contains("<SH>raw</SH>", StringComparison.Ordinal),
+      "Registered rich elements must keep nested SH inert while root Markdown commands execute.");
 
 var original = "<SH> cd /d D:\\Projects\\eflex-framework && git status --short --branch && git branch --show-current && type specifications\\planned\\debug-log-files\\plan.md && if exist AGENTS.md type AGENTS.md </SH>";
 Check(parser.Parse(original).Commands.Single() ==
@@ -221,7 +223,7 @@ Console.WriteLine("PASS: Position-independent matched tags, missing closers, opa
     Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"
     Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"
 
-    # Real Executor proof: matched pairs are executed regardless of location.
+    # Real Executor proof: root-level matched pairs execute regardless of line placement.
     function Assert-InlineExecuted([string]$label, [string]$prefix, [string]$suffix) {
         $marker = Join-Path $temp "inline-$label.txt"
         $shellText = "echo INLINE>>`"$marker`""
@@ -237,8 +239,6 @@ Console.WriteLine("PASS: Position-independent matched tags, missing closers, opa
         Write-Host "PASS: Inline $label tag executed once with durable shell evidence."
     }
     Assert-InlineExecuted 'prose' 'before ' ' after '
-    Assert-InlineExecuted 'escape' '<escape>' '</escape>'
-    Assert-InlineExecuted 'editor' '<CodeBlock>' '</CodeBlock>'
     Assert-InlineExecuted 'markdown-fence' ('```text' + "`n") ("`n" + '```')
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'

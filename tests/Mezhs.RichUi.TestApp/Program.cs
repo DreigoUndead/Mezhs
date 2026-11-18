@@ -36,16 +36,20 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Unclosed rich UI is ordinary text", "before <box>not finished", true, []),
     ("Unclosed SH before independent DONE", "<SH>not closed <DONE>", true, ["DONE"]),
     ("Unclosed escape still contains matched SH", "<escape><SH>echo YES</SH>", true, ["SH"]),
-    ("Command inside text", "<text>Hi <SH>echo YES</SH> there</text>", true, ["SH"]),
-    ("Command inside Link", "<Link url=\"https://example.com\"><ATTACH>file.txt</ATTACH></Link>", true, ["ATTACH"]),
-    ("Command inside CodeBlock", "<CodeBlock>before <SH>echo YES</SH> after</CodeBlock>", true, ["SH"]),
-    ("Command inside escape", "<escape><SH>echo YES</SH></escape>", true, ["SH"]),
+    ("Command inside text is inert", "<text>Hi <SH>echo YES</SH> there</text>", true, []),
+    ("Command inside Link is inert", "<Link url=\"https://example.com\"><ATTACH>file.txt</ATTACH></Link>", true, []),
+    ("Command inside CodeBlock is inert", "<CodeBlock>before <SH>echo YES</SH> after</CodeBlock>", true, []),
+    ("Command inside escape is inert", "<escape><SH>echo YES</SH></escape>", true, []),
     ("Command inside Markdown fence", "~~~\n<SH>echo YES</SH>\n~~~", true, ["SH"]),
     ("Command inside inline code", "`<SH>echo YES</SH>`", true, ["SH"]),
     ("Command inside Markdown comment", "<!-- <SH>echo YES</SH> -->", true, ["SH"]),
     ("Command inside quote", "> <SH>echo YES</SH>", true, ["SH"]),
-    ("Command inside SVG", "<svg viewBox=\"0 0 20 20\"><SH>echo YES</SH><circle r=\"2\"/></svg>", true, ["SH"]),
+    ("Command inside SVG is inert", "<svg viewBox=\"0 0 20 20\"><SH>echo YES</SH><circle r=\"2\"/></svg>", true, []),
     ("Opaque command bodies", "<SH>before <ATTACH>nested</ATTACH></SH>", true, ["SH"]),
+    ("SH is not a box child", "<box><SH>echo NO</SH></box>", true, []),
+    ("ATTACH is not a text child", "<text>pre <ATTACH>file.txt</ATTACH> post</text>", true, []),
+    ("Disallowed SH cannot close its parent", "<box><SH>inside </box> still inert</SH>outer</box>", true, []),
+    ("Root command after layout", "<box>layout</box><SH>echo YES</SH>", true, ["SH"]),
     ("Unmatched closing tag ignored", "before </SH> after", true, []),
     ("Empty SH parsed", "<SH></SH>", true, ["SH"]),
     ("DONE must be final", "<DONE><SH>echo NO</SH>", false, []),
@@ -67,17 +71,6 @@ static IEnumerable<RichNode> Walk(RichNode node)
     foreach (var child in node.Children)
         foreach (var descendant in Walk(child))
             yield return descendant;
-}
-static bool SvgTextMatchesSource(RichParseResult result, string source, params string[] texts)
-{
-    var svg = result.Document.Nodes.SingleOrDefault(n => n.Kind == "element" && n.Name == "svg");
-    var visible = svg?.Children?.Where(n => n.Kind == "text").ToArray();
-    return visible is not null &&
-        visible.Select(n => n.Text).SequenceEqual(texts) &&
-        visible.All(n => n.SourceSpan.Start >= 0 && n.SourceSpan.End <= source.Length &&
-            n.Text == source[n.SourceSpan.Start..n.SourceSpan.End]) &&
-        !result.Document.Nodes.SelectMany(Walk).Any(n => n.Text?.Contains("<SH>", StringComparison.Ordinal) == true ||
-            n.Text?.Contains("<ATTACH>", StringComparison.Ordinal) == true);
 }
 foreach (var (name, source, valid, commands) in checks)
 {
@@ -151,9 +144,9 @@ var controlsPass =
     RichTagRegistry.TryGet("row", out var rowDef) &&
     rowDef.SearchChildren && rowDef.AllowAsChild &&
     RichTagRegistry.TryGet("SH", out var shellDef) &&
-    !shellDef.SearchChildren && shellDef.AllowAsChild &&
+    !shellDef.SearchChildren && !shellDef.AllowAsChild &&
     RichTagRegistry.TryGet("ATTACH", out var attachDef) &&
-    !attachDef.SearchChildren && attachDef.AllowAsChild &&
+    !attachDef.SearchChildren && !attachDef.AllowAsChild &&
     RichTagRegistry.TryGet("DONE", out var doneDef) &&
     !doneDef.SearchChildren && !doneDef.AllowAsChild &&
     RichTagRegistry.TryGet("escape", out var escapeDef) &&
@@ -310,21 +303,23 @@ var svgWrappedShellSource = "<svg><widget>before<SH>echo HIDDEN</SH>after</widge
 var svgTests = new (string Name, string Source, bool Valid, Func<RichParseResult, bool> Extra)[]
 {
     ("Representative SVG", File.ReadAllText(Path.Combine("tests","fixtures","rich-model-ui","representative-svg.md")), true, r => r.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "svg" && n.Children?.Any(c => c.Name == "text") == true && n.Children?.Any(c => c.Name == "g" && c.Children?.Any(x => x.Name == "rect") == true && c.Children?.Any(x => x.Name == "text" && x.Children?.Any(t => t.Text?.Contains("Collector") == true) == true) == true) == true)),
-    ("SVG embedded commands recognized", "<svg viewBox=\"0 0 100 100\"><SH>echo YES</SH></svg>", true, r => r.Commands.Count == 1 && r.Commands[0].Name == "SH"),
-    ("SVG hides SH and ATTACH with accurate text source spans", svgShellAttachSource, true, r =>
-        r.Commands.Select(c => c.Name).SequenceEqual(["SH", "ATTACH"]) &&
-        SvgTextMatchesSource(r, svgShellAttachSource, "before", "middle", "after") &&
+    ("SVG embedded SH is inert", "<svg viewBox=\"0 0 100 100\"><SH>echo YES</SH></svg>", true, r => r.Commands.Count == 0),
+    ("SVG keeps nested SH and ATTACH inert", svgShellAttachSource, true, r =>
+        r.Commands.Count == 0 &&
+        r.Document.Nodes.Single().Children?.Any(n => n.Kind == "text" &&
+            n.Text?.Contains("<SH>echo HIDDEN</SH>middle<ATTACH>path.txt</ATTACH>", StringComparison.Ordinal) == true) == true &&
         r.Document.Nodes.Single().Children?.Any(n => n.Name == "circle") == true),
-    ("SVG unknown wrapper hides nested SH with accurate text source spans", svgWrappedShellSource, true, r =>
-        r.Commands.Count == 1 && r.Commands[0].Body == "echo HIDDEN" &&
-        SvgTextMatchesSource(r, svgWrappedShellSource, "<widget>before", "after</widget>")),
+    ("SVG unknown wrapper keeps nested SH inert", svgWrappedShellSource, true, r =>
+        r.Commands.Count == 0 &&
+        r.Document.Nodes.Single().Children?.Any(n => n.Kind == "text" &&
+            n.Text?.Contains("<widget>before<SH>echo HIDDEN</SH>after</widget>", StringComparison.Ordinal) == true) == true),
     ("SVG injected event rejected", "<svg onload=\"alert(1)\"></svg>", false, r => r.Commands.Count == 0),
     ("SVG forbidden url rejected", "<svg><rect x=\"1\" fill=\"url(#evil)\" /></svg>", false, r => r.Commands.Count == 0),
     ("SVG text namespace accepted", "<svg viewBox=\"0 0 80 80\"><text x=\"15\" y=\"30\" fontSize=\"12\" >Hello</text></svg>", true, r => r.Document.Nodes.Any(n => n.Name == "svg" && n.Children?.Any(c => c.Name == "text" && c.Children?.Any(t => t.Text == "Hello") == true) == true)),
     ("SVG nested foreign UI rejected", "<svg><box>bad</box></svg>", false, r => r.Commands.Count == 0),
     ("SVG foreign UI under unknown wrapper rejected", "<svg><widget><box>bad</box></widget></svg>", false, r => r.Commands.Count == 0),
     ("SVG unknown wrapper is ordinary text", "<svg><widget>literal</widget></svg>", true, r => r.Document.Nodes.Any(n => n.Name == "svg" && n.Children?.Any(c => c.Kind == "text" && c.Text?.Contains("<widget>literal</widget>", StringComparison.Ordinal) == true) == true)),
-    ("SVG unknown wrapper keeps global SH matching", "<svg><widget><SH>echo YES</SH></widget></svg>", true, r => r.Commands.Count == 1 && r.Commands[0].Body == "echo YES"),
+    ("SVG unknown wrapper keeps SH inert", "<svg><widget><SH>echo YES</SH></widget></svg>", true, r => r.Commands.Count == 0),
     ("SVG nested SVG rejected", "<svg><svg></svg></svg>", false, r => r.Commands.Count == 0),
     ("SVG geometry over bound rejected", "<svg><circle r=\"100000000\" /></svg>", false, r => r.Commands.Count == 0),
 };
