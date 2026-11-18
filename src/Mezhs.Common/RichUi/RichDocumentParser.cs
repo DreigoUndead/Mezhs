@@ -263,7 +263,14 @@ public sealed class RichDocumentParser
                 continue;
             }
             if (!RichTagRegistry.TryGet(tag.Name, svgScope, out var definition))
-                throw new RichDocumentException($"Unsupported tag: {tag.Name}.");
+            {
+                // Only registered tags have rich syntax. Preserve unknown markup
+                // as ordinary text while still discovering registered tags within it.
+                if (RichTagRegistry.IsSvgTag(tag.Name))
+                    throw new RichDocumentException($"SVG tag outside supported scope: {tag.Name}.");
+                cursor = tag.End;
+                continue;
+            }
             // Commands were already discovered with no context exceptions.
             if (definition.Role is RichTagRole.Command or RichTagRole.Marker)
             {
@@ -493,7 +500,11 @@ public sealed class RichDocumentParser
             var selfClosing = attributes.TrimEnd().EndsWith('/');
             if (selfClosing) attributes = attributes.TrimEnd()[..^1];
             if (closing && (selfClosing || !string.IsNullOrWhiteSpace(attributes)))
-                throw new RichDocumentException("Invalid closing tag.");
+            {
+                if (RichTagRegistry.TryGet(name, out _) || RichTagRegistry.IsSvgTag(name))
+                    throw new RichDocumentException("Invalid closing tag.");
+                return false; // Malformed unknown closing markup is ordinary text.
+            }
             tag = new Tag(name, closing, selfClosing, from, i + 1, attributes);
             return true;
         }
