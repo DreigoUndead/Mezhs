@@ -45,12 +45,12 @@ test("WritingBlock is rendered from the C# typed document, with escaped metadata
   assert.match(output, /aria-label="Copy writing block"/);
 });
 
-test("CodeBlock renders after matched command spans are removed", () => {
+test("CodeBlock retains inert nested command-shaped source", () => {
   const input = '<box border>\n<CodeBlock language="typescript" editable>\nconst x = "<SH>not a command</SH>";\n</CodeBlock>\n</box>';
   const output = html(input);
   assert.match(output, /class="rich-code-block"/);
   assert.match(output, /aria-label="Edit code block"/);
-  assert.doesNotMatch(output, /&lt;SH&gt;not a command&lt;\/SH&gt;/);
+  assert.match(output, /&lt;SH&gt;not a command&lt;\/SH&gt;/);
   assert.doesNotMatch(output, /class="rich-question"/);
 });
 

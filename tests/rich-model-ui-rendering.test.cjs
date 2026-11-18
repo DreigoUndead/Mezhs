@@ -99,7 +99,7 @@ test("MarkdownContent does not depend on deleted frontend grammar or extractors"
     assert.doesNotMatch(source, new RegExp(legacy));
 });
 
-test("raw editors display source with matched command spans removed", () => {
+test("raw editors retain nested command-shaped source as inert text", () => {
   const input = [
     '<box border radius="lg">',
     '<WritingBlock variant="document">',
@@ -120,7 +120,8 @@ test("raw editors display source with matched command spans removed", () => {
   const output = html(input, { document: doc });
   assert.match(output, /rich-writing-block/);
   assert.match(output, /rich-code-block/);
-  assert.doesNotMatch(output, /echo NEVER_EXECUTE|&lt;SH&gt;INERT/);
+  assert.match(output, /echo NEVER_EXECUTE/);
+  assert.match(output, /&lt;SH&gt;INERT&lt;\/SH&gt;/);
   assert.match(output, /Sibling/);
 });
 
