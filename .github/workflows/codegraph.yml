@@ -1,0 +1,42 @@
+name: Regenerate Codegraph
+
+on:
+  push:
+    branches-ignore:
+      - main
+    paths-ignore:
+      - '.agents/codegraph/graph.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: codegraph-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Codegraph 3.0.0
+        run: |
+          npm install --global --no-audit --no-fund @lzehrung/codegraph@3.0.0
+          codegraph --version
+      - name: Regenerate and commit graph if changed
+        shell: bash
+        run: |
+          node .agents/codegraph/export.cjs
+          git add -- .agents/codegraph/graph.json
+          if git diff --cached --quiet -- .agents/codegraph/graph.json; then
+            echo "Codegraph unchanged"
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m 'chore(codegraph): regenerate graph' -- .agents/codegraph/graph.json
+          git push origin "HEAD:${GITHUB_REF}"
