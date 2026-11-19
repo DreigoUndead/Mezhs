@@ -1,6 +1,8 @@
 using Markdig;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
+using System.Globalization;
+using System.Text.Json;
 
 namespace Mezhs.Common.RichUi;
 
@@ -567,13 +569,31 @@ public sealed class RichDocumentParser
                 }
                 else if (source[0] == '{')
                 {
-                    var stop = source.IndexOf('}');
+                    var stop = FindExpressionEnd(source);
                     if (stop < 0) throw new RichDocumentException("Unclosed attribute expression.");
-                    value = source.Slice(1, stop - 1).ToString().Trim();
-                    if (!decimal.TryParse(value, System.Globalization.NumberStyles.Number,
-                        System.Globalization.CultureInfo.InvariantCulture, out _) &&
-                        value != "true" && value != "false")
-                        throw new RichDocumentException("Executable attribute expressions are not supported.");
+                    var expression = source.Slice(1, stop - 1).ToString().Trim();
+                    if (decimal.TryParse(expression, NumberStyles.Float,
+                            CultureInfo.InvariantCulture, out var number))
+                        value = number.ToString(CultureInfo.InvariantCulture);
+                    else if (expression is "true" or "false")
+                        value = expression;
+                    else
+                    {
+                        // Data-only object/array literals become the same json:
+                        // attribute representation already used by the UI.
+                        // Identifiers, function calls and JS operators never run.
+                        try
+                        {
+                            var literal = new SafeLiteralReader(expression).Read();
+                            if (literal is not Dictionary<string, object?>)
+                                throw new FormatException("Expected an object literal.");
+                            value = "json:" + Uri.EscapeDataString(JsonSerializer.Serialize(literal));
+                        }
+                        catch (Exception e) when (e is FormatException or JsonException or OverflowException)
+                        {
+                            throw new RichDocumentException("Unsupported non-literal attribute expression.");
+                        }
+                    }
                     source = source[(stop + 1)..];
                 }
                 else throw new RichDocumentException("Attribute must be quoted or a bounded literal.");
@@ -583,6 +603,146 @@ public sealed class RichDocumentParser
             source = source.TrimStart();
         }
         return result;
+    }
+
+    // Find the outer brace with correct quote/escape handling. TryTag already
+    // tokenizes nested braces; attribute parsing must consume the same span.
+    private static int FindExpressionEnd(ReadOnlySpan<char> source)
+    {
+        var depth = 0;
+        char quote = '\0';
+        for (var i = 0; i < source.Length; i++)
+        {
+            var c = source[i];
+            if (quote != '\0')
+            {
+                if (c == '\\') { i++; continue; }
+                if (c == quote) quote = '\0';
+            }
+            else if (c is '\'' or '"' or '`') quote = c;
+            else if (c == '{') depth++;
+            else if (c == '}' && --depth == 0) return i;
+        }
+        return -1;
+    }
+
+    // Strict bounded JSON-like data literals, not a JavaScript evaluator.
+    // Unquoted *keys* are supported for the common JSX object syntax, but
+    // string values must use JSON double quotes. No code, methods or spreads.
+    private sealed class SafeLiteralReader(string source)
+    {
+        private int _at;
+        private int _items;
+
+        public object? Read()
+        {
+            var value = Value(0);
+            Space();
+            if (_at != source.Length) throw new FormatException("Unexpected literal tail.");
+            return value;
+        }
+
+        private object? Value(int depth)
+        {
+            if (depth > 8 || ++_items > 128)
+                throw new FormatException("Literal resource budget exceeded.");
+            Space();
+            if (_at >= source.Length) throw new FormatException("Missing literal.");
+            if (source[_at] == '{') return Object(depth + 1);
+            if (source[_at] == '[') return Array(depth + 1);
+            if (source[_at] == '"') return Quoted();
+            var from = _at;
+            while (_at < source.Length && !char.IsWhiteSpace(source[_at]) &&
+                   source[_at] is not (',' or '}' or ']')) _at++;
+            var token = source[from.._at];
+            if (token == "true") return true;
+            if (token == "false") return false;
+            if (token == "null") return null;
+            if (decimal.TryParse(token, NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out var n))
+                return n;
+            throw new FormatException("Only data literals are supported.");
+        }
+
+        private Dictionary<string, object?> Object(int depth)
+        {
+            _at++; // {
+            var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+            Space();
+            if (Take('}')) return result;
+            while (true)
+            {
+                Space();
+                var key = _at < source.Length && source[_at] == '"'
+                    ? Quoted() : Identifier();
+                Space();
+                Expect(':');
+                if (!result.TryAdd(key, Value(depth)))
+                    throw new FormatException("Duplicate literal key.");
+                Space();
+                if (Take('}')) return result;
+                Expect(',');
+            }
+        }
+
+        private List<object?> Array(int depth)
+        {
+            _at++; // [
+            var result = new List<object?>();
+            Space();
+            if (Take(']')) return result;
+            while (true)
+            {
+                result.Add(Value(depth));
+                Space();
+                if (Take(']')) return result;
+                Expect(',');
+            }
+        }
+
+        private string Identifier()
+        {
+            var from = _at;
+            if (_at >= source.Length || !(char.IsLetter(source[_at]) || source[_at] == '_'))
+                throw new FormatException("Invalid literal property.");
+            while (_at < source.Length &&
+                   (char.IsLetterOrDigit(source[_at]) || source[_at] is '_' or '-')) _at++;
+            return source[from.._at];
+        }
+
+        private string Quoted()
+        {
+            var from = _at++;
+            var escaped = false;
+            while (_at < source.Length)
+            {
+                var c = source[_at++];
+                if (escaped) { escaped = false; continue; }
+                if (c == '\\') { escaped = true; continue; }
+                if (c == '"')
+                    return JsonSerializer.Deserialize<string>(source[from.._at]) ??
+                        throw new FormatException("Invalid string literal.");
+            }
+            throw new FormatException("Unclosed literal string.");
+        }
+
+        private void Space()
+        {
+            while (_at < source.Length && char.IsWhiteSpace(source[_at])) _at++;
+        }
+
+        private bool Take(char expected)
+        {
+            if (_at >= source.Length || source[_at] != expected) return false;
+            _at++;
+            return true;
+        }
+
+        private void Expect(char expected)
+        {
+            Space();
+            if (!Take(expected)) throw new FormatException("Invalid literal separator.");
+        }
     }
 
     private sealed class RichDocumentException(string message) : Exception(message);
