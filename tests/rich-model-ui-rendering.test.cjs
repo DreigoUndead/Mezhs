@@ -125,6 +125,28 @@ test("raw editors retain nested command-shaped source as inert text", () => {
   assert.match(output, /Sibling/);
 });
 
+test("same-line CodeBlock is a raw editor, never a malformed command", () => {
+  const source = 'Before <CodeBlock language="text">raw <SH>INERT</SH></CodeBlock> after';
+  const doc = canonicalDocument(source);
+  assert.equal(doc.valid, true);
+  const raw = kinds(doc.nodes, "raw");
+  assert.equal(raw.length, 1);
+  assert.equal(raw[0].text, "raw <SH>INERT</SH>");
+  assert.match(html(source, { document: doc }), /rich-code-block/);
+});
+
+test("inline rich tags remain visible when embedded in Markdown code", () => {
+  const inputs = [
+    '`pre <text strong>inside</text> post`',
+    '~~~mdx\n<text strong>inside</text>\n~~~',
+  ];
+  const documents = canonicalDocuments(inputs);
+  for (const doc of documents) {
+    assert.equal(doc.valid, true);
+    assert.ok(kinds(doc.nodes, "element").some(node => node.name === "text"));
+  }
+});
+
 test("paired raw editor matches even inside fenced Markdown", () => {
   const source = '~~~mdx\n<CodeBlock language="js">\nunsafe()\n</CodeBlock>\n~~~';
   assert.equal(kinds(canonicalDocument(source).nodes, "raw").length, 1);
