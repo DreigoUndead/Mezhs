@@ -41,6 +41,10 @@ export function surface(props: RichProps): CSSProperties {
   const flex = read(props, "flex");
   const radius = read(props, "radius");
   const leftSize = boundedSpacing(left?.size);
+  const borderSize = typeof border?.size === "number" && Number.isInteger(border.size) &&
+    border.size >= 1 && border.size <= 4 ? border.size : undefined;
+  const borderColor = ({ danger: "#b13e35", warning: "#956417", success: "#477829",
+    strong: "#504e49", secondary: "#746f66" } as Record<string, string>)[String(border?.color || "strong")];
   return {
     ...layout(props),
     padding: boundedSpacing(padding),
@@ -50,6 +54,7 @@ export function surface(props: RichProps): CSSProperties {
     width: /^(?:100|[1-9]?\d)%$/.test(width) ||
       /^\d{1,3}(?:\.\d+)?px$/.test(width) && parseFloat(width) <= 500 ? width : undefined,
     flex: /^(?:1|2|3)$/.test(flex) ? Number(flex) : undefined,
+    border: borderSize === undefined ? undefined : `${borderSize}px solid ${borderColor || "#d5d0c6"}`,
     borderLeft: leftSize !== undefined && leftSize > 0
       ? (leftSize / 4) + "px solid " + (left?.color === "strong" ? "#504e49" : "#d5d0c6")
       : undefined,
