@@ -107,10 +107,10 @@ public static class RichTagRegistry
             Tag("CodeBlock", RichTagRole.RawEditor, "language", "editable"),
             Tag("WritingBlock", RichTagRole.RawEditor, "variant", "recipient", "cc", "bcc", "subject", "id"),
             Tag("escape", RichTagRole.OpaqueLiteral, "char"),
-            // Commands can be found under structural layout, but their bodies
-            // never grant recursive authority. Completion is root-only.
-            WithDiscovery(Tag("SH", RichTagRole.Command), searchChildren: false, allowAsChild: true),
-            WithDiscovery(Tag("ATTACH", RichTagRole.Command), searchChildren: false, allowAsChild: true),
+            // Agent commands are root-only and opaque, using the same
+            // traversal policy as all other registered tags.
+            WithDiscovery(Tag("SH", RichTagRole.Command), searchChildren: false, allowAsChild: false),
+            WithDiscovery(Tag("ATTACH", RichTagRole.Command), searchChildren: false, allowAsChild: false),
             WithDiscovery(Tag("DONE", RichTagRole.Marker), searchChildren: false, allowAsChild: false)
         }.ToDictionary(tag => tag.Name, StringComparer.Ordinal);
 
@@ -118,17 +118,13 @@ public static class RichTagRegistry
 
     public static bool TryGet(string name, bool svgScope, out RichTagDefinition definition)
     {
-        if (svgScope)
-        {
-            if (!SvgNames.Contains(name)) { definition = null!; return false; }
-            if (name == "text") { definition = SvgText; return true; }
-        }
-        if (name != "svg" && name != "text" && SvgNames.Contains(name) && !svgScope)
-        {
-            definition = null!;
-            return false;
-        }
-        return Tags.TryGetValue(name, out definition!);
+        if (svgScope && name == "text") { definition = SvgText; return true; }
+        if (!Tags.TryGetValue(name, out definition!)) return false;
+        // Resolve root-only tags inside a child scope only so their eligibility
+        // policy can keep them inert; other foreign SVG content remains invalid.
+        return svgScope
+            ? SvgNames.Contains(name) || !definition.AllowAsChild
+            : !SvgNames.Contains(name) || (name is "svg" or "text");
     }
 
     public static bool TryGet(string name, out RichTagDefinition definition) =>

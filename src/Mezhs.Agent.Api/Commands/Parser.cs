@@ -35,16 +35,13 @@ public sealed class Parser
             var end = candidate.SourceSpan.End;
             if (start < cursor || end < start || end > content.Length)
                 throw new CommandParseException("Invalid command source range.");
-            // The canonical parser only accepts standalone command delimiters.
-            // Remove the full command lines from displayed content, not siblings.
-            var lineStart = content.LastIndexOf('\n', Math.Max(0, start - 1)) + 1;
-            if (lineStart < cursor) lineStart = cursor;
-            visible.Append(content, cursor, lineStart - cursor);
-            var lineEnd = content.IndexOf('\n', end);
-            cursor = lineEnd < 0 ? content.Length : lineEnd + 1;
+            // Consume only the exact matched tag span; surrounding prose and
+            // line breaks remain visible.
+            visible.Append(content, cursor, start - cursor);
+            cursor = end;
             commands.Add(new Command(candidate.Name, candidate.Body));
         }
         visible.Append(content, cursor, content.Length - cursor);
-        return new CommandBatch(commands, visible.ToString().Trim());
+        return new CommandBatch(commands, visible.ToString());
     }
 }

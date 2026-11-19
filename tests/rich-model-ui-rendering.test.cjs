@@ -51,7 +51,22 @@ test("the C# parser supplies rich UI nodes, not executable model-authored JSX", 
 });
 
 
-test("canonical inline content model rejects block descendants without mounting invalid DOM", () => {
+test("capture.png nested diagram renders UI, not accidentally indented code", () => {
+  const input = fixtures("indented-layout-capture.md");
+  const parsed = canonicalDocument(input);
+  assert.equal(parsed.valid, true, parsed.diagnostics?.[0]?.code);
+  assert.equal(kinds(parsed.nodes, "code").length, 0, "UI indentation cannot manufacture Markdown code");
+  const output = html(input, { document: parsed });
+  assert.match(output, /class="rich-grid"/);
+  assert.match(output, /class="rich-row"/);
+  assert.match(output, /class="rich-icon(?: |")/);
+  assert.match(output, /<strong>Canonical tag parser<\/strong>/);
+  assert.match(output, /Identify known tags, match boundaries/);
+  assert.match(output, /Validated typed nodes and host commands/);
+  assert.doesNotMatch(output, /<pre|&lt;(?:icon|text|grid-item)\b|\*\*Canonical tag parser\*\*/i);
+});
+
+test("invalid inline descendants render inert diagnostics without mounting invalid DOM", () => {
   const inputs = [
     '<text>Before <box>block</box> after</text>',
     '<title><row>block</row></title>',
@@ -61,15 +76,15 @@ test("canonical inline content model rejects block descendants without mounting 
   ].map(value => value.replaceAll('\\n', '\n'));
   const docs = canonicalDocuments(inputs);
   for (let i = 0; i < inputs.length; i++) {
-    assert.equal(docs[i].valid, false, inputs[i]);
+    assert.equal(docs[i].valid, true, inputs[i]);
     const output = html(inputs[i], { document: docs[i] });
-    assert.doesNotMatch(output, /class="rich-(?:box|row|title|badge|caption)"/);
+    assert.match(output, /class="rich-unknown"/);
     assert.doesNotMatch(output, /<span[^>]*>[^]*<(?:div|ul|ol|h[1-6]|hr)[\s>]/i);
-    assert.match(output, /&lt;/, "Invalid rich source must be escaped");
+    assert.match(output, /rich-unknown/, "Invalid descendants must remain inert");
   }
 });
 
-test("canonical inline content model rejects nested anchors while preserving ordinary inline phrasing", () => {
+test("canonical inline content model converts nested anchors to inert diagnostics", () => {
   const invalid = [
     '<Link url="https://a.test">Before [inner](https://b.test)</Link>',
     '<Link url="https://a.test">Before <Link url="https://b.test">nested</Link></Link>',
@@ -77,10 +92,10 @@ test("canonical inline content model rejects nested anchors while preserving ord
   ];
   const docs = canonicalDocuments(invalid);
   for (let i = 0; i < invalid.length; i++) {
-    assert.equal(docs[i].valid, false, invalid[i]);
+    assert.equal(docs[i].valid, true, invalid[i]);
     const output = html(invalid[i], { document: docs[i] });
-    assert.doesNotMatch(output, /<a\b/i);
-    assert.match(output, /&lt;|\[Before/, "Rejected link source must stay inert");
+    assert.match(output, /rich-unknown/, "Nested link must be inert");
+    assert.doesNotMatch(output, /<a\b[^>]*>[^]*<a\b/i);
   }
   const valid = '<text>Before <badge>ready</badge> and <Link url="https://example.com">go</Link> after</text>';
   const doc = canonicalDocument(valid);
@@ -92,6 +107,28 @@ test("canonical inline content model rejects nested anchors while preserving ord
   assert.doesNotMatch(output, /<a\b[^>]*>[^]*<a\b/i);
 });
 
+test("JSON-like object literal border is bounded data, not evaluated JS", () => {
+  const input = '<box border={{size:2,color:"danger"}}>Warning</box>';
+  const doc = canonicalDocument(input);
+  assert.equal(doc.valid,true);
+  const box = kinds(doc.nodes,"element").find(n=>n.name==="box");
+  assert.ok(box?.attributes?.border?.startsWith("json:"));
+  const output = html(input,{document:doc});
+  assert.match(output,/class="rich-box rich-bordered"/);
+  assert.match(output,/border:2px solid/);
+});
+
+test("unknown wrappers contain nested commands and display diagnostics", () => {
+  const input = '<Widget>Before <SH>INERT</SH></Widget>';
+  const doc = canonicalDocument(input);
+  assert.equal(doc.valid,true);
+  assert.equal(kinds(doc.nodes,"unknown").length,1);
+  const out=html(input,{document:doc});
+  assert.match(out,/rich-unknown/);
+  assert.match(out,/Unsupported control: Widget/);
+  assert.match(out,/&lt;SH&gt;INERT&lt;\/SH&gt;/);
+});
+
 test("MarkdownContent does not depend on deleted frontend grammar or extractors", () => {
   const source = fs.readFileSync(path.join(root, "src/Mezhs.Web.Lib/src/MarkdownContent.tsx"), "utf8");
   assert.match(source, /RichDocumentView/);
@@ -99,7 +136,7 @@ test("MarkdownContent does not depend on deleted frontend grammar or extractors"
     assert.doesNotMatch(source, new RegExp(legacy));
 });
 
-test("raw editors keep shell-shaped bodies literal, within layout containers", () => {
+test("raw editors retain nested command-shaped source as inert text", () => {
   const input = [
     '<box border radius="lg">',
     '<WritingBlock variant="document">',
@@ -121,24 +158,66 @@ test("raw editors keep shell-shaped bodies literal, within layout containers", (
   assert.match(output, /rich-writing-block/);
   assert.match(output, /rich-code-block/);
   assert.match(output, /echo NEVER_EXECUTE/);
+  assert.match(output, /&lt;SH&gt;INERT&lt;\/SH&gt;/);
   assert.match(output, /Sibling/);
 });
 
-test("standalone raw openers inside fenced Markdown remain code, not editor UI", () => {
-  const source = '~~~mdx\n<CodeBlock language="js">\nunsafe()\n</CodeBlock>\n~~~';
-  assert.equal(kinds(canonicalDocument(source).nodes, "raw").length, 0);
-  assert.doesNotMatch(html(source), /class="rich-code-block"/);
+test("same-line CodeBlock is a raw editor, never a malformed command", () => {
+  const source = 'Before <CodeBlock language="text">raw <SH>INERT</SH></CodeBlock> after';
+  const doc = canonicalDocument(source);
+  assert.equal(doc.valid, true);
+  const raw = kinds(doc.nodes, "raw");
+  assert.equal(raw.length, 1);
+  assert.equal(raw[0].text, "raw <SH>INERT</SH>");
+  assert.match(html(source, { document: doc }), /rich-code-block/);
 });
 
-test("escaped and commented tags are not converted to rich nodes", () => {
+test("same-line WritingBlock and escape preserve opaque nested source", () => {
+  const writingSource = 'Before <WritingBlock variant="document">raw <SH>INERT</SH></WritingBlock> after';
+  const writingDoc = canonicalDocument(writingSource);
+  assert.equal(writingDoc.valid, true);
+  const writing = kinds(writingDoc.nodes, "raw");
+  assert.equal(writing.length, 1);
+  assert.equal(writing[0].name, "WritingBlock");
+  assert.equal(writing[0].text, "raw <SH>INERT</SH>");
+  assert.match(html(writingSource, { document: writingDoc }), /rich-writing-block/);
+
+  const escapeSource = 'Before <escape>raw <SH>INERT</SH></escape> after';
+  const escapeDoc = canonicalDocument(escapeSource);
+  assert.equal(escapeDoc.valid, true);
+  assert.equal(kinds(escapeDoc.nodes, "literal").length, 1);
+});
+
+test("inline rich tags remain visible when embedded in Markdown code", () => {
+  const inputs = [
+    '`pre <text strong>inside</text> post`',
+    '~~~mdx\n<text strong>inside</text>\n~~~',
+  ];
+  const documents = canonicalDocuments(inputs);
+  for (const doc of documents) {
+    assert.equal(doc.valid, true);
+    assert.ok(kinds(doc.nodes, "element").some(node => node.name === "text"));
+  }
+});
+
+test("paired raw editor matches even inside fenced Markdown", () => {
+  const source = '~~~mdx\n<CodeBlock language="js">\nunsafe()\n</CodeBlock>\n~~~';
+  assert.equal(kinds(canonicalDocument(source).nodes, "raw").length, 1);
+  assert.match(html(source), /class="rich-code-block"/);
+});
+
+test("UI tag matching is independent of Markdown literal context", () => {
   const inputs = [
     '`<box><text>Inline</text></box>`',
     '<!-- <box><text>Comment</text></box> -->',
     '~~~mdx\n<box><text>Fenced</text></box>\n~~~',
   ];
-  for (const [input, doc] of inputs.map((s,i)=>[s,canonicalDocuments(inputs)[i]])) {
-    assert.equal(kinds(doc.nodes, "element").length, 0, input);
-    assert.doesNotMatch(html(input, { document: doc }), /class="rich-box/);
+  const documents = canonicalDocuments(inputs);
+  for (const [i, input] of inputs.entries()) {
+    const doc = documents[i];
+    assert.equal(doc.valid, true, input);
+    assert.ok(kinds(doc.nodes, "element").length >= 2, input);
+    assert.match(html(input, { document: doc }), /class="rich-box/);
   }
 });
 
@@ -310,7 +389,7 @@ test("SVG text nodes are not interpreted as outer rich text", () => {
   assert.match(html(input, { document: parsed }), /<text/);
 });
 
-test("SVG script-capable subtrees reject the entire document", () => {
+test("SVG script-capable subtrees degrade to visible inert diagnostics", () => {
   const cases = [
     '<svg viewBox="0 0 20 20"><script>execute()</script></svg>',
     '<svg viewBox="0 0 20 20"><image href="https://evil.example/a.svg"/></svg>',
@@ -321,14 +400,18 @@ test("SVG script-capable subtrees reject the entire document", () => {
     '<svg viewBox="0 0 20 20"><use href="#anything"/></svg>',
   ];
   for (const [input, doc] of cases.map((s,i)=>[s,canonicalDocuments(cases)[i]])) {
-    assert.equal(doc.valid, false, input);
-    assert.doesNotMatch(html(input, { document: doc }), /<svg/);
+    assert.equal(doc.valid, true, input);
+    const output = html(input, { document: doc });
+    assert.match(output, /rich-unknown/);
+    assert.doesNotMatch(output, /<svg|<script\b|<foreignObject\b|<image\b|<use\b/i);
   }
 });
 
-test("SVG numeric resource bounds reject pathological values", () => {
+test("SVG numeric resource bounds fall back without mounting geometry", () => {
   const input = '<svg viewBox="0 0 400000000 300"><rect x="1" y="1" width="20" height="20"/></svg>';
-  assert.equal(canonicalDocument(input).valid, false);
+  const doc = canonicalDocument(input);
+  assert.equal(doc.valid, true);
+  assert.match(html(input, { document: doc }), /rich-unknown/);
 });
 
 test("SVG nested inside layout is still validated by the C# authority", () => {
@@ -392,11 +475,11 @@ test("a fenced question stays inert even with an adjacent enabled host callback"
   assert.equal(calls,0);
 });
 
-test("malformed ancestors reject any previously valid display controls", () => {
+test("unclosed paired UI opener remains ordinary text without blocking prior controls", () => {
   const input='<badge>Safe</badge>\n<box><text>Unclosed</text>';
   const doc=canonicalDocument(input);
-  assert.equal(doc.valid,false);
-  assert.doesNotMatch(html(input,{document:doc}),/class="rich-badge"/);
+  assert.equal(doc.valid,true);
+  assert.match(html(input,{document:doc}),/class="rich-badge"/);
 });
 
 
@@ -413,7 +496,7 @@ test("unknown presentation attributes remain inert data for their owning control
   assert.doesNotMatch(output, /(?:futureTheme|futureTone|data-mezhs-future)/);
 });
 
-test("SVG and raw editors retain strict attributes, while event and style props fail closed", () => {
+test("invalid SVG/editor/event attributes render diagnostics instead of host components", () => {
   for (const source of [
     '<svg futureTheme="violet"><rect width="2" height="2" /></svg>',
     '<CodeBlock unexpected="value">\nraw\n</CodeBlock>',
@@ -421,8 +504,8 @@ test("SVG and raw editors retain strict attributes, while event and style props 
     '<box style="color:red">no</box>',
     '<box onClick="alert(1)">no</box>',
   ]) {
-    assert.equal(canonicalDocument(source).valid, false, source);
-    assert.match(html(source), /&lt;/);
+    assert.equal(canonicalDocument(source).valid, true, source);
+    assert.match(html(source), /rich-unknown/);
   }
 });
 
@@ -446,11 +529,10 @@ test("partial unsupported template constructs remain inert, not evaluated", () =
   assert.match(output,/item\.name/);
 });
 
-test("actual sanitized telemetry contains unsupported legacy SVG loops and fails closed", () => {
+test("legacy SVG loops do not become executable React callbacks or elements", () => {
   const doc=canonicalDocument(actualTelemetry);
-  assert.equal(doc.valid,false);
-  assert.equal(kinds(doc.nodes,"question").length,0);
-  assert.doesNotMatch(html(actualTelemetry,{document:doc}), /class="rich-question"|<svg/);
+  const out=html(actualTelemetry,{document:doc});
+  assert.doesNotMatch(out, /<script\b|onClick="|<foreignObject\b/);
 });
 
 test("citation references are inert display nodes with no arbitrary URL authority", () => {
@@ -471,14 +553,16 @@ test("editor bodies may contain HTML, shell delimiters and JSX without activatio
   assert.doesNotMatch(out,/<div onClick/);
 });
 
-test("unsupported executable attributes reject the whole document", () => {
+test("unsupported executable attributes degrade to safe diagnostics", () => {
   for(const source of [
     '<row onClick="alert(1)">x</row>',
     '<box gap={eval("bad")}>x</box>',
     '<badge className="surprise">x</badge>',
   ]) {
-    assert.equal(canonicalDocument(source).valid,false);
-    assert.doesNotMatch(html(source),/class="rich-row|class="rich-box|class="rich-badge"/);
+    assert.equal(canonicalDocument(source).valid,true);
+    const output=html(source);
+    assert.match(output,/rich-unknown/);
+    assert.doesNotMatch(output,/class="rich-row|class="rich-box|class="rich-badge"/);
   }
 });
 

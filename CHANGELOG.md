@@ -2,6 +2,23 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.8.3] - 2026-11-19
+
+### Fixed
+- Match complete rich UI and Agent command tags independently of line placement, with balanced containers and fail-closed command authorization.
+- Show unsupported, malformed and invalid rich controls as inert Unknown diagnostics while preserving valid registered children and independent UI siblings.
+- Keep SH, ATTACH and DONE root-only inside known and Unknown wrappers, SVG, escape and opaque editors; reject invalid command batches before side effects.
+- Preserve indented rich layouts, ordinary Markdown tables and fenced content, and safely interpret bounded data-only style objects.
+
+### Verification and approval
+- Independent High-risk full-diff code review PASS; the owner accepted malformed nested model HTML rendering as a non-blocking presentation limitation.
+- Independent Windows final testing PASS at PR #64 head c5126c04c1e2f20bfd01731c16548cf3a0ce2888 against main d4a782e18bde189e63d8e0c83007209398f9860f: Release build, 97 C# parser checks, 67 Chromium/Node tests, 19 shared UI tests, 9 adversarial parser and 11 live Chromium checks, real Agent protocol/policy/attachment and hosted failure-path tests.
+- Verification details: https://github.com/DreigoUndead/Mezhs/pull/64#issuecomment-7021222114
+- Project owner explicitly approved merging the completed PR #64 on 2026-11-19.
+
+### Known limitations
+- No full authenticated live-provider Electron desktop session was tested; Windows application hosts and real headless Chromium were exercised using isolated controlled integration responses.
+
 ## [0.8.2] — 2026-11-17
 
 ### Fixed

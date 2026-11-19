@@ -33,7 +33,7 @@ internal sealed class WindowsExecutorPlatform : IExecutorPlatform
         var path = Path.Combine(Path.GetTempPath(), $"mezhs-executor-{Guid.NewGuid():N}.cmd");
         File.WriteAllText(
             path,
-            "@chcp 65001>nul\r\n" + command + "\r\n",
+            "@chcp 65001>nul\r\n" + command.Trim('\r', '\n') + "\r\n",
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         return new ExecutorShellInvocation(["/D", "/Q", "/C", path], null, path);
     }
