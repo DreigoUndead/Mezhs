@@ -1,7 +1,7 @@
 # Automatic Codegraph regeneration
 ID: automatic-codegraph-regeneration
 
-Status: **Planning draft — consequential owner choices open; no implementation authorized**
+Status: **Implementation in progress — owner directed proceeding with the recommended defaults**
 Level: **High-risk** (CI repository-write permission plus concurrent updates to task branches)
 Base: `main`, starting revision `ed98bb5c3f9c0a07fbf6589b4b6819fdba0519ee`
 Task branch: `automatic-codegraph-regeneration`
@@ -21,7 +21,7 @@ Out of scope: a new exporter, codegraph parsing changes, agent orchestration, Gi
 - The CLI package is **`@lzehrung/codegraph`** (not unscoped `codegraph`). Install a pinned `@lzehrung/codegraph@3.0.0` on a Node.js **22.16+** runner, verify `codegraph --version` and `codegraph doctor`, then execute the exporter.
 - Codegraph is not a source of truth; the graph is a generated navigation artifact.
 
-## Proposed minimal approach (subject to owner choice)
+## Implemented approach (subject to independent verification)
 
 1. Add one `push` workflow for eligible non-main branches, with explicit `permissions: contents: write`, a bounded job timeout, and concurrency grouped by branch, `cancel-in-progress: false`. Do not run automatically on `main` or `pull_request_target`; never check out untrusted PR code with a privileged PR-target token.
 2. Checkout the relevant branch, install pinned Codegraph on Node 22, verify the installed CLI/native runtime, and execute `node .agents/codegraph/export.cjs`.
@@ -29,20 +29,20 @@ Out of scope: a new exporter, codegraph parsing changes, agent orchestration, Gi
 4. Prevent stale writes by using ordinary non-force push: if a concurrent branch update makes a push non-fast-forward, fail clearly; a newer queued branch run refreshes the new tip. Keep the logic simple; no custom retry queue, long-lived locks, or external service.
 5. After successful adoption, update `.agents/coding.md` and `.agents/workflow.md`: authors need not commit a manual Codegraph refresh for pushed task branches, but must ensure the bot graph commit is present **before** independent review/testing. Preserve manual export as an offline/failure fallback and verify exact final SHA before handoff.
 
-## Consequential owner choices — decide before implementation
+## Consequential choices and disposition
 
-**A. Token and exact-sha CI behavior:**
+**A. Token and exact-sha CI behavior — adopted GITHUB_TOKEN; final SHA requires separate verification:**
 
 - **Recommended simplicity:** use repository `GITHUB_TOKEN`. GitHub suppresses downstream push/PR workflow triggers for its commits, so existing PR CI can remain on the pre-graph commit. Require an explicit final-SHA test/review check; never present an earlier PR run as CI evidence for the generated head. No new secrets or CI orchestration.
 - **Stronger automatic CI on the bot-created head:** a tightly scoped GitHub App installation token (or other separately approved non-`GITHUB_TOKEN` credential) can cause normal PR CI to run. Filter graph-only commits out of the generator trigger to prevent loops. Adds credential/security setup; do not invent or provision it without owner consent.
 - Do **not** silently claim full automated CI at the final SHA with the first choice. If that is required, the owner must choose a stronger design.
 
-**B. Branch coverage:**
+**B. Branch coverage — adopted all non-main branches (no common task prefix exists):**
 
 - **Recommended:** trigger on all non-`main` branches, since existing task branches have no common naming prefix; optional exclusions for `backup/**` and `review/**` require owner decision.
 - Alternative: adopt a task-branch naming convention/opt-in filter. This avoids unexpected graph commits to non-task branches but excludes current task branches that do not follow the convention.
 
-**C. Manual obligation:** remove the requirement for each developer to regenerate/commit the graph only *after* verified automation is deployed; retain the exporter for local/offline use and recovery.
+**C. Manual obligation:** documentation now delegates normal task-branch regeneration to CI; manual exporter remains available as a fallback, and final revision must be verified before review/testing.
 
 ## Acceptance criteria
 
@@ -66,4 +66,12 @@ Out of scope: a new exporter, codegraph parsing changes, agent orchestration, Gi
 
 ## Pending decisions / gates
 
-Await owner decisions A and B before implementation. Review the plan independently after decisions are incorporated. Plan approval does **not** grant merge permission.
+On 2026-11-19 the owner directed implementation without choosing alternatives separately, so the recommended defaults were adopted: repository GITHUB_TOKEN and all non-main branches. A separate independent plan review was not completed before implementation; this departure remains explicit. Independent code review and final verification are required before requesting separate owner merge approval.
+
+## Implementation and early testing observations (2026-11-19)
+
+- Added `.github/workflows/codegraph.yml`; preserved the original exporter, used `GITHUB_TOKEN` and non-force branch push with per-branch concurrency. Updated `.agents/coding.md` and `.agents/workflow.md` to remove the routine manual step but require final-head verification.
+- Initial actual **Ubuntu GitHub Actions** run committed a severely incomplete graph: 303 files / **62** edges, `backend=unknown`, `nativeFilesUsed=0`, `nativeFilesFellBack=198`, versus main's 300 files / **794** edges, `backend=native`, `nativeFilesUsed=198`, `nativeFilesFellBack=0`. The CLI exit code alone cannot establish usable output; underlying fallback cause is not proven.
+- Restored `.agents/codegraph/graph.json` to the exact `main` blob and switched the workflow to `windows-latest`; added a fail-closed validation of `analysis.backend === 'native'` and zero native fallback before staging/commit. A failed regeneration is not a success. Check actual Windows runner evidence before approving.
+- Ephemeral local Git fixture tested the actual Bash commit/push script with a synthetic exporter: **5/5 PASS** — no-op, degraded parser rejected/no push, changed graph-only commit, idempotence, stale non-fast-forward rejection preserving the newer commit. These are not live Codegraph or independent test results.
+- CI auto-triggers on a `GITHUB_TOKEN` bot commit are suppressed by GitHub; existing pre-graph PR checks must not be represented as verification of the final SHA. Do not add a GitHub App credential without an explicit new owner choice.
