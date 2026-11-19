@@ -200,9 +200,9 @@ Reject(parser, "<SH extra=\"true\">echo NEVER</SH>",
       "Invalid complete SH attributes must be rejected.");
 Reject(parser, "<DONE/>", "Self-closing DONE must be rejected.");
 var unknownMarkup = parser.Parse("<widget>pre <SH>echo OK</SH> post</widget>");
-Check(unknownMarkup.Commands.SequenceEqual([new Command("SH", "echo OK")]) &&
-      unknownMarkup.VisibleContent == "<widget>pre  post</widget>",
-      "Unknown wrapper must stay visible while nested registered commands execute.");
+Check(unknownMarkup.Commands.Count == 0 &&
+      unknownMarkup.VisibleContent == "<widget>pre <SH>echo OK</SH> post</widget>",
+      "Unknown wrapper must be a structural parent keeping nested SH inert.");
 var unknownXml = parser.Parse("~~~xml\n<widget>example</widget>\n~~~\n<SH>echo OK</SH>");
 Check(unknownXml.Commands.SequenceEqual([new Command("SH", "echo OK")]) &&
       unknownXml.VisibleContent == "~~~xml\n<widget>example</widget>\n~~~\n",
@@ -211,11 +211,17 @@ var malformedUnknown = parser.Parse("prose </unknown bad> tail");
 Check(malformedUnknown.Commands.Count == 0 &&
       malformedUnknown.VisibleContent == "prose </unknown bad> tail",
       "Malformed unknown closing markup must remain ordinary text.");
-Reject(parser, "<path d=\"M0 0\"/>",
-      "Registered SVG tag outside an SVG scope must remain invalid.");
+var foreignSvg = new RichDocumentParser().Parse("<path d=\"M0 0\"/>");
+Check(foreignSvg.Document.Valid && foreignSvg.Commands.Count == 0 &&
+      foreignSvg.Document.Nodes.Any(n => n.Kind == "unknown" && n.Name == "path"),
+      "Registered SVG geometry outside SVG must render an inert diagnostic.");
 Check(!Registry.TryGet("UNKNOWN", out _) && Registry.TryGet("SH", out var shell) &&
       shell.Form == CommandForm.Block, "Registry must remain the only command authority.");
-Console.WriteLine("PASS: Position-independent matched tags, missing closers, opaque bodies, and exact source spans.");
+var malformedEditor = parser.Parse("<CodeBlock bad=\"value\"><SH>INERT</SH></CodeBlock><SH>ROOT</SH>");
+Check(malformedEditor.Commands.SequenceEqual([new Command("SH", "ROOT")]) &&
+      malformedEditor.VisibleContent.Contains("<SH>INERT</SH>", StringComparison.Ordinal),
+      "Malformed known opaque control must not promote nested shell authority.");
+Console.WriteLine("PASS: Position-independent matching, unknown containment, and exact source spans.");
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
     dotnet run --project (Join-Path $temp 'ParserTest.csproj') -c Release
@@ -248,7 +254,7 @@ Console.WriteLine("PASS: Position-independent matched tags, missing closers, opa
         Write-Host "PASS: Rejected $label batch produced no shell execution or filesystem side effect."
     }
 
-    Assert-RejectedBatch 'invalid-registered' '<box onClick="evil"/>'
+    Assert-RejectedBatch 'invalid-command' '<SH bad="evil">echo NEVER</SH>'
     Assert-RejectedBatch 'empty-shell' "<SH>`n `n</SH>"
     Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"
     Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"
