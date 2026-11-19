@@ -243,6 +243,36 @@ var taskPass = taskResult.Document.Valid && taskResult.Commands.Count == 0 &&
 Console.WriteLine($"{(taskPass ? "PASS" : "FAIL")}: GFM task checkboxes remain accessible inside Markdown paragraphs");
 if (!taskPass) failures++;
 
+// Screenshot regression: indentation of nested UI is presentation whitespace,
+// never implicit Markdown code. The root Markdown pipeline retains indented code.
+var capturedLayout = File.ReadAllText(Path.Combine("tests", "fixtures",
+    "rich-model-ui", "indented-layout-capture.md"));
+var capturedDocument = new RichDocumentParser().Parse(capturedLayout);
+var captureNodes = capturedDocument.Document.Nodes.SelectMany(Walk).ToArray();
+var capturedPass = capturedDocument.Document.Valid && capturedDocument.Commands.Count == 0 &&
+    captureNodes.Count(n => n.Kind == "code") == 0 &&
+    captureNodes.Count(n => n.Kind == "strong") >= 2 &&
+    captureNodes.Count(n => n.Kind == "element" && n.Name == "box") >= 4 &&
+    captureNodes.Any(n => n.Kind == "element" && n.Name == "row") &&
+    captureNodes.Any(n => n.Kind == "element" && n.Name == "grid") &&
+    captureNodes.Count(n => n.Kind == "element" && n.Name == "grid-item") == 2 &&
+    captureNodes.Any(n => n.Kind == "element" && n.Name == "icon") &&
+    captureNodes.Any(n => n.Kind == "element" && n.Name == "text" &&
+        n.Children?.Any(t => t.Text?.Contains("Identify known tags") == true) == true);
+Console.WriteLine($"{(capturedPass ? "PASS" : "FAIL")}: Captured indented nested UI is rich layout, not code; nodes={captureNodes.Length}; code={captureNodes.Count(n => n.Kind == "code")}");
+if (!capturedPass) failures++;
+var rootIndented = new RichDocumentParser().Parse("Intro\\n\\n    actual code".Replace("\\n", "\n"));
+var rootIndentedPass = rootIndented.Document.Valid &&
+    rootIndented.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "code");
+Console.WriteLine($"{(rootIndentedPass ? "PASS" : "FAIL")}: Root Markdown retains four-space code blocks");
+if (!rootIndentedPass) failures++;
+var containerFenced = new RichDocumentParser().Parse("<box>\\n  ~~~\\n  code inside rich box\\n  ~~~\\n</box>".Replace("\\n", "\n"));
+var containerFencedPass = containerFenced.Document.Valid &&
+    containerFenced.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "code" &&
+        n.Text?.Contains("code inside rich box") == true);
+Console.WriteLine($"{(containerFencedPass ? "PASS" : "FAIL")}: Explicit fenced code remains available inside rich layout");
+if (!containerFencedPass) failures++;
+
 var fixture = File.ReadAllText(Path.Combine("tests", "fixtures", "rich-model-ui", "custom-controls-question.md"));
 var parsedQuestion = new RichDocumentParser().Parse(fixture);
 var question = parsedQuestion.Document.Nodes.SingleOrDefault(n => n.Kind == "question");
