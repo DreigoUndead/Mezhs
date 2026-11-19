@@ -30,6 +30,17 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Multiline SH preserves body bytes", "<SH>\r\necho first\r\n<DONE>\r\n</SH>\r\n<DONE>", true, ["SH","DONE"]),
     ("Adjacent tags", "<SH>echo A</SH><ATTACH>file.txt</ATTACH><DONE>", true, ["SH","ATTACH","DONE"]),
     ("Inline ATTACH", "prefix <ATTACH>file.txt</ATTACH> suffix", true, ["ATTACH"]),
+    ("Complete escaped SH", "<escape><SH>echo YES</SH></escape>", true, ["SH"]),
+    ("Complete escaped ATTACH", "<escape><ATTACH>file.txt</ATTACH></escape>", true, ["ATTACH"]),
+    ("Complete escaped DONE", "<escape><DONE></escape>", true, ["DONE"]),
+    ("Split escaped SH", "<escape><SH></escape>echo YES<escape></SH></escape>", true, ["SH"]),
+    ("Split escaped ATTACH", "<escape><ATTACH></escape>file.txt<escape></ATTACH></escape>", true, ["ATTACH"]),
+    ("Split escape without closer", "<escape><SH></escape>echo NO", true, []),
+    ("Split escape with mismatched closer", "<escape><SH></escape>echo NO<escape></ATTACH></escape>", true, []),
+    ("Other tags within escape remain inert", "<escape><text><SH>echo NO</SH></text><SH>echo YES</SH></escape>", true, ["SH"]),
+    ("Escaped command nested inside box inert", "<box><escape><SH>echo NO</SH></escape></box>", true, []),
+    ("Nested escape remains inert", "<escape><escape><SH>echo NO</SH></escape></escape>", true, []),
+    ("Escaped DONE must be final", "<escape><DONE></escape><SH>echo NO</SH>", false, []),
     ("Inline rich UI", "before <box><text>hi</text></box> after", true, []),
     ("Nested paired rich UI", "<box><box>inner</box>outer</box>", true, []),
     ("Unclosed SH is ordinary text", "before <SH>echo incomplete", true, []),
@@ -43,10 +54,10 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Same-line CodeBlock before SH remains valid", "<CodeBlock language=\"text\">raw</CodeBlock><SH>echo OK</SH>", true, ["SH"]),
     ("Same-line WritingBlock remains opaque", "Before <WritingBlock variant=\"document\">raw <SH>INERT</SH></WritingBlock> after", true, []),
     ("Same-line WritingBlock before root SH", "<WritingBlock variant=\"document\">raw</WritingBlock><SH>echo OK</SH>", true, ["SH"]),
-    ("Same-line escape remains opaque", "Before <escape>raw <SH>INERT</SH></escape> after", true, []),
+    ("Same-line escape discovers commands", "Before <escape>raw <SH>EXECUTE</SH></escape> after", true, ["SH"]),
     ("Same-line registered containers match", "Before <box><text>inside</text></box> after", true, []),
     ("Same-line registered inline element matches", "Before <text strong>inside</text> after", true, []),
-    ("Command inside escape is inert", "<escape><SH>echo YES</SH></escape>", true, []),
+    ("Command inside escape is actionable", "<escape><SH>echo YES</SH></escape>", true, ["SH"]),
     ("Command inside Markdown fence", "~~~\n<SH>echo YES</SH>\n~~~", true, ["SH"]),
     ("Command inside inline code", "`<SH>echo YES</SH>`", true, ["SH"]),
     ("Command inside Markdown comment", "<!-- <SH>echo YES</SH> -->", true, ["SH"]),
@@ -98,6 +109,23 @@ foreach (var (name, source, valid, commands) in checks)
     Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; commands={string.Join(",", names)}; diagnostics={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
     if (!pass) failures++;
 }
+// Escaped delimiters retain exact shell bytes and consume both wrappers.
+var escapedSplitSource = "before<escape><SH></escape>\r\necho EXACT \r\n<escape></SH></escape>after";
+var escapedSplit = new RichDocumentParser().Parse(escapedSplitSource);
+var splitCandidate = escapedSplit.Commands.SingleOrDefault();
+var escapedSplitPass = escapedSplit.Document.Valid &&
+    splitCandidate?.Body == "\r\necho EXACT \r\n" &&
+    splitCandidate?.SourceSpan.Start == "before".Length &&
+    splitCandidate?.SourceSpan.End == escapedSplitSource.Length - "after".Length;
+Console.WriteLine($"{(escapedSplitPass ? "PASS" : "FAIL")}: Escaped split exact body/source spans");
+if (!escapedSplitPass) failures++;
+var escapedLiteral = new RichDocumentParser().Parse("<escape>before <SH>echo HIDE</SH> after</escape>");
+var escapedLiteralPass = escapedLiteral.Document.Valid &&
+    escapedLiteral.Commands.Count == 1 &&
+    escapedLiteral.Document.Nodes.Any(n => n.Kind == "literal" && n.Text == "before  after");
+Console.WriteLine($"{(escapedLiteralPass ? "PASS" : "FAIL")}: Escaped command hidden from literal display");
+if (!escapedLiteralPass) failures++;
+
 // Regression: the rendered tree, not only VisibleContent, must keep Markdown flow.
 var shellOpen = string.Concat((char)60, "SH", (char)62);
 var shellClose = string.Concat((char)60, "/SH", (char)62);
