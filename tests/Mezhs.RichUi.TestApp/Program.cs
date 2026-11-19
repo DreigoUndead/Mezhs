@@ -126,6 +126,21 @@ var escapedLiteralPass = escapedLiteral.Document.Valid &&
 Console.WriteLine($"{(escapedLiteralPass ? "PASS" : "FAIL")}: Escaped command hidden from literal display");
 if (!escapedLiteralPass) failures++;
 
+// A single escaped command is an inline hidden command, not a paragraph break.
+var soleEscaped = "Before <escape><SH>echo HIDDEN</SH></escape> after";
+var soleEscapedDoc = new RichDocumentParser().Parse(soleEscaped);
+var soleEscapedParagraph = soleEscapedDoc.Document.Nodes.SingleOrDefault();
+var soleEscapedPass = soleEscapedDoc.Document.Valid &&
+    soleEscapedDoc.Commands.Count == 1 &&
+    soleEscapedDoc.Commands[0].SourceSpan.Start == "Before ".Length &&
+    soleEscapedDoc.Commands[0].SourceSpan.End == soleEscaped.Length - " after".Length &&
+    soleEscapedParagraph?.Kind == "paragraph" &&
+    soleEscapedParagraph.Children?.Count == 2 &&
+    soleEscapedParagraph.Children[0].Text == "Before " &&
+    soleEscapedParagraph.Children[1].Text == " after";
+Console.WriteLine($"{(soleEscapedPass ? "PASS" : "FAIL")}: Sole escaped command preserves Markdown paragraph and full wrapper span");
+if (!soleEscapedPass) failures++;
+
 // Regression: the rendered tree, not only VisibleContent, must keep Markdown flow.
 var shellOpen = string.Concat((char)60, "SH", (char)62);
 var shellClose = string.Concat((char)60, "/SH", (char)62);
