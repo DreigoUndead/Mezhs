@@ -33,7 +33,7 @@ Create a small, generic, reusable development workflow whose rules have one clea
 | `.agents/testing.md` | Functional/integration/live acceptance verification as required, fixes, fresh Tester loop until PASS. |
 | `.agents/deploy.md` | Final delivery summary, explicit owner merge approval, approved merge and plan archival; invokes `versioning.md` for release metadata. |
 | `.agents/versioning.md` | Version selection, changelog updates, release tagging and release metadata finalization. |
-| `.agents/next-role-prompt.md` | Neutral handoff prompt template, including role, branch, plan path/revision, assigned step, evidence and limits. |
+| `.agents/next-role-prompt.md` | Minimal neutral handoff with role, numbered plan step and task identity; no previous-agent narrative or findings. |
 | `.agents/batman.md` | Shared evidence-based engineering sanity/judgment used by every role; avoid invented requirements and disproportionate complexity. |
 | `.agents/mezhs.md` | Optional MEŽS-specific execution override (agent creation/tool behavior); must not duplicate generic role rules. |
 
@@ -89,6 +89,8 @@ The initial plan format must cover **What, Why, How, role steps, verification, a
 - The existing task branch may be behind current `main`. Synchronize deliberately before final integration, not as part of an unreviewed file edit.
 
 ## Changes
+
+- **2026-11-19 — `next-role-prompt.md` review:** Approved a neutral locator-only handoff with first line `<Role> — <Step number> — <Task title>`, task branch and plan path. A plan may define multiple sequential steps for the same role; the next agent independently reads repository and plan instead of receiving previous-agent actions, findings or direction. Small tasks without a plan use step 1 and a brief task description. Committed as `ee26848`.
 
 - **2026-11-19 — `versioning.md` review:** Approved a dedicated release-metadata authority: one version for each owner-approved implemented task, final version from current `main`, changelog format based on existing entries (Added/Changed/Fixed, Verification and approval, Known limitations), accurate final-revision evidence and disclosed verification gaps, and one final-release tag with duplicate-bump protection. Committed as `270b2ee`.
 
