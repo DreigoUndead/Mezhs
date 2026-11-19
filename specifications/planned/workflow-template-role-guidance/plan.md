@@ -23,7 +23,7 @@ Create a small, generic, reusable development workflow whose rules have one clea
 
 | File | Owns |
 | --- | --- |
-| `AGENTS.md` | Repository entry point: Codegraph search (warn when stale), project architecture link, workflow entry point, and no unapproved direct commits to `main`. |
+| `AGENTS.md` | General navigation index for Codegraph, project architecture and development workflow; safeguard against unapproved modifications to `main`. Does not assign roles or require a task plan for non-development requests. |
 | `.agents/workflow.md` | Role identity, stage sequence, linearity, one-active-agent rule, required role instructions, escalation, owner overrides, and optional MEŽS override reference. |
 | `.agents/plan.md` | Planner role: research, clarify via Grill Me as needed, assess risks/impact, select stages and verification, create task branch and initial plan. |
 | `.agents/specification.md` | Generic task plan format and rules for updating an existing plan/specification, including the Changes section and decision history. The Planner creates the plan; this file defines its format. |
@@ -87,6 +87,8 @@ The initial plan format must cover **What, Why, How, role steps, verification, a
 - The existing task branch may be behind current `main`. Synchronize deliberately before final integration, not as part of an unreviewed file edit.
 
 ## Changes
+
+- **2026-11-19 — `AGENTS.md` review:** The owner chose a flat general reference index without a task-plan requirement or role assignments, retaining the explicit `main` safeguard. The approved file was committed as `46afa2e`.
 
 - **2026-11-19 — Owner-approved blueprint:** Replace the earlier fragmented workflow-file structure with the authoritative files and responsibilities above. Re-review from `AGENTS.md`, one file at a time.
 - **2026-11-19 — Linear task execution:** One active agent/chat; new clean contexts for required independent roles. Repeat failed Plan Review, Code Review, or Testing in the same role with a fresh agent; no backward stage transitions without owner-approved significant changes.
