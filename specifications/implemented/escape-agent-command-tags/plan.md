@@ -3,7 +3,7 @@
 ID: escape-agent-command-tags
 Branch: `escape-agent-command-tags`
 Level: **Small — explicit owner override (2026-11-20)**. The original plan classified the command-discovery change as high-risk; the owner explicitly chose Small and the narrow behavior below.
-State: **Plan only; no implementation or merge**
+State: **Implemented on task branch; pending final CI and owner merge approval**
 
 ## Goal and scope
 A model sometimes wraps an Agent command opener and closer in separate `escape` elements. Those command tags should work, rather than silently become inert.
@@ -24,6 +24,11 @@ At **document root**, `escape` recognizes the registered Agent protocol tags wit
 - Parser tests: normal root commands unchanged; complete escaped `SH`/`ATTACH`/`DONE`, split escaped delimiters, exact body bytes, visible text, and source spans.
 - Negative tests: other `escape` markup inert; commands in outer `box`, unknown UI, raw editors, or SVG inert; unmatched command delimiters do not become actions; existing unmatched `escape` behavior retained.
 - Agent integration: split-wrapped shell command executes once, attachment stages once, policy denial and `DONE` rules unchanged, malformed command batch executes nothing.
+
+## Implementation notes
+- Canonical parser now discovers root escaped protocol tags and split wrappers without changing Agent Registry, policy, or executor ownership.
+- Regression coverage added to the rich parser, Agent parser/Executor smoke, and runtime instruction tests.
+- Windows CI result for final commit must be verified before release; no claim of independent testing under the Small owner override.
 
 ## Workflow
 Owner explicitly overrides the original High-risk classification to **Small**. Use the existing task branch. Perform targeted checks and report evidence; independent review/testing are optional for Small. A merge into `main` still requires separate explicit owner approval.
