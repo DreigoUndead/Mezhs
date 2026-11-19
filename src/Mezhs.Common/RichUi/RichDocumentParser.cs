@@ -190,7 +190,7 @@ public sealed class RichDocumentParser
         }
         while (cursor < end)
         {
-            if (!svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
+            if (!escapeLiteral && !svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
                 RichQuestionGrammar.TryParse(_source, cursor, end,
                     _radioLiteral, out var question, out var questionEnd))
             {
