@@ -97,7 +97,7 @@ test("real Chromium: restricted DIL actions obey host ownership and preserve dra
       "rejected-action-preserves-composer", "chat-switch-inert", "connection-switch-inert", "new-chat-ownership",
       "unsupported-telemetry-inert", "canonical-svg-geometry", "loaded-busy-chat-actions-inert",
       "custom-four-choice-conditional-actions", "custom-rich-labels-icons-readonly", "writing-block-edit-copy-metadata", "code-block-edit-copy-nested-box",
-      "inline-content-model-safe-dom"])
+      "inline-content-model-safe-dom", "captured-indented-rich-layout"])
       assert.ok(report[2].includes(expected), "Missing browser scenario " + expected);
   } finally {
     fs.rmSync(folder, { recursive: true, force: true });
