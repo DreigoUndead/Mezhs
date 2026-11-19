@@ -2,6 +2,7 @@ using Markdig;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 
 namespace Mezhs.Common.RichUi;
@@ -168,7 +169,8 @@ public sealed class RichDocumentParser
         source.AsSpan(node.Span.Start).StartsWith("<!--", StringComparison.Ordinal);
 
     private IReadOnlyList<RichNode> ReadChildren(int start, int end, string? expected,
-        int depth, out int position, bool svgScope = false, bool inlineScope = false)
+        int depth, out int position, bool svgScope = false, bool inlineScope = false,
+        bool escapeLiteral = false)
     {
         if (depth > MaxDepth) throw new RichDocumentLimitException("Document nesting exceeds limit.");
         var result = new List<RichNode>();
@@ -177,6 +179,9 @@ public sealed class RichDocumentParser
         var inline = new List<RichNode>();
         void Flush(int until)
         {
+            // Root escape scans commands using this same grammar, but its other
+            // contents remain literal rather than Markdown/presentation nodes.
+            if (escapeLiteral) { plainFrom = until; return; }
             if (until > plainFrom || inline.Count > 0)
                 AppendMarkdown(result, plainFrom, until, svgScope, inlineScope, inline,
                     insideRichContainer: expected is not null);
@@ -209,6 +214,20 @@ public sealed class RichDocumentParser
                     return result;
                 }
                 cursor = tag.End; // A closing delimiter without an opener is ordinary text.
+                continue;
+            }
+            if (escapeLiteral &&
+                (!RichTagRegistry.TryGet(tag.Name, out var escapedDefinition) ||
+                 escapedDefinition.AllowAsChild ||
+                 escapedDefinition.Role is not (RichTagRole.Command or RichTagRole.Marker)))
+            {
+                // All non-command markup within escape stays inert. In particular,
+                // an entire paired UI element cannot expose its descendants.
+                if (tag.SelfClosing) { cursor = tag.End; continue; }
+                var close = RichTagRegistry.TryGet(tag.Name, out var ignored) && !ignored.SearchChildren
+                    ? FindOpaqueClosing(tag.Name, tag.End, end)
+                    : FindContainerClose(tag.Name, tag.End, end);
+                cursor = close < 0 ? end : close + tag.Name.Length + 3;
                 continue;
             }
             if (!RichTagRegistry.TryGet(tag.Name, svgScope, out var definition))
@@ -324,9 +343,41 @@ public sealed class RichDocumentParser
                 if (tag.SelfClosing)
                     throw new RichDocumentException($"{tag.Name} requires a closing delimiter.");
                 var after = closer + tag.Name.Length + 3;
-                Add(result, new RichNode(definition.Role == RichTagRole.OpaqueLiteral ? "literal" : "raw",
-                    $"{from}:raw", new RichSourceSpan(from, after),
-                    Text: _source[tag.End..closer], Name: tag.Name, Attributes: attributes));
+                if (tag.Name == "escape" && expected is null && !svgScope)
+                {
+                    // A lone escaped command opener may pair with a separately
+                    // escaped closer. The entire consumed range is one command span.
+                    if (TryReadSplitEscapedCommand(tag, closer, end, out var split, out var splitEnd))
+                    {
+                        if (_commands.Count == MaxNodes)
+                            throw new RichDocumentLimitException("Command count exceeds limit.");
+                        _commands.Add(split);
+                        cursor = splitEnd;
+                        plainFrom = cursor;
+                        continue;
+                    }
+
+                    // The ordinary command branch remains the sole source of
+                    // command candidates. Scan escape's contents with that same
+                    // traversal while suppressing all other markup.
+                    var before = _commands.Count;
+                    ReadChildren(tag.End, closer, null, depth + 1, out _, escapeLiteral: true);
+                    var visible = new StringBuilder();
+                    var keptFrom = tag.End;
+                    foreach (var command in _commands.Skip(before))
+                    {
+                        visible.Append(_source, keptFrom, command.SourceSpan.Start - keptFrom);
+                        keptFrom = command.SourceSpan.End;
+                    }
+                    visible.Append(_source, keptFrom, closer - keptFrom);
+                    Add(result, new RichNode("literal", $"{from}:raw",
+                        new RichSourceSpan(from, after), Text: visible.ToString(),
+                        Name: tag.Name, Attributes: attributes));
+                }
+                else
+                    Add(result, new RichNode(definition.Role == RichTagRole.OpaqueLiteral ? "literal" : "raw",
+                        $"{from}:raw", new RichSourceSpan(from, after),
+                        Text: _source[tag.End..closer], Name: tag.Name, Attributes: attributes));
                 cursor = after;
             }
             else if (definition.Role == RichTagRole.Leaf || tag.SelfClosing)
@@ -433,6 +484,47 @@ public sealed class RichDocumentParser
             at = tag.End;
         }
         return -1;
+    }
+
+    // Handles the precise split form <escape><SH></escape>body<escape></SH></escape>.
+    // Only registered root-only block commands qualify; all other content remains
+    // opaque. Find the first command close, as for ordinary opaque SH/ATTACH.
+    private bool TryReadSplitEscapedCommand(Tag wrapper, int wrapperClose, int end,
+        out RichCommandCandidate command, out int after)
+    {
+        command = null!;
+        after = 0;
+        var at = wrapper.End;
+        while (at < wrapperClose && char.IsWhiteSpace(_source[at])) at++;
+        if (!TryTag(at, wrapperClose, out var opener) || opener.Closing || opener.SelfClosing ||
+            !RichTagRegistry.TryGet(opener.Name, out var definition) ||
+            definition.AllowAsChild || definition.Role != RichTagRole.Command ||
+            !string.IsNullOrWhiteSpace(_source[opener.End..wrapperClose]))
+            return false;
+
+        var bodyStart = wrapperClose + wrapper.Name.Length + 3;
+        var close = FindOpaqueClosing(opener.Name, bodyStart, end);
+        if (close < 0) return false;
+        var wrapperStart = _source.LastIndexOf("<escape", close,
+            close - bodyStart + 1, StringComparison.Ordinal);
+        if (wrapperStart < bodyStart || !TryTag(wrapperStart, end, out var closingWrapper) ||
+            closingWrapper.Name != "escape" || closingWrapper.Closing ||
+            closingWrapper.SelfClosing || closingWrapper.End > close)
+            return false;
+        var wrapperEnd = FindOpaqueClosing("escape", closingWrapper.End, end);
+        var closeLength = opener.Name.Length + 3;
+        if (wrapperEnd < 0 || close + closeLength > wrapperEnd ||
+            !string.IsNullOrWhiteSpace(_source[closingWrapper.End..close]) ||
+            !string.IsNullOrWhiteSpace(_source[(close + closeLength)..wrapperEnd]))
+            return false;
+
+        ParseAttributes(opener, definition);
+        ParseAttributes(closingWrapper, RichTagRegistry.TryGet("escape", out var escapeDef)
+            ? escapeDef : throw new RichDocumentException("Missing escape definition."));
+        after = wrapperEnd + closingWrapper.Name.Length + 3;
+        command = new RichCommandCandidate(opener.Name, _source[bodyStart..wrapperStart],
+            new RichSourceSpan(wrapper.Start, after));
+        return true;
     }
 
     private int FindOpaqueClosing(string name, int from, int end)
