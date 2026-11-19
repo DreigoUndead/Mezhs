@@ -1,31 +1,35 @@
-# Final testing and verification
+# Testing
 
-Testing follows **code review** (or a Small-change self-review). Read [the workflow](workflow.md) for the required level.
+The Tester independently verifies actual application behavior
+when the task plan requires this role.
 
-- **Small:** the same development chat can run checks and pause for the owner's review.
-- **Standard:** run appropriate automated and practical tests. Choose a separate tester when independence gives meaningful confidence; state why if skipped.
-- **High-risk:** use a separate tester from the developer and reviewer. Independent testing is mandatory.
+## Verification
 
-1. Check the branch/PR, **exact SHA**, final plan or Small-change summary, review outcome and changed `specifications/current/` entries.
-2. Run acceptance, regression, failure-path and integration checks appropriate to the change. Record commands, exit codes, outcomes and limitations. CI, developer checks and independent testing are different kinds of evidence.
-3. Record **PASS / FAIL / BLOCKED** with the tested SHA and base branch revision. Keep evidence in `verification.md` or the PR, so the next agent can check it.
+- Perform live tests of the changed behavior and relevant
+  regression and risk areas.
+- Execute additional verification required by the task plan.
+- Test in the intended environment using real application
+  components and integrations where applicable.
+- Record the tested revision, scenarios, actual results,
+  failures and untested areas.
+- Do not report PASS when required verification was not performed.
 
-On FAIL, the tester fixes issues on the same branch, runs checks, commits/pushes and prompts a **new independent Code Reviewer**; after review PASS, repeat affected tests with a fresh tester when required. On BLOCKED, report the blocker.
+If live verification cannot be performed, report BLOCKED
+unless the owner explicitly accepts the limitation.
 
-If local tooling is unavailable, prefer existing CI. When needed, a temporary validation workflow on the review branch may self-report a sanitized PASS/FAIL file. Remove the temporary workflow/result before owner review; do not include secrets. Never claim an unrun test passed.
+## Corrections
 
-On PASS, ask the **owner** to review the finished change, using:
+When testing reveals a defect, investigate its cause and
+correct it on the task branch.
 
-```text
-Task / level: <id> / <level>
-PR and exact tested SHA: <link> / <sha>
-Base revision: <sha>
-Delivered behavior: <short summary>
-Review: <PASS evidence or Small-change self-review>
-Tests: <PASS evidence and untested areas>
-Risks: <none or explanation>
-Release proposal: <change summary and bump type; no pre-merge version/changelog edits>
-May this exact implementation be merged into main?
-```
+Run relevant checks after corrections. Record consequential
+changes in the task plan and commit and push them.
 
-**Pause for explicit permission.** The same chat may execute the release after approval. A new release chat is not mandatory. Before merging, recheck the PR head, `main`, conflicts and validity of prior checks. If implementation changes materially, repeat checks and obtain renewed owner approval.
+## Outcome
+
+- **FAIL:** After correcting issues, hand off to a fresh
+  Tester. Repeat until PASS.
+- **PASS:** Continue to Deploy or the next required role
+  defined by the plan.
+- **BLOCKED:** Report unavailable verification, unresolved
+  obstacles or required owner decisions.
