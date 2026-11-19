@@ -1,7 +1,7 @@
 # Automatic Codegraph regeneration
 ID: automatic-codegraph-regeneration
 
-Status: **Implementation in progress — owner directed proceeding with the recommended defaults**
+Status: **Implemented on task branch — independent code review and independent final testing pending**
 Level: **High-risk** (CI repository-write permission plus concurrent updates to task branches)
 Base: `main`, starting revision `ed98bb5c3f9c0a07fbf6589b4b6819fdba0519ee`
 Task branch: `automatic-codegraph-regeneration`
@@ -72,6 +72,14 @@ On 2026-11-19 the owner directed implementation without choosing alternatives se
 
 - Added `.github/workflows/codegraph.yml`; preserved the original exporter, used `GITHUB_TOKEN` and non-force branch push with per-branch concurrency. Updated `.agents/coding.md` and `.agents/workflow.md` to remove the routine manual step but require final-head verification.
 - Initial actual **Ubuntu GitHub Actions** run committed a severely incomplete graph: 303 files / **62** edges, `backend=unknown`, `nativeFilesUsed=0`, `nativeFilesFellBack=198`, versus main's 300 files / **794** edges, `backend=native`, `nativeFilesUsed=198`, `nativeFilesFellBack=0`. The CLI exit code alone cannot establish usable output; underlying fallback cause is not proven.
-- Restored `.agents/codegraph/graph.json` to the exact `main` blob and switched the workflow to `windows-latest`; added a fail-closed validation of `analysis.backend === 'native'` and zero native fallback before staging/commit. A failed regeneration is not a success. Check actual Windows runner evidence before approving.
+- Restored `.agents/codegraph/graph.json` to the exact `main` blob and switched the workflow to `windows-latest`; added a fail-closed validation of `analysis.backend === 'native'` and zero native fallback before staging/commit. A failed regeneration is not a success. The first Windows runs failed with the same degraded backend, proving that the operating system alone was not the fix. The workflow now pins both `@lzehrung/codegraph@3.0.0` and `@lzehrung/codegraph-native@2.0.0`, runs `codegraph doctor`, and rejects degraded output.
 - Ephemeral local Git fixture tested the actual Bash commit/push script with a synthetic exporter: **5/5 PASS** — no-op, degraded parser rejected/no push, changed graph-only commit, idempotence, stale non-fast-forward rejection preserving the newer commit. These are not live Codegraph or independent test results.
 - CI auto-triggers on a `GITHUB_TOKEN` bot commit are suppressed by GitHub; existing pre-graph PR checks must not be represented as verification of the final SHA. Do not add a GitHub App credential without an explicit new owner choice.
+
+## Successful CI and exact-revision evidence (2026-11-19)
+
+- [Codegraph Windows Action run 44622858631](https://github.com/DreigoUndead/Mezhs/actions/runs/44622858631): **PASS**, input revision `d029c4bab745901327fb57f1f8e2044a8ce2a16e`. Node.js 22.23.x, Codegraph CLI 3.0.0, native dependency pinned to 2.0.0, and `codegraph doctor` passed. Exporter generated **303 files, 801 edges, backend=native, nativeFilesUsed=198, nativeFilesFellBack=0**, then pushed graph-only bot commit `e52422cdac4c858dd970620c0c934f4a24d405f9`.
+- [MEŽS Core run 44621399864](https://github.com/DreigoUndead/Mezhs/actions/runs/44621399864): **PASS** on PR revision `bc20bbae58ad931aca8b774d0221d15fdbb802bc` (earlier than the final Codegraph pinning). Not evidence of full CI against the bot-generated head.
+- Local Bash Git fixture with a mocked exporter (not a real native parser test): **5/5 PASS** for no-op, changed graph-only commit, idempotence, degraded export rejection, and stale non-fast-forward rejection. Real hosted-CI proof of positive graph creation supplied separately by the successful Windows run above.
+- The previous Windows runs [44621124771](https://github.com/DreigoUndead/Mezhs/actions/runs/44621124771) and [44621353914](https://github.com/DreigoUndead/Mezhs/actions/runs/44621353914) failed safely, producing 303 files / 62 edges but refusing to commit due to the fail-closed native check. The dependency version difference is an evidence-backed likely factor; the exact underlying loader defect is not established.
+- This plan is moved to `specifications/implemented/` as required before independent code review; that move may itself cause another Codegraph bot commit. **Final independent code review and final testing must record the latest SHA after that commit**, not a previous run.
