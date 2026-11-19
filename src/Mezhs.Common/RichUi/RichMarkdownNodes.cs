@@ -196,6 +196,49 @@ internal static class RichMarkdownNodes
             text = codeBlock.Lines.ToString();
         else if (kind == "literal") text = source[start..end];
 
+        // Markdown code nodes contain normalized text instead of LiteralInline
+        // children. Restore any recognized inline rich elements at their source
+        // positions rather than discarding them with their placeholders.
+        if (replacements.Count > 0 && text is not null && kind is "code" or "inlineCode")
+        {
+            var first = Array.BinarySearch(replacementStarts, start);
+            if (first < 0) first = ~first;
+            var parts = new List<RichNode>();
+            var at = 0;
+            var original = start;
+            var hasElement = false;
+            for (var tokenIndex = first; tokenIndex < replacementStarts.Length; tokenIndex++)
+            {
+                var tokenStart = replacementStarts[tokenIndex];
+                if (tokenStart >= end) break;
+                var (tokenEnd, element) = replacements[tokenStart];
+                var marker = markerStart + new string(markerPad, tokenEnd - tokenStart - 1);
+                var found = text.IndexOf(marker, at, StringComparison.Ordinal);
+                if (found < 0)
+                    throw new FormatException("Markdown split an inline rich placeholder.");
+                if (found > at)
+                    parts.Add(new RichNode(kind, $"{offset + original}:{kind}",
+                        new RichSourceSpan(offset + original, offset + tokenStart),
+                        Text: text[at..found]));
+                if (element is not null)
+                {
+                    parts.Add(element);
+                    hasElement = true;
+                }
+                at = found + marker.Length;
+                original = tokenEnd;
+            }
+            if (hasElement)
+            {
+                if (at < text.Length)
+                    parts.Add(new RichNode(kind, $"{offset + original}:{kind}",
+                        new RichSourceSpan(offset + original, offset + end),
+                        Text: text[at..]));
+                return new RichNode("inlineFragment", $"{span.Start}:inlineFragment",
+                    span, Children: parts);
+            }
+        }
+
         // In code or inert literal blocks, Markdig does not emit LiteralInline
         // children. Remove only our synthetic marker characters from display
         // text; the originals were chosen absent from the model source.
