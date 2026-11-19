@@ -120,6 +120,20 @@ Check(inline.Commands.SequenceEqual([new Command("SH", "echo INLINE")]) &&
       inline.VisibleContent == "prefix  suffix",
       "Inline SH was not extracted without losing surrounding prose.");
 
+// Rich raw editors also use paired-tag matching independent of line position.
+// Their nested command-looking text must stay opaque.
+var sameLineCode = new RichDocumentParser().Parse(
+    "before <CodeBlock language=\"text\">raw <SH>INERT</SH></CodeBlock> after");
+Check(sameLineCode.Document.Valid && sameLineCode.Commands.Count == 0 &&
+      sameLineCode.Document.Nodes.Any(n => n.Kind == "raw" && n.Name == "CodeBlock" &&
+          n.Text == "raw <SH>INERT</SH>"),
+      "Same-line CodeBlock was rejected or exposed its opaque shell text.");
+var rawBeforeShell = parser.Parse(
+    "before <CodeBlock language=\"text\">raw</CodeBlock><SH>echo OK</SH>");
+Check(rawBeforeShell.Commands.SequenceEqual([new Command("SH", "echo OK")]) &&
+      rawBeforeShell.VisibleContent == "before <CodeBlock language=\"text\">raw</CodeBlock>",
+      "Inline CodeBlock prevented a following root command.");
+
 var multiline = parser.Parse("before\n<SH>\r\necho first\r\n</SH>\n<DONE>\nafter");
 Check(multiline.Commands.SequenceEqual([
       new Command("SH", "\r\necho first\r\n"), new Command("DONE", null)]) &&
