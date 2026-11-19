@@ -26,9 +26,12 @@ jobs:
       - name: Install Codegraph 3.0.0
         shell: pwsh
         run: |
-          npm install --global --no-audit --no-fund @lzehrung/codegraph@3.0.0
+          # Pin the native dependency too: Codegraph 3.0.0 otherwise accepts newer 2.x releases.
+          npm install --global --no-audit --no-fund @lzehrung/codegraph@3.0.0 @lzehrung/codegraph-native@2.0.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           codegraph.cmd --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          codegraph.cmd doctor
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Regenerate and commit graph if changed
         shell: bash
