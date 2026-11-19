@@ -146,9 +146,36 @@ Check(writingBeforeShell.Commands.SequenceEqual([new Command("SH", "echo OK")]) 
       writingBeforeShell.VisibleContent == "before <WritingBlock variant=\"document\">raw</WritingBlock>",
       "Inline WritingBlock prevented a following root command.");
 var sameLineEscape = new RichDocumentParser().Parse(
-    "before <escape>raw <SH>INERT</SH></escape> after");
-Check(sameLineEscape.Document.Valid && sameLineEscape.Commands.Count == 0,
-      "Inline escape must be opaque to nested Agent commands.");
+    "before <escape>raw <SH>EXECUTED</SH></escape> after");
+Check(sameLineEscape.Document.Valid &&
+      sameLineEscape.Commands.Select(c => c.Body).SequenceEqual(["EXECUTED"]) &&
+      sameLineEscape.Document.Nodes.Any(n => n.Kind == "literal" && n.Text == "raw "),
+      "Root escape must discover Agent commands without showing executable content.");
+
+var splitSource = "prefix<escape><SH></escape>\r\necho SPLIT \r\n<escape></SH></escape>suffix";
+var splitResult = parser.Parse(splitSource);
+var splitDocument = new RichDocumentParser().Parse(splitSource);
+Check(splitResult.Commands.SequenceEqual([new Command("SH", "\r\necho SPLIT \r\n")]) &&
+      splitResult.VisibleContent == "prefixsuffix" &&
+      splitDocument.Document.Valid && splitDocument.Commands.Count == 1 &&
+      splitDocument.Commands[0].SourceSpan.Start == "prefix".Length &&
+      splitDocument.Commands[0].SourceSpan.End == splitSource.Length - "suffix".Length,
+      "Split escaped shell delimiters lost body bytes or original source span.");
+var splitAttach = parser.Parse("<escape><ATTACH></escape>file.txt<escape></ATTACH></escape>");
+Check(splitAttach.Commands.SequenceEqual([new Command("ATTACH", "file.txt")]) &&
+      splitAttach.VisibleContent == "",
+      "Split escaped attachment delimiters were not recognized.");
+var escapedDone = parser.Parse("<escape><SH>echo OK</SH></escape><escape><DONE></escape>");
+Check(escapedDone.Commands.SequenceEqual([new Command("SH", "echo OK"), new Command("DONE", null)]),
+      "Escaped DONE marker did not preserve command ordering.");
+Check(parser.Parse("<escape><text><SH>NO</SH></text><SH>YES</SH></escape>")
+      .Commands.SequenceEqual([new Command("SH", "YES")]),
+      "Other tags within escape must not expose their child commands.");
+Check(parser.Parse("<box><escape><SH>NO</SH></escape></box>").Commands.Count == 0 &&
+      parser.Parse("<escape><escape><SH>NO</SH></escape></escape>").Commands.Count == 0,
+      "Nested UI and nested escape cannot authorize root-only commands.");
+Check(parser.Parse("<escape><SH></escape>no closing delimiter").Commands.Count == 0,
+      "Unmatched escaped command opener must stay inert.");
 
 var multiline = parser.Parse("before\n<SH>\r\necho first\r\n</SH>\n<DONE>\nafter");
 Check(multiline.Commands.SequenceEqual([
@@ -183,10 +210,10 @@ var acrossContexts = parser.Parse(
     "`<SH>inline-code</SH>`" +
     "<!-- <SH>comment</SH> -->");
 Check(acrossContexts.Commands.Select(c => c.Body).SequenceEqual([
-      "inline-code", "comment"]) &&
-      acrossContexts.VisibleContent.Contains("<SH>escape</SH>", StringComparison.Ordinal) &&
+      "escape", "inline-code", "comment"]) &&
+      !acrossContexts.VisibleContent.Contains("<SH>escape</SH>", StringComparison.Ordinal) &&
       acrossContexts.VisibleContent.Contains("<SH>raw</SH>", StringComparison.Ordinal),
-      "Registered rich elements must keep nested SH inert while root Markdown commands execute.");
+      "Root escape commands must execute; other registered containers remain inert.");
 
 var original = "<SH> cd /d D:\\Projects\\eflex-framework && git status --short --branch && git branch --show-current && type specifications\\planned\\debug-log-files\\plan.md && if exist AGENTS.md type AGENTS.md </SH>";
 Check(parser.Parse(original).Commands.Single() ==
@@ -196,6 +223,10 @@ Check(parser.Parse(original).Commands.Single() ==
 Reject(parser, "<DONE><SH>echo NEVER</SH>",
       "DONE may not precede another command.");
 Reject(parser, "<DONE><DONE>", "Duplicate DONE must be rejected.");
+Reject(parser, "<escape><DONE></escape><SH>echo NEVER</SH>",
+      "Escaped DONE must still be final.");
+Reject(parser, "<SH>echo NEVER</SH><escape><DONE></escape><DONE>",
+      "Duplicate DONE after an escaped marker must fail closed.");
 Reject(parser, "<SH extra=\"true\">echo NEVER</SH>",
       "Invalid complete SH attributes must be rejected.");
 Reject(parser, "<DONE/>", "Self-closing DONE must be rejected.");
@@ -258,6 +289,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     Assert-RejectedBatch 'empty-shell' "<SH>`n `n</SH>"
     Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"
     Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"
+    Assert-RejectedBatch 'escaped-done-order' '<escape><DONE></escape><SH>echo LATER</SH>'
 
     # Real Executor proof: root-level matched pairs execute regardless of line placement.
     function Assert-InlineExecuted([string]$label, [string]$prefix, [string]$suffix) {
@@ -276,6 +308,22 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     }
     Assert-InlineExecuted 'prose' 'before ' ' after '
     Assert-InlineExecuted 'markdown-fence' ('```text' + "`n") ("`n" + '```')
+
+    # The reported split-wrapper syntax executes exactly once through the real Executor.
+    $escapedMarker = Join-Path $temp 'split-escaped-command.txt'
+    $escapedShell = "echo ESCAPED>>`"$escapedMarker`""
+    $escapedTask = "<escape><SH></escape>$escapedShell<escape></SH></escape><escape><DONE></escape>"
+    $escapedRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $escapedTask })
+    $escapedOutcome = Wait-Execution $escapedRun.executionId 20
+    $escapedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($escapedOutcome.chatId)/executions")
+    $escapedShells = @($escapedHistory | Where-Object { $_.kind -eq 'Shell' })
+    if ($escapedOutcome.status -ne 'Completed' -or $escapedShells.Count -ne 1 -or
+        $escapedShells[0].status -ne 'Completed' -or
+        -not (Test-Path -LiteralPath $escapedMarker) -or
+        @((Get-Content -LiteralPath $escapedMarker)).Count -ne 1) {
+        throw "Escaped split wrapper did not execute exactly once with durable evidence."
+    }
+    Write-Host 'PASS: Escaped split delimiters execute once and escaped DONE completes.'
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
