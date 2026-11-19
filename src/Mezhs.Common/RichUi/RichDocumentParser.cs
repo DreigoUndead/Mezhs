@@ -178,7 +178,8 @@ public sealed class RichDocumentParser
         void Flush(int until)
         {
             if (until > plainFrom || inline.Count > 0)
-                AppendMarkdown(result, plainFrom, until, svgScope, inlineScope, inline);
+                AppendMarkdown(result, plainFrom, until, svgScope, inlineScope, inline,
+                    insideRichContainer: expected is not null);
             inline.Clear();
             plainFrom = until;
         }
@@ -447,7 +448,7 @@ public sealed class RichDocumentParser
     }
 
     private void AppendMarkdown(List<RichNode> nodes, int start, int end, bool svgScope,
-        bool inlineScope, IReadOnlyList<RichNode> inline)
+        bool inlineScope, IReadOnlyList<RichNode> inline, bool insideRichContainer)
     {
         if (end <= start) return;
         if (svgScope)
@@ -465,7 +466,8 @@ public sealed class RichDocumentParser
         // already counted by the recursive parser; count only new AST nodes.
         var hidden = _commands.Select(c => c.SourceSpan)
             .Where(span => span.Start >= start && span.End <= end).ToArray();
-        var parsed = RichMarkdownNodes.Convert(_source[start..end], start, inlineScope, inline, hidden);
+        var parsed = RichMarkdownNodes.Convert(_source[start..end], start,
+            inlineScope, inline, hidden, insideRichContainer);
         var priorChildren = inline.Sum(n => n.Children?.Sum(CountNodes) ?? 0);
         var convertedCount = parsed.Sum(CountNodes);
         if (inline.Count > 0)
