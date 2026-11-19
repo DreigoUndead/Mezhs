@@ -1,6 +1,7 @@
 using Markdig;
 using Markdig.Extensions.Tables;
 using Markdig.Extensions.TaskLists;
+using Markdig.Parsers;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 
@@ -12,11 +13,24 @@ internal static class RichMarkdownNodes
 {
     // Use the same bounded Markdown extensions as RichDocumentParser. Generic
     // attributes are deliberately unsupported: braces remain visible text.
-    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().UsePipeTables().UseEmphasisExtras().UseTaskLists().Build();
+    private static readonly MarkdownPipeline Pipeline = BuildPipeline(false);
+    private static readonly MarkdownPipeline RichContainerPipeline = BuildPipeline(true);
+
+    private static MarkdownPipeline BuildPipeline(bool insideRichContainer)
+    {
+        var builder = new MarkdownPipelineBuilder().UsePipeTables().UseEmphasisExtras().UseTaskLists();
+        // The indentation of nested declarative UI is layout formatting,
+        // not Markdown's four-space implicit code block. Explicit fenced
+        // code and CodeBlock controls remain available inside UI containers.
+        if (insideRichContainer)
+            builder.BlockParsers.TryRemove<IndentedCodeBlockParser>();
+        return builder.Build();
+    }
 
     public static IReadOnlyList<RichNode> Convert(string source, int offset,
         bool inlineOnly = false, IReadOnlyList<RichNode>? inlineElements = null,
-        IReadOnlyList<RichSourceSpan>? hiddenSpans = null)
+        IReadOnlyList<RichSourceSpan>? hiddenSpans = null,
+        bool insideRichContainer = false)
     {
         // Keep the exact UTF-16 positions while Markdig reads one uninterrupted
         // Markdown scope. Each recursively validated display element occupies
@@ -70,7 +84,7 @@ internal static class RichMarkdownNodes
         // Pre-sort just once. Binary search per literal is O(log N), rather
         // than scanning every replacement for every Markdown inline fragment.
         var replacementStarts = replacements.Keys.OrderBy(start => start).ToArray();
-        var ast = Markdown.Parse(source, Pipeline);
+        var ast = Markdown.Parse(source, insideRichContainer ? RichContainerPipeline : Pipeline);
         var result = new List<RichNode>();
         var count = 0;
         void AppendMapped(List<RichNode> nodes, MarkdownObject input, int depth) =>
