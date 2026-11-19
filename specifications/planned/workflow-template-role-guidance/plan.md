@@ -90,6 +90,8 @@ The initial plan format must cover **What, Why, How, role steps, verification, a
 
 ## Changes
 
+- **2026-11-20 — `batman.md` review:** Approved shared engineering sanity checks for reality/evidence, architectural ownership, simplicity and meaningful regressions, avoiding invented issues, speculative guarantees and disproportionate safeguards. Workflow escalation and role-specific review remain in their own files. Committed as `bcd7f28`.
+
 - **2026-11-19 — `next-role-prompt.md` review:** Approved a neutral locator-only handoff with first line `<Role> — <Step number> — <Task title>`, task branch and plan path. A plan may define multiple sequential steps for the same role; the next agent independently reads repository and plan instead of receiving previous-agent actions, findings or direction. Small tasks without a plan use step 1 and a brief task description. Committed as `ee26848`.
 
 - **2026-11-19 — `versioning.md` review:** Approved a dedicated release-metadata authority: one version for each owner-approved implemented task, final version from current `main`, changelog format based on existing entries (Added/Changed/Fixed, Verification and approval, Known limitations), accurate final-revision evidence and disclosed verification gaps, and one final-release tag with duplicate-bump protection. Committed as `270b2ee`.
