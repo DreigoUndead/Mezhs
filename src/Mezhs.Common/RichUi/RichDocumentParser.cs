@@ -336,6 +336,21 @@ public sealed class RichDocumentParser
                 if (_svgChars > 24_000)
                     throw new RichDocumentLimitException("SVG content budget exceeded.");
             }
+            if (tag.Name == "escape" && expected is null && !svgScope)
+            {
+                // An escape containing only one complete command is itself the
+                // command span. Like a plain root SH, it must not split Markdown
+                // paragraphs or leave an empty escape wrapper in VisibleContent.
+                if (TryReadSplitEscapedCommand(tag, closer, end, out var split, out var splitEnd) ||
+                    TryReadCompleteEscapedCommand(tag, closer, out split))
+                {
+                    if (_commands.Count == MaxNodes)
+                        throw new RichDocumentLimitException("Command count exceeds limit.");
+                    _commands.Add(split);
+                    cursor = splitEnd > 0 ? splitEnd : closer + tag.Name.Length + 3;
+                    continue;
+                }
+            }
             if (!inlineElement) Flush(from);
             cursor = tag.End;
             if (definition.Role is RichTagRole.OpaqueLiteral or RichTagRole.RawEditor)
@@ -345,18 +360,6 @@ public sealed class RichDocumentParser
                 var after = closer + tag.Name.Length + 3;
                 if (tag.Name == "escape" && expected is null && !svgScope)
                 {
-                    // A lone escaped command opener may pair with a separately
-                    // escaped closer. The entire consumed range is one command span.
-                    if (TryReadSplitEscapedCommand(tag, closer, end, out var split, out var splitEnd))
-                    {
-                        if (_commands.Count == MaxNodes)
-                            throw new RichDocumentLimitException("Command count exceeds limit.");
-                        _commands.Add(split);
-                        cursor = splitEnd;
-                        plainFrom = cursor;
-                        continue;
-                    }
-
                     // The ordinary command branch remains the sole source of
                     // command candidates. Scan escape's contents with that same
                     // traversal while suppressing all other markup.
@@ -484,6 +487,34 @@ public sealed class RichDocumentParser
             at = tag.End;
         }
         return -1;
+    }
+
+    // A single complete protocol tag can stand inside a root escape without
+    // changing the Markdown flow around that wrapper.
+    private bool TryReadCompleteEscapedCommand(Tag wrapper, int wrapperClose,
+        out RichCommandCandidate command)
+    {
+        command = null!;
+        if (!TryTag(wrapper.End, wrapperClose, out var inner) || inner.Closing ||
+            inner.SelfClosing || !RichTagRegistry.TryGet(inner.Name, out var definition) ||
+            definition.AllowAsChild ||
+            definition.Role is not (RichTagRole.Command or RichTagRole.Marker))
+            return false;
+
+        var after = inner.End;
+        string? body = null;
+        if (definition.Role == RichTagRole.Command)
+        {
+            var close = FindOpaqueClosing(inner.Name, inner.End, wrapperClose);
+            if (close < 0) return false;
+            body = _source[inner.End..close];
+            after = close + inner.Name.Length + 3;
+        }
+        if (after != wrapperClose) return false;
+        ParseAttributes(inner, definition);
+        command = new RichCommandCandidate(inner.Name, body,
+            new RichSourceSpan(wrapper.Start, wrapperClose + wrapper.Name.Length + 3));
+        return true;
     }
 
     // Handles the precise split form <escape><SH></escape>body<escape></SH></escape>.
