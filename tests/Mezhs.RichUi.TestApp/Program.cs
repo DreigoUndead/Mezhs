@@ -39,6 +39,8 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Command inside text is inert", "<text>Hi <SH>echo YES</SH> there</text>", true, []),
     ("Command inside Link is inert", "<Link url=\"https://example.com\"><ATTACH>file.txt</ATTACH></Link>", true, []),
     ("Command inside CodeBlock is inert", "<CodeBlock>before <SH>echo YES</SH> after</CodeBlock>", true, []),
+    ("Same-line CodeBlock renders without a delimiter-line requirement", "Before <CodeBlock language=\"text\">raw source</CodeBlock> after", true, []),
+    ("Same-line CodeBlock before SH remains valid", "<CodeBlock language=\"text\">raw</CodeBlock><SH>echo OK</SH>", true, ["SH"]),
     ("Command inside escape is inert", "<escape><SH>echo YES</SH></escape>", true, []),
     ("Command inside Markdown fence", "~~~\n<SH>echo YES</SH>\n~~~", true, ["SH"]),
     ("Command inside inline code", "`<SH>echo YES</SH>`", true, ["SH"]),
@@ -282,6 +284,16 @@ var inlineTests = new (string Name, string Source, Func<RichParseResult, bool> C
         r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Kind == "paragraph" &&
         r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.Any(n => n.Name == "text" &&
             n.Children?.Count == 1 && n.Children?.ElementAtOrDefault(0)?.Text == "world") == true),
+    ("Inline rich tag inside Markdown code remains an element", "`pre <text strong>world</text> post`", r =>
+        r.Document.Valid && r.Commands.Count == 0 &&
+        r.Document.Nodes.SelectMany(Walk).Any(n => n.Name == "text" &&
+            n.Children?.Any(c => c.Text == "world") == true) &&
+        r.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "inlineCode" && n.Text == "pre ") &&
+        r.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "inlineCode" && n.Text == " post")),
+    ("Fenced Markdown rich tag does not discard later SH", "~~~\n<text>world</text>\n~~~\n<SH>echo OK</SH>", r =>
+        r.Document.Valid && r.Commands.Select(c => c.Name).SequenceEqual(["SH"]) &&
+        r.Document.Nodes.SelectMany(Walk).Any(n => n.Name == "text" &&
+            n.Children?.Any(c => c.Text == "world") == true)),
     ("Standalone inline element has no paragraph inside span", "<text strong>world</text>", r =>
         r.Document.Valid && r.Document.Nodes.Count == 1 &&
         r.Document.Nodes[0].Kind == "paragraph" &&
