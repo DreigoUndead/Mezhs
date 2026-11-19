@@ -1,0 +1,94 @@
+# Development Workflow Template
+
+ID: workflow-template-role-guidance
+Branch: `workflow-template-role-guidance`
+Level: Standard (documentation refactor; owner reviews each file)
+
+## Goal
+
+Create a small, generic, reusable development workflow whose rules have one clear owner. Prevent agents from inventing extra process, reopening settled decisions, duplicating instructions across files, or losing the task context between clean agent sessions.
+
+## Scope and acceptance
+
+- Re-review every workflow file against this blueprint, starting with `AGENTS.md`. Present each proposed complete file to the owner; commit only after approval.
+- Keep the workflow usable outside MEŽS. MEŽS-specific execution instructions live in a separate optional override.
+- Use the task plan as the current task's source of truth, including its agreed decisions and Changes section. Changes in the implementation or review must not silently reverse an accepted decision.
+- One active agent/chat at a time per task. A new clean context is used when independent review/testing is required; agents do not run concurrent workstreams within the same task. Larger work may be divided into sequential role steps.
+- Keep the sequence linear. Do not return to an earlier stage unless a significant plan/scope change requires it and the owner approves. Repeating a failing review within the same role is not a backward stage transition.
+- Preserve the full workflow as the maximum, not the default. The Planner selects the necessary roles and independence for Small / Standard / High-risk changes; skipped roles do not create empty agent handoffs.
+- No repository edits to `main` during planning, development, review or testing. An implementation merge requires explicit approval of the completed change. Deploy/release is the final stage.
+- Do not introduce unrelated application code or speculative safeguards as part of the workflow restructure.
+
+## Authoritative files
+
+| File | Owns |
+| --- | --- |
+| `AGENTS.md` | Repository entry point: Codegraph search (warn when stale), project architecture link, workflow entry point, and no unapproved direct commits to `main`. |
+| `.agents/workflow.md` | Role identity, stage sequence, linearity, one-active-agent rule, required role instructions, escalation, owner overrides, and optional MEŽS override reference. |
+| `.agents/plan.md` | Planner role: research, clarify via Grill Me as needed, assess risks/impact, select stages and verification, create task branch and initial plan. |
+| `.agents/specification.md` | Generic task plan format and rules for updating an existing plan/specification, including the Changes section and decision history. The Planner creates the plan; this file defines its format. |
+| `.agents/plan-review.md` | Independent initial plan review, corrections, and fresh Plan Reviewer loop until PASS. |
+| `.agents/development.md` | Developer role: implementation, developer tests, verification, and next-stage handoff. |
+| `.agents/code-review.md` | Independent code/design review, fixes, fresh Code Reviewer loop until PASS. |
+| `.agents/testing.md` | Functional/integration/live acceptance verification as required, fixes, fresh Tester loop until PASS. |
+| `.agents/deploy.md` | Final delivery summary, explicit owner merge approval, release/version actions, and move plan to `specifications/implemented/` after approval. |
+| `.agents/next-role-prompt.md` | Neutral handoff prompt template, including role, branch, plan path/revision, assigned step, evidence and limits. |
+| `.agents/batman.md` | Shared evidence-based engineering sanity/judgment used by every role; avoid invented requirements and disproportionate complexity. |
+| `.agents/mezhs.md` | Optional MEŽS-specific execution override (agent creation/tool behavior); must not duplicate generic role rules. |
+
+Names above are the intended target layout. Existing files may have other names; migrate their useful content and repair references rather than maintaining two authorities.
+
+## Execution contract
+
+1. A new user development request starts in the Planner role. A delegated agent starts in the role specified by its handoff. Non-Planner roles read the current task plan before working.
+2. Planner establishes what/why/how, acceptance criteria, risks, workflow level, role steps, dependencies, and verification. Important conflicts and owner decisions are resolved before the initial plan is committed on its task branch.
+3. Plan Review: inspect the plan and architecture. On FAIL, correct the plan and start a *fresh independent Plan Reviewer*. Repeat until PASS. Ask the owner only when a decision is needed.
+4. Development: implement the assigned plan step(s), write and run developer tests, then hand off to Code Review.
+5. Code Review: find real code/design issues. On FAIL, fix on the same branch and start a *fresh independent Code Reviewer*. Repeat until PASS.
+6. Testing: perform the required real checks and record evidence. On FAIL, fix on the same branch and start a *fresh independent Tester*. Repeat until PASS. Do not silently return to Code Review; significant scope/plan changes require owner authorization.
+7. Deploy: summarize the exact completed change and verification for the owner, request explicit merge permission, and only after approval finalize the merge/release and archive the plan under `specifications/implemented/`.
+
+Each role defines its own PASS / FAIL / BLOCKED behavior and next role; `next-role-prompt.md` only defines *how* to construct a handoff. A missing required verification is BLOCKED, not PASS. All roles use `batman.md`. The workflow must not demand extra stages or protections unsupported by the task's agreed requirements.
+
+## Specification and Changes rules
+
+The initial plan format must cover **What, Why, How, role steps, verification, and Changes**, proportionately to complexity.
+
+- Keep the plan's main sections current with the accepted requirements and implementation.
+- Log consequential additions, changed decisions, accepted limitations, workflow changes, and superseded approaches in **Changes**; avoid a transcript of every edit.
+- A change entry should identify the decision, reason, accepted trade-off where relevant, authority/approval, and any superseded decision or supporting revision. Not every field is needed for every entry.
+- Distinguish proposals from approved changes. Preserve the rationale for superseded decisions so later agents do not reintroduce rejected designs by default.
+- An agent may correct ordinary issues without requesting owner input. Changing an owner-approved requirement, guarantee, or consequential architectural choice needs owner agreement.
+- Later agents assess new evidence independently, then reconcile with decisions already recorded. A materially new failure may justify reopening a choice, but not silently.
+
+## Review order
+
+1. `AGENTS.md`
+2. `.agents/workflow.md`
+3. `.agents/plan.md`
+4. `.agents/specification.md`
+5. `.agents/plan-review.md`
+6. `.agents/development.md`
+7. `.agents/code-review.md`
+8. `.agents/testing.md`
+9. `.agents/deploy.md`
+10. `.agents/next-role-prompt.md`
+11. `.agents/batman.md`
+12. `.agents/mezhs.md`
+13. Remove obsolete/conflicting guidance and repair incoming links; verify the integrated workflow.
+
+## Verification and limits
+
+- Review one file at a time, with owner approval before writing each proposed revision. This plan is explicitly requested and may be committed immediately.
+- Inspect actual repository paths and retained useful rules rather than rewriting from assumptions.
+- Check links, role transitions, one-authority ownership, clean-context handoffs, task-branch-only edits, and decision preservation.
+- Keep existing MEŽS architecture and Codegraph instructions in their project-specific owners. Do not migrate project-specific rules into generic role templates.
+- This is documentation work: validate text and references; do not claim runtime/agent-spawn testing unless executed.
+- The existing task branch may be behind current `main`. Synchronize deliberately before final integration, not as part of an unreviewed file edit.
+
+## Changes
+
+- **2026-11-19 — Owner-approved blueprint:** Replace the earlier fragmented workflow-file structure with the authoritative files and responsibilities above. Re-review from `AGENTS.md`, one file at a time.
+- **2026-11-19 — Linear task execution:** One active agent/chat; new clean contexts for required independent roles. Repeat failed Plan Review, Code Review, or Testing in the same role with a fresh agent; no backward stage transitions without owner-approved significant changes.
+- **2026-11-19 — Plan continuity:** `specification.md` owns plan format and Changes rules, while `plan.md` owns initial plan creation. Accepted decisions and trade-offs must survive handoffs.
+- **2026-11-19 — Release boundary:** Deploy requests explicit owner merge approval; the plan moves to `implemented/` during approved finalization, not during Development.
