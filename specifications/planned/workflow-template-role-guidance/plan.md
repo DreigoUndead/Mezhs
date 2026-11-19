@@ -88,6 +88,8 @@ The initial plan format must cover **What, Why, How, role steps, verification, a
 
 ## Changes
 
+- **2026-11-19 — `code-review.md` review:** Approved review of whole change against its base, design and requirements; verify affected code and tests, reconcile independent findings with accepted decisions, correct issues directly, and on FAIL hand off to a fresh Code Reviewer until PASS. Committed as `30ac48b`.
+
 - **2026-11-19 — `development.md` review:** Approved a focused Developer role: implement assigned steps, write or update proportionate tests using project conventions, use Systematic Debugging to establish failures, run verification and report results. Plan reading, independence, escalation and handoffs remain in `workflow.md`. Committed as `8e2ae2a`.
 
 - **2026-11-19 — `plan-review.md` review:** Approved independent initial Plan Review, evidence-based findings reconciled with existing decisions, corrections in the same plan on the task branch, and FAIL → fresh Plan Reviewer / PASS → Development / BLOCKED → owner. Committed as `56f9f71`.
