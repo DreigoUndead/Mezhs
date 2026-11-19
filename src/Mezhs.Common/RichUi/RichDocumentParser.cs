@@ -51,7 +51,7 @@ public sealed class RichDocumentParser
             // candidates. Rich inline wrappers render as HTML phrasing
             // elements; they must not contain blocks or nested interactive
             // controls, even when Markdown lowering introduces those nodes.
-            ValidateContentModel(nodes);
+            nodes = NormalizeContentModel(nodes);
             var done = _commands.FindIndex(c => c.Name == "DONE");
             if (done >= 0 && (done != _commands.Count - 1 ||
                 _commands.Count(c => c.Name == "DONE") != 1))
@@ -72,48 +72,50 @@ public sealed class RichDocumentParser
         }
     }
 
-    // This runs over the canonical C# display AST, never over React markup.
-    // The independent SearchChildren/AllowAsChild tag discovery flags do not
-    // override HTML content-model constraints for the resulting DOM.
-    private static void ValidateContentModel(IReadOnlyList<RichNode> nodes,
+    // UI content-model errors are displayed as inert diagnostics, not fatal.
+    private IReadOnlyList<RichNode> NormalizeContentModel(IReadOnlyList<RichNode> nodes,
         bool phrasingOnly = false, bool insideInteractive = false)
     {
+        var result = new List<RichNode>(nodes.Count);
         foreach (var node in nodes)
         {
-            var isElement = node.Kind == "element";
+            var element = node.Kind == "element";
             var name = node.Name ?? "";
-            var inlineElement = isElement && InlineElements.Contains(name);
-            var richLink = isElement && name == "Link";
-            var markdownLink = node.Kind == "link";
-            if (phrasingOnly &&
+            var inline = element && InlineElements.Contains(name);
+            var richLink = element && name == "Link";
+            var mdLink = node.Kind == "link";
+            var notPhrasing = phrasingOnly &&
                 !(node.Kind is "text" or "literal" or "inlineCode" or
                     "strong" or "emphasis" or "strikethrough" or
                     "lineBreak" or "link" or "image" or "taskCheckbox" ||
-                  inlineElement || isElement && name == "svg"))
-                throw new RichDocumentException(
-                    "Block or interactive content is forbidden inside inline rich elements.");
-            // Markdown links and rich Link both render as anchors. A nested
-            // anchor (or input) is invalid even if intermediate children
-            // are strong/emphasis/text wrappers.
-            if (insideInteractive &&
-                (richLink || markdownLink || node.Kind == "taskCheckbox"))
-                throw new RichDocumentException(
-                    "Nested interactive content is forbidden inside links or buttons.");
-            // SVG has its own separately validated content grammar. Native
-            // geometry/text nodes are not HTML child elements.
-            if (isElement && name == "svg") continue;
-            // Unknown controls are inert diagnostic presentation, not host-owned
-            // HTML semantics. Their children cannot grant command authority.
-            if (node.Kind == "unknown") continue;
+                    inline || element && name == "svg");
+            var nestedInteractive = insideInteractive &&
+                (richLink || mdLink || node.Kind == "taskCheckbox");
+            if (notPhrasing || nestedInteractive)
+            {
+                var span = node.SourceSpan;
+                result.Add(new RichNode("unknown", node.Id + ":unknown", span,
+                    Name: name.Length > 0 ? name : node.Kind,
+                    Attributes: new Dictionary<string, string> {
+                        ["reason"] = notPhrasing ? "Invalid inline content" : "Nested interactive content" },
+                    Children: [new RichNode("literal", node.Id + ":literal", span,
+                        Text: _source[span.Start..span.End])]));
+                continue;
+            }
+            if (node.Kind is "unknown" || element && name == "svg")
+            {
+                result.Add(node);
+                continue;
+            }
             if (node.Children is { Count: > 0 } children)
-                ValidateContentModel(children,
-                    phrasingOnly || inlineElement ||
+                result.Add(node with { Children = NormalizeContentModel(children,
+                    phrasingOnly || inline ||
                     node.Kind is "paragraph" or "heading" or
-                        "strong" or "emphasis" or "strikethrough" or
-                        "link" or "questionButton",
-                    insideInteractive || richLink || markdownLink ||
-                    node.Kind == "questionButton");
+                        "strong" or "emphasis" or "strikethrough" or "link" or "questionButton",
+                    insideInteractive || richLink || mdLink || node.Kind == "questionButton") });
+            else result.Add(node);
         }
+        return result;
     }
 
     private static RichParseResult Failed(string source, string reason) => new(
@@ -265,6 +267,18 @@ public sealed class RichDocumentParser
 
             var from = cursor;
             var inlineElement = !svgScope && InlineElements.Contains(tag.Name);
+            if (definition.Role == RichTagRole.Leaf && !tag.SelfClosing)
+            {
+                if (svgScope) throw new RichDocumentException("Invalid SVG leaf.");
+                var leafClose = FindOpaqueClosing(tag.Name, tag.End, end);
+                var leafEnd = leafClose < 0 ? tag.End : leafClose + tag.Name.Length + 3;
+                Flush(from);
+                AddUnknown(result, tag, leafEnd, "Leaf requires self-closing syntax", depth,
+                    opaque: leafClose >= 0);
+                cursor = leafEnd;
+                plainFrom = cursor;
+                continue;
+            }
             var closer = -1;
             if (!tag.SelfClosing && definition.Role != RichTagRole.Leaf)
             {
@@ -349,6 +363,7 @@ public sealed class RichDocumentParser
                 {
                     // A malformed UI subtree is one inert diagnostic block.
                     // Never let its invalid children turn into root commands.
+                    if (inlineElement) Flush(from);
                     AddUnknown(result, tag, afterClose, e.Message, depth, opaque: true);
                     cursor = afterClose;
                     plainFrom = cursor;
@@ -516,11 +531,7 @@ public sealed class RichDocumentParser
             var selfClosing = attributes.TrimEnd().EndsWith('/');
             if (selfClosing) attributes = attributes.TrimEnd()[..^1];
             if (closing && (selfClosing || !string.IsNullOrWhiteSpace(attributes)))
-            {
-                if (RichTagRegistry.TryGet(name, out _) || RichTagRegistry.IsSvgTag(name))
-                    throw new RichDocumentException("Invalid closing tag.");
-                return false; // Malformed unknown closing markup is ordinary text.
-            }
+                return false; // Malformed closing markup is inert text.
             tag = new Tag(name, closing, selfClosing, from, i + 1, attributes);
             return true;
         }
