@@ -138,7 +138,7 @@ test("unparsed provisional content remains inert Markdown, never rich UI", () =>
   assert.doesNotMatch(output, /class="rich-box/);
 });
 
-test("invalid rich elements fail closed for the entire document", () => {
+test("invalid rich elements display inert diagnostics without discarding valid siblings", () => {
   const cases = [
     '<badge>Valid</badge>\n<script>alert(1)</script>',
     '<box onClick="alert(1)">Unsafe</box>',
@@ -150,10 +150,9 @@ test("invalid rich elements fail closed for the entire document", () => {
   ];
   for (const input of cases) {
     const document = canonicalDocument(input);
-    assert.equal(document.valid, false, input);
+    assert.equal(document.valid, true, input);
     const output = html(input, { document });
-    assert.match(output, /class="prompt-text"/);
-    assert.doesNotMatch(output, /class="rich-box|class="rich-writing-block|class="rich-badge"/);
+    assert.match(output, /rich-unknown/);
     assert.doesNotMatch(output, /<script\b|<[a-z][^>]*\bonClick=/i);
   }
 });
@@ -174,15 +173,17 @@ test("unsupported DIL loop syntax cannot execute or expand", () => {
   assert.match(output, /item\.label/);
 });
 
-test("SVG event attributes and external resources fail closed", () => {
+test("SVG event attributes and external resources become safe Unknown UI", () => {
   for (const input of [
     '<svg viewBox="0 0 100 100"><rect width="10" height="10" onload="alert(1)"/></svg>',
     '<svg viewBox="0 0 100 100"><image href="https://example.com/x.svg"/></svg>',
     '<svg viewBox="0 0 100 100"><path d="M0 0 L10 10" stroke="url(#evil)"/></svg>',
   ]) {
     const document = canonicalDocument(input);
-    assert.equal(document.valid, false);
-    assert.doesNotMatch(html(input, { document }), /<svg/);
+    assert.equal(document.valid, true);
+    const output = html(input, { document });
+    assert.match(output, /rich-unknown/);
+    assert.doesNotMatch(output, /<svg/);
   }
 });
 
