@@ -90,6 +90,8 @@ The initial plan format must cover **What, Why, How, role steps, verification, a
 
 ## Changes
 
+- **2026-11-20 — `mezhs.md` review:** Approved the MEŽS-only override for creating and verifying fresh agents via local Agent API and isolated live testing in temporary worktrees with separate ports, storage, databases, Electron profiles and authentication. Codegraph, Rich UI, shell protocol and general responsibilities remain in their existing owners rather than being duplicated. Committed as `8397284`.
+
 - **2026-11-20 — `batman.md` review:** Approved shared engineering sanity checks for reality/evidence, architectural ownership, simplicity and meaningful regressions, avoiding invented issues, speculative guarantees and disproportionate safeguards. Workflow escalation and role-specific review remain in their own files. Committed as `bcd7f28`.
 
 - **2026-11-19 — `next-role-prompt.md` review:** Approved a neutral locator-only handoff with first line `<Role> — <Step number> — <Task title>`, task branch and plan path. A plan may define multiple sequential steps for the same role; the next agent independently reads repository and plan instead of receiving previous-agent actions, findings or direction. Small tasks without a plan use step 1 and a brief task description. Committed as `ee26848`.
