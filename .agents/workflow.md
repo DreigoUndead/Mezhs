@@ -36,7 +36,7 @@ Report concisely: **what** became complex, **which requirement causes it**, **si
 - Implement and run developer checks. Plans may change as code evolves.
 - **Before independent code review/testing**, move any completed plan from `planned/` to `implemented/` **on the task branch**. No plan is copied or committed to `main` before release.
 - Update `specifications/current/` only if behavior changed. Review these updates with the implementation.
-- Use Codegraph where helpful; refresh the generated graph after relevant code changes, before review.
+- Use Codegraph where helpful. After pushing task-branch changes, allow the Codegraph GitHub Action to regenerate and commit the graph when needed. Before independent review/testing, verify the run and identify the **final branch SHA**, including any bot graph commit. PR CI from an earlier SHA does not by itself verify that final revision; if the action cannot run, follow the documented manual fallback.
 - Prepare a short release summary and proposed change type (major/minor/patch), then check the branch diff. **Do not edit the version or changelog in the development branch.**
 
 ## 4. [Review](review.md)
