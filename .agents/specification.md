@@ -1,46 +1,96 @@
-# Specification Maintenance
+# Specification
 
-This file defines how to update existing task plans and specifications.
-It applies to every role that changes them.
+Defines the format and maintenance rules for task plans and specifications.
 
-## Keep specifications current
+## Task plan format
 
-- Update the existing document when implementation, requirements, workflow steps or accepted decisions change.
-- Keep the main content consistent with the current intended result.
-- Do not preserve obsolete requirements as though they remain active.
-- Do not restart Planning or Plan Review merely because a document changed.
+Keep the document proportional to the task. Include the information
+the next role needs to understand and execute the work.
 
-## Record decisions
+```markdown
+# [Task title]
 
-Record consequential changes to architecture, requirements, guarantees, workflow or accepted limitations.
+ID: [task-id]
+Branch: [task-branch]
+Level: [Small / Standard / High-risk]
 
-Use a concise decision record:
+## What
 
-### D-01 — [Title]
+[Scope, constraints and exclusions.]
 
-**Decision:** [What was decided]
-**Reason:** [Why]
-**Trade-off:** [Accepted consequences or limitations]
-**Authority:** [Who decided, with evidence or reference]
-**Supersedes:** [Previous decision, if any]
+## Why
+
+[Problem being solved and intended outcome.]
+
+## Acceptance criteria
+
+- [ ] [Observable result]
+
+## How
+
+[Approach, important architectural decisions and responsibilities.]
+
+## Steps
+
+1. **[Role]** — [Work and expected deliverable]
+   - Dependencies: [If any]
+   - Done when: [Observable completion condition]
+
+## Verification
+
+[Required checks, including live testing where applicable.]
+
+## Changes
+
+[Changes and new decisions made after the initial plan.]
+```
+
+Include only the roles and steps required for the task.
+
+Include affected files, interfaces, assumptions, risks, migration steps,
+rollback instructions or exact verification commands only when necessary
+for correct execution.
+
+Define important decisions; leave ordinary implementation details
+to the Developer.
+
+## Updating the specification
+
+Keep the main sections consistent with the current accepted
+requirements, approach and implementation.
+
+Record each meaningful addition or change in the `Changes` section,
+including changes to scope, approach, role steps, verification,
+accepted limitations or decisions.
+
+Ordinary wording and formatting corrections do not need entries.
+
+Use a concise entry:
+
+```markdown
+### [Date] — [Change title]
+
+**Change:** [What changed]
+**Reason:** [Why it changed]
+**Authority:** [Who decided or approved it, with reference]
+**Trade-off:** [Accepted consequence, if any]
+**Supersedes:** [Earlier decision, if any]
+```
 
 Omit fields that do not apply.
 
-Do not record ordinary edits, minor corrections or every review finding as separate decisions.
+## Decision continuity
 
-## Preserve decision history
-
-- Update the main specification to reflect the latest accepted decision.
-- Preserve the rationale for superseded decisions.
-- Reference the replacement decision rather than silently deleting history.
+- Keep the active requirements in the main sections of the plan.
+- Preserve the rationale for superseded decisions in `Changes`.
 - Distinguish proposed changes from accepted decisions.
-- Do not silently reverse accepted decisions.
-- If new evidence challenges an existing decision, identify what changed and escalate when the decision requires owner authority.
+- Do not silently reverse an accepted decision or reintroduce a
+  previously rejected approach.
+- Reconsider a decision when materially new evidence or requirements
+  justify it. Identify what changed.
+- Obtain owner approval before changing an owner-approved requirement,
+  guarantee or consequential architectural decision.
 
-## Consistency
-
-Keep relevant task plans and current specifications consistent with the actual implementation.
-
-Use the existing task document as the source of truth. Avoid copying the same decisions into multiple documents unless they describe different responsibilities.
-
-Ensure the next role can identify the current requirements, accepted limitations and reasons for consequential changes.
+The plan remains the source of truth for its task. Avoid duplicating
+its decisions across multiple documents or turning its Changes
+section into a transcript of ordinary implementation work.
