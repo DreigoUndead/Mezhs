@@ -1,54 +1,74 @@
 # Development Workflow
 
-Use the smallest process appropriate to the task. The full workflow is the maximum available process, not the default.
+This workflow applies to software-development tasks. Use only the
+stages needed for the task; the full workflow is not the default.
 
-This file identifies development roles and their instructions. **It does not replace the instructions for each role.**
+## Starting work
 
-## Identify your role
-
-Before working:
-
-1. Read this workflow.
-2. Identify your active role or roles from the task and its plan. If no plan exists, start with [Planning](planning.md).
-3. Read the instructions for **every active role**.
-4. Follow those instructions throughout your work.
-
-One person or agent may perform multiple roles when independence is not required. Independent review or testing requires a separate context.
-
-The task plan defines the selected workflow level and required stages. For Small changes, a brief task description may serve as the plan.
+1. Identify your active role or roles.
+   - For a new development request, start with Plan.
+   - For an existing task or handoff, use the assigned role.
+2. Read the instructions for your active role and
+   [Batman](batman.md).
+3. If you are not the Planner, read the task plan, including its
+   Changes section, and work on the branch specified there.
+   For a Small task without a plan file, use its task description.
+4. Record changes and new decisions in the task plan's Changes
+   section, following [Specification](specification.md).
 
 ## Roles
 
-| Role | Responsibility | Instructions |
-| --- | --- | --- |
-| **Planner** | Requirements, scope, risks and execution strategy | [Planning](planning.md) |
-| **Plan Reviewer** | Independent initial plan evaluation | [Plan Review](plan-review.md) |
-| **Developer** | Implementation and developer verification | [Coding](coding.md) |
-| **Code Reviewer** | Architectural quality, corrections and risks | [Code Review](review.md) |
-| **Tester** | Functional verification, corrections and test evidence | [Testing](testing.md) |
-| **Releaser** | Finalize and release the approved change | [Release](release.md) |
+- **Plan:** [plan.md](plan.md) — establish requirements, scope,
+  risks and execution steps.
+- **Plan Review:** [plan-review.md](plan-review.md) — independently
+  validate and correct the plan.
+- **Development:** [development.md](development.md) — implement
+  the plan and run developer tests.
+- **Code Review:** [code-review.md](code-review.md) — independently
+  review and correct the implementation.
+- **Testing:** [testing.md](testing.md) — verify behavior and
+  correct failures.
+- **Deploy:** [deploy.md](deploy.md) — obtain merge approval and
+  finalize the release.
 
-The project owner resolves consequential decisions, approves exceptions and authorizes releases.
+The task plan determines which stages are required and may define
+multiple sequential steps within a stage.
 
-**All roles must follow [Engineering Judgment](skills/engineering-judgment/SKILL.md).**
+## Execution
 
-**All roles must follow [Specification Maintenance](specification.md) when updating plans or specifications.**
+Follow the selected stages in order:
 
-## Handoffs
+Plan → Plan Review → Development → Code Review → Testing → Deploy
 
-When your role is complete, follow [Handoff](handoff.md) to transfer work to the next required role.
+Only one agent or chat may actively work on a task at a time.
 
-If operating inside MEŽS, also follow [MEŽS Agent Handoff](mezhs-agent-handoff.md).
+When a role is complete, hand off to the next required role using
+[Next Role Prompt](next-role-prompt.md). Start a fresh agent/chat
+when independence is required. One chat may perform multiple roles
+only when the plan permits it and independent judgment is not required.
 
-## Common rules
+Each role's instructions define its correction loop and PASS, FAIL
+or BLOCKED outcome.
 
-- **Branch discipline:** `main` is release-only. All planning, development, documentation, review and testing changes belong on a task branch.
-- **Owner approval:** Every implementation merge into `main` requires explicit approval of the completed change. Plan approval, review PASS and successful tests are not merge permission.
-- **Overrides:** The owner may explicitly override workflow requirements. Record the decision in the task plan or equivalent record. An override does not imply merge approval.
-- **Independence:** Never represent your own work as independently reviewed or tested.
-- **Evidence:** Report verified outcomes, exact revisions and limitations. Do not treat unexecuted tests as passed or owner overrides as verification.
-- **Proportionality:** Do not add unnecessary roles, safeguards or complexity beyond the task's actual requirements.
-- **Complexity escalation:** Stop the affected work and consult the owner before introducing disproportionate complexity or stronger guarantees than agreed. After two fixes driven by the same architectural decision, reassess the design before another fix.
-- **Escalation:** Consult the owner for consequential changes to requirements, architecture, accepted guarantees or workflow obligations. Record decisions in the task plan or equivalent record.
+Do not return to an earlier stage unless the scope or plan changes
+significantly and the owner approves that transition.
 
-**Follow your role instructions, not assumptions based on this overview.**
+## Escalation
+
+- Consult the owner before changing consequential requirements,
+  architecture, accepted guarantees or workflow obligations.
+- Stop and reassess the design before adding disproportionate
+  complexity or stronger guarantees than agreed.
+- After two fixes driven by the same architectural decision,
+  reassess that design before another fix.
+- The owner may override workflow steps. Record the override
+  in the task plan. An override is not permission to merge.
+
+`main` is reserved for approved releases. Changes must remain on
+the task branch until the owner explicitly approves the completed
+implementation for merging.
+
+## Environment
+
+When operating inside MEŽS, also follow [MEŽS](mezhs.md)
+for environment-specific instructions and agent creation.
