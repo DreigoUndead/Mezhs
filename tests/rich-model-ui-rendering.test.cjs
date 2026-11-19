@@ -135,6 +135,22 @@ test("same-line CodeBlock is a raw editor, never a malformed command", () => {
   assert.match(html(source, { document: doc }), /rich-code-block/);
 });
 
+test("same-line WritingBlock and escape preserve opaque nested source", () => {
+  const writingSource = 'Before <WritingBlock variant="document">raw <SH>INERT</SH></WritingBlock> after';
+  const writingDoc = canonicalDocument(writingSource);
+  assert.equal(writingDoc.valid, true);
+  const writing = kinds(writingDoc.nodes, "raw");
+  assert.equal(writing.length, 1);
+  assert.equal(writing[0].name, "WritingBlock");
+  assert.equal(writing[0].text, "raw <SH>INERT</SH>");
+  assert.match(html(writingSource, { document: writingDoc }), /rich-writing-block/);
+
+  const escapeSource = 'Before <escape>raw <SH>INERT</SH></escape> after';
+  const escapeDoc = canonicalDocument(escapeSource);
+  assert.equal(escapeDoc.valid, true);
+  assert.equal(kinds(escapeDoc.nodes, "literal").length, 1);
+});
+
 test("inline rich tags remain visible when embedded in Markdown code", () => {
   const inputs = [
     '`pre <text strong>inside</text> post`',
