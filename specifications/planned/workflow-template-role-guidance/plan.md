@@ -88,6 +88,8 @@ The initial plan format must cover **What, Why, How, role steps, verification, a
 
 ## Changes
 
+- **2026-11-19 — `workflow.md` review:** Approved linear role orchestration, handoffs through `next-role-prompt.md`, the one-active-agent rule, scope-change escalation and task-branch-only work. Committed as `9f313a1`. Names in this file are target paths; remaining files will be migrated one at a time.
+
 - **2026-11-19 — `AGENTS.md` review:** The owner chose a flat general reference index without a task-plan requirement or role assignments, retaining the explicit `main` safeguard. The approved file was committed as `46afa2e`.
 
 - **2026-11-19 — Owner-approved blueprint:** Replace the earlier fragmented workflow-file structure with the authoritative files and responsibilities above. Re-review from `AGENTS.md`, one file at a time.
