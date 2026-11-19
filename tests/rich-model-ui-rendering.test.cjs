@@ -51,6 +51,21 @@ test("the C# parser supplies rich UI nodes, not executable model-authored JSX", 
 });
 
 
+test("capture.png nested diagram renders UI, not accidentally indented code", () => {
+  const input = fixtures("indented-layout-capture.md");
+  const parsed = canonicalDocument(input);
+  assert.equal(parsed.valid, true, parsed.diagnostics?.[0]?.code);
+  assert.equal(kinds(parsed.nodes, "code").length, 0, "UI indentation cannot manufacture Markdown code");
+  const output = html(input, { document: parsed });
+  assert.match(output, /class="rich-grid"/);
+  assert.match(output, /class="rich-row"/);
+  assert.match(output, /class="rich-icon"/);
+  assert.match(output, /<strong>Canonical tag parser<\/strong>/);
+  assert.match(output, /Identify known tags, match boundaries/);
+  assert.match(output, /Validated typed nodes and host commands/);
+  assert.doesNotMatch(output, /<pre|&lt;(?:icon|text|grid-item)\b|\*\*Canonical tag parser\*\*/i);
+});
+
 test("invalid inline descendants render inert diagnostics without mounting invalid DOM", () => {
   const inputs = [
     '<text>Before <box>block</box> after</text>',
