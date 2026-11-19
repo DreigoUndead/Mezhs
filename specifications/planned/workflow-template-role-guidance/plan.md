@@ -90,6 +90,8 @@ The initial plan format must cover **What, Why, How, role steps, verification, a
 
 ## Changes
 
+- **2026-11-19 — `versioning.md` review:** Approved a dedicated release-metadata authority: one version for each owner-approved implemented task, final version from current `main`, changelog format based on existing entries (Added/Changed/Fixed, Verification and approval, Known limitations), accurate final-revision evidence and disclosed verification gaps, and one final-release tag with duplicate-bump protection. Committed as `270b2ee`.
+
 - **2026-11-19 — `deploy.md` review:** Approved a focused Deploy role: present completed implementation and evidence, request explicit owner merge permission, verify the approved candidate, archive the plan during Deploy, merge/release, and clean up the merged branch. Version selection, changelog and tagging move to a separate `versioning.md` authority, reviewed next. MEŽS shell behavior (CMD versus explicit PowerShell) will be addressed in `mezhs.md`. Committed as `d70572a`.
 
 - **2026-11-19 — `testing.md` review:** Approved live verification of changed behavior and relevant risk/regression areas when Testing is selected; record actual revision and outcomes, BLOCKED if live testing cannot be done without an owner-approved limitation, FAIL → corrected code and fresh Tester, PASS → Deploy. MEŽS-specific test worktrees and isolated instances will be defined in `mezhs.md`. Committed as `1e3558a`.
