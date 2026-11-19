@@ -196,10 +196,10 @@ internal static class RichMarkdownNodes
             text = codeBlock.Lines.ToString();
         else if (kind == "literal") text = source[start..end];
 
-        // Markdown code nodes contain normalized text instead of LiteralInline
-        // children. Restore any recognized inline rich elements at their source
-        // positions rather than discarding them with their placeholders.
-        if (replacements.Count > 0 && text is not null && kind is "code" or "inlineCode")
+        // Markdig normalizes code nodes and treats HTML blocks as inert literal
+        // nodes, not LiteralInline children. Restore recognized rich elements
+        // from their source spans in these representation layers as well.
+        if (replacements.Count > 0 && text is not null && kind is "code" or "inlineCode" or "literal")
         {
             var first = Array.BinarySearch(replacementStarts, start);
             if (first < 0) first = ~first;
@@ -215,7 +215,18 @@ internal static class RichMarkdownNodes
                 var marker = markerStart + new string(markerPad, tokenEnd - tokenStart - 1);
                 var found = text.IndexOf(marker, at, StringComparison.Ordinal);
                 if (found < 0)
+                {
+                    // Fenced code metadata belongs to the source span but not
+                    // the normalized Lines text. It can contain a recognized
+                    // tag or root command without breaking the entire batch.
+                    if (kind == "code")
+                    {
+                        if (element is not null) { parts.Add(element); hasElement = true; }
+                        original = tokenEnd;
+                        continue;
+                    }
                     throw new FormatException("Markdown split an inline rich placeholder.");
+                }
                 if (found > at)
                     parts.Add(new RichNode(kind, $"{offset + original}:{kind}",
                         new RichSourceSpan(offset + original, offset + tokenStart),
