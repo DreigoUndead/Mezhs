@@ -88,6 +88,8 @@ The initial plan format must cover **What, Why, How, role steps, verification, a
 
 ## Changes
 
+- **2026-11-19 — `plan.md` review:** The owner approved the Planner role for initial requirements, risks, proportional stage selection, task-branch creation and initial plan creation. The plan template and ongoing maintenance remain assigned to `specification.md`. Committed as `6377426`.
+
 - **2026-11-19 — `workflow.md` review:** Approved linear role orchestration, handoffs through `next-role-prompt.md`, the one-active-agent rule, scope-change escalation and task-branch-only work. Committed as `9f313a1`. Names in this file are target paths; remaining files will be migrated one at a time.
 
 - **2026-11-19 — `AGENTS.md` review:** The owner chose a flat general reference index without a task-plan requirement or role assignments, retaining the explicit `main` safeguard. The approved file was committed as `46afa2e`.
