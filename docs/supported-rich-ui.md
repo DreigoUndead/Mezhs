@@ -19,6 +19,10 @@ Write ordinary Markdown by default. Use supported declarative elements when layo
 </box>
 ```
 
+## Markdown inside declarative layout
+
+Whitespace used to indent nested rich controls is presentation formatting. In a known or Unknown rich container, **four leading spaces do not create an implicit code block**. Use an explicit fenced block or `CodeBlock` when source code is intended. Outside rich containers, ordinary Markdown still supports four-space indented code. This is a scope rule in the canonical Markdown parser, not a renderer-specific workaround.
+
 ## Generic Markdown syntax
 
 Pipe tables are part of the canonical Markdown interpretation layer, separate from the tag registry. Use ordinary GitHub-Flavored Markdown syntax; the same stage can support additional bounded Markdown constructs in the future without changing tag discovery:
