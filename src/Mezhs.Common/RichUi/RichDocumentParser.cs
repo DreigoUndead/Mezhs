@@ -170,7 +170,7 @@ public sealed class RichDocumentParser
     private IReadOnlyList<RichNode> ReadChildren(int start, int end, string? expected,
         int depth, out int position, bool svgScope = false, bool inlineScope = false)
     {
-        if (depth > MaxDepth) throw new RichDocumentException("Document nesting exceeds limit.");
+        if (depth > MaxDepth) throw new RichDocumentLimitException("Document nesting exceeds limit.");
         var result = new List<RichNode>();
         var cursor = start;
         var plainFrom = start;
@@ -258,7 +258,7 @@ public sealed class RichDocumentParser
                 }
                 ParseAttributes(tag, definition);
                 if (_commands.Count == MaxNodes)
-                    throw new RichDocumentException("Command count exceeds limit.");
+                    throw new RichDocumentLimitException("Command count exceeds limit.");
                 _commands.Add(new RichCommandCandidate(tag.Name, body,
                     new RichSourceSpan(cursor, after)));
                 cursor = after;
@@ -297,7 +297,7 @@ public sealed class RichDocumentParser
                      !RichSvgValidation.Valid(tag.Name, attributes)))
                     throw new RichDocumentException($"Unsafe SVG attributes or nesting: {tag.Name}.");
             }
-            catch (RichDocumentException e)
+            catch (RichDocumentException e) when (e is not RichDocumentLimitException)
             {
                 if (svgScope) throw; // Parent SVG falls back as one inert unit.
                 Flush(from);
@@ -311,10 +311,10 @@ public sealed class RichDocumentParser
             if (svgScope || tag.Name == "svg")
             {
                 if (++_svgCount > 250 || depth > 12)
-                    throw new RichDocumentException("SVG resource budget exceeded.");
+                    throw new RichDocumentLimitException("SVG resource budget exceeded.");
                 _svgChars += attributes.Sum(item => item.Value.Length);
                 if (_svgChars > 24_000)
-                    throw new RichDocumentException("SVG content budget exceeded.");
+                    throw new RichDocumentLimitException("SVG content budget exceeded.");
             }
             if (!inlineElement) Flush(from);
             cursor = tag.End;
@@ -359,7 +359,7 @@ public sealed class RichDocumentParser
                     children = ReadChildren(cursor, afterClose, tag.Name, depth + 1,
                         out after, svgScope || tag.Name == "svg", inlineElement);
                 }
-                catch (RichDocumentException e) when (!svgScope)
+                catch (RichDocumentException e) when (!svgScope && e is not RichDocumentLimitException)
                 {
                     // A malformed UI subtree is one inert diagnostic block.
                     // Never let its invalid children turn into root commands.
@@ -442,7 +442,7 @@ public sealed class RichDocumentParser
 
     private void Add(List<RichNode> nodes, RichNode node)
     {
-        if (++_count > MaxNodes) throw new RichDocumentException("Document node limit exceeded.");
+        if (++_count > MaxNodes) throw new RichDocumentLimitException("Document node limit exceeded.");
         nodes.Add(node);
     }
 
@@ -455,7 +455,7 @@ public sealed class RichDocumentParser
             var raw = _source[start..end];
             _svgChars += raw.Length;
             if (_svgChars > 24_000)
-                throw new RichDocumentException("SVG content budget exceeded.");
+                throw new RichDocumentLimitException("SVG content budget exceeded.");
             if (!string.IsNullOrWhiteSpace(raw))
                 Add(nodes, new RichNode("text", $"{start}:text", new RichSourceSpan(start, end), Text: raw));
             return;
@@ -482,7 +482,7 @@ public sealed class RichDocumentParser
                 throw new RichDocumentException("Inline rich element did not survive Markdown lowering.");
         }
         _count += convertedCount - priorChildren;
-        if (_count > MaxNodes) throw new RichDocumentException("Document node limit exceeded.");
+        if (_count > MaxNodes) throw new RichDocumentLimitException("Document node limit exceeded.");
         nodes.AddRange(parsed);
     }
 
@@ -756,5 +756,6 @@ public sealed class RichDocumentParser
         }
     }
 
-    private sealed class RichDocumentException(string message) : Exception(message);
+    private class RichDocumentException(string message) : Exception(message);
+    private sealed class RichDocumentLimitException(string message) : RichDocumentException(message);
 }
