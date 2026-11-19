@@ -88,6 +88,8 @@ The initial plan format must cover **What, Why, How, role steps, verification, a
 
 ## Changes
 
+- **2026-11-19 — `testing.md` review:** Approved live verification of changed behavior and relevant risk/regression areas when Testing is selected; record actual revision and outcomes, BLOCKED if live testing cannot be done without an owner-approved limitation, FAIL → corrected code and fresh Tester, PASS → Deploy. MEŽS-specific test worktrees and isolated instances will be defined in `mezhs.md`. Committed as `1e3558a`.
+
 - **2026-11-19 — `code-review.md` review:** Approved review of whole change against its base, design and requirements; verify affected code and tests, reconcile independent findings with accepted decisions, correct issues directly, and on FAIL hand off to a fresh Code Reviewer until PASS. Committed as `30ac48b`.
 
 - **2026-11-19 — `development.md` review:** Approved a focused Developer role: implement assigned steps, write or update proportionate tests using project conventions, use Systematic Debugging to establish failures, run verification and report results. Plan reading, independence, escalation and handoffs remain in `workflow.md`. Committed as `8e2ae2a`.
