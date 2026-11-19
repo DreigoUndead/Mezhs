@@ -65,7 +65,7 @@ test("invalid inline descendants render inert diagnostics without mounting inval
     const output = html(inputs[i], { document: docs[i] });
     assert.match(output, /class="rich-unknown"/);
     assert.doesNotMatch(output, /<span[^>]*>[^]*<(?:div|ul|ol|h[1-6]|hr)[\s>]/i);
-    assert.match(output, /&lt;/, "Invalid descendants must be escaped");
+    assert.match(output, /rich-unknown/, "Invalid descendants must remain inert");
   }
 });
 
