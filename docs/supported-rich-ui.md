@@ -1,12 +1,13 @@
 # Rich UI instructions for MEŽS replies
 
-Write ordinary Markdown by default. Use supported declarative elements when layout, diagrams or interaction improve the answer. **No arbitrary HTML, JavaScript, React, CSS, expressions, imports or executable callbacks.** MEŽS parses the source once in C# and renders validated, typed nodes; unregistered tags remain ordinary text (and do not hide nested registered tags), except security-sensitive HTML/SVG names that are rejected outside inert Markdown literals; malformed registered markup is displayed inertly.
+Write ordinary Markdown by default. Use supported declarative elements when layout, diagrams or interaction improve the answer. **No arbitrary HTML, executable JavaScript, React callbacks, imports or CSS injection.** MEŽS parses the source once in C# and renders typed nodes. Complete unknown tags and invalid UI controls are displayed as red-bordered inert **Unknown controls** rather than invalidating the entire reply. They cannot execute nested root-only Agent commands; no model-provided tag name becomes real HTML.
 
 ## Presentation
 
 - Layout: `box`, `row`, `col`, `grid`, `grid-item`; text: `text`, `title`, `caption`, `badge`, `divider`, `icon`.
 - Content: `Link` (literal safe HTTP(S) or mailto URL), `Cite` (unverified source indicator), `Chart` (literal `json:` data), `CodeBlock`, `WritingBlock`.
-- Attributes use quoted strings, standalone booleans, or numeric/boolean literals in braces, e.g. `gap={3}`. Each control interprets its own presentation attributes; unsupported ones have no effect. Event handlers, DOM injection and arbitrary style attributes are forbidden.
+- Attributes accept quoted strings, standalone booleans, bounded numeric/boolean literals (`gap={3}`), and **data-only** nested object literals (`border={{size:2,color:"danger"}}`). Objects allow unquoted keys but quoted string values, finite numbers, booleans, null, arrays and nested objects within limits; they are never evaluated as JavaScript.
+- The built-in `box` styling supports `border={{size:2,color:"danger"}}` using a 1–4 px bounded size and named tones (`danger`, `warning`, `success`, `strong`, `secondary`). Unknown presentation attributes stay inert; event handlers, DOM injection, CSS strings, spreads and dynamic functions are displayed as Unknown controls instead of running.
 
 ```mdx
 <box border radius="xl" padding={3} gap={2}>
@@ -18,9 +19,20 @@ Write ordinary Markdown by default. Use supported declarative elements when layo
 </box>
 ```
 
+## Generic Markdown syntax
+
+Pipe tables are part of the canonical Markdown interpretation layer, separate from the tag registry. Use ordinary GitHub-Flavored Markdown syntax; the same stage can support additional bounded Markdown constructs in the future without changing tag discovery:
+
+```md
+| Feature | Status |
+| --- | --- |
+| Unknown UI fallback | Supported |
+| Literal border objects | Supported |
+```
+
 ## SVG
 
-Use only literal `svg` geometry with `g`, `rect`, `path`, `line`, `polyline`, `polygon`, `circle`, `ellipse`, `text`, or `tspan`. Geometry is bounded; script-capable tags, events, external resources, CSS and `url(...)` paint are rejected. No SVG loops or interpolated variables.
+Use only literal `svg` geometry with `g`, `rect`, `path`, `line`, `polyline`, `polygon`, `circle`, `ellipse`, `text`, or `tspan`. Geometry is bounded; script-capable tags, events, external resources, CSS and `url(...)` paint never mount as SVG. Invalid SVG subtrees are displayed as inert Unknown controls. No SVG loops or interpolated variables.
 
 ```mdx
 <svg viewBox="0 0 160 60" width="100%" aria-label="Simple diagram">
@@ -57,4 +69,4 @@ Hello,
 </WritingBlock>
 ```
 
-All supported paired tags use position-independent matching. A missing paired closing tag makes its opener ordinary text. Agent `SH` and `ATTACH` are root-only opaque commands (`AllowAsChild=false`); `DONE` is a root-only marker. Registered rich elements, including SVG, `<escape>` and raw editors, do not discover nested Agent commands. Complete command pairs in ordinary Markdown, including code fences, or unregistered wrappers remain actionable. Agent policy and whole-batch validation still control actions.
+Known and unknown paired tags use position-independent balanced matching for containers; complete unknown tags are rendered with a visible diagnostic border, while an unmatched opener remains ordinary text. `SH` and `ATTACH` stay root-only opaque commands (`AllowAsChild=false`); `DONE` stays a root-only marker. No complete paired UI wrapper, including Unknown, can promote its nested commands to root authority. Complete commands in ordinary Markdown, including code fences, remain actionable. Agent policy, protocol validation and resource budgets remain enforced.
