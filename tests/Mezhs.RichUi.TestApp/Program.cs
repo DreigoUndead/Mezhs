@@ -17,15 +17,15 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Plain Markdown", "# Hello\n\n**Strong** and [link](https://example.com)", true, []),
     ("Nested box and text", "<box gap={2}>\n<text>hello</text>\n</box>", true, []),
     ("Unknown presentation attribute is inert", "<text futureTone=\"violet\" strong>Visible</text>", true, []),
-    ("Unsafe HTML attribute rejected", "<badge style=\"color:red\">No</badge>", false, []),
-    ("Unsafe event attribute blocks entire batch", "<box onClick=\"alert(1)\"><SH>echo NO</SH></box>", false, []),
-    ("Unknown SVG attribute rejected", "<svg futureTheme=\"violet\"><rect width=\"5\"/></svg>", false, []),
+    ("Unsafe HTML attribute rejected", "<badge style=\"color:red\">No</badge>", true, []),
+    ("Unsafe event attribute blocks entire batch", "<box onClick=\"alert(1)\"><SH>echo NO</SH></box>", true, []),
+    ("Unknown SVG attribute rejected", "<svg futureTheme=\"violet\"><rect width=\"5\"/></svg>", true, []),
     ("Citation ID supported", "<Cite ref=\"turn0search0\"/>", true, []),
-    ("Citation arbitrary metadata rejected", "<Cite futureSource=\"javascript:evil\"/>", false, []),
+    ("Citation arbitrary metadata rejected", "<Cite futureSource=\"javascript:evil\"/>", true, []),
     ("Inline nested tags", "<text>Before <badge>status</badge> and <Link url=\"https://example.com\">link</Link> after</text>", true, []),
-    ("Inline text rejects block child", "<text>Before <box>block</box> after</text>", false, []),
-    ("Inline caption rejects list", "<caption>Start\n\n- One\n- Two\n</caption>", false, []),
-    ("Rich Link rejects nested links", "<Link url=\"https://a.test\">Outer <Link url=\"https://b.test\">Inner</Link></Link>", false, []),
+    ("Inline text rejects block child", "<text>Before <box>block</box> after</text>", true, []),
+    ("Inline caption rejects list", "<caption>Start\n\n- One\n- Two\n</caption>", true, []),
+    ("Rich Link rejects nested links", "<Link url=\"https://a.test\">Outer <Link url=\"https://b.test\">Inner</Link></Link>", true, []),
     ("Inline SH", "before <SH>echo one</SH> after", true, ["SH"]),
     ("Multiline SH preserves body bytes", "<SH>\r\necho first\r\n<DONE>\r\n</SH>\r\n<DONE>", true, ["SH","DONE"]),
     ("Adjacent tags", "<SH>echo A</SH><ATTACH>file.txt</ATTACH><DONE>", true, ["SH","ATTACH","DONE"]),
@@ -66,9 +66,13 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Unknown wrapper with registered command", "<widget>pre <SH>echo OK</SH> post</widget>", true, ["SH"]),
     ("Unknown wrapper with registered rich child", "<widget>pre <text strong>rich</text> post</widget>", true, []),
     ("Unknown XML example before registered command", "~~~xml\n<widget>example</widget>\n~~~\n<SH>echo OK</SH>", true, ["SH"]),
-    ("Registered SVG child outside SVG still rejected", "<path d=\"M0 0\"/>", false, []),
-    ("Raw script outside Markdown rejected", "<script>alert(1)</script>", false, []),
+    ("Registered SVG child outside SVG still rejected", "<path d=\"M0 0\"/>", true, []),
+    ("Raw script outside Markdown rejected", "<script>alert(1)</script>", true, []),
     ("Raw script inside Markdown fence is literal", "~~~\n<script>alert(1)</script>\n~~~", true, []),
+    ("Bounded object literal border", "<box border={{size:2,color:\"danger\"}}>Red</box>", true, []),
+    ("Unknown paired wrapper keeps nested SH inert", "<Widget>inert <SH>echo NO</SH></Widget><SH>echo YES</SH>", true, ["SH"]),
+    ("Invalid CodeBlock attributes keep nested SH inert", "<CodeBlock invalid=\"bad\">raw <SH>echo NO</SH></CodeBlock><SH>echo YES</SH>", true, ["SH"]),
+    ("Markdown pipe table", "| A | B |\n|:---|---:|\n| One | 2 |", true, []),
 };
 var failures = 0;
 static IEnumerable<RichNode> Walk(RichNode node)
@@ -107,6 +111,31 @@ var inlineOk = inlineDoc.Document.Valid && inlineDoc.Commands.Count == 1 &&
     paragraph.Children[1].Text == " after" &&
     paragraph.Children[0].SourceSpan.End == inlineSource.IndexOf(shellOpen, StringComparison.Ordinal) &&
     paragraph.Children[1].SourceSpan.Start == inlineSource.IndexOf(" after", StringComparison.Ordinal);
+// Generic syntax layer: literal object attributes, unknown envelopes, and pipes.
+var objectDoc = new RichDocumentParser().Parse("<box border={{size:2,color:\"danger\"}}>Red</box>");
+var objectJson = objectDoc.Document.Nodes.SelectMany(Walk).FirstOrDefault(n => n.Name == "box")?
+    .Attributes?.GetValueOrDefault("border");
+var objectPass = objectDoc.Document.Valid && objectJson?.StartsWith("json:", StringComparison.Ordinal) == true &&
+    Uri.UnescapeDataString(objectJson[5..]).Contains("\"danger\"", StringComparison.Ordinal);
+Console.WriteLine($"{(objectPass ? "PASS" : "FAIL")}: Bounded JSX object literal is serialized as inert JSON");
+if (!objectPass) failures++;
+var dynamicDoc = new RichDocumentParser().Parse("<box border={{size:alert(1)}}>unsafe</box>");
+var dynamicPass = dynamicDoc.Document.Valid && dynamicDoc.Commands.Count == 0 &&
+    dynamicDoc.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "unknown" && n.Name == "box");
+Console.WriteLine($"{(dynamicPass ? "PASS" : "FAIL")}: Dynamic expression falls back to inert unknown control");
+if (!dynamicPass) failures++;
+var unknownEnvelope = new RichDocumentParser().Parse("<Widget><SH>inert</SH></Widget><SH>root</SH>");
+var unknownPass = unknownEnvelope.Document.Valid && unknownEnvelope.Commands.Count == 1 &&
+    unknownEnvelope.Commands[0].Body == "root" &&
+    unknownEnvelope.Document.Nodes.Any(n => n.Kind == "unknown" && n.Name == "Widget");
+Console.WriteLine($"{(unknownPass ? "PASS" : "FAIL")}: Unknown wrapper preserves root-only command boundary");
+if (!unknownPass) failures++;
+var tableDoc = new RichDocumentParser().Parse("| A | B |\\n|---|---|\\n| 1 | 2 |".Replace("\\n", "\n"));
+var tablePass = tableDoc.Document.Valid && tableDoc.Document.Nodes.SelectMany(Walk)
+    .Any(n => n.Kind == "table" && n.Children?.Any(c => c.Kind == "tableRow") == true);
+Console.WriteLine($"{(tablePass ? "PASS" : "FAIL")}: Pipe table remains a generic Markdown syntax transformation");
+if (!tablePass) failures++;
+
 Console.WriteLine($"{(inlineOk ? "PASS" : "FAIL")}: Rendered inline command retains one paragraph and exact spans");
 if (!inlineOk) failures++;
 var strongDoc = new RichDocumentParser().Parse("**Before " + shellTag + " after**");
@@ -242,7 +271,8 @@ Console.WriteLine($"{(radioCodePass ? "PASS" : "FAIL")}: Radio and button delimi
 if (!radioCodePass) failures++;
 
 var rejectedBox = new RichDocumentParser().Parse(wrappedFixture.Replace("<box border", "<box onClick=\"unsafe()\" border"));
-var rejectedBoxPass = !rejectedBox.Document.Valid && rejectedBox.Commands.Count == 0;
+var rejectedBoxPass = rejectedBox.Document.Valid && rejectedBox.Commands.Count == 0 &&
+    rejectedBox.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "unknown" && n.Name == "box");
 Console.WriteLine($"{(rejectedBoxPass ? "PASS" : "FAIL")}: Unsafe radio box wrapper remains inert");
 if (!rejectedBoxPass) failures++;
 
@@ -328,17 +358,17 @@ var svgTests = new (string Name, string Source, bool Valid, Func<RichParseResult
         r.Document.Nodes.Single().Children?.Any(n => n.Name == "circle") == true),
     ("SVG unknown wrapper keeps nested SH inert", svgWrappedShellSource, true, r =>
         r.Commands.Count == 0 &&
-        r.Document.Nodes.Single().Children?.Any(n => n.Kind == "text" &&
-            n.Text?.Contains("<widget>before<SH>echo HIDDEN</SH>after</widget>", StringComparison.Ordinal) == true) == true),
-    ("SVG injected event rejected", "<svg onload=\"alert(1)\"></svg>", false, r => r.Commands.Count == 0),
-    ("SVG forbidden url rejected", "<svg><rect x=\"1\" fill=\"url(#evil)\" /></svg>", false, r => r.Commands.Count == 0),
+        r.Document.Nodes.Single().Kind == "unknown" &&
+        r.Document.Nodes.Single().Name == "svg"),
+    ("SVG injected event rejected", "<svg onload=\"alert(1)\"></svg>", true, r => r.Commands.Count == 0),
+    ("SVG forbidden url rejected", "<svg><rect x=\"1\" fill=\"url(#evil)\" /></svg>", true, r => r.Commands.Count == 0),
     ("SVG text namespace accepted", "<svg viewBox=\"0 0 80 80\"><text x=\"15\" y=\"30\" fontSize=\"12\" >Hello</text></svg>", true, r => r.Document.Nodes.Any(n => n.Name == "svg" && n.Children?.Any(c => c.Name == "text" && c.Children?.Any(t => t.Text == "Hello") == true) == true)),
-    ("SVG nested foreign UI rejected", "<svg><box>bad</box></svg>", false, r => r.Commands.Count == 0),
-    ("SVG foreign UI under unknown wrapper rejected", "<svg><widget><box>bad</box></widget></svg>", false, r => r.Commands.Count == 0),
-    ("SVG unknown wrapper is ordinary text", "<svg><widget>literal</widget></svg>", true, r => r.Document.Nodes.Any(n => n.Name == "svg" && n.Children?.Any(c => c.Kind == "text" && c.Text?.Contains("<widget>literal</widget>", StringComparison.Ordinal) == true) == true)),
+    ("SVG nested foreign UI rejected", "<svg><box>bad</box></svg>", true, r => r.Commands.Count == 0),
+    ("SVG foreign UI under unknown wrapper rejected", "<svg><widget><box>bad</box></widget></svg>", true, r => r.Commands.Count == 0),
+    ("SVG unknown wrapper is diagnostic", "<svg><widget>literal</widget></svg>", true, r => r.Document.Nodes.Any(n => n.Kind == "unknown" && n.Name == "svg")),
     ("SVG unknown wrapper keeps SH inert", "<svg><widget><SH>echo YES</SH></widget></svg>", true, r => r.Commands.Count == 0),
-    ("SVG nested SVG rejected", "<svg><svg></svg></svg>", false, r => r.Commands.Count == 0),
-    ("SVG geometry over bound rejected", "<svg><circle r=\"100000000\" /></svg>", false, r => r.Commands.Count == 0),
+    ("SVG nested SVG rejected", "<svg><svg></svg></svg>", true, r => r.Commands.Count == 0),
+    ("SVG geometry over bound rejected", "<svg><circle r=\"100000000\" /></svg>", true, r => r.Commands.Count == 0),
 };
 foreach (var (name, source, valid, extra) in svgTests)
 {
