@@ -31,7 +31,8 @@ Create a small, generic, reusable development workflow whose rules have one clea
 | `.agents/development.md` | Developer role: implementation, developer tests, verification, and next-stage handoff. |
 | `.agents/code-review.md` | Independent code/design review, fixes, fresh Code Reviewer loop until PASS. |
 | `.agents/testing.md` | Functional/integration/live acceptance verification as required, fixes, fresh Tester loop until PASS. |
-| `.agents/deploy.md` | Final delivery summary, explicit owner merge approval, release/version actions, and move plan to `specifications/implemented/` after approval. |
+| `.agents/deploy.md` | Final delivery summary, explicit owner merge approval, approved merge and plan archival; invokes `versioning.md` for release metadata. |
+| `.agents/versioning.md` | Version selection, changelog updates, release tagging and release metadata finalization. |
 | `.agents/next-role-prompt.md` | Neutral handoff prompt template, including role, branch, plan path/revision, assigned step, evidence and limits. |
 | `.agents/batman.md` | Shared evidence-based engineering sanity/judgment used by every role; avoid invented requirements and disproportionate complexity. |
 | `.agents/mezhs.md` | Optional MEŽS-specific execution override (agent creation/tool behavior); must not duplicate generic role rules. |
@@ -72,10 +73,11 @@ The initial plan format must cover **What, Why, How, role steps, verification, a
 7. `.agents/code-review.md`
 8. `.agents/testing.md`
 9. `.agents/deploy.md`
-10. `.agents/next-role-prompt.md`
-11. `.agents/batman.md`
-12. `.agents/mezhs.md`
-13. Remove obsolete/conflicting guidance and repair incoming links; verify the integrated workflow.
+10. `.agents/versioning.md`
+11. `.agents/next-role-prompt.md`
+12. `.agents/batman.md`
+13. `.agents/mezhs.md`
+14. Remove obsolete/conflicting guidance and repair incoming links; verify the integrated workflow.
 
 ## Verification and limits
 
@@ -87,6 +89,8 @@ The initial plan format must cover **What, Why, How, role steps, verification, a
 - The existing task branch may be behind current `main`. Synchronize deliberately before final integration, not as part of an unreviewed file edit.
 
 ## Changes
+
+- **2026-11-19 — `deploy.md` review:** Approved a focused Deploy role: present completed implementation and evidence, request explicit owner merge permission, verify the approved candidate, archive the plan during Deploy, merge/release, and clean up the merged branch. Version selection, changelog and tagging move to a separate `versioning.md` authority, reviewed next. MEŽS shell behavior (CMD versus explicit PowerShell) will be addressed in `mezhs.md`. Committed as `d70572a`.
 
 - **2026-11-19 — `testing.md` review:** Approved live verification of changed behavior and relevant risk/regression areas when Testing is selected; record actual revision and outcomes, BLOCKED if live testing cannot be done without an owner-approved limitation, FAIL → corrected code and fresh Tester, PASS → Deploy. MEŽS-specific test worktrees and isolated instances will be defined in `mezhs.md`. Committed as `1e3558a`.
 
