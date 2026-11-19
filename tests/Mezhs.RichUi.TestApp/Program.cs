@@ -135,6 +135,26 @@ var tablePass = tableDoc.Document.Valid && tableDoc.Document.Nodes.SelectMany(Wa
     .Any(n => n.Kind == "table" && n.Children?.Any(c => c.Kind == "tableRow") == true);
 Console.WriteLine($"{(tablePass ? "PASS" : "FAIL")}: Pipe table remains a generic Markdown syntax transformation");
 if (!tablePass) failures++;
+var htmlWrapperSource = "<widget>\\n<text>inside</text>\\n</widget>\\n<SH>ROOT</SH>".Replace("\\n", "\n");
+var htmlWrapperDoc = new RichDocumentParser().Parse(htmlWrapperSource);
+var htmlWrapperPass = htmlWrapperDoc.Document.Valid && htmlWrapperDoc.Commands.Count == 1 &&
+    htmlWrapperDoc.Commands[0].Body == "ROOT" &&
+    htmlWrapperDoc.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "unknown" && n.Name == "widget");
+Console.WriteLine($"{(htmlWrapperPass ? "PASS" : "FAIL")}: Multiline unknown HTML wrapper cannot discard root commands");
+if (!htmlWrapperPass) failures++;
+var commentSource = "<!--\\n<text>hello</text>\\n-->\\n<SH>ROOT</SH>".Replace("\\n", "\n");
+var commentDoc = new RichDocumentParser().Parse(commentSource);
+var commentPass = commentDoc.Document.Valid && commentDoc.Commands.Count == 1 &&
+    commentDoc.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "element" && n.Name == "text");
+Console.WriteLine($"{(commentPass ? "PASS" : "FAIL")}: HTML literal lowering restores rich elements");
+if (!commentPass) failures++;
+var fenceInfoSource = "~~~<text>info</text>\\ncontent\\n~~~\\n<SH>ROOT</SH>".Replace("\\n", "\n");
+var fenceInfoDoc = new RichDocumentParser().Parse(fenceInfoSource);
+var fenceInfoPass = fenceInfoDoc.Document.Valid && fenceInfoDoc.Commands.Count == 1 &&
+    fenceInfoDoc.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "element" && n.Name == "text");
+Console.WriteLine($"{(fenceInfoPass ? "PASS" : "FAIL")}: Fence info literal survives lowering without losing root shell");
+if (!fenceInfoPass) failures++;
+
 
 Console.WriteLine($"{(inlineOk ? "PASS" : "FAIL")}: Rendered inline command retains one paragraph and exact spans");
 if (!inlineOk) failures++;
