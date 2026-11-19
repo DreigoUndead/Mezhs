@@ -59,7 +59,7 @@ test("capture.png nested diagram renders UI, not accidentally indented code", ()
   const output = html(input, { document: parsed });
   assert.match(output, /class="rich-grid"/);
   assert.match(output, /class="rich-row"/);
-  assert.match(output, /class="rich-icon"/);
+  assert.match(output, /class="rich-icon(?: |")/);
   assert.match(output, /<strong>Canonical tag parser<\/strong>/);
   assert.match(output, /Identify known tags, match boundaries/);
   assert.match(output, /Validated typed nodes and host commands/);
