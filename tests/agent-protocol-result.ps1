@@ -134,6 +134,22 @@ Check(rawBeforeShell.Commands.SequenceEqual([new Command("SH", "echo OK")]) &&
       rawBeforeShell.VisibleContent == "before <CodeBlock language=\"text\">raw</CodeBlock>",
       "Inline CodeBlock prevented a following root command.");
 
+var sameLineWriting = new RichDocumentParser().Parse(
+    "before <WritingBlock variant=\"document\">raw <SH>INERT</SH></WritingBlock> after");
+Check(sameLineWriting.Document.Valid && sameLineWriting.Commands.Count == 0 &&
+      sameLineWriting.Document.Nodes.Any(n => n.Kind == "raw" && n.Name == "WritingBlock" &&
+          n.Text == "raw <SH>INERT</SH>"),
+      "Same-line WritingBlock was rejected or exposed its opaque shell text.");
+var writingBeforeShell = parser.Parse(
+    "before <WritingBlock variant=\"document\">raw</WritingBlock><SH>echo OK</SH>");
+Check(writingBeforeShell.Commands.SequenceEqual([new Command("SH", "echo OK")]) &&
+      writingBeforeShell.VisibleContent == "before <WritingBlock variant=\"document\">raw</WritingBlock>",
+      "Inline WritingBlock prevented a following root command.");
+var sameLineEscape = new RichDocumentParser().Parse(
+    "before <escape>raw <SH>INERT</SH></escape> after");
+Check(sameLineEscape.Document.Valid && sameLineEscape.Commands.Count == 0,
+      "Inline escape must be opaque to nested Agent commands.");
+
 var multiline = parser.Parse("before\n<SH>\r\necho first\r\n</SH>\n<DONE>\nafter");
 Check(multiline.Commands.SequenceEqual([
       new Command("SH", "\r\necho first\r\n"), new Command("DONE", null)]) &&
