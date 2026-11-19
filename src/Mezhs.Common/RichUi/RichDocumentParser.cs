@@ -100,6 +100,9 @@ public sealed class RichDocumentParser
             // SVG has its own separately validated content grammar. Native
             // geometry/text nodes are not HTML child elements.
             if (isElement && name == "svg") continue;
+            // Unknown controls are inert diagnostic presentation, not host-owned
+            // HTML semantics. Their children cannot grant command authority.
+            if (node.Kind == "unknown") continue;
             if (node.Children is { Count: > 0 } children)
                 ValidateContentModel(children,
                     phrasingOnly || inlineElement ||
@@ -205,14 +208,20 @@ public sealed class RichDocumentParser
             }
             if (!RichTagRegistry.TryGet(tag.Name, svgScope, out var definition))
             {
-                // Only registered tags have rich syntax. Preserve unknown markup
-                // as ordinary text while still discovering registered tags within it.
-                if (RichTagRegistry.IsSvgTag(tag.Name) ||
-                    (svgScope && RichTagRegistry.TryGet(tag.Name, out var registered) &&
-                     registered.Role is not (RichTagRole.Command or RichTagRole.Marker)) ||
-                    (UnsafeRawTags.Contains(tag.Name) && (svgScope || !_radioLiteral[cursor])))
-                    throw new RichDocumentException($"Unsupported or unsafe tag in this context: {tag.Name}.");
-                cursor = tag.End;
+                // Unknown tags are structural, inert presentation controls.
+                // Their boundary prevents root-only commands from leaking out.
+                // Inside SVG the entire SVG becomes Unknown rather than placing
+                // an HTML diagnostic element into native SVG geometry.
+                if (svgScope)
+                    throw new RichDocumentException($"Unsupported SVG child: {tag.Name}.");
+                var unknownEnd = tag.SelfClosing ? tag.End :
+                    FindContainerClose(tag.Name, tag.End, end);
+                if (unknownEnd < 0) { cursor = tag.End; continue; }
+                if (!tag.SelfClosing) unknownEnd += tag.Name.Length + 3;
+                Flush(cursor);
+                AddUnknown(result, tag, unknownEnd, "Unsupported control", depth);
+                cursor = unknownEnd;
+                plainFrom = cursor;
                 continue;
             }
             // One traversal enforces the registry eligibility policy. A
@@ -263,11 +272,26 @@ public sealed class RichDocumentParser
                 if (closer < 0) { cursor = tag.End; continue; }
             }
 
-            var attributes = ParseAttributes(tag, definition);
-            if ((svgScope || tag.Name == "svg") &&
-                (svgScope && !RichSvgValidation.AllowsChild(expected, tag.Name) ||
-                 !RichSvgValidation.Valid(tag.Name, attributes)))
-                throw new RichDocumentException($"Unsafe SVG attributes or nesting: {tag.Name}.");
+            IReadOnlyDictionary<string, string> attributes;
+            try
+            {
+                attributes = ParseAttributes(tag, definition);
+                if ((svgScope || tag.Name == "svg") &&
+                    (svgScope && !RichSvgValidation.AllowsChild(expected, tag.Name) ||
+                     !RichSvgValidation.Valid(tag.Name, attributes)))
+                    throw new RichDocumentException($"Unsafe SVG attributes or nesting: {tag.Name}.");
+            }
+            catch (RichDocumentException e)
+            {
+                if (svgScope) throw; // Parent SVG falls back as one inert unit.
+                Flush(from);
+                var unknownEnd = tag.SelfClosing ? tag.End : closer + tag.Name.Length + 3;
+                AddUnknown(result, tag, unknownEnd, e.Message, depth,
+                    opaque: !definition.SearchChildren);
+                cursor = unknownEnd;
+                plainFrom = cursor;
+                continue;
+            }
             if (svgScope || tag.Name == "svg")
             {
                 if (++_svgCount > 250 || depth > 12)
@@ -312,8 +336,22 @@ public sealed class RichDocumentParser
             else
             {
                 var afterClose = closer + tag.Name.Length + 3;
-                var children = ReadChildren(cursor, afterClose, tag.Name, depth + 1,
-                    out var after, svgScope || tag.Name == "svg", inlineElement);
+                IReadOnlyList<RichNode> children;
+                int after;
+                try
+                {
+                    children = ReadChildren(cursor, afterClose, tag.Name, depth + 1,
+                        out after, svgScope || tag.Name == "svg", inlineElement);
+                }
+                catch (RichDocumentException e) when (!svgScope)
+                {
+                    // A malformed UI subtree is one inert diagnostic block.
+                    // Never let its invalid children turn into root commands.
+                    AddUnknown(result, tag, afterClose, e.Message, depth, opaque: true);
+                    cursor = afterClose;
+                    plainFrom = cursor;
+                    continue;
+                }
                 var element = new RichNode("element", $"{from}:element",
                     new RichSourceSpan(from, after), Name: tag.Name,
                     Attributes: attributes, Children: children);
@@ -326,6 +364,25 @@ public sealed class RichDocumentParser
         Flush(end);
         position = end;
         return result;
+    }
+
+    private void AddUnknown(List<RichNode> nodes, Tag tag, int end, string reason,
+        int depth, bool opaque = false)
+    {
+        IReadOnlyList<RichNode>? children = null;
+        if (!tag.SelfClosing && end > tag.End)
+        {
+            var bodyEnd = end - tag.Name.Length - 3;
+            if (opaque)
+                children = [new RichNode("literal", $"{tag.End}:literal",
+                    new RichSourceSpan(tag.End, bodyEnd), Text: _source[tag.End..bodyEnd])];
+            else
+                children = ReadChildren(tag.End, end, tag.Name, depth + 1, out _);
+        }
+        Add(nodes, new RichNode("unknown", $"{tag.Start}:unknown",
+            new RichSourceSpan(tag.Start, end), Name: tag.Name,
+            Attributes: new Dictionary<string, string> { ["reason"] = reason },
+            Children: children));
     }
 
     // Return the first matching close, with balanced nesting for UI containers.
