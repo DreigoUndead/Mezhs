@@ -1,39 +1,29 @@
-# Explicit Agent command handling through escape
+# Agent command tags inside escape
 
 ID: escape-agent-command-tags
 Branch: `escape-agent-command-tags`
-Level: **High-risk** (changes command-discovery / execution authorization boundary)
-State: **Plan only — independent plan review required before code**
+Level: **Small — explicit owner override (2026-11-20)**. The original plan classified the command-discovery change as high-risk; the owner explicitly chose Small and the narrow behavior below.
+State: **Plan only; no implementation or merge**
 
 ## Goal and scope
-MEŽS currently treats complete `escape` as an opaque literal. In the observed incident the agent wrote an `escape` wrapper around the opening shell delimiter and another around its closing delimiter, leaving an otherwise valid command inert. Change `escape` specifically for Agent protocol tokens `SH`, `ATTACH`, and `DONE` so they can be recognized and dispatched when escaped at document root.
+A model sometimes wraps an Agent command opener and closer in separate `escape` elements. Those command tags should work, rather than silently become inert.
 
-No general unescaping of UI tags, executable JavaScript, or other syntax; no changes to command authorization/policy, allowed commands, execution timeout, attachments, or DONE ordering. This behavior intentionally changes the safety of examples that embed commands in `escape`: a complete root-level escaped command becomes actionable and must be documented as such.
+At **document root**, `escape` recognizes the registered Agent protocol tags with `RichTagDefinition.AllowAsChild == false` (currently `SH`, `ATTACH`, `DONE`). All other tags and ordinary content inside `escape` remain literal/inert; `escape` does not become a general UI unescaper. An `escape` nested inside another complete UI container does not authorize commands.
 
-## Behavior to support
-- Root-level `escape` containing a complete permitted command, e.g. an escaped shell or attachment block, is treated as a protocol command.
-- Root-level `escape` wrapping only an opening command delimiter and another wrapping only the corresponding closing delimiter must pair across the literal body. The incident used this form. The Executor body must be exactly the text between these wrappers (not the `escape` delimiters); preserve whitespace in the command body.
-- Root-level `escape` containing a `DONE` marker is recognized and remains subject to final-command ordering and completion evidence.
-- `escape` containing ordinary non-command tags or text is still an opaque literal. Commands inside other complete known/unknown presentation containers (including raw editors and SVG) remain inert, even if nested in `escape`.
-- Keep one canonical bounded C# tag/parser authority; no Agent-only second tokenizer, global regex-based extraction, client-side execution, or bypass of active Agent policy/Registry.
-- Unmatched or malformed command wrappers must never produce a partial action. If the syntax has no unambiguous command pairing, keep it inert or reject the whole batch, rather than execute a guessed body. Reject a malformed command batch before executing any commands.
-- Preserve source spans and visible text projection consistently, and keep diagnostics meaningful.
+## Behavior
+- Recognize a complete Agent command inside root `escape`; recognize the observed split form, in which one `escape` wraps only the opening delimiter and a second wraps only the matching closing delimiter. Preserve the exact shell/attachment body between delimiters, including whitespace.
+- Only tags with `AllowAsChild == false` that also pass the existing Agent `Registry` can become actions. Other markup inside root `escape` is ignored for command discovery, not converted into UI or executable behavior.
+- Preserve current ordinary-root-command behavior, including an unmatched `escape` opener being treated as plain text. Do not invent a partial command from unmatched `SH`/`ATTACH` delimiters.
+- Keep existing Agent policy checks, `DONE` ordering, whole-batch validation, attachment staging, and shell execution unchanged. Display projection should remove recognized command source while retaining unrelated visible text.
 
-## Risk and alternatives
-Allowing escaped commands to execute is a deliberate change to a formerly literal-only boundary. It creates a risk that an escaped documentation example in an Agent reply can trigger an action. The narrower alternative is to keep `escape` inert and return an explicit error/correction if it contains Agent tags; that would prevent silent no-ops but would **not** execute the incident's command, so it does not meet the intended behavior. Independent plan review must challenge whether an explicit root-only carveout can be implemented without duplicated parsing or accidental expanded authority.
+## Implementation
+- Make the narrow exception in the canonical `RichDocumentParser` using its existing tag tokenizer, registry metadata, and command spans. Reuse the existing Agent `Parser` and `Interpreter`; no second parser/scanner or new authorization mechanism.
+- Update command documentation and authoritative Agent prompt instructions to reflect this exact exception. Do not change VERSION/CHANGELOG before release.
 
-## Implementation direction
-1. Extend only the canonical `RichDocumentParser` around its existing `escape`/command token handling; re-use the registry and the existing `Parser`/`Interpreter`. Introduce no parallel scanner.
-2. Reuse existing source-span and command-body types. When the wrapper itself belongs to a recognized command, its span must encompass the full consumed markup so projection does not leave broken markup.
-3. Adjust `RichTagRegistry` discovery semantics only if necessary for this targeted behavior, avoiding opening nested authorization in unrelated rich elements.
-4. Update `docs/agent-tools.md`, `docs/supported-rich-ui.md`, `specifications/current/agent-runtime.md`, and authoritative prompt instructions if they conflict. Don't edit VERSION or CHANGELOG before release.
-
-## Acceptance and verification
-- Canonical-parser test: standalone root command unchanged; root escaped complete `SH`/`ATTACH` and `DONE` recognized; escaped split opening/closing delimiter form recognized with exact command body and original source spans.
-- Parser/Agent tests: same text within an unrelated `box`, `text`, unknown wrapper, `CodeBlock`, `WritingBlock`, SVG remains inert; malformed and unclosed escape/command combinations do not authorize partial commands.
-- Whole-batch checks: forbidden action policy still denies; final/duplicate `DONE` enforced; bad batch does not execute a valid earlier command.
-- Real Agent/Executor integration: incident's split-wrapper command executes once; escaped `ATTACH` is staged once and not sent prematurely; nested inert negative case shows no shell side effect.
-- Regression suite: .NET parser, Agent policy/command integration, relevant browser tests, Windows CI, plus independent code review and independent final tester.
+## Verification
+- Parser tests: normal root commands unchanged; complete escaped `SH`/`ATTACH`/`DONE`, split escaped delimiters, exact body bytes, visible text, and source spans.
+- Negative tests: other `escape` markup inert; commands in outer `box`, unknown UI, raw editors, or SVG inert; unmatched command delimiters do not become actions; existing unmatched `escape` behavior retained.
+- Agent integration: split-wrapped shell command executes once, attachment stages once, policy denial and `DONE` rules unchanged, malformed command batch executes nothing.
 
 ## Workflow
-High-risk: independent plan review on this branch before implementation; then code, fresh independent code review, independent test; owner merge approval remains separate. No direct main commits.
+Owner explicitly overrides the original High-risk classification to **Small**. Use the existing task branch. Perform targeted checks and report evidence; independent review/testing are optional for Small. A merge into `main` still requires separate explicit owner approval.
