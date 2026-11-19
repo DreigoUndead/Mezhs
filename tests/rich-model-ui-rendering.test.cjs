@@ -554,8 +554,8 @@ test("Cite accepts bounded literal reference arrays without source authority", (
   assert.deepEqual(JSON.parse(decodeURIComponent(citation.attributes.refs.slice(5))),
     ["turn0search0", "turn0search2"]);
   const output = html(input, { document: doc });
-  assert.match(output, /Before [\\s\\S]*source unavailable[\\s\\S]* after/);
-  assert.doesNotMatch(output, /rich-unknown|<a\\b|href=/);
+  assert.match(output, /Before [\s\S]*source unavailable[\s\S]* after/);
+  assert.doesNotMatch(output, /rich-unknown|<a\b|href=/);
 });
 
 test("Cite dynamic and non-string refs remain inert, as do arrays on unrelated controls", () => {
@@ -571,7 +571,7 @@ test("Cite dynamic and non-string refs remain inert, as do arrays on unrelated c
     assert.equal(kinds(doc.nodes, "element").filter(node => node.name === "Cite").length, 0);
     const output = html(input, { document: doc });
     assert.match(output, /rich-unknown/);
-    assert.doesNotMatch(output, /<a\\b|href="https?:/);
+    assert.doesNotMatch(output, /<a\b|href="https?:/);
   }
 });
 
