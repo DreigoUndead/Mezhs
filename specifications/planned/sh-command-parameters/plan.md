@@ -46,3 +46,9 @@ Run `dotnet run --project tests/Mezhs.RichUi.TestApp`, `pwsh -File tests/agent-p
 **Change:** Treat `timeout` as seconds and `limit` as follow-up prompt output characters, with policy and global caps.
 **Reason:** This keeps the example useful without granting additional execution authority or deleting durable output.
 **Authority:** Implementation assumptions for the owner's feature request; subject to owner correction.
+
+### 2026-11-20 — Development implementation
+
+**Change:** The canonical rich parser carries SH timeout/limit attribute values to Agent commands; Interpreter checks the policy timeout cap and Shell passes an accepted timeout to Executor; AgentPromptBuilder truncates only follow-up output. Updated default instruction and shell-context messages and added parser, render-grammar and prompt-result regressions, plus a live rejection case for over-policy timeouts.
+**Reason:** Keep a single syntax/authority path and retain full durable Executor results.
+**Verification:** Source and patch checks completed via GitHub connector. Tests were added but not executed: this session has no Windows/.NET repository test host. Independent Code Review and live Executor verification are pending.
