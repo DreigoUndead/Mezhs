@@ -463,6 +463,8 @@ public sealed partial class RichDocumentParser
                 continue;
             }
 
+            if (active.Count >= MaxDepth)
+                throw new RichDocumentLimitException("Document nesting exceeds limit.");
             var opened = new TagFrame(tag, parent);
             active.Add(opened);
             frames.Add(opened);
