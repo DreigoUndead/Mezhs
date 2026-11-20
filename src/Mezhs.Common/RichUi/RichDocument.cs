@@ -110,8 +110,8 @@ public static class RichTagRegistry
             Tag("Cite", RichTagRole.Leaf, "ref", "refs"),
             Tag("CodeBlock", RichTagRole.RawEditor, "language", "editable"),
             Tag("WritingBlock", RichTagRole.RawEditor, "variant", "recipient", "cc", "bcc", "subject", "id"),
-            // Balanced for nesting and opaque command bodies; only the handler discovers commands.
-            WithDiscovery(Tag("escape", RichTagRole.OpaqueLiteral, "char"), searchChildren: true)
+            // Escape remains an opaque wrapper; its handler inspects only this body.
+            Tag("escape", RichTagRole.OpaqueLiteral, "char")
                 with { Handle = RichDocumentParser.TagHandlers.Escape },
             // Agent commands are root-only and opaque, using the same
             // traversal policy as all other registered tags.

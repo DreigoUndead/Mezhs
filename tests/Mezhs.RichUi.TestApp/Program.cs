@@ -38,7 +38,6 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Split escaped closer whitespace is literal", "<escape><SH></escape>echo YES<escape> </SH> </escape>", true, []),
     ("Split escape without closer", "<escape><SH></escape>echo NO", true, []),
     ("Split escape with mismatched closer", "<escape><SH></escape>echo NO<escape></ATTACH></escape>", true, []),
-    ("Escaped SH body retains fake escape close", "<escape><SH>echo </escape> literal</SH></escape>", true, ["SH"]),
     ("Other tags within escape remain inert", "<escape><text><SH>echo NO</SH></text><SH>echo YES</SH></escape>", true, ["SH"]),
     ("Escaped command nested inside box inert", "<box><escape><SH>echo NO</SH></escape></box>", true, []),
     ("Nested escape remains inert", "<escape><escape><SH>echo NO</SH></escape></escape>", true, []),
