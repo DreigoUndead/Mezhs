@@ -86,9 +86,9 @@
     "specifications/implemented/ui-typing-lag/plan.md",
     "specifications/implemented/uniform-rich-tag-matching/plan.md",
     "specifications/implemented/waiting-command-result-label/plan.md",
+    "specifications/implemented/workflow-template-role-guidance/plan.md",
     "specifications/planned/agent-policy-foundation/plan.md",
     "specifications/planned/sandboxed-agent-jobs/plan.md",
-    "specifications/planned/workflow-template-role-guidance/plan.md",
     "src/Mezhs.Agent.Api.Client/AgentApiClient.cs",
     "src/Mezhs.Agent.Api.Client/Mezhs.Agent.Api.Client.csproj",
     "src/Mezhs.Agent.Api/ApiExceptionHandler.cs",
@@ -1171,26 +1171,26 @@
     {
       "from": 86,
       "to": {
-        "type": "file",
-        "path": 87
+        "type": "external",
+        "name": "https://github.com/DreigoUndead/Mezhs/pull/70"
       },
-      "raw": "../sandboxed-agent-jobs/plan.md"
+      "raw": "https://github.com/DreigoUndead/Mezhs/pull/70"
     },
     {
       "from": 87,
       "to": {
         "type": "file",
-        "path": 86
+        "path": 88
       },
-      "raw": "../agent-policy-foundation/plan.md"
+      "raw": "../sandboxed-agent-jobs/plan.md"
     },
     {
       "from": 88,
       "to": {
-        "type": "external",
-        "name": "https://github.com/DreigoUndead/Mezhs/pull/70"
+        "type": "file",
+        "path": 87
       },
-      "raw": "https://github.com/DreigoUndead/Mezhs/pull/70"
+      "raw": "../agent-policy-foundation/plan.md"
     },
     {
       "from": 89,
