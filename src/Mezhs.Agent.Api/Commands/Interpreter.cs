@@ -7,7 +7,8 @@ public sealed record ExecutionContext(
     ExecutionRecord ParentExecution,
     TimeSpan Timeout,
     string TriggerMessageId,
-    int CommandIndex);
+    int CommandIndex,
+    int? OutputLimit = null);
 
 public sealed record Result(
     string Name,
@@ -15,7 +16,8 @@ public sealed record Result(
     bool Succeeded,
     int? ExitCode,
     string? Output,
-    string? Error);
+    string? Error,
+    int? OutputLimit = null);
 
 public sealed record Interpretation(
     bool CompletionClaimed,
@@ -45,7 +47,8 @@ public sealed class Interpreter(
             return new Interpretation(false, [], ex.Message);
         }
 
-        var executable = new List<(CommandDefinition Definition, string Body)>();
+        var executable = new List<(CommandDefinition Definition, string Body,
+            int? TimeoutSeconds, int? OutputLimit)>();
         var completionClaimed = false;
 
         for (var i = 0; i < batch.Commands.Count; i++)
@@ -72,6 +75,10 @@ public sealed class Interpreter(
             }
 
             var body = command.Body ?? string.Empty;
+            if (definition.Behavior == CommandBehavior.Shell &&
+                command.TimeoutSeconds > policy.Settings.Limits.CommandTimeoutSeconds)
+                return new Interpretation(completionClaimed, [],
+                    $"SH timeout exceeds policy maximum of {policy.Settings.Limits.CommandTimeoutSeconds} seconds.");
             if (definition.Behavior == CommandBehavior.Shell && string.IsNullOrWhiteSpace(body))
                 return new Interpretation(completionClaimed, [], "Shell command body cannot be empty.");
             var decision = evaluations.ValidateAction(
@@ -83,16 +90,18 @@ public sealed class Interpreter(
 
             if (definition.Behavior is not (CommandBehavior.Shell or CommandBehavior.Attach))
                 return new Interpretation(completionClaimed, [], $"Agent command <{definition.Name}> has no executable behavior.");
-            executable.Add((definition, body));
+            executable.Add((definition, body, command.TimeoutSeconds, command.OutputLimit));
         }
 
         var results = new List<Result>();
-        var timeout = TimeSpan.FromSeconds(policy.Settings.Limits.CommandTimeoutSeconds);
         var executableIndex = 0;
-        foreach (var (definition, body) in executable)
+        foreach (var (definition, body, commandTimeout, outputLimit) in executable)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var context = new ExecutionContext(execution, timeout, assistantMessageId, executableIndex);
+            var timeout = TimeSpan.FromSeconds(
+                commandTimeout ?? policy.Settings.Limits.CommandTimeoutSeconds);
+            var context = new ExecutionContext(execution, timeout, assistantMessageId,
+                executableIndex, outputLimit);
             try
             {
                 results.Add(definition.Behavior == CommandBehavior.Shell

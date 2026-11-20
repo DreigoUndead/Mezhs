@@ -26,7 +26,8 @@ public sealed record RichDocument(
 }
 
 // Host-side only. Never serialize command candidates as executable frontend controls.
-public sealed record RichCommandCandidate(string Name, string? Body, RichSourceSpan SourceSpan);
+public sealed record RichCommandCandidate(string Name, string? Body, RichSourceSpan SourceSpan,
+    IReadOnlyDictionary<string, string>? Attributes = null);
 public sealed record RichParseResult(RichDocument Document, IReadOnlyList<RichCommandCandidate> Commands);
 
 public enum RichTagRole { Container, Leaf, OpaqueLiteral, RawEditor, Command, Marker }
@@ -109,7 +110,7 @@ public static class RichTagRegistry
             Tag("escape", RichTagRole.OpaqueLiteral, "char"),
             // Agent commands are root-only and opaque, using the same
             // traversal policy as all other registered tags.
-            WithDiscovery(Tag("SH", RichTagRole.Command), searchChildren: false, allowAsChild: false),
+            WithDiscovery(Tag("SH", RichTagRole.Command, "timeout", "limit"), searchChildren: false, allowAsChild: false),
             WithDiscovery(Tag("ATTACH", RichTagRole.Command), searchChildren: false, allowAsChild: false),
             WithDiscovery(Tag("DONE", RichTagRole.Marker), searchChildren: false, allowAsChild: false)
         }.ToDictionary(tag => tag.Name, StringComparer.Ordinal);

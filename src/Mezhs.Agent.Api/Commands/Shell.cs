@@ -49,6 +49,7 @@ public sealed class Shell(
             execution.Status == ExecutionStatus.Completed,
             execution.ExitCode,
             execution.Result,
-            execution.Error);
+            execution.Error,
+            context.OutputLimit);
     }
 }

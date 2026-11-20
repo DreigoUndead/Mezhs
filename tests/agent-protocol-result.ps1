@@ -120,6 +120,29 @@ Check(inline.Commands.SequenceEqual([new Command("SH", "echo INLINE")]) &&
       inline.VisibleContent == "prefix  suffix",
       "Inline SH was not extracted without losing surrounding prose.");
 
+var bounded = parser.Parse("before <SH timeout=60 limit=500>echo BOUNDED</SH> after");
+Check(bounded.Commands.SequenceEqual([new Command("SH", "echo BOUNDED", 60, 500)]) &&
+      bounded.VisibleContent == "before  after",
+      "SH parameters or source span extraction changed.");
+var individuallyOptional = parser.Parse(
+    "<SH limit=5>echo A</SH><SH timeout=\"12\">echo B</SH>");
+Check(individuallyOptional.Commands.SequenceEqual([
+      new Command("SH", "echo A", null, 5),
+      new Command("SH", "echo B", 12)]),
+      "Independent SH parameters did not parse.");
+Reject(parser, "<SH timeout=0>echo NO</SH>", "Zero timeout was accepted.");
+Reject(parser, "<SH limit=0>echo NO</SH>", "Zero output limit was accepted.");
+Reject(parser, "<SH timeout=-1>echo NO</SH>", "Negative timeout was accepted.");
+Reject(parser, "<SH timeout=1.5>echo NO</SH>", "Fractional timeout was accepted.");
+Reject(parser, "<SH timeout=abc>echo NO</SH>", "Non-numeric timeout was accepted.");
+Reject(parser, "<SH timeout=9999999999999>echo NO</SH>", "Overflow timeout was accepted.");
+Reject(parser, "<SH timeout=1 timeout=2>echo NO</SH>", "Duplicate timeout was accepted.");
+Reject(parser, "<SH unexpected=1>echo NO</SH>", "Unknown SH parameter was accepted.");
+Reject(parser, "<ATTACH limit=1>file</ATTACH>", "ATTACH gained SH parameters.");
+Check(parser.Parse("<box><SH timeout=1>INERT</SH></box><SH limit=5>ROOT</SH>")
+          .Commands.SequenceEqual([new Command("SH", "ROOT", null, 5)]),
+      "Nested SH with attributes was given command authority.");
+
 // Rich raw editors also use paired-tag matching independent of line position.
 // Their nested command-looking text must stay opaque.
 var sameLineCode = new RichDocumentParser().Parse(
@@ -255,6 +278,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     }
 
     Assert-RejectedBatch 'invalid-command' '<SH bad="evil">echo NEVER</SH>'
+    Assert-RejectedBatch 'timeout-over-policy' '<SH timeout=999999>echo NEVER</SH>'
     Assert-RejectedBatch 'empty-shell' "<SH>`n `n</SH>"
     Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"
     Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"
@@ -276,6 +300,39 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     }
     Assert-InlineExecuted 'prose' 'before ' ' after '
     Assert-InlineExecuted 'markdown-fence' ('```text' + "`n") ("`n" + '```')
+
+    # Positive SH parameters execute once; output is truncated only in the model prompt.
+    $boundedTask = '<SH timeout=2 limit=5>echo RESULT_123456789</SH>'
+    $boundedRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence-auto'; input = $boundedTask })
+    $boundedOutcome = Wait-Execution $boundedRun.executionId 20
+    $boundedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($boundedOutcome.chatId)/executions")
+    $boundedShells = @($boundedHistory | Where-Object { $_.kind -eq 'Shell' })
+    if ($boundedOutcome.status -ne 'Completed' -or $boundedShells.Count -ne 1 -or
+        $boundedShells[0].status -ne 'Completed' -or
+        $boundedShells[0].result -notmatch 'RESULT_123456789') {
+        throw "Positive SH timeout/limit did not execute or preserve complete durable output."
+    }
+    $boundedMessages = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($boundedOutcome.chatId)/messages")
+    $boundedPrompts = @($boundedMessages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'user' -and $_.content -match 'Command results JSON:' })
+    if ($boundedPrompts.Count -ne 1 -or
+        -not $boundedPrompts[0].content.Contains('command result truncated in prompt') -or
+        $boundedPrompts[0].content.Contains('RESULT_123456789')) {
+        throw "SH limit failed to truncate only the follow-up prompt."
+    }
+    Write-Host 'PASS: SH timeout=2 limit=5 executed, limited model prompt, preserved full durable output.'
+
+    # A shorter per-command timeout must be enforced by Executor.
+    $timeoutTask = '<SH timeout=1>powershell -NoProfile -Command "Start-Sleep -Seconds 4"</SH>'
+    $timeoutRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $timeoutTask })
+    $timeoutOutcome = Wait-Execution $timeoutRun.executionId 20
+    $timeoutHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($timeoutOutcome.chatId)/executions")
+    $timeoutShells = @($timeoutHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+    if ($timeoutOutcome.status -ne 'Completed' -or $timeoutShells.Count -ne 1 -or
+        $timeoutShells[0].status -ne 'TimedOut' -or
+        $timeoutShells[0].error -notmatch 'timed out after 1') {
+        throw "SH timeout=1 was not enforced by Executor: $($timeoutHistory | ConvertTo-Json -Depth 6 -Compress)"
+    }
+    Write-Host 'PASS: SH timeout=1 reaches Executor and terminates a longer command.'
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"

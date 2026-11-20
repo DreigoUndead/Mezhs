@@ -1,9 +1,11 @@
+using System.Globalization;
 using System.Text;
 using Mezhs.Common.RichUi;
 
 namespace Mezhs.Agent.Commands;
 
-public sealed record Command(string Name, string? Body);
+public sealed record Command(string Name, string? Body,
+    int? TimeoutSeconds = null, int? OutputLimit = null);
 
 public sealed record CommandBatch(
     IReadOnlyList<Command> Commands,
@@ -39,9 +41,24 @@ public sealed class Parser
             // line breaks remain visible.
             visible.Append(content, cursor, start - cursor);
             cursor = end;
-            commands.Add(new Command(candidate.Name, candidate.Body));
+            var timeout = candidate.Name == "SH"
+                ? PositiveAttribute(candidate.Attributes, "timeout") : null;
+            var limit = candidate.Name == "SH"
+                ? PositiveAttribute(candidate.Attributes, "limit") : null;
+            commands.Add(new Command(candidate.Name, candidate.Body, timeout, limit));
         }
         visible.Append(content, cursor, content.Length - cursor);
         return new CommandBatch(commands, visible.ToString());
+    }
+
+    private static int? PositiveAttribute(
+        IReadOnlyDictionary<string, string>? attributes, string name)
+    {
+        if (attributes is null || !attributes.TryGetValue(name, out var raw))
+            return null;
+        if (!int.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var value) ||
+            value <= 0)
+            throw new CommandParseException($"SH {name} must be a positive integer.");
+        return value;
     }
 }

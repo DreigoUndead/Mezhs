@@ -34,7 +34,10 @@ messages:
     - Separate observed facts from hypotheses; report causes only when evidence supports them.
   shellContext: |
     Host shell: {shell}. Execute SH text directly in this shell's syntax.
-    Each SH block times out after {timeout} seconds; its status reflects the final shell exit code.
+    Each SH block has a {timeout}-second policy maximum (also the default).
+    Optional timeout=SECONDS may shorten one block; limit=CHARACTERS bounds
+    its follow-up output (global maximum 16000), not stored Executor output.
+    Its status reflects the final shell exit code.
     Verify individual steps in compound commands when their outcomes matter.
     Redirect detached child output away from MEŽS; SH completes when the direct shell exits.
 
@@ -78,6 +81,25 @@ policies:
     connectionId: chatgpt-sub
     defaultModel: gpt-6-thinking::thinking-effort=extended
     instructions: "{mezhs_default}"
+    commands:
+      allow:
+        - SH
+        - ATTACH
+    environment:
+      allow: []
+    completion:
+      requireDone: false
+      requiredSuccessfulCommands: []
+    limits:
+      commandTimeoutSeconds: 120
+
+  development:
+    name: MEŽS Development
+    connectionId: chatgpt-sub
+    defaultModel: gpt-6-thinking::thinking-effort=extended
+    instructions: |
+      {mezhs_default}
+      {mezhs_development}
     commands:
       allow:
         - SH
