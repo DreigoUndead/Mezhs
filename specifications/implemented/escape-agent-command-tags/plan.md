@@ -135,3 +135,12 @@ Only the Agent API has the concepts of Agent execution and executable `SH` comma
 **Reason:** The main-integration merge introduced a scope collision with an existing `closer` local; the first CI run on `a0789dd0a2ca1d46068cc49e293d427f779e9c72` failed to compile with CS0136. Historic malformed-input promises would otherwise contradict the owner's accepted scope override.
 
 **Verification:** MEŽS Core Windows GitHub Actions run [44828360163](https://github.com/DreigoUndead/Mezhs/actions/runs/44828360163), attempt 2, completed **success** on code revision `1511954c7631f92f34ded03847fc8e7d74db8548`. All 21 job steps succeeded, including .NET solution build, RichUi parser tests, real Chromium browser regressions, real Agent Executor protocol smoke, Agent API/policy, browser lifecycle, and restart-recovery checks. Attempt 1 failed an unrelated group-deletion Chromium focus assertion; the same test passed on attempt 2 without a code change, so its root cause is undetermined. Fresh independent Code Review and a separate Testing-role verification are still outstanding. Documentation-only follow-up requires checking CI on the resulting branch revision.
+
+
+### 2026-11-20 — Reintegrated v0.9.3 main before independent review
+
+**Change:** Merged current `main` at `cce2d8236d63254f726f325ff566d7bf1b98331b` (release v0.9.3) into the task branch as merge commit `5f18baf237e8751c595f598408166e4e2c402c45`. Retained new `RichMarkdownNodes` fenced-Markdown corrections and regression coverage, while adapting the added test cases to the injected `AgentRichTags.Tags` parser constructor. No direct changes to the release metadata were made by this task; VERSION and CHANGELOG arrived through the main merge.
+
+**Reason:** `main` advanced eight commits after developer verification; the independent reviewer must evaluate against current main rather than the superseded branch base.
+
+**Verification:** GitHub comparison after merging reports `behind_by=0`. The prior successful CI run `44828360163` (attempt 2) covered code commit `1511954c`, not this integration. New mainline changes and documentation updates still require final-head CI before acceptance.
