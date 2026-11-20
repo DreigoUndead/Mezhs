@@ -90,6 +90,8 @@ The initial plan format must cover **What, Why, How, role steps, verification, a
 
 ## Changes
 
+- **2026-11-20 — Legacy instruction cleanup:** Removed superseded `.agents/planning.md`, `.agents/coding.md`, `.agents/review.md`, `.agents/mezhs-agent-handoff.md` and `.agents/release.md` from the task branch. Repaired live links in `README.md`, the Grill Me skill and `docs/agent-tools.md`; updated the PR checklist so plan archival occurs in Deploy; retained the MEŽS release-time Agent Tools/Rich UI reference-sync obligation in `mezhs.md`. Inspected 30 active Markdown/instruction files for broken relative links and found none. Generated Codegraph data is stale and is not hand-edited (automation is a separate feature task); synchronization with current `main` and independent integrated review remain outstanding.
+
 - **2026-11-20 — `mezhs.md` review:** Approved the MEŽS-only override for creating and verifying fresh agents via local Agent API and isolated live testing in temporary worktrees with separate ports, storage, databases, Electron profiles and authentication. Codegraph, Rich UI, shell protocol and general responsibilities remain in their existing owners rather than being duplicated. Committed as `8397284`.
 
 - **2026-11-20 — `batman.md` review:** Approved shared engineering sanity checks for reality/evidence, architectural ownership, simplicity and meaningful regressions, avoiding invented issues, speculative guarantees and disproportionate safeguards. Workflow escalation and role-specific review remain in their own files. Committed as `bcd7f28`.
