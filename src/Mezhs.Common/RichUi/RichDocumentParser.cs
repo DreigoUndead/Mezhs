@@ -220,7 +220,9 @@ public sealed partial class RichDocumentParser
                 (!RichTagRegistry.TryGet(tag.Name, out var candidate) ||
                  !discover(candidate)))
             {
-                cursor = found.End; // Skipped elements remain opaque.
+                // A disallowed unclosed wrapper shields the rest of this
+                // search scope; never expose a command through its descendants.
+                cursor = found.Closer < 0 && !tag.SelfClosing ? end : found.End;
                 continue;
             }
             if (!RichTagRegistry.TryGet(tag.Name, svgScope, out var definition))
