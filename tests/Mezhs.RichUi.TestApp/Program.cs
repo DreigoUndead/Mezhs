@@ -559,9 +559,19 @@ var parserFirstChance = 0;
 void CountParserFirstChance(object? sender,
     System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs e)
 {
-    if (e.Exception.StackTrace?.Contains(
-            "Mezhs.Common.RichUi.RichDocumentParser", StringComparison.Ordinal) == true)
-        parserFirstChance++;
+    // Check actual declaring types rather than a hardcoded stack-trace string.
+    // Include private nested parser helpers; framework exceptions thrown from
+    // inside parser calls are also counted because their stacks contain a parser frame.
+    foreach (var frame in new System.Diagnostics.StackTrace(e.Exception, false).GetFrames() ?? [])
+    {
+        for (var type = frame.GetMethod()?.DeclaringType;
+             type is not null; type = type.DeclaringType)
+        {
+            if (type != typeof(RichDocumentParser)) continue;
+            parserFirstChance++;
+            return;
+        }
+    }
 }
 AppDomain.CurrentDomain.FirstChanceException += CountParserFirstChance;
 try

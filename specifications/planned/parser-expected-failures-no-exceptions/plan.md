@@ -79,3 +79,11 @@ After development, keep this plan in `specifications/planned/parser-expected-fai
 **Reason:** Current workflow explicitly reserves plan archival for Deploy and makes the task branch the unit of review. Incoming main changes did not touch the parser or its test harness.
 
 **Authority:** Repository workflow update in `origin/main` (v0.9.1).
+
+### 2026-11-20 - Avoid hardcoded test exception discovery
+
+**Change:** The first-chance regression test now checks stack-frame declaring types against `typeof(RichDocumentParser)` and its nested helpers, instead of searching for a fully-qualified parser name in formatted stack-trace text.
+
+**Reason:** The owner identified hardcoded discovery as a maintenance burden; a parser class or namespace rename could silently disable exception attribution. The new test remains resilient to renaming and retains the same parser-origin filtering.
+
+**Authority:** Owner follow-up on PR #72; developer correction and non-independent self-test.

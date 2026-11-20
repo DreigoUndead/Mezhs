@@ -42,6 +42,14 @@ Authority: owner requested a **single development agent**. All implementation, c
 
 Self-check reviewed root-only command authority, document validation before command release, Unknown fallback, SVG resource limits, first-chance attribution, and the bounded JSON literal decoder. The Unicode mismatch found during self-review was corrected and retested. Historical-corpus equality provides strong regression evidence; it is not a proof over all possible hostile inputs. The top-level catch for genuinely unexpected runtime faults still fails closed.
 
+## Type-based first-chance attribution follow-up
+
+- Replaced literal `Mezhs.Common.RichUi.RichDocumentParser` stack-trace matching with stack-frame declaring-type comparisons using `typeof(RichDocumentParser)`; nested parser helpers are included.
+- Rebuilt the C# test harness after this test-only correction: **0 errors, 0 warnings**. Regression suite **121/121 PASS**, zero expected parser first-chance exceptions. This is a single-agent self-test and is not independent.
+- The parser implementation, historical compatibility baselines and command behavior were not modified by this follow-up.
+
+- **POSITIVE_CONTROL_OLD_PARSER:** An isolated copy of the updated harness with the original parser DLL detected **27 parser-originated first-chance exceptions**. The legacy run exited 1 as expected because the new zero-exception assertions failed. The updated parser detected **0** and passed **121/121**. This verifies that type-based attribution is active rather than silently matching nothing.
+
 ## Handoff
 
 Proposed version change: **PATCH**, final version chosen at authorized Deploy only. Leave `VERSION` and `CHANGELOG.md` untouched. Task plan remains in `specifications/planned/` until owner-approved Deploy. Owner's explicit authorization is required for any merge into `main`.
