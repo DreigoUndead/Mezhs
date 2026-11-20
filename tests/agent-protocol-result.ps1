@@ -278,6 +278,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     }
 
     Assert-RejectedBatch 'invalid-command' '<SH bad="evil">echo NEVER</SH>'
+    Assert-RejectedBatch 'timeout-over-policy' '<SH timeout=999999>echo NEVER</SH>'
     Assert-RejectedBatch 'empty-shell' "<SH>`n `n</SH>"
     Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"
     Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"
