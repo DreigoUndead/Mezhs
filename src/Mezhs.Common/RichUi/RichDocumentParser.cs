@@ -243,10 +243,10 @@ public sealed class RichDocumentParser
                     cursor = tag.End;
                 else
                 {
-                    var closer = known && !candidate.SearchChildren
+                    var discoveredClose = known && !candidate.SearchChildren
                         ? FindOpaqueClosing(tag.Name, tag.End, end)
                         : FindContainerClose(tag.Name, tag.End, end);
-                    cursor = closer < 0 ? end : closer + tag.Name.Length + 3;
+                    cursor = discoveredClose < 0 ? end : discoveredClose + tag.Name.Length + 3;
                 }
                 continue;
             }
