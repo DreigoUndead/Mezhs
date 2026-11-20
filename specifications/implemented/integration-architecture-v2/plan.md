@@ -8,7 +8,11 @@ ID: `integration-architecture-v2`
 
 ## 1. Goal and scope
 
-Replace the current ad hoc integration contract with small, strongly typed, reusable building blocks. Minimize duplicated transport/auth/model code; make provider-specific implementations express endpoints, DTOs, stream interpretation and necessary orchestration only. Keep concurrent chats independent, retain existing public behavior, and make integration capabilities difficult to misuse.
+**Primary business goal:** make MEŽS capable of adding integrations in volume. Establish a correct, reusable architecture so implementing each additional provider—and keeping existing providers aligned—requires the smallest practical amount of provider-specific code. Shared infrastructure should own recurring mechanics such as execution context, message identity/history, model handling, authentication/session ownership, transport, cancellation, and common file/progress/error handling. An integration should contain only the provider-specific endpoint and DTO mappings, protocol interpretation, and orchestration that cannot be shared.
+
+**Success measure:** the next integration should mostly be assembled from existing primitives. Adding a provider should not require another provider-specific framework or changes to unrelated integrations. Minimize total implementation and maintenance code without hiding real provider differences behind speculative abstractions or sacrificing correctness, testability, security, or existing behavior.
+
+Keep concurrent chats independent, retain existing public behavior, and make integration capabilities difficult to misuse.
 
 In scope:
 - `IntegrationBase`, `ApiIntegrationBase`, `BrowserIntegrationBase`, `BrowserAccountIntegrationBase`, `LocalModelIntegrationBase`, and migration from current `ChatIntegrationBase`/modules.
@@ -191,7 +195,7 @@ The existing DOM-based ChatGPT Guest, Gemini Guest and Grok Account workflows ar
 - [ ] One connection-scoped integration and independent immutable chat contexts; existing parallelism limits, per-ChatId send ordering, shared authenticated host, Agent context retention/release, guest ephemerality and cancellation isolation all remain correct.
 - [ ] Browser Account login flows use `BrowserAccountIntegrationBase` and existing auth owner; Guest never requires account login; browser security and diagnostics checks remain intact.
 - [ ] Existing ChatGPT Guest, Gemini Guest and Grok Account DOM workflows remain functional through the contract migration; DOM removal/private-API rewrites are explicitly deferred to a separate task.
-- [ ] All active integrations build and support their existing operations without newly duplicated provider boilerplate.
+- [ ] New and existing integrations follow the same thin-adapter pattern: provider code contains only unavoidable provider-specific endpoint/DTO mappings, protocol interpretation and orchestration; shared mechanics remain in reusable infrastructure. Adding another provider should primarily compose existing primitives, without introducing another provider framework or changing unrelated integrations. Validate this against the migrated providers; do not optimize raw line count by compressing code or hiding complexity.
 - [ ] One authenticated typed Electron endpoint is proven end-to-end **before** broad transport migration; typed API/browser calls then share semantics, headers/auth remain session-owned, cancellation/progress and bounded safe retry work, with **no duplicate prompt** on uncertain submission.
 - [ ] MEŽS chat `Id` stable; `ProviderId` persisted per chat+connection; provider-compatible user IDs generated before persistence; returned reply IDs follow deterministic policy. Existing chat history, reply ancestry and legacy remote continuation remain accessible after restart.
 - [ ] On-demand history returns cross-provider messages, nullable limit/offset, both `fromStart` directions and chronologically ordered slices; no forced history payload on every prompt.
