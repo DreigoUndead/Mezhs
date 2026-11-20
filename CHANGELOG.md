@@ -2,6 +2,26 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.9.0] - 2026-11-20
+
+### Added
+- Automatically regenerate and commit Codegraph on non-main task-branch pushes when the generated graph changes.
+
+### Changed
+- Pin Codegraph 3.0.0 and native dependency 2.0.0; reject degraded parser output before committing.
+- Use graph-only bot commits, branch-specific concurrency and non-force pushes; prevent graph-only self-trigger loops.
+- Preserve the manual exporter as a fallback and require verification against the final branch SHA.
+
+### Verification and approval
+- Independent High-risk final testing PASS at PR #67 head d29cad9b00ff5c8d94cef62e4366aff19b580d6a against main ed98bb5c3f9c0a07fbf6589b4b6819fdba0519ee.
+- Windows Codegraph workflow run 44623330636 succeeded; independent testing evidence: https://github.com/DreigoUndead/Mezhs/pull/67#issuecomment-7025777531
+- Owner explicitly approved merging PR #67 on 2026-11-20 and overrode the uncompleted independent code-review gate.
+
+### Known limitations
+- Independent code review PASS was not recorded before the owner-approved merge.
+- Full hosted Core CI did not pass on the bot-created final SHA. Available local exact-SHA regressions passed; Agent runtime resilience remained environment-blocked by missing PowerShell 7.
+- Git race and degraded-output tests used the actual workflow Bash step and disposable local Git fixtures, not a hosted concurrency test.
+
 ## [0.8.3] - 2026-11-19
 
 ### Fixed
