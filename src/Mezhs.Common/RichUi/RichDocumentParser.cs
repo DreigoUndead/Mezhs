@@ -555,7 +555,8 @@ public sealed partial class RichDocumentParser
     internal sealed record TagContext(
         RichDocumentParser Parser, Tag Tag, RichTagDefinition Definition,
         int Closer, int End, int Depth, string? Parent, bool SvgScope,
-        IReadOnlyDictionary<string, string> Attributes);
+        IReadOnlyDictionary<string, string> Attributes,
+        string? CommandBody = null, RichSourceSpan? CommandSource = null);
 
     internal readonly record struct TagHandling(int End, RichNode? Display = null);
 
