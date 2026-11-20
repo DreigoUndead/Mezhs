@@ -1,5 +1,9 @@
-# Repository instructions
+# Agent Reference
 
-Read [the development workflow](.agents/workflow.md) before modifying this repository. It links to the instructions for each step.
+For code search, dependencies and impact analysis, use Codegraph.
 
-**Never merge implementation into `main` without the project owner's explicit approval of the completed change.**
+For project architecture, read [Architecture](docs/architecture.md).
+
+For software development, follow [Development Workflow](.agents/workflow.md).
+
+**Do not modify `main` unless explicitly instructed by the project owner.**

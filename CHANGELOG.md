@@ -2,6 +2,45 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.9.1] - 2026-11-20
+
+### Changed
+- Replace fragmented development-agent instructions with a reusable role-based workflow covering proportional planning, independent review, development, testing, Deploy and release versioning.
+- Keep task-plan decisions and meaningful changes across clean agent handoffs, with neutral next-role prompts and explicit owner approval before merging.
+- Separate MEŽS-specific agent creation, execution and isolated live-test guidance from generic workflow instructions.
+- Remove obsolete workflow files, update active links and PR guidance, and archive the approved plan under `specifications/implemented/` during Deploy.
+- Reconcile `docs/agent-tools.md` with the current Agent command protocol after integrating `main`; retain automated Codegraph generation without manual graph edits.
+
+### Verification and approval
+- Owner explicitly instructed merging PR #70 on 2026-11-20; task branch head `b93d431373f94aa146309e8b905e3a785c76f0cc` was merged in `a9a49787cd743d0b2bb111c7f24e497dfee30f50`.
+- MEŽS Core Windows CI passed at prior head `84819605a2947693e7b522dbf6a51a396859ea98` (run `44651604501`); the final branch commit was documentation-only plan archival and its Core CI was in progress when the merge was authorized.
+- Codegraph regeneration passed on the final branch commit (run `44733417298`). Relative Markdown targets in 65 files were checked with no missing paths.
+- No application source behavior was changed by this task.
+
+### Known limitations
+- A fresh independent integrated Code Review after branch synchronization was not completed; the owner directed merging with that gap disclosed.
+- No separate local live application testing was performed for this documentation refactor. Final archived-head Core CI had not completed when the merge was performed.
+
+## [0.9.0] - 2026-11-20
+
+### Added
+- Automatically regenerate and commit Codegraph on non-main task-branch pushes when the generated graph changes.
+
+### Changed
+- Pin Codegraph 3.0.0 and native dependency 2.0.0; reject degraded parser output before committing.
+- Use graph-only bot commits, branch-specific concurrency and non-force pushes; prevent graph-only self-trigger loops.
+- Preserve the manual exporter as a fallback and require verification against the final branch SHA.
+
+### Verification and approval
+- Independent High-risk final testing PASS at PR #67 head d29cad9b00ff5c8d94cef62e4366aff19b580d6a against main ed98bb5c3f9c0a07fbf6589b4b6819fdba0519ee.
+- Windows Codegraph workflow run 44623330636 succeeded; independent testing evidence: https://github.com/DreigoUndead/Mezhs/pull/67#issuecomment-7025777531
+- Owner explicitly approved merging PR #67 on 2026-11-20 and overrode the uncompleted independent code-review gate.
+
+### Known limitations
+- Independent code review PASS was not recorded before the owner-approved merge.
+- Full hosted Core CI did not pass on the bot-created final SHA. Available local exact-SHA regressions passed; Agent runtime resilience remained environment-blocked by missing PowerShell 7.
+- Git race and degraded-output tests used the actual workflow Bash step and disposable local Git fixtures, not a hosted concurrency test.
+
 ## [0.8.3] - 2026-11-19
 
 ### Fixed
