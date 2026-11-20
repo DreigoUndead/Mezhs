@@ -169,7 +169,7 @@ public sealed partial class RichDocumentParser
 
     private IReadOnlyList<RichNode> ReadChildren(int start, int end, string? expected,
         int depth, out int position, bool svgScope = false, bool inlineScope = false,
-        bool commandsOnly = false)
+        Func<RichTagDefinition, bool>? discover = null)
     {
         if (depth > MaxDepth) throw new RichDocumentLimitException("Document nesting exceeds limit.");
         var result = new List<RichNode>();
@@ -178,7 +178,7 @@ public sealed partial class RichDocumentParser
         var inline = new List<RichNode>();
         void Flush(int until)
         {
-            if (commandsOnly) { plainFrom = until; return; }
+            if (discover is not null) { plainFrom = until; return; }
             if (until > plainFrom || inline.Count > 0)
                 AppendMarkdown(result, plainFrom, until, svgScope, inlineScope, inline,
                     insideRichContainer: expected is not null);
@@ -187,7 +187,7 @@ public sealed partial class RichDocumentParser
         }
         while (cursor < end)
         {
-            if (!commandsOnly && !svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
+            if (discover is null && !svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
                 RichQuestionGrammar.TryParse(_source, cursor, end,
                     _radioLiteral, out var question, out var questionEnd))
             {
@@ -213,13 +213,11 @@ public sealed partial class RichDocumentParser
                 cursor = tag.End; // A closing delimiter without an opener is ordinary text.
                 continue;
             }
-            if (commandsOnly &&
-                (!RichTagRegistry.TryGet(tag.Name, out var commandTag) ||
-                 commandTag.AllowAsChild ||
-                 commandTag.Role is not (RichTagRole.Command or RichTagRole.Marker)))
+            if (discover is not null &&
+                (!RichTagRegistry.TryGet(tag.Name, out var candidate) ||
+                 !discover(candidate)))
             {
-                // All non-command markup within escape stays inert. In particular,
-                // an entire paired UI element cannot expose its descendants.
+                // Skipped tags keep their complete subtree opaque.
                 if (tag.SelfClosing) { cursor = tag.End; continue; }
                 var close = RichTagRegistry.TryGet(tag.Name, out var ignored) && !ignored.SearchChildren
                     ? FindOpaqueClosing(tag.Name, tag.End, end)
