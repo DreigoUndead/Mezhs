@@ -455,7 +455,7 @@ public sealed class RichDocumentParser
             if (!tag.Closing && !tag.SelfClosing &&
                 _tags.TryGet(tag.Name, out var definition) &&
                 !definition.SearchChildren &&
-                definition.Role is not (RichTagRole.Leaf or RichTagRole.Marker))
+                definition.Role is not RichTagRole.Marker)
             {
                 var opaqueClose = FindOpaqueClosing(tag.Name, tag.End, end);
                 if (opaqueClose >= 0)
