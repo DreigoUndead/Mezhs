@@ -209,6 +209,32 @@ var commentPass = commentDoc.Document.Valid && commentDoc.Commands.Count == 1 &&
     commentDoc.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "element" && n.Name == "text");
 Console.WriteLine($"{(commentPass ? "PASS" : "FAIL")}: HTML literal lowering restores rich elements");
 if (!commentPass) failures++;
+var citeFenceTag = "<Cite ref=\"turn0search0\"/>";
+var citeFenceInputs = new[] {
+    "~~~jsx\n" + citeFenceTag,
+    "~~~jsx\n" + citeFenceTag + "\n",
+    "~~~jsx\n" + citeFenceTag + "\n~~~",
+    "~~~jsx\n" + citeFenceTag + "\n<Widget/>\n~~~",
+    "Before\n\n~~~jsx\n" + citeFenceTag + "\n<Cite ref={foo}/>\n~~~\n\nAfter"
+};
+var citeFencesPass = citeFenceInputs.All(source => {
+    var parsed = new RichDocumentParser(AgentRichTags.Tags).Parse(source);
+    var cites = parsed.Document.Nodes.SelectMany(Walk).Where(n => n.Kind == "element" && n.Name == "Cite").ToArray();
+    var start = source.IndexOf(citeFenceTag, StringComparison.Ordinal);
+    return parsed.Document.Valid && parsed.Commands.Count == 0 && cites.Length == 1 &&
+        cites[0].SourceSpan.Start == start && cites[0].SourceSpan.End == start + citeFenceTag.Length;
+});
+Console.WriteLine($"{(citeFencesPass ? "PASS" : "FAIL")}: Fenced rich inline nodes survive with exact spans, including unclosed and split fences");
+if (!citeFencesPass) failures++;
+var citeFenceWithShell = new RichDocumentParser(AgentRichTags.Tags).Parse("~~~jsx\n" + citeFenceTag + "\n<Widget/>\n~~~\n" + shellTag);
+var citeShellNodes = citeFenceWithShell.Document.Nodes.SelectMany(Walk).ToArray();
+var citeShellPass = citeFenceWithShell.Document.Valid && citeFenceWithShell.Commands.Count == 1 &&
+    citeFenceWithShell.Commands[0].Body == "echo HIDDEN" &&
+    citeShellNodes.Count(n => n.Kind == "element" && n.Name == "Cite") == 1 &&
+    citeShellNodes.Any(n => n.Kind == "unknown" && n.Name == "Widget");
+Console.WriteLine($"{(citeShellPass ? "PASS" : "FAIL")}: Fenced rich inline lowering preserves root command and inert unknown wrapper");
+if (!citeShellPass) failures++;
+
 var fenceInfoSource = "~~~<text>info</text>\\ncontent\\n~~~\\n<SH>ROOT</SH>".Replace("\\n", "\n");
 var fenceInfoDoc = new RichDocumentParser(AgentRichTags.Tags).Parse(fenceInfoSource);
 var fenceInfoPass = fenceInfoDoc.Document.Valid && fenceInfoDoc.Commands.Count == 1 &&

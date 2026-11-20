@@ -2,6 +2,21 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.9.3] - 2026-11-21
+
+### Fixed
+- Preserve registered inline rich UI elements in incomplete and split Markdown code fences, including citations, by using Markdig's actual fenced-code line slices when the block span covers only the opening delimiter.
+- Keep the original UTF-16 source positions, independent visible rich children, inert unsupported controls, and root-only Agent command behavior.
+
+### Verification and approval
+- Owner explicitly instructed merging PR #68 on 2026-11-21; merged approved task branch at `8f59e12704dd15fe66d2dfc79268afa773bd7130` into `main` as `4ea913bd03bed2f965c562fb032e019002eb25cb`.
+- Owner classified this as Small / low risk, waiving independent plan, code and testing agents. Self-review and local merged-implementation checks passed: 121/121 C# parser cases (with 0 expected first-chance parser exceptions), 64/64 Node and Chromium rich-UI checks, and `git diff --check`.
+- Earlier task-branch Agent protocol verification passed, including rejected batch side-effect checks. MEŽS Core CI passed on earlier implementation-inclusive task commit `b122b7f5d38e81d24a834cb1c28e4f8999ffd777` (run 44738184927); this is not evidence of a final integrated CI pass.
+
+### Known limitations
+- Hosted MEŽS Core run 44828968760 for integrated implementation commit `92c4705435ecb1c5685ddc8d0eba8a3ecee23f3c` had not completed when the owner-approved PR was merged. Final Codegraph-only bot commit `8f59e12704dd15fe66d2dfc79268afa773bd7130` was not independently exercised by the local checks.
+- No separate authenticated live-provider Electron desktop test was performed. Literal citation `refs` array behavior belongs to separate PR #66, not this fix.
+
 ## [0.9.2] - 2026-11-20
 
 ### Fixed
