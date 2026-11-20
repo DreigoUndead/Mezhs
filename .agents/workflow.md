@@ -1,69 +1,74 @@
-# Development workflow
+# Development Workflow
 
-Use the smallest safe process. **`main` is release-only. Create or reuse a task branch before the first plan, documentation, workflow, code or test commit. No direct commits to `main` during planning, development, review or testing. The project owner approves every implementation merge into `main`.**
+This workflow applies to software-development tasks. Use only the
+stages needed for the task; the full workflow is not the default.
 
-## 1. [Choose the level](specification.md)
+## Starting work
 
-State the level and reason **before work starts**. Tell the owner; they may override the process. Reassess if the change grows.
+1. Identify your active role or roles.
+   - For a new development request, start with Plan.
+   - For an existing task or handoff, use the assigned role.
+2. Read the instructions for your active role and
+   [Batman](batman.md).
+3. If you are not the Planner, read the task plan, including its
+   Changes section, and work on the branch specified there.
+   For a Small task without a plan file, use its task description.
+4. Record changes and new decisions in the task plan's Changes
+   section, following [Specification](specification.md).
 
-| Level | Examples | Default process |
-| --- | --- | --- |
-| **Small** | Typo, isolated CSS, minor documentation | Task branch first; one chat can plan, change, check and pause for owner review. No mandatory extra agents or plan-only commit. |
-| **Standard** | Most features and bug fixes | Task branch first, plan and implementation on that branch, independent code review, and targeted verification. Use a separate tester when independence adds value. |
-| **High-risk** | Security, architecture, concurrency, migrations, sensitive data | Task branch first, plan and independent plan review on that branch; independent code review **and** independent testing. |
+## Roles
 
-Do not downgrade high-risk work simply to save time. Record a reason for skipped checks or an owner override. The owner may explicitly change the process; **merge permission is always separate**.
+- **Plan:** [plan.md](plan.md) — establish requirements, scope,
+  risks and execution steps.
+- **Plan Review:** [plan-review.md](plan-review.md) — independently
+  validate and correct the plan.
+- **Development:** [development.md](development.md) — implement
+  the plan and run developer tests.
+- **Code Review:** [code-review.md](code-review.md) — independently
+  review and correct the implementation.
+- **Testing:** [testing.md](testing.md) — verify behavior and
+  correct failures.
+- **Deploy:** [deploy.md](deploy.md) — obtain merge approval and
+  finalize the release.
 
-**Context quality:** A new agent is useful when the current one loses track of decisions, repeats investigation, confuses versions or produces weaker reasoning. This is a judgment call, **not a fixed token threshold**. For a Small change, staying in the same chat is fine if the work remains clear.
+The task plan determines which stages are required and may define
+multiple sequential steps within a stage.
 
-### Mandatory complexity escalation (all stages)
+## Execution
 
-During planning, development, plan/code review, testing and debugging, **stop the affected work and ask the owner before adding complexity** when a requirement seems disproportionate to its value, an initially simple feature needs unexpected coordination or persistent safeguards, a simpler approach exists if a guarantee is relaxed, or fixes repeatedly address consequences of the same design choice. **After two fixes driven by the same architectural decision, reassess the design before another fix.** An approved plan does not waive this rule.
+Follow the selected stages in order:
 
-Report concisely: **what** became complex, **which requirement causes it**, **simpler options**, **trade-offs**, and **your recommendation**. Require an explicit owner decision to retain the guarantee, relax it, redesign or stop; record that decision in the task plan or PR before resuming. Do not escalate ordinary implementation details without meaningful maintenance or architectural impact.
+Plan → Plan Review → Development → Code Review → Testing → Deploy
 
-## 2. [Plan](specification.md)
+Only one agent or chat may actively work on a task at a time.
 
-- **All levels:** create a task branch named `<id>` from the current `main` **before the first change or commit**, including a plan or workflow change. Reuse the branch for revisions and fixes. If a task depends on unmerged work, explicitly base its branch on the dependent task branch and keep the relationship visible in the PR.
-- **Small:** a brief plan in the task branch or PR description is enough.
-- **Standard / High-risk:** create and commit `specifications/planned/<id>/plan.md` **on the task branch**, never directly on `main`. Plan reviews and corrections occur on that branch.
-- Use Grill Me when needed. Review and refine the plan; independent plan review is required for High-risk changes, optional for Standard.
-- When ready, hand off to development with a reference to the plan. A new chat is used **when an independent stage or context reset is needed**.
+When a role is complete, hand off to the next required role using
+[Next Role Prompt](next-role-prompt.md). Start a fresh agent/chat
+when independence is required. One chat may perform multiple roles
+only when the plan permits it and independent judgment is not required.
 
-## 3. [Code](coding.md)
+Each role's instructions define its correction loop and PASS, FAIL
+or BLOCKED outcome.
 
-- Continue on the existing task branch `<id>` created before planning. Reuse it for fixes; do not create a second development branch merely because the plan was approved.
-- Implement and run developer checks. Plans may change as code evolves.
-- **Before independent code review/testing**, move any completed plan from `planned/` to `implemented/` **on the task branch**. No plan is copied or committed to `main` before release.
-- Update `specifications/current/` only if behavior changed. Review these updates with the implementation.
-- Use Codegraph where helpful. After pushing task-branch changes, allow the Codegraph GitHub Action to regenerate and commit the graph when needed. Before independent review/testing, verify the run and identify the **final branch SHA**, including any bot graph commit. PR CI from an earlier SHA does not by itself verify that final revision; if the action cannot run, follow the documented manual fallback.
-- Prepare a short release summary and proposed change type (major/minor/patch), then check the branch diff. **Do not edit the version or changelog in the development branch.**
+Do not return to an earlier stage unless the scope or plan changes
+significantly and the owner approves that transition.
 
-## 4. [Review](review.md)
+## Escalation
 
-- Review the implementation **before final testing**. The reviewer also checks planned test coverage.
-- **Small:** a careful same-chat self-review may be enough.
-- **Standard:** use an independent reviewer.
-- **High-risk:** independent review is mandatory.
+- Consult the owner before changing consequential requirements,
+  architecture, accepted guarantees or workflow obligations.
+- Stop and reassess the design before adding disproportionate
+  complexity or stronger guarantees than agreed.
+- After two fixes driven by the same architectural decision,
+  reassess that design before another fix.
+- The owner may override workflow steps. Record the override
+  in the task plan. An override is not permission to merge.
 
-## 5. [Test](testing.md)
+`main` is reserved for approved releases. Changes must remain on
+the task branch until the owner explicitly approves the completed
+implementation for merging.
 
-- Run the checks appropriate to the level and risks. Developer checks and CI are not the same as independent testing.
-- **Small:** same-chat checks and relevant CI can be sufficient.
-- **Standard:** targeted tests; an independent tester when meaningful.
-- **High-risk:** independent testing is mandatory.
+## Environment
 
-## 6. [Owner approval and release](release.md)
-
-- Report what changed, test/review evidence, remaining risks, branch/PR and exact commit.
-- **Pause for the project owner's explicit approval**. Small changes may stay in one chat through this pause. The final tester can perform release after approval; a separate release agent is optional.
-- Before merging, recheck the candidate commit and current `main`. Changed implementation or conflicts may require new review, tests and **renewed owner approval**.
-- After approval, merge the completed task (including its final plan and workflow/documentation changes) into `main` **as part of the release**. **At merge finalization, update the version and changelog exactly once for the whole task**, then tag the resulting release commit and delete the merged branch. No direct plan/workflow commits to `main`, and no version/changelog edits during planning, development, review or testing.
-
-### Handoffs and evidence
-
-When working inside MEŽS, follow [MEŽS Agent Handoff](mezhs-agent-handoff.md) to start required new agents directly instead of providing prompts for manual chat creation.
-
-Every next-role prompt must start with `<Task name> — <Role>` on its **first line**, which MEŽS uses as the chat title. Keep prompts generic by default: include only task-specific references needed to locate the work, without repeating instructions already in `AGENTS.md` or `.agents/`. For independent code reviewers, do not include earlier findings, fixes, or suggested areas of focus.
-
-A new chat is required for independent checks, not for every edit. Request a fresh chat if context quality becomes doubtful. **No agent PASS or plan approval grants merge permission.**
+When operating inside MEŽS, also follow [MEŽS](mezhs.md)
+for environment-specific instructions and agent creation.

@@ -11,4 +11,4 @@ description: Ask focused questions to resolve requirements and design decisions 
 4. Stop when the goal, constraints and acceptance criteria are clear.
 5. Write the answers into the plan. Do not preserve long discussion transcripts.
 
-Use during [planning](../../specification.md). For a simple change, skip the interview.
+Use during [planning](../../plan.md). For a simple change, skip the interview.
