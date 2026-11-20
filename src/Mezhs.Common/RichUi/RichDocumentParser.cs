@@ -230,8 +230,14 @@ public sealed class RichDocumentParser
                     var after = ReadCommand(tag, candidate, end);
                     cursor = after < 0 ? tag.End : after;
                 }
-                else if (tag.SelfClosing || known &&
-                    candidate.Role is (RichTagRole.Leaf or RichTagRole.Marker))
+                else if (known && candidate.Role == RichTagRole.Leaf && !tag.SelfClosing)
+                {
+                    // A paired leaf is malformed, but its body is still an
+                    // opaque boundary and must not expose nested commands.
+                    var leafClose = FindOpaqueClosing(tag.Name, tag.End, end);
+                    cursor = leafClose < 0 ? tag.End : leafClose + tag.Name.Length + 3;
+                }
+                else if (tag.SelfClosing || known && candidate.Role == RichTagRole.Marker)
                     cursor = tag.End;
                 else
                 {
