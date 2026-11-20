@@ -27,7 +27,8 @@ At **document root**, `escape` recognizes the registered Agent protocol tags wit
 
 ## Implementation notes
 - Canonical parser discovers root escaped protocol tags and split wrappers without changing Agent Registry, policy or executor ownership. `RichTagDefinition.Handle` registers per-tag functions: `SH`/`ATTACH`/`DONE` use `TagHandlers.Command`; `escape` uses `TagHandlers.Escape`, which discovers eligible nested tags by calling the same traversal and registered command handlers. The generic parser has no escape-specific case, nor a hardcoded escape name.
-- The tag-handler functions are grouped in `RichDocumentParser.Tags.cs` (a partial class to share private parsing primitives without a second tokenizer). Presentation tags continue to use the existing declarative role/content model. No class-per-tag hierarchy or duplicate parser is added.
+- `FindTags(start, end)` is the **one shared first-level tag finder**: it returns complete tag boundaries and unmatched delimiters. The ordinary `ReadChildren` traversal and the `escape` handler use its results; the old `FindContainerClose` scanner and the escape-specific `LastIndexOf('<')` / `TryTag` scanning were removed. Nested registered handlers are still invoked through the generic parser.
+- The tag-handler functions are grouped in `RichDocumentParser.Tags.cs` (a partial class to share private parsing primitives). Presentation tags continue using the existing declarative role/content model; no second tokenizer or class-per-tag hierarchy is added.
 - Detailed escape guidance removed from `instructions.yaml` and the authoritative Agent prompt.
 - Regression coverage added to the rich parser, Agent parser/Executor smoke, and runtime instruction tests.
 - Windows CI result for final commit must be verified before release; no claim of independent testing under the Small owner override.

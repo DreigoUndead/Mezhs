@@ -161,6 +161,12 @@ Check(splitResult.Commands.SequenceEqual([new Command("SH", "\r\necho SPLIT \r\n
       splitDocument.Commands[0].SourceSpan.Start == "prefix".Length &&
       splitDocument.Commands[0].SourceSpan.End == splitSource.Length - "suffix".Length,
       "Split escaped shell delimiters lost body bytes or original source span.");
+var splitWithTags = parser.Parse(
+    "<escape><SH></escape>echo <box>literal</box><escape></SH></escape>");
+Check(splitWithTags.Commands.SequenceEqual([
+      new Command("SH", "echo <box>literal</box>")]) &&
+      splitWithTags.VisibleContent == "",
+      "Split command must preserve intervening rich-looking text verbatim.");
 var splitAttach = parser.Parse("<escape><ATTACH></escape>file.txt<escape></ATTACH></escape>");
 Check(splitAttach.Commands.SequenceEqual([new Command("ATTACH", "file.txt")]) &&
       splitAttach.VisibleContent == "",
