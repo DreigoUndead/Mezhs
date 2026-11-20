@@ -14,7 +14,7 @@ These tags are a structured protocol, not HTML. The parser recognizes standalone
 
 - **CLI tools:** Execute tools present on the host via allowed `SH` commands. Inspect availability and usage with the appropriate help command (for example, `git --help`, `dotnet --help`, or `node --help`), rather than assuming installation or command syntax. The prompt identifies the host operating system and shell.
 - **Connected tools:** External integrations, including a GitHub connector, may be available in some Agent sessions. Use the tool exposed by the session for supported actions; do not assume it is present. For repository changes, prefer a connected GitHub tool when available.
-- **Agent handoff:** For creating independent agents via the Agent API, follow [MEŽS Agent Handoff](../.agents/mezhs-agent-handoff.md), including policy-ID lookup and verification of created execution IDs.
+- **Agent handoff:** For creating independent agents via the Agent API, follow [MEŽS](../.agents/mezhs.md), including policy-ID lookup and verification of created execution IDs.
 - **Rich replies:** See [supported rich UI](supported-rich-ui.md) for bounded Markdown, layout, SVG and interaction syntax. Unsupported model-supplied markup or JavaScript is not executable.
 
 See [Agent runtime behavior](../specifications/current/agent-runtime.md) and [architecture](architecture.md) for policy and execution ownership. Respect the commands allowed by the current Agent policy and keep execution evidence auditable.
