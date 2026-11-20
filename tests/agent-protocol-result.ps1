@@ -179,6 +179,17 @@ Check(splitAttach.Commands.Count == 0,
 var escapedDone = parser.Parse("<escape><SH>echo OK</SH></escape><escape><DONE></escape>");
 Check(escapedDone.Commands.SequenceEqual([new Command("SH", "echo OK"), new Command("DONE", null)]),
       "Escaped DONE marker did not preserve command ordering.");
+var adjacentEscapedSource = "<escape><SH>echo FIRST</SH><ATTACH>queued.txt</ATTACH><DONE></escape>";
+var adjacentEscaped = parser.Parse(adjacentEscapedSource);
+var adjacentEscapedDoc = new RichDocumentParser(AgentRichTags.Tags).Parse(adjacentEscapedSource);
+Check(adjacentEscaped.Commands.SequenceEqual([
+          new Command("SH", "echo FIRST"), new Command("ATTACH", "queued.txt"),
+          new Command("DONE", null)]) &&
+      adjacentEscaped.VisibleContent == "" && adjacentEscapedDoc.Document.Valid &&
+      adjacentEscapedDoc.Commands.Count == 3 &&
+      adjacentEscapedDoc.Commands[0].SourceSpan.Start == 0 &&
+      adjacentEscapedDoc.Commands[^1].SourceSpan.End == adjacentEscapedSource.Length,
+      "Fully consumed multi-command escape must not leak an empty wrapper into Agent results.");
 Check(parser.Parse("<escape><text><SH>NO</SH></text><SH>YES</SH></escape>")
       .Commands.SequenceEqual([new Command("SH", "YES")]),
       "Other tags within escape must not expose their child commands.");
