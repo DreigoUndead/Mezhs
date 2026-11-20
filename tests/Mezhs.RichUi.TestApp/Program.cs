@@ -3,6 +3,15 @@ using Mezhs.Common.RichUi;
 using Mezhs.RichUi;
 using Mezhs.Agent.Commands;
 
+if (args.Contains("--parse-stdin-results"))
+{
+    Console.InputEncoding = System.Text.Encoding.UTF8;
+    var inputs = JsonSerializer.Deserialize<string[]>(Console.In.ReadToEnd()) ?? [];
+    var results = inputs.Select(source => new RichDocumentParser(AgentRichTags.Tags).Parse(source)).ToArray();
+    Console.Write(JsonSerializer.Serialize(results, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+    return 0;
+}
+
 if (args.Contains("--parse-stdin"))
 {
     // The Windows host console may default to an OEM code page, even when
@@ -541,5 +550,115 @@ var alternatingPass = alternatingParsed.Document.Valid && alternatingParsed.Comm
 Console.WriteLine($"{(alternatingPass ? "PASS" : "FAIL")}: 600 alternating rich/Markdown inlines in {timer.ElapsedMilliseconds} ms, {bytesAllocated / 1024:N0} KiB allocated; rich nodes={inlineNodes}");
 if (!alternatingPass) failures++;
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 18 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 18} passed");
+
+// Regressions for expected invalid model syntax: record only parser-originated
+// first-chance exceptions, not incidental third-party framework exceptions.
+var exceptionCases = new (string Name, string Source, bool Valid, string? Diagnostic,
+    string? Unknown, string[] Commands)[]
+{
+    ("Dynamic JSX literal", "<box border={{size:alert(1)}}>unsafe</box><SH>ROOT</SH>",
+        true, null, "box", ["SH"]),
+    ("Duplicate object key", "<box border={{size:1,size:2}}>x</box>",
+        true, null, "box", []),
+    ("Invalid JSON escape", "<box border={{label:\"\\q\"}}>x</box>",
+        true, null, "box", []),
+    ("Invalid object separator", "<box border={{size:1 color:\"red\"}}>x</box>",
+        true, null, "box", []),
+    ("Trailing array comma", "<box border={{sizes:[1,2,]}}>x</box>",
+        true, null, "box", []),
+    ("Object-only expression", "<box border={[1,2]}>x</box>",
+        true, null, "box", []),
+    ("Unsafe DOM attribute", "<box onClick=\"run()\"><SH>INERT</SH></box><SH>ROOT</SH>",
+        true, null, "box", ["SH"]),
+    ("Duplicate attribute", "<box gap={1} gap={2}>x</box>",
+        true, null, "box", []),
+    ("Unknown SVG child", "<svg><widget><SH>INERT</SH></widget></svg><SH>ROOT</SH>",
+        true, null, "svg", ["SH"]),
+    ("Unsafe SVG paint", "<svg><rect fill=\"url(#evil)\" /></svg><SH>ROOT</SH>",
+        true, null, "svg", ["SH"]),
+    ("Nested SVG", "<svg><svg><circle r=\"2\"/></svg></svg>",
+        true, null, "svg", []),
+    ("Unsafe command attribute", "<SH onClick=\"bad\">ROOT</SH>",
+        false, "Unsupported or duplicate SH attribute: onClick.", null, []),
+    ("DONE not final", "<DONE><SH>ROOT</SH>",
+        false, "DONE must be the final Agent command and occur once.", null, []),
+    ("Duplicate DONE", "<SH>ROOT</SH><DONE><DONE>",
+        false, "DONE must be the final Agent command and occur once.", null, []),
+    ("Node limit", string.Concat(Enumerable.Repeat("<box />", 6001)) + "<SH>ROOT</SH>",
+        false, "Document node limit exceeded.", null, []),
+    ("Depth limit", string.Concat(Enumerable.Repeat("<box>", 34)) + "<SH>INERT</SH>" +
+        string.Concat(Enumerable.Repeat("</box>", 34)) + "<SH>ROOT</SH>",
+        false, "Document nesting exceeds limit.", null, []),
+    ("SVG element limit", "<svg>" +
+        string.Concat(Enumerable.Repeat("<circle r=\"2\"/>", 251)) + "</svg><SH>ROOT</SH>",
+        false, "SVG resource budget exceeded.", null, []),
+    ("Document size", new string('x', 180_001) + "<SH>ROOT</SH>",
+        false, "Message exceeds the document size limit.", null, []),
+    ("Isolated high Unicode surrogate", "<box border={{label:\"\\uD83D\"}}>x</box>",
+        true, null, "box", []),
+    ("Isolated low Unicode surrogate", "<box border={{label:\"\\uDE00\"}}>x</box>",
+        true, null, "box", []),
+    ("Valid surrogate pair", "<box border={{label:\"\\uD83D\\uDE00\"}}>x</box>",
+        true, null, null, []),
+    ("High surrogate followed by non-low", "<box border={{label:\"\\uD83D\\u0041\"}}>x</box>",
+        true, null, "box", []),
+    ("Valid object and commands", "<box border={{size:2,color:\"danger\"}}>x</box><SH>ROOT</SH><DONE>",
+        true, null, null, ["SH", "DONE"]),
+    ("Unknown wrapper containment", "<Widget><SH>INERT</SH></Widget><ATTACH>file.txt</ATTACH><DONE>",
+        true, null, "Widget", ["ATTACH", "DONE"]),
+};
+var parserFirstChance = 0;
+void CountParserFirstChance(object? sender,
+    System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs e)
+{
+    // Check actual declaring types rather than a hardcoded stack-trace string.
+    // Include private nested parser helpers; framework exceptions thrown from
+    // inside parser calls are also counted because their stacks contain a parser frame.
+    foreach (var frame in new System.Diagnostics.StackTrace(e.Exception, false).GetFrames() ?? [])
+    {
+        for (var type = frame.GetMethod()?.DeclaringType;
+             type is not null; type = type.DeclaringType)
+        {
+            if (type != typeof(RichDocumentParser)) continue;
+            parserFirstChance++;
+            return;
+        }
+    }
+}
+AppDomain.CurrentDomain.FirstChanceException += CountParserFirstChance;
+try
+{
+    foreach (var (name, source, valid, diagnostic, unknown, commands) in exceptionCases)
+    {
+        var before = parserFirstChance;
+        var parsed = new RichDocumentParser(AgentRichTags.Tags).Parse(source);
+        var candidates = parsed.Commands.ToArray();
+        var pass = parsed.Document.Valid == valid &&
+            candidates.Select(c => c.Name).SequenceEqual(commands) &&
+            (diagnostic is null || parsed.Document.Diagnostics.Any(d => d.Code == diagnostic)) &&
+            (unknown is null || parsed.Document.Nodes.SelectMany(Walk)
+                .Any(n => n.Kind == "unknown" && n.Name == unknown)) &&
+            parserFirstChance == before;
+        foreach (var candidate in candidates)
+        {
+            var span = candidate.SourceSpan;
+            pass &= span.Start >= 0 && span.End <= source.Length &&
+                span.Start < span.End &&
+                source.AsSpan(span.Start, span.End - span.Start)
+                    .StartsWith("<" + candidate.Name, StringComparison.Ordinal);
+            if (candidate.Name is "SH" or "ATTACH")
+                pass &= candidate.Body != "INERT";
+        }
+        Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: Exception-free {name}; " +
+            $"valid={parsed.Document.Valid}; commands={candidates.Length}; parserFirstChance={parserFirstChance - before}");
+        if (!pass) failures++;
+    }
+}
+finally
+{
+    AppDomain.CurrentDomain.FirstChanceException -= CountParserFirstChance;
+}
+Console.WriteLine($"PARSER_FIRST_CHANCE_EXPECTED={parserFirstChance}");
+
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 18 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 18 + exceptionCases.Length} passed");
 return failures == 0 ? 0 : 1;

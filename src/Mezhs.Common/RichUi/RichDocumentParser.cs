@@ -2,8 +2,8 @@ using Markdig;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 using System.Globalization;
-using System.Text.Json;
 using System.Text;
+using System.Text.Json;
 
 namespace Mezhs.Common.RichUi;
 
@@ -36,6 +36,10 @@ public sealed class RichDocumentParser
     private int _count;
     private int _svgCount;
     private int _svgChars;
+    // Expected validation failures are returned through the parser rather than
+    // thrown. A limit failure cannot be recovered as a UI Unknown node.
+    private sealed record ParseFailure(string Reason, bool Limit = false);
+    private ParseFailure? _failure;
 
     public RichParseResult Parse(string source)
     {
@@ -46,10 +50,12 @@ public sealed class RichDocumentParser
         _count = 0;
         _svgCount = 0;
         _svgChars = 0;
+        _failure = null;
         try
         {
             _radioLiteral = MarkdownLiteralMask(_source);
             var nodes = ReadChildren(0, source.Length, null, 0, out _);
+            if (_failure is { } failure) return Failed(source, failure.Reason);
             // Validate the final typed tree before releasing any command
             // candidates. Rich inline wrappers render as HTML phrasing
             // elements; they must not contain blocks or nested interactive
@@ -60,15 +66,10 @@ public sealed class RichDocumentParser
             if (marker >= 0 && (marker != _commands.Count - 1 ||
                 _commands.Count(c => _tags.TryGet(c.Name, out var tag) &&
                     tag.Role == RichTagRole.Marker) != 1))
-                throw new RichDocumentException(
-                    $"{_commands[marker].Name} must be the final command and occur once.");
+                return Failed(source, $"{_commands[marker].Name} must be the final Agent command and occur once.");
             return new RichParseResult(
                 new RichDocument(RichDocument.CurrentVersion, true, nodes, []),
                 _commands.ToArray());
-        }
-        catch (RichDocumentException e)
-        {
-            return Failed(source, e.Message);
         }
         catch (Exception)
         {
@@ -177,27 +178,35 @@ public sealed class RichDocumentParser
         int depth, out int position, bool svgScope = false, bool inlineScope = false,
         Func<RichTagDefinition, bool>? discover = null)
     {
-        if (depth > MaxDepth) throw new RichDocumentLimitException("Document nesting exceeds limit.");
+        if (depth > MaxDepth)
+        {
+            _failure = new ParseFailure("Document nesting exceeds limit.", Limit: true);
+            position = start;
+            return [];
+        }
         var result = new List<RichNode>();
         var cursor = start;
         var plainFrom = start;
         var inline = new List<RichNode>();
-        void Flush(int until)
+        bool Flush(int until)
         {
-            if (discover is not null) { plainFrom = until; return; }
+            if (discover is not null) { plainFrom = until; return true; }
             if (until > plainFrom || inline.Count > 0)
                 AppendMarkdown(result, plainFrom, until, svgScope, inlineScope, inline,
                     insideRichContainer: expected is not null);
+            if (_failure is not null) return false;
             inline.Clear();
             plainFrom = until;
+            return true;
         }
         while (cursor < end)
         {
+            if (_failure is not null) { position = cursor; return []; }
             if (discover is null && !svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
                 RichQuestionGrammar.TryParse(_source, cursor, end,
                     _radioLiteral, _tags, out var question, out var questionEnd))
             {
-                Flush(cursor);
+                if (!Flush(cursor)) { position = cursor; return []; }
                 Add(result, question);
                 cursor = questionEnd;
                 plainFrom = cursor;
@@ -212,7 +221,7 @@ public sealed class RichDocumentParser
             {
                 if (expected == tag.Name)
                 {
-                    Flush(cursor);
+                    if (!Flush(cursor)) { position = cursor; return []; }
                     position = tag.End;
                     return result;
                 }
@@ -221,8 +230,7 @@ public sealed class RichDocumentParser
             }
             if (discover is not null)
             {
-                // Shared traversal for command discovery: noneligible wrappers
-                // are skipped, including opaque and unclosed UI elements.
+                // Discovery reuses the shared tokenizer and structural boundaries.
                 var known = _tags.TryGet(tag.Name, svgScope, out var candidate);
                 if (known && discover(candidate) &&
                     candidate.Role is (RichTagRole.Command or RichTagRole.Marker))
@@ -230,14 +238,8 @@ public sealed class RichDocumentParser
                     var after = ReadCommand(tag, candidate, end);
                     cursor = after < 0 ? tag.End : after;
                 }
-                else if (known && candidate.Role == RichTagRole.Leaf && !tag.SelfClosing)
-                {
-                    // A paired leaf is malformed, but its body is still an
-                    // opaque boundary and must not expose nested commands.
-                    var leafClose = FindOpaqueClosing(tag.Name, tag.End, end);
-                    cursor = leafClose < 0 ? tag.End : leafClose + tag.Name.Length + 3;
-                }
-                else if (tag.SelfClosing || known && candidate.Role == RichTagRole.Marker)
+                else if (tag.SelfClosing || known &&
+                    candidate.Role is (RichTagRole.Leaf or RichTagRole.Marker))
                     cursor = tag.End;
                 else
                 {
@@ -255,12 +257,16 @@ public sealed class RichDocumentParser
                 // Inside SVG the entire SVG becomes Unknown rather than placing
                 // an HTML diagnostic element into native SVG geometry.
                 if (svgScope)
-                    throw new RichDocumentException($"Unsupported SVG child: {tag.Name}.");
+                {
+                    _failure = new ParseFailure($"Unsupported SVG child: {tag.Name}.");
+                    position = cursor;
+                    return [];
+                }
                 var unknownEnd = tag.SelfClosing ? tag.End :
                     FindContainerClose(tag.Name, tag.End, end);
                 if (unknownEnd < 0) { cursor = tag.End; continue; }
                 if (!tag.SelfClosing) unknownEnd += tag.Name.Length + 3;
-                Flush(cursor);
+                if (!Flush(cursor)) { position = cursor; return []; }
                 AddUnknown(result, tag, unknownEnd, "Unsupported control", depth);
                 cursor = unknownEnd;
                 plainFrom = cursor;
@@ -284,6 +290,7 @@ public sealed class RichDocumentParser
             if (definition.Role is RichTagRole.Command or RichTagRole.Marker)
             {
                 var afterCommand = ReadCommand(tag, definition, end);
+                if (_failure is not null) { position = cursor; return []; }
                 cursor = afterCommand < 0 ? tag.End : afterCommand;
                 continue;
             }
@@ -292,10 +299,15 @@ public sealed class RichDocumentParser
             var inlineElement = !svgScope && InlineElements.Contains(tag.Name);
             if (definition.Role == RichTagRole.Leaf && !tag.SelfClosing)
             {
-                if (svgScope) throw new RichDocumentException("Invalid SVG leaf.");
+                if (svgScope)
+                {
+                    _failure = new ParseFailure("Invalid SVG leaf.");
+                    position = cursor;
+                    return [];
+                }
                 var leafClose = FindOpaqueClosing(tag.Name, tag.End, end);
                 var leafEnd = leafClose < 0 ? tag.End : leafClose + tag.Name.Length + 3;
-                Flush(from);
+                if (!Flush(from)) { position = cursor; return []; }
                 AddUnknown(result, tag, leafEnd, "Leaf requires self-closing syntax", depth,
                     opaque: leafClose >= 0);
                 cursor = leafEnd;
@@ -311,21 +323,26 @@ public sealed class RichDocumentParser
                 if (closer < 0) { cursor = tag.End; continue; }
             }
 
-            IReadOnlyDictionary<string, string> attributes;
-            try
+            var validAttributes = TryParseAttributes(tag, definition, out var attributes, out var reason);
+            if (validAttributes && (svgScope || tag.Name == "svg") &&
+                (svgScope && !RichSvgValidation.AllowsChild(expected, tag.Name) ||
+                 !RichSvgValidation.Valid(tag.Name, attributes)))
             {
-                attributes = ParseAttributes(tag, definition);
-                if ((svgScope || tag.Name == "svg") &&
-                    (svgScope && !RichSvgValidation.AllowsChild(expected, tag.Name) ||
-                     !RichSvgValidation.Valid(tag.Name, attributes)))
-                    throw new RichDocumentException($"Unsafe SVG attributes or nesting: {tag.Name}.");
+                validAttributes = false;
+                reason = $"Unsafe SVG attributes or nesting: {tag.Name}.";
             }
-            catch (RichDocumentException e) when (e is not RichDocumentLimitException)
+            if (!validAttributes)
             {
-                if (svgScope) throw; // Parent SVG falls back as one inert unit.
-                Flush(from);
+                if (svgScope)
+                {
+                    // The outer SVG is replaced by one inert Unknown node.
+                    _failure = new ParseFailure(reason);
+                    position = cursor;
+                    return [];
+                }
+                if (!Flush(from)) { position = cursor; return []; }
                 var unknownEnd = tag.SelfClosing ? tag.End : closer + tag.Name.Length + 3;
-                AddUnknown(result, tag, unknownEnd, e.Message, depth,
+                AddUnknown(result, tag, unknownEnd, reason, depth,
                     opaque: !definition.SearchChildren);
                 cursor = unknownEnd;
                 plainFrom = cursor;
@@ -334,34 +351,51 @@ public sealed class RichDocumentParser
             if (svgScope || tag.Name == "svg")
             {
                 if (++_svgCount > 250 || depth > 12)
-                    throw new RichDocumentLimitException("SVG resource budget exceeded.");
+                {
+                    _failure = new ParseFailure("SVG resource budget exceeded.", Limit: true);
+                    position = cursor;
+                    return [];
+                }
                 _svgChars += attributes.Sum(item => item.Value.Length);
                 if (_svgChars > 24_000)
-                    throw new RichDocumentLimitException("SVG content budget exceeded.");
+                {
+                    _failure = new ParseFailure("SVG content budget exceeded.", Limit: true);
+                    position = cursor;
+                    return [];
+                }
             }
             if (definition.Role is (RichTagRole.OpaqueLiteral or RichTagRole.RawEditor) &&
                 tag.SelfClosing)
-                throw new RichDocumentException($"{tag.Name} requires a closing delimiter.");
+            {
+                _failure = new ParseFailure($"{tag.Name} requires a closing delimiter.");
+                position = cursor;
+                return [];
+            }
             if (definition.Handle is { } handler)
             {
                 var handled = handler(new RichTagContext(this, tag.Name, tag.Start,
                     tag.End, closer, closer + tag.Name.Length + 3,
                     expected is null && !svgScope, attributes));
+                if (_failure is not null) { position = cursor; return []; }
                 if (handled.Display is { } display)
                 {
-                    Flush(from);
+                    if (!Flush(from)) { position = cursor; return []; }
                     Add(result, display);
                     plainFrom = handled.End;
                 }
                 cursor = handled.End;
                 continue;
             }
-            if (!inlineElement) Flush(from);
+            if (!inlineElement && !Flush(from)) { position = cursor; return []; }
             cursor = tag.End;
             if (definition.Role is RichTagRole.OpaqueLiteral or RichTagRole.RawEditor)
             {
                 if (tag.SelfClosing)
-                    throw new RichDocumentException($"{tag.Name} requires a closing delimiter.");
+                {
+                    _failure = new ParseFailure($"{tag.Name} requires a closing delimiter.");
+                    position = cursor;
+                    return [];
+                }
                 var after = closer + tag.Name.Length + 3;
                 Add(result, new RichNode(definition.Role == RichTagRole.OpaqueLiteral ? "literal" : "raw",
                     $"{from}:raw", new RichSourceSpan(from, after),
@@ -370,8 +404,6 @@ public sealed class RichDocumentParser
             }
             else if (definition.Role == RichTagRole.Leaf || tag.SelfClosing)
             {
-                if (definition.Role == RichTagRole.Leaf && !tag.SelfClosing)
-                    throw new RichDocumentException($"{tag.Name} must be self-closing.");
                 var element = new RichNode("element", $"{from}:element", new RichSourceSpan(from, cursor),
                     Name: tag.Name, Attributes: attributes);
                 if (inlineElement) inline.Add(element);
@@ -392,19 +424,21 @@ public sealed class RichDocumentParser
             else
             {
                 var afterClose = closer + tag.Name.Length + 3;
-                IReadOnlyList<RichNode> children;
-                int after;
-                try
+                var children = ReadChildren(cursor, afterClose, tag.Name, depth + 1,
+                    out var after, svgScope || tag.Name == "svg", inlineElement);
+                if (_failure is { } childFailure)
                 {
-                    children = ReadChildren(cursor, afterClose, tag.Name, depth + 1,
-                        out after, svgScope || tag.Name == "svg", inlineElement);
-                }
-                catch (RichDocumentException e) when (!svgScope && e is not RichDocumentLimitException)
-                {
-                    // A malformed UI subtree is one inert diagnostic block.
-                    // Never let its invalid children turn into root commands.
-                    if (inlineElement) Flush(from);
-                    AddUnknown(result, tag, afterClose, e.Message, depth, opaque: true);
+                    if (svgScope || childFailure.Limit)
+                    {
+                        position = cursor;
+                        return [];
+                    }
+                    // The same boundary as the old nested validation catch:
+                    // malformed UI becomes inert, whereas resource limits fail
+                    // the entire document with no released command candidates.
+                    _failure = null;
+                    if (inlineElement && !Flush(from)) { position = cursor; return []; }
+                    AddUnknown(result, tag, afterClose, childFailure.Reason, depth, opaque: true);
                     cursor = afterClose;
                     plainFrom = cursor;
                     continue;
@@ -418,7 +452,7 @@ public sealed class RichDocumentParser
             }
             if (!inlineElement) plainFrom = cursor;
         }
-        Flush(end);
+        if (!Flush(end)) { position = end; return []; }
         position = end;
         return result;
     }
@@ -436,6 +470,7 @@ public sealed class RichDocumentParser
             else
                 children = ReadChildren(tag.End, end, tag.Name, depth + 1, out _);
         }
+        if (_failure is not null) return;
         Add(nodes, new RichNode("unknown", $"{tag.Start}:unknown",
             new RichSourceSpan(tag.Start, end), Name: tag.Name,
             Attributes: new Dictionary<string, string> { ["reason"] = reason },
@@ -455,7 +490,7 @@ public sealed class RichDocumentParser
             if (!tag.Closing && !tag.SelfClosing &&
                 _tags.TryGet(tag.Name, out var definition) &&
                 !definition.SearchChildren &&
-                definition.Role is not RichTagRole.Marker)
+                definition.Role is not (RichTagRole.Leaf or RichTagRole.Marker))
             {
                 var opaqueClose = FindOpaqueClosing(tag.Name, tag.End, end);
                 if (opaqueClose >= 0)
@@ -474,11 +509,14 @@ public sealed class RichDocumentParser
         return -1;
     }
 
-    // Shared command extraction for ordinary root tags and the root escape handler.
+    // Shared command extraction for ordinary root tags and escape discovery.
     private int ReadCommand(Tag tag, RichTagDefinition definition, int end)
     {
         if (tag.SelfClosing)
-            throw new RichDocumentException($"{tag.Name} cannot be self-closing.");
+        {
+            _failure = new ParseFailure($"{tag.Name} cannot be self-closing.");
+            return tag.End;
+        }
         var after = tag.End;
         string? body = null;
         if (definition.Role == RichTagRole.Command)
@@ -488,9 +526,16 @@ public sealed class RichDocumentParser
             body = _source[tag.End..close];
             after = close + tag.Name.Length + 3;
         }
-        ParseAttributes(tag, definition);
+        if (!TryParseAttributes(tag, definition, out _, out var reason))
+        {
+            _failure = new ParseFailure(reason);
+            return after;
+        }
         if (_commands.Count >= MaxNodes)
-            throw new RichDocumentLimitException("Command count exceeds limit.");
+        {
+            _failure = new ParseFailure("Command count exceeds limit.", Limit: true);
+            return after;
+        }
         _commands.Add(new RichCommandCandidate(tag.Name, body,
             new RichSourceSpan(tag.Start, after)));
         return after;
@@ -541,7 +586,11 @@ public sealed class RichDocumentParser
 
     private void Add(List<RichNode> nodes, RichNode node)
     {
-        if (++_count > MaxNodes) throw new RichDocumentLimitException("Document node limit exceeded.");
+        if (++_count > MaxNodes)
+        {
+            _failure = new ParseFailure("Document node limit exceeded.", Limit: true);
+            return;
+        }
         nodes.Add(node);
     }
 
@@ -554,7 +603,10 @@ public sealed class RichDocumentParser
             var raw = _source[start..end];
             _svgChars += raw.Length;
             if (_svgChars > 24_000)
-                throw new RichDocumentLimitException("SVG content budget exceeded.");
+            {
+                _failure = new ParseFailure("SVG content budget exceeded.", Limit: true);
+                return;
+            }
             if (!string.IsNullOrWhiteSpace(raw))
                 Add(nodes, new RichNode("text", $"{start}:text", new RichSourceSpan(start, end), Text: raw));
             return;
@@ -579,10 +631,17 @@ public sealed class RichDocumentParser
             }
             foreach (var node in parsed) Visit(node);
             if (remaining.Count > 0)
-                throw new RichDocumentException("Inline rich element did not survive Markdown lowering.");
+            {
+                _failure = new ParseFailure("Inline rich element did not survive Markdown lowering.");
+                return;
+            }
         }
         _count += convertedCount - priorChildren;
-        if (_count > MaxNodes) throw new RichDocumentLimitException("Document node limit exceeded.");
+        if (_count > MaxNodes)
+        {
+            _failure = new ParseFailure("Document node limit exceeded.", Limit: true);
+            return;
+        }
         nodes.AddRange(parsed);
     }
 
@@ -646,42 +705,67 @@ public sealed class RichDocumentParser
         name is "style" or "class" or "className" or "dangerouslySetInnerHTML" or
             "innerHTML" or "ref" or "srcDoc" or "suppressHydrationWarning";
 
-    private static IReadOnlyDictionary<string, string> ParseAttributes(Tag tag, RichTagDefinition definition)
+    private static bool TryParseAttributes(Tag tag, RichTagDefinition definition,
+        out IReadOnlyDictionary<string, string> attributes, out string reason)
     {
-        if (tag.Closing) return new Dictionary<string, string>();
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        attributes = result;
+        reason = "";
+        if (tag.Closing) return true;
         var source = tag.RawAttributes.AsSpan().Trim();
         while (source.Length > 0)
         {
             if (result.Count >= MaxAttributes)
-                throw new RichDocumentException("Too many tag attributes.");
+            {
+                reason = "Too many tag attributes.";
+                return false;
+            }
             var i = 0;
             while (i < source.Length && (char.IsLetterOrDigit(source[i]) || source[i] is '-' or '_')) i++;
-            if (i == 0) throw new RichDocumentException("Invalid tag attribute name.");
+            if (i == 0)
+            {
+                reason = "Invalid tag attribute name.";
+                return false;
+            }
             var name = source[..i].ToString();
             if (result.ContainsKey(name) ||
                 definition.AllowedAttributes is { } allowed && !allowed.Contains(name) ||
                 definition.AllowedAttributes is null && UnsafePresentationAttribute(name))
-                throw new RichDocumentException($"Unsupported or duplicate {tag.Name} attribute: {name}.");
+            {
+                reason = $"Unsupported or duplicate {tag.Name} attribute: {name}.";
+                return false;
+            }
             source = source[i..].TrimStart();
             string value;
             if (source.Length == 0 || source[0] != '=') value = "true";
             else
             {
                 source = source[1..].TrimStart();
-                if (source.Length == 0) throw new RichDocumentException("Empty attribute value.");
+                if (source.Length == 0)
+                {
+                    reason = "Empty attribute value.";
+                    return false;
+                }
                 if (source[0] is '\'' or '"')
                 {
                     var quote = source[0];
                     var stop = source[1..].IndexOf(quote);
-                    if (stop < 0) throw new RichDocumentException("Unclosed quoted attribute.");
+                    if (stop < 0)
+                    {
+                        reason = "Unclosed quoted attribute.";
+                        return false;
+                    }
                     value = source.Slice(1, stop).ToString();
                     source = source[(stop + 2)..];
                 }
                 else if (source[0] == '{')
                 {
                     var stop = FindExpressionEnd(source);
-                    if (stop < 0) throw new RichDocumentException("Unclosed attribute expression.");
+                    if (stop < 0)
+                    {
+                        reason = "Unclosed attribute expression.";
+                        return false;
+                    }
                     var expression = source.Slice(1, stop - 1).ToString().Trim();
                     if (decimal.TryParse(expression, NumberStyles.Float,
                             CultureInfo.InvariantCulture, out var number))
@@ -690,30 +774,33 @@ public sealed class RichDocumentParser
                         value = expression;
                     else
                     {
-                        // Data-only object/array literals become the same json:
-                        // attribute representation already used by the UI.
-                        // Identifiers, function calls and JS operators never run.
-                        try
+                        // Literal validation is data-only; malformed syntax is
+                        // an ordinary status result, not a thrown exception.
+                        if (!new SafeLiteralReader(expression).TryRead(out var literal) ||
+                            literal is not Dictionary<string, object?>)
                         {
-                            var literal = new SafeLiteralReader(expression).Read();
-                            if (literal is not Dictionary<string, object?>)
-                                throw new FormatException("Expected an object literal.");
-                            value = "json:" + Uri.EscapeDataString(JsonSerializer.Serialize(literal));
+                            reason = "Unsupported non-literal attribute expression.";
+                            return false;
                         }
-                        catch (Exception e) when (e is FormatException or JsonException or OverflowException)
-                        {
-                            throw new RichDocumentException("Unsupported non-literal attribute expression.");
-                        }
+                        value = "json:" + Uri.EscapeDataString(JsonSerializer.Serialize(literal));
                     }
                     source = source[(stop + 1)..];
                 }
-                else throw new RichDocumentException("Attribute must be quoted or a bounded literal.");
+                else
+                {
+                    reason = "Attribute must be quoted or a bounded literal.";
+                    return false;
+                }
             }
-            if (value.Length > 2_048) throw new RichDocumentException("Attribute value too long.");
+            if (value.Length > 2_048)
+            {
+                reason = "Attribute value too long.";
+                return false;
+            }
             result.Add(name, value);
             source = source.TrimStart();
         }
-        return result;
+        return true;
     }
 
     // Find the outer brace with correct quote/escape handling. TryTag already
@@ -745,96 +832,171 @@ public sealed class RichDocumentParser
         private int _at;
         private int _items;
 
-        public object? Read()
+        public bool TryRead(out object? value)
         {
-            var value = Value(0);
+            if (!TryValue(0, out value)) return false;
             Space();
-            if (_at != source.Length) throw new FormatException("Unexpected literal tail.");
-            return value;
+            return _at == source.Length;
         }
 
-        private object? Value(int depth)
+        private bool TryValue(int depth, out object? value)
         {
-            if (depth > 8 || ++_items > 128)
-                throw new FormatException("Literal resource budget exceeded.");
+            value = null;
+            if (depth > 8 || ++_items > 128) return false;
             Space();
-            if (_at >= source.Length) throw new FormatException("Missing literal.");
-            if (source[_at] == '{') return Object(depth + 1);
-            if (source[_at] == '[') return Array(depth + 1);
-            if (source[_at] == '"') return Quoted();
+            if (_at >= source.Length) return false;
+            if (source[_at] == '{')
+            {
+                if (!TryObject(depth + 1, out var obj)) return false;
+                value = obj;
+                return true;
+            }
+            if (source[_at] == '[')
+            {
+                if (!TryArray(depth + 1, out var array)) return false;
+                value = array;
+                return true;
+            }
+            if (source[_at] == '"')
+            {
+                if (!TryQuoted(out var quoted)) return false;
+                value = quoted;
+                return true;
+            }
             var from = _at;
             while (_at < source.Length && !char.IsWhiteSpace(source[_at]) &&
                    source[_at] is not (',' or '}' or ']')) _at++;
             var token = source[from.._at];
-            if (token == "true") return true;
-            if (token == "false") return false;
-            if (token == "null") return null;
+            if (token == "true") { value = true; return true; }
+            if (token == "false") { value = false; return true; }
+            if (token == "null") return true;
             if (decimal.TryParse(token, NumberStyles.Float,
                     CultureInfo.InvariantCulture, out var n))
-                return n;
-            throw new FormatException("Only data literals are supported.");
+            {
+                value = n;
+                return true;
+            }
+            return false;
         }
 
-        private Dictionary<string, object?> Object(int depth)
+        private bool TryObject(int depth, out Dictionary<string, object?> result)
         {
             _at++; // {
-            var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+            result = new Dictionary<string, object?>(StringComparer.Ordinal);
             Space();
-            if (Take('}')) return result;
+            if (Take('}')) return true;
             while (true)
             {
                 Space();
-                var key = _at < source.Length && source[_at] == '"'
-                    ? Quoted() : Identifier();
+                string key;
+                if (_at < source.Length && source[_at] == '"')
+                {
+                    if (!TryQuoted(out key)) return false;
+                }
+                else if (!TryIdentifier(out key)) return false;
                 Space();
-                Expect(':');
-                if (!result.TryAdd(key, Value(depth)))
-                    throw new FormatException("Duplicate literal key.");
+                if (!Expect(':') || !TryValue(depth, out var value) || !result.TryAdd(key, value))
+                    return false;
                 Space();
-                if (Take('}')) return result;
-                Expect(',');
+                if (Take('}')) return true;
+                if (!Expect(',')) return false;
             }
         }
 
-        private List<object?> Array(int depth)
+        private bool TryArray(int depth, out List<object?> result)
         {
             _at++; // [
-            var result = new List<object?>();
+            result = [];
             Space();
-            if (Take(']')) return result;
+            if (Take(']')) return true;
             while (true)
             {
-                result.Add(Value(depth));
+                if (!TryValue(depth, out var value)) return false;
+                result.Add(value);
                 Space();
-                if (Take(']')) return result;
-                Expect(',');
+                if (Take(']')) return true;
+                if (!Expect(',')) return false;
             }
         }
 
-        private string Identifier()
+        private bool TryIdentifier(out string key)
         {
+            key = "";
             var from = _at;
             if (_at >= source.Length || !(char.IsLetter(source[_at]) || source[_at] == '_'))
-                throw new FormatException("Invalid literal property.");
+                return false;
             while (_at < source.Length &&
                    (char.IsLetterOrDigit(source[_at]) || source[_at] is '_' or '-')) _at++;
-            return source[from.._at];
+            key = source[from.._at];
+            return true;
         }
 
-        private string Quoted()
+        private bool TryQuoted(out string value)
         {
-            var from = _at++;
-            var escaped = false;
+            value = "";
+            if (!Take('"')) return false;
+            var builder = new StringBuilder();
             while (_at < source.Length)
             {
                 var c = source[_at++];
-                if (escaped) { escaped = false; continue; }
-                if (c == '\\') { escaped = true; continue; }
                 if (c == '"')
-                    return JsonSerializer.Deserialize<string>(source[from.._at]) ??
-                        throw new FormatException("Invalid string literal.");
+                {
+                    value = builder.ToString();
+                    return true;
+                }
+                if (c < ' ') return false;
+                if (c != '\\')
+                {
+                    builder.Append(c);
+                    continue;
+                }
+                if (_at >= source.Length) return false;
+                var escape = source[_at++];
+                switch (escape)
+                {
+                    case '"': builder.Append('"'); break;
+                    case '\\': builder.Append('\\'); break;
+                    case '/': builder.Append('/'); break;
+                    case 'b': builder.Append('\b'); break;
+                    case 'f': builder.Append('\f'); break;
+                    case 'n': builder.Append('\n'); break;
+                    case 'r': builder.Append('\r'); break;
+                    case 't': builder.Append('\t'); break;
+                    case 'u':
+                        if (!TryUnicodeEscape(out var unicode)) return false;
+                        if (char.IsHighSurrogate(unicode) && _at + 6 <= source.Length &&
+                            source[_at] == '\\' && source[_at + 1] == 'u')
+                        {
+                            var afterHigh = _at;
+                            _at += 2;
+                            if (TryUnicodeEscape(out var low) && char.IsLowSurrogate(low))
+                            {
+                                builder.Append(unicode);
+                                builder.Append(low);
+                                break;
+                            }
+                            _at = afterHigh;
+                        }
+                        // Match System.Text.Json: isolated escaped UTF-16 surrogates
+                        // are invalid rather than silently replaced in a literal.
+                        if (char.IsSurrogate(unicode)) return false;
+                        builder.Append(unicode);
+                        break;
+                    default: return false;
+                }
             }
-            throw new FormatException("Unclosed literal string.");
+            return false;
+        }
+
+        private bool TryUnicodeEscape(out char value)
+        {
+            value = default;
+            if (_at + 4 > source.Length ||
+                !ushort.TryParse(source.AsSpan(_at, 4), NumberStyles.HexNumber,
+                    CultureInfo.InvariantCulture, out var number)) return false;
+            _at += 4;
+            value = (char)number;
+            return true;
         }
 
         private void Space()
@@ -849,13 +1011,10 @@ public sealed class RichDocumentParser
             return true;
         }
 
-        private void Expect(char expected)
+        private bool Expect(char expected)
         {
             Space();
-            if (!Take(expected)) throw new FormatException("Invalid literal separator.");
+            return Take(expected);
         }
     }
-
-    private class RichDocumentException(string message) : Exception(message);
-    private sealed class RichDocumentLimitException(string message) : RichDocumentException(message);
 }

@@ -2,6 +2,25 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.9.2] - 2026-11-20
+
+### Fixed
+- Replace exceptions for expected Rich UI parser validation failures with explicit bounded failure results; retain fail-closed Agent command handling, inert Unknown/SVG fallback, diagnostic output and resource limits.
+- Preserve existing parser AST and command-candidate behavior while eliminating routine debugger first-chance exception noise.
+- Make first-chance regression tests resilient to parser type and namespace renames by inspecting stack-frame declaring types instead of a hardcoded class-name string.
+
+### Verification and approval
+- Owner explicitly approved merging PR #72 on 2026-11-20. The task merged into `main` as `24b4519bf0634f14bec3116be6c0f158d8b022f0`; plan and verification were archived under `specifications/implemented/parser-expected-failures-no-exceptions/`.
+- Single-agent, **non-independent** self-review and developer tests followed the owner's explicit workflow override.
+- The Release build succeeded with 0 errors and one unrelated WhatsApp CS0114 warning. C# parser tests passed 121/121 with 0 expected parser first-chance exceptions. Relevant browser tests passed 66/66 and provider JavaScript tests passed 120/120.
+- Read-only historical replay of 6,666 assistant messages matched the original parser with 0 AST and command differences across 8,325 candidates; parser first-chance exceptions dropped from 310 to 0. Unicode differential matched all 2,214 cases.
+- The implementation commit `6d979bdccad32f0df411d3664058cf9217f5b2a2` passed the hosted MEŽS Core workflow (run 44776810417). A positive-control test of the original parser DLL detected 27 first-chance exceptions, compared with 0 on the updated parser.
+
+### Known limitations
+- Final bot-only Codegraph commit `b91836d0ddb3aec81744378f22a59c2216fec8f1` had a **failed** MEŽS Core workflow (run 44785761061); its cause was not established. Its code diff from the approved archived head is limited to `.agents/codegraph/graph.json`. No passing Core CI result was established for the final merged PR head.
+- Unrelated `tests/group-delete-browser.test.cjs` focus-restoration check failed in isolation; it was not counted as passing or fixed in this task.
+- Independent review and live authenticated desktop testing were not performed under the owner's one-agent override.
+
 ## [0.9.1] - 2026-11-20
 
 ### Changed

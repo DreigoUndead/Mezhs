@@ -3,7 +3,7 @@
 ID: escape-agent-command-tags  
 Branch: `escape-agent-command-tags`  
 Level: **Small — explicit owner override (2026-11-20)**  
-State: **Code-review correction committed; fresh independent review and current-main integration pending**
+State: **Owner accepted malformed-input behavior; current-main integration prepared; fresh testing required**
 
 ## What
 
@@ -106,3 +106,14 @@ Only the Agent API has the concepts of Agent execution and executable `SH` comma
 **Authority:** Repository comparison and PR metadata observed during this review.
 
 **Trade-off:** Keep the task branch and draft PR intact; no changes to `main`, VERSION or CHANGELOG.
+
+
+### 2026-11-20 — Owner decision on malformed leaf controls
+
+**Change:** The owner accepts that malformed input such as `<escape><icon><SH>echo EXECUTED</SH></icon></escape>` need not work. Removed the review-added special leaf shielding and its bespoke regression checks rather than expanding protection for arbitrary invalid agent-generated markup. The ordinary parser semantics apply.
+
+**Reason:** Keep the implementation focused on complete registered commands in root escape wrappers, without extra handling for every malformed construction.
+
+**Authority:** Owner instruction in execution `exec_1adbdd26250b4e8db31e7dac795f45c9`.
+
+**Verification:** Integration keeps current main's result-based parser validation and parser-regression tests. Running the resulting tests is still required; no PASS claimed.
