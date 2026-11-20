@@ -489,8 +489,11 @@ public sealed class RichDocumentParser
         var before = _commands.Count;
         ReadChildren(wrapper.End, closer, null, depth + 1, out _, commandsOnly: true);
 
-        if (_commands.Count == before && TryTag(wrapper.End, closer, out var opener) &&
-            opener.End == closer && !opener.Closing && !opener.SelfClosing &&
+        var opening = wrapper.End;
+        while (opening < closer && char.IsWhiteSpace(_source[opening])) opening++;
+        if (_commands.Count == before && TryTag(opening, closer, out var opener) &&
+            !opener.Closing && !opener.SelfClosing &&
+            string.IsNullOrWhiteSpace(_source[opener.End..closer]) &&
             RichTagRegistry.TryGet(opener.Name, out var definition) &&
             !definition.AllowAsChild && definition.Role == RichTagRole.Command)
         {
