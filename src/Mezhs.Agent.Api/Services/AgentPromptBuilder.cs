@@ -47,7 +47,7 @@ public sealed class AgentPromptBuilder(AgentOptions options)
             executionId = result.ExecutionId,
             succeeded = result.Succeeded,
             exitCode = result.ExitCode,
-            output = string.IsNullOrEmpty(result.Output) ? null : Truncate(result.Output),
+            output = string.IsNullOrEmpty(result.Output) ? null : Truncate(result.Output, result.OutputLimit),
             error = string.IsNullOrWhiteSpace(result.Error) ? null : result.Error
         });
         var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
@@ -110,10 +110,15 @@ public sealed class AgentPromptBuilder(AgentOptions options)
         return $"{message.TrimEnd()}\nWhen the task is complete, return <{done.Name}> on a line by itself.";
     }
 
-    private static string Truncate(string value) =>
-        value.Length <= MaxCommandResultCharacters
+    private static string Truncate(string value, int? requestedCharacters)
+    {
+        var limit = Math.Min(MaxCommandResultCharacters,
+            requestedCharacters ?? MaxCommandResultCharacters);
+        return value.Length <= limit
             ? value
-            : value[..MaxCommandResultCharacters] + "\n[command result truncated in prompt; full result remains in execution history]";
+            : value[..limit] +
+                "\n[command result truncated in prompt; full result remains in execution history]";
+    }
 
     private static string Format(string template, string name, string value) =>
         template.Replace($"{{{name}}}", value, StringComparison.Ordinal);
