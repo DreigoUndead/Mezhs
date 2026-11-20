@@ -301,6 +301,39 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     Assert-InlineExecuted 'prose' 'before ' ' after '
     Assert-InlineExecuted 'markdown-fence' ('```text' + "`n") ("`n" + '```')
 
+    # Positive SH parameters execute once; output is truncated only in the model prompt.
+    $boundedTask = '<SH timeout=2 limit=5>echo RESULT_123456789</SH>'
+    $boundedRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence-auto'; input = $boundedTask })
+    $boundedOutcome = Wait-Execution $boundedRun.executionId 20
+    $boundedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($boundedOutcome.chatId)/executions")
+    $boundedShells = @($boundedHistory | Where-Object { $_.kind -eq 'Shell' })
+    if ($boundedOutcome.status -ne 'Completed' -or $boundedShells.Count -ne 1 -or
+        $boundedShells[0].status -ne 'Completed' -or
+        $boundedShells[0].result -notmatch 'RESULT_123456789') {
+        throw "Positive SH timeout/limit did not execute or preserve complete durable output."
+    }
+    $boundedMessages = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($boundedOutcome.chatId)/messages")
+    $boundedPrompts = @($boundedMessages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'user' -and $_.content -match 'Command results JSON:' })
+    if ($boundedPrompts.Count -ne 1 -or
+        -not $boundedPrompts[0].content.Contains('command result truncated in prompt') -or
+        $boundedPrompts[0].content.Contains('RESULT_123456789')) {
+        throw "SH limit failed to truncate only the follow-up prompt."
+    }
+    Write-Host 'PASS: SH timeout=2 limit=5 executed, limited model prompt, preserved full durable output.'
+
+    # A shorter per-command timeout must be enforced by Executor.
+    $timeoutTask = '<SH timeout=1>powershell -NoProfile -Command "Start-Sleep -Seconds 4"</SH>'
+    $timeoutRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $timeoutTask })
+    $timeoutOutcome = Wait-Execution $timeoutRun.executionId 20
+    $timeoutHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($timeoutOutcome.chatId)/executions")
+    $timeoutShells = @($timeoutHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+    if ($timeoutOutcome.status -ne 'Completed' -or $timeoutShells.Count -ne 1 -or
+        $timeoutShells[0].status -ne 'TimedOut' -or
+        $timeoutShells[0].error -notmatch 'timed out after 1') {
+        throw "SH timeout=1 was not enforced by Executor: $($timeoutHistory | ConvertTo-Json -Depth 6 -Compress)"
+    }
+    Write-Host 'PASS: SH timeout=1 reaches Executor and terminates a longer command.'
+
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
     $orderedCreated = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `

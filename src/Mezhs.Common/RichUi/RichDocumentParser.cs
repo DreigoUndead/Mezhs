@@ -257,11 +257,11 @@ public sealed class RichDocumentParser
                     body = _source[tag.End..close];
                     after = close + tag.Name.Length + 3;
                 }
-                var attributes = ParseAttributes(tag, definition);
+                var commandAttributes = ParseAttributes(tag, definition);
                 if (_commands.Count == MaxNodes)
                     throw new RichDocumentLimitException("Command count exceeds limit.");
                 _commands.Add(new RichCommandCandidate(tag.Name, body,
-                    new RichSourceSpan(cursor, after), attributes));
+                    new RichSourceSpan(cursor, after), commandAttributes));
                 cursor = after;
                 continue;
             }

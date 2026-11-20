@@ -52,3 +52,10 @@ Run `dotnet run --project tests/Mezhs.RichUi.TestApp`, `pwsh -File tests/agent-p
 **Change:** The canonical rich parser carries SH timeout/limit attribute values to Agent commands; Interpreter checks the policy timeout cap and Shell passes an accepted timeout to Executor; AgentPromptBuilder truncates only follow-up output. Updated default instruction and shell-context messages and added parser, render-grammar and prompt-result regressions, plus a live rejection case for over-policy timeouts.
 **Reason:** Keep a single syntax/authority path and retain full durable Executor results.
 **Verification:** Source and patch checks completed via GitHub connector. Tests were added but not executed: this session has no Windows/.NET repository test host. Independent Code Review and live Executor verification are pending.
+
+### 2026-11-20 - Local developer verification and integration coverage
+
+**Change:** Corrected a local variable shadowing compile error in RichDocumentParser and added live Agent protocol checks for accepted per-command timeout and prompt output limit.
+**Reason:** The first Release compilation found CS0136. Added positive-path integration coverage for previously unverified shell execution, Executor timeout and prompt-only truncation.
+**Verification:** .NET 10 Agent API Release build passed with 0 warnings and 0 errors; Rich UI parser 101/101 passed; tests/policy-decoder.ps1 passed; tests/agent-protocol-result.ps1 passed including rejected over-policy batches with no side effects, timeout=2 limit=5 preserving full durable output while truncating model prompt, and timeout=1 yielding a TimedOut Executor record. Ran on Windows PowerShell 5.1 in an isolated worktree.
+**Remaining:** Independent Code Review, subsequent Testing role and explicit owner merge approval are pending.
