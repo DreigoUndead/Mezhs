@@ -56,6 +56,12 @@ public sealed record ChatGptModelCatalogProbe(
         return result;
     }
 
+    public IReadOnlyList<IntegrationModel> ToSelectableModels() =>
+        [new IntegrationModel("default", "Default"), ..ToModels()
+            .Where(model => !string.IsNullOrWhiteSpace(model.Id) &&
+                            !string.IsNullOrWhiteSpace(model.Name) &&
+                            !string.Equals(model.Id, "default", StringComparison.OrdinalIgnoreCase))];
+
     private static string FirstNonempty(params string?[] values) =>
         values.Select(value => value?.Trim())
             .FirstOrDefault(value => !string.IsNullOrEmpty(value)) ?? "";

@@ -167,7 +167,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
     () => connections.find((connection) => connection.id === connectionId),
     [connections, connectionId],
   );
-  const supportsFileInput = selectedConnection?.allowFiles ?? selectedConnection?.capabilities?.fileInput ?? false;
+  const supportsFileInput = selectedConnection?.allowFiles ?? false;
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
   const selectedGroup = categories.find((category) => sameCategoryId(category.categoryId, categoryFilter));

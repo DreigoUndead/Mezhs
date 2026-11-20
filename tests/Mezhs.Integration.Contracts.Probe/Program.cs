@@ -173,12 +173,42 @@ var picker = catalog.ToModels();
 if (picker.Count != 1 || picker[0].Id != "gpt-sample::thinking-effort=extended" ||
     picker[0].Name != "Reasoning · Extended")
     throw new Exception("Native model preset/effort mapping changed.");
+var nativePicker = new ChatGptModelCatalogProbe(
+    [
+        new ChatGptModelVersionProbe("v2", "GPT Reasoning", IntelligencePresets:
+            [
+                new ChatGptModelPresetProbe("available", true, "gpt-instant", null, null, "Instant"),
+                new ChatGptModelPresetProbe("available", true, "gpt-thinking", "standard", null, "Medium"),
+                new ChatGptModelPresetProbe("available", true, "gpt-thinking", "extended", null, "High"),
+                new ChatGptModelPresetProbe("unavailable", true, "hidden", null, null, "Hidden")
+            ]),
+        new ChatGptModelVersionProbe("o3", "o3", Slugs: ["o3"]),
+        new ChatGptModelVersionProbe("disabled", "Disabled", Enabled: false, Slugs: ["disabled"])
+    ],
+    [new ChatGptModelProbe("catalog-only", "Raw fallback must not appear")]);
+var nativeOptions = nativePicker.ToSelectableModels();
+if (nativeOptions.Count != 5 ||
+    nativeOptions[0].Id != "default" ||
+    nativeOptions[1].Id != "gpt-instant" ||
+    nativeOptions[2].Id != "gpt-thinking::thinking-effort=standard" ||
+    nativeOptions[3].Id != "gpt-thinking::thinking-effort=extended" ||
+    nativeOptions[4].Id != "o3" ||
+    nativeOptions[2].Name != "GPT Reasoning · Medium")
+    throw new Exception("ChatGPT native picker order, effort, availability, or raw-catalog precedence changed.");
+
 var legacy = new ChatGptModelCatalogProbe(null, [
     new ChatGptModelProbe("", "", Id: "fallback", DisplayName: "Fallback"),
     new ChatGptModelProbe("fallback", "Duplicate")]);
 var fallback = legacy.ToModels();
 if (fallback.Count != 1 || fallback[0].Id != "fallback" || fallback[0].Name != "Fallback")
     throw new Exception("Legacy model fallback or id deduplication changed.");
+var duplicateLabels = new ChatGptModelCatalogProbe(null, [
+    new ChatGptModelProbe("model-a", "Shared label"),
+    new ChatGptModelProbe("model-b", "Shared label")]);
+var selectable = duplicateLabels.ToSelectableModels();
+if (selectable.Count != 3 || selectable[0].Id != "default" ||
+    selectable[1].Id != "model-a" || selectable[2].Id != "model-b")
+    throw new Exception("Distinct ChatGPT model IDs with the same display label were collapsed.");
 Console.WriteLine("PASS: ChatGPT native model catalog, effort identifiers, disabled presets and legacy fallback.");
 
 

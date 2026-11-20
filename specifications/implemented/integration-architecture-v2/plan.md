@@ -289,3 +289,17 @@ Implementation on the existing task branch adds `IntegrationBase.StopAsync(chatI
 ChatGPT Account passes the existing Electron AbortSignal into its native signed POST/SSE, and into conversation-state polling and backoff. This is an **attempted transport stop**, not verified server-side termination. The ChatGPT Guest/Grok/Gemini browser modules attempt their already-observed stop controls **within the active per-chat window**; their return means an attempt was dispatched, not that the remote provider acknowledged termination. Provider stop missing/rejected/timed out is bounded and does not prevent local cancellation. Provider-live confirmation still requires a test-owned authenticated profile; absent that, report **BLOCKED** for remote-stop proof rather than PASS.
 
 Developer regression tests added for before dispatch, during active wait, completion, repeated stop, provider error and timeout, exact identity/peer isolation, guest ephemeral cleanup, account signed POST abort/no-replay, and default non-browser unsupported semantics. Run Windows CI at the final exact SHA; intermediate CI failures are not accepted as final evidence. **Next stages:** independent exact-SHA code review (as requested), independent high-risk testing including live acceptance, then explicit owner merge approval. No release/version/changelog updates in this branch.
+
+
+## 13. Code review 6 - thin adapter cleanup (2026-11-21)
+
+Code review of branch baseline `86595995f6b1dc76b608f62dfa1c92cb7d5da25c` identified remaining unnecessary model-discovery and UI capability compatibility paths, plus model options dropped by display-name deduplication.
+
+- Removed the superseded ChatGPT browser `getModels` operation and JavaScript native catalog mapper; authenticated typed C# catalog retrieval is the sole model discovery path. Retained JavaScript per-turn model/effort selection and provider preferences.
+- Removed obsolete frontend `IntegrationCapabilities`, `supportsModels` and `capabilities.fileInput` fallback; `allowFiles` remains the only input attachment flag. Updated the affected browser test fixture.
+- Preserved distinct selectable model IDs even when provider display names match. The final selectable catalog is assembled in one testable C# method, with regression tests for label collisions, native picker ordering, effort variants, availability and raw fallback precedence.
+- Updated packaging and provider tests to match the supported browser operation surface; kept the existing eight-module distribution and all other provider operations.
+
+Review corrections verified locally with the integration contracts probe, 59 ChatGPT provider/package tests, 16 typed HTTP/provider tests, 2 model mismatch tests, production frontend TypeScript/Vite build and full Release solution build. The solution build had one warning in unrelated `Mezhs.WhatsApp`, and no errors. These are simulated and build checks, not live-provider acceptance.
+
+**Review outcome:** FAIL after corrections; a fresh independent Code Reviewer must review the pushed exact SHA before independent testing. The original high-risk live-provider, remote-stop, output-file, guest-provider and concurrency acceptance requirements remain outstanding where not separately evidenced. No merge, tagging, VERSION or CHANGELOG changes.

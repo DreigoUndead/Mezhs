@@ -1,5 +1,4 @@
 const { ORIGIN, API, accessToken, requireToken, apiFetch, apiJson } = require('./account-transport.js');
-const { nativePickerModels } = require('./account-models.js');
 const { sendAccountMessage } = require('./account-messages.js');
 const { sendPrompt, stopGeneration } = require('./guest.js');
 
@@ -126,11 +125,6 @@ module.exports = {
       return projects;
     },
 
-    async getModels({ session }) {
-      const token = await requireToken(session);
-      const response = await apiJson(session, token, API.models);
-      return nativePickerModels(response);
-    },
 
     newChat(context) {
       return sendAccountMessage(context, true);

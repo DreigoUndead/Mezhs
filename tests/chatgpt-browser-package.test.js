@@ -10,7 +10,7 @@ const names = [
   "account-files.js", "account-messages.js", "account-models.js", "account-results.js",
   "account-stream.js", "account-transport.js", "entry.js", "guest.js"
 ];
-const operationNames = ["getModels", "getProjects", "newChat", "send", "sendPrompt", "stopGeneration", "typedHttp"];
+const operationNames = ["getProjects", "newChat", "send", "sendPrompt", "stopGeneration", "typedHttp"];
 
 test("ChatGPT deploys only the eight original CommonJS modules", () => {
   assert.deepEqual(fs.readdirSync(modules).filter(name => name.endsWith(".js")).sort(), names);

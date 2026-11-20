@@ -1,21 +1,12 @@
 import type { RichDocument } from "../RichDocumentView";
-export type IntegrationCapabilities = {
-  fileInput: boolean;
-  imageInput: boolean;
-  fileOutput: boolean;
-  imageOutput: boolean;
-};
-
 export type Connection = {
   id: string;
   name: string;
   integration: string;
   requiresLogin: boolean;
   allowFiles: boolean;
-  supportsModels?: boolean;
   defaultModel?: string | null;
   workspace?: string | null;
-  capabilities?: IntegrationCapabilities;
 };
 
 export type ConnectionModel = {

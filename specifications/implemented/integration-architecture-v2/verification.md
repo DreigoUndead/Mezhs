@@ -21,3 +21,20 @@
 - New independent code review and independent high-risk testing of the **final** changed commit. Developer checks and green CI, when available, cannot substitute for independent testing.
 - No proven live ChatGPT Account mutation/streaming transport test, simultaneous differing-model account prompts, or completed live guest-provider validation. Existing ChatGPT send path is intentionally retained rather than migrated. Do not infer live-provider behavior from simulated tests.
 - No local Electron browser launch during typed HTTP rework; no merge, VERSION or CHANGELOG update.
+
+
+## Code review 6 cleanup verification (2026-11-21)
+
+- Integration catalog probe passed: typed HTTP, native model/effort mapping, disabled presets, duplicate displayed model labels and legacy model fallback.
+- `node --test tests/browser-provider-operations.test.js tests/chatgpt-browser-package.test.js tests/chatgpt-account-api.test.js`: 59/59 PASS.
+- `node --test tests/typed-http-feasibility.test.js tests/browser-provider-operations.test.js tests/chatgpt-browser-package.test.js`: 16/16 PASS.
+- `node --test tests/integration-model-mismatch.test.cjs`: 2/2 PASS (React SSR `useLayoutEffect` warnings only).
+- `npm run build --prefix src/Mezhs.Agent.Web`: PASS, TypeScript and Vite.
+- `dotnet build Mezhs.sln -c Release --nologo -v:q`: PASS, one warning from `Mezhs.WhatsApp` and zero errors.
+- `node --check` on changed browser modules and `git diff --check`: PASS.
+- No final-SHA live provider or independent tester result is claimed.
+
+
+### Chromium comparison at code review 6
+
+`node --test tests/rich-model-ui-browser.test.cjs` **FAILED** on the assertion `Captured nested rich layout rendered as literal or indented code in Chromium`. The same test was rerun after temporarily reversing all three UI changes in this review (`MezhsChatApp.tsx`, `providers/contracts.ts`, `rich-model-ui-browser.test.cjs`); it **FAILED identically** at the same assertion. The review UI changes were then restored and `git diff --check` passed. The comparison indicates that the observed failure predates this review cleanup, but it remains an unresolved branch UI-test failure; do not report the full suite as PASS.

@@ -63,11 +63,7 @@ public sealed class ChatGptAccountIntegration : BrowserAccountIntegrationBase
             var catalog = await new BrowserHttpExecutor(transport).CallAsync(
                 ChatGptTypedHttpEndpoints.Models, request: null,
                 cancellationToken: token);
-            return [new IntegrationModel("default", "Default"), ..catalog.ToModels()
-                .Where(model => !string.IsNullOrWhiteSpace(model.Id) &&
-                                !string.IsNullOrWhiteSpace(model.Name) &&
-                                !string.Equals(model.Id, "default", StringComparison.OrdinalIgnoreCase))
-                .DistinctBy(model => model.Name.Trim(), StringComparer.OrdinalIgnoreCase)];
+            return catalog.ToSelectableModels();
         }, cancellationToken);
 
     // Browser protocol chooses the model per operation, never in connection-global C# state.
