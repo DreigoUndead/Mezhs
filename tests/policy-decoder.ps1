@@ -93,6 +93,36 @@ foreach (var name in new[] { "low", "mid", "high" })
     Assert(policy.ModelInstructions.Contains("<SH>shell text</SH>", StringComparison.Ordinal),
         $"Default {name} instructions lost inline matched shell syntax.");
 }
+var developmentPolicy = defaultAgentOptions.Policies["development"];
+var highPolicy = defaultAgentOptions.Policies["high"];
+Assert(developmentPolicy.Settings.Instructions.StartsWith(highPolicy.Settings.Instructions, StringComparison.Ordinal),
+    "Development policy did not preserve the full existing startup instructions first.");
+Assert(developmentPolicy.Settings.Instructions.Contains("Before performing any repository changes", StringComparison.Ordinal) &&
+       developmentPolicy.Settings.Instructions.Contains("Never treat your own assumptions as approved requirements", StringComparison.Ordinal),
+    "Development policy lost read-first or ambiguity escalation guidance.");
+Assert(developmentPolicy.Settings.Instructions.Split("You are a MEŽS agent operating", StringSplitOptions.None).Length == 2 &&
+       !developmentPolicy.ModelInstructions.Contains("{mezhs_development}", StringComparison.Ordinal),
+    "Development policy duplicated or failed to expand shared startup instructions.");
+Assert(developmentPolicy.Settings.ConnectionId == highPolicy.Settings.ConnectionId &&
+       developmentPolicy.Settings.DefaultModel == highPolicy.Settings.DefaultModel &&
+       developmentPolicy.Settings.Commands.Allow.SequenceEqual(highPolicy.Settings.Commands.Allow) &&
+       developmentPolicy.Settings.Limits.CommandTimeoutSeconds == highPolicy.Settings.Limits.CommandTimeoutSeconds,
+    "Development policy unexpectedly changed the High connection, model, command permissions or timeout.");
+var developmentExecution = new ExecutionRecord
+{
+    ExecutionId = "exec-development-probe", CorrelationId = "exec-development-probe",
+    Kind = AgentExecutionKind.Agent, PolicyId = "development", ConnectionId = "chatgpt-sub",
+    Source = "manual", Status = AgentExecutionStatus.Running, Request = "Feature request",
+    PolicySnapshot = developmentPolicy.Snapshot
+};
+var developmentPrompt = new AgentPromptBuilder(defaultAgentOptions)
+    .BuildInitial(developmentExecution, developmentPolicy, true).Content.Replace("\r\n", "\n", StringComparison.Ordinal);
+Assert(developmentPrompt.IndexOf("You are a MEŽS agent operating", StringComparison.Ordinal) >= 0 &&
+       developmentPrompt.IndexOf("Before performing any repository changes", StringComparison.Ordinal) >
+       developmentPrompt.IndexOf("You are a MEŽS agent operating", StringComparison.Ordinal) &&
+       developmentPrompt.IndexOf("Before performing any repository changes", StringComparison.Ordinal) <
+       developmentPrompt.IndexOf("Task:\nFeature request", StringComparison.Ordinal),
+    "Development startup prompt did not provide ordered workflow instructions before the task.");
 var exampleExecution = new ExecutionRecord
 {
     ExecutionId = "exec-config-probe", CorrelationId = "exec-config-probe",
