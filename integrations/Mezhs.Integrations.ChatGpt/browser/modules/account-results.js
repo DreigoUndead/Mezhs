@@ -13,7 +13,8 @@ async function waitForConversation(
   requestMessageId,
   sleep,
   reportProgress,
-  execution
+  execution,
+  signal
 ) {
   const endpoint = API.conversationById(conversationId);
   let consecutiveRateLimits = 0;
@@ -21,9 +22,10 @@ async function waitForConversation(
   let lastProgressKey = null;
 
   while (true) {
+    signal?.throwIfAborted();
     let conversation;
     try {
-      conversation = await apiJson(session, token, endpoint);
+      conversation = await apiJson(session, token, endpoint, { signal });
       consecutiveRateLimits = 0;
     } catch (error) {
       if (error?.status !== 429 || error?.endpoint !== endpoint)
@@ -43,7 +45,7 @@ async function waitForConversation(
         detail: `ChatGPT rate limited state checks; retrying in ${Math.ceil(delay / 1000)}s.`
       });
       console.error(`ChatGPT conversation poll rate-limited; retrying in ${delay} ms.`);
-      await sleep(delay);
+      await sleepOrAbort(sleep, delay, signal);
       continue;
     }
 
@@ -81,10 +83,22 @@ async function waitForConversation(
       );
     }
 
-    await sleep(CONVERSATION_POLL_INTERVAL_MS);
+    await sleepOrAbort(sleep, CONVERSATION_POLL_INTERVAL_MS, signal);
     if (!turn.active)
       inactiveWaitMs += CONVERSATION_POLL_INTERVAL_MS;
   }
+}
+
+function sleepOrAbort(sleep, duration, signal) {
+  if (!signal) return sleep(duration);
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const onAbort = () => { cleanup(); reject(signal.reason || new Error("Cancelled.")); };
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve().then(() => sleep(duration))
+      .then(value => { cleanup(); resolve(value); }, error => { cleanup(); reject(error); });
+  });
 }
 
 function inspectConversationTurn(conversation, requestMessageId) {

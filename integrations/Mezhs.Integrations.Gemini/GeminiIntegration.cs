@@ -15,10 +15,11 @@ public sealed class GeminiWebIntegration : BrowserIntegrationBase
     protected override Assembly BrowserModuleAssembly => typeof(GeminiWebIntegration).Assembly;
     protected override string BrowserModuleResourceName => "Mezhs.Integrations.Gemini.BrowserModule";
 
-    protected override Task<IntegrationSendResult> SendCoreAsync(
-        IntegrationSendContext context,
+    protected override Task<PromptResult> SendCoreAsync(
+        ChatContext chat,
+        PromptRequest request,
         CancellationToken cancellationToken = default) =>
-        SendAnonymousAsync(context, cancellationToken);
+        SendAnonymousAsync(chat, request, cancellationToken);
 
     private static IntegrationConnection Validate(IntegrationConnection connection)
     {

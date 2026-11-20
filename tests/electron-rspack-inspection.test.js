@@ -41,7 +41,7 @@ test("Rspack export inspection reads only requested function source and never in
 });
 
 test("Rspack export diagnostics are only exposed to the existing diagnostic endpoint", () => {
-  const host = fs.readFileSync(path.join(__dirname, "../src/Mezhs.Integration.Browser/BrowserDiagnosticsModule.cs"), "utf8");
+  const host = fs.readFileSync(path.join(__dirname, "../src/Mezhs.Integration.Browser/BrowserDiagnostics.cs"), "utf8");
   assert.match(host, /"inspectRspackExports"/);
   assert.match(source, /case 'inspectRspackExports'/);
   assert.match(source, /browserModule\?\.name !== 'ChatGPT'/);

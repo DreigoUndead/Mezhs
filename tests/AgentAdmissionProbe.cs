@@ -13,20 +13,20 @@ public sealed class ProbeIntegration(IntegrationConnection connection, IIntegrat
     protected override Assembly BrowserModuleAssembly => typeof(ProbeIntegration).Assembly;
     protected override string BrowserModuleResourceName => "not-used";
 
-    protected override async Task<IntegrationSendResult> SendCoreAsync(
-        IntegrationSendContext context, CancellationToken cancellationToken)
+    protected override async Task<PromptResult> SendCoreAsync(
+        ChatContext chat, PromptRequest request, CancellationToken cancellationToken)
     {
         var workspace = Connection.GetSetting("workspace")
             ?? throw new InvalidOperationException("Probe workspace missing.");
-        var prefix = Path.Combine(workspace, Connection.Id + "-" + context.Message.MessageId);
+        var prefix = Path.Combine(workspace, Connection.Id + "-" + request.MessageId);
         File.WriteAllText(prefix + ".started", "started");
-        context.ReportActivity?.Invoke(new IntegrationActivity("waiting", "Provider-side processing"));
+        chat.ReportActivity?.Invoke(new IntegrationActivity("waiting", "Provider-side processing"));
         while (!File.Exists(prefix + ".release") && !File.Exists(prefix + ".fail"))
             await Task.Delay(25, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (File.Exists(prefix + ".fail"))
             throw new InvalidOperationException("Deterministic probe provider failure.");
         File.WriteAllText(prefix + ".finished", "finished");
-        return new IntegrationSendResult("Probe response completed.");
+        return new PromptResult("Probe response completed.", CreateMessageId(), "default");
     }
 }

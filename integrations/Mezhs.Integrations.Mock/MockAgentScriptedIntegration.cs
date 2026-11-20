@@ -5,15 +5,15 @@ namespace Mezhs.Integrations.Mock;
 public sealed class MockAgentScriptedIntegration(IntegrationConnection connection, IIntegrationHost host)
     : MockIntegration(connection, host)
 {
-    public override Task<IntegrationSendResult> SendMessageAsync(
-        IntegrationSendContext context, CancellationToken cancellationToken = default)
+    public override Task<PromptResult> PromptAsync(
+        ChatContext chat, PromptRequest request, CancellationToken cancellationToken = default)
     {
         if (cancellationToken.IsCancellationRequested)
-            return Task.FromCanceled<IntegrationSendResult>(cancellationToken);
+            return Task.FromCanceled<PromptResult>(cancellationToken);
         const string marker = "\nTask:\n";
-        var prompt = context.Message.Content.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var prompt = request.Text.Replace("\r\n", "\n", StringComparison.Ordinal);
         var index = prompt.LastIndexOf(marker, StringComparison.Ordinal);
         var reply = index >= 0 ? prompt[(index + marker.Length)..].Trim() : "<DONE>";
-        return Task.FromResult(new IntegrationSendResult(reply, Model: "mock-scripted"));
+        return Task.FromResult(new PromptResult(reply, CreateMessageId(), "mock-scripted"));
     }
 }

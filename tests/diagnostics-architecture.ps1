@@ -9,9 +9,10 @@ function Assert([bool]$condition, [string]$message) {
     if (-not $condition) { throw $message }
 }
 
-$contracts = Read-Source 'src\Mezhs.Integration.Abstractions\IntegrationContracts.cs'
+$contracts = Read-Source 'src\Mezhs.Integration.Abstractions\IntegrationRuntimeModels.cs'
 $browserBase = Read-Source 'src\Mezhs.Integration.Browser\BrowserIntegrationBase.cs'
-$browserDiagnostics = Read-Source 'src\Mezhs.Integration.Browser\BrowserDiagnosticsModule.cs'
+$browserDiagnostics = Read-Source 'src\Mezhs.Integration.Browser\BrowserDiagnostics.cs'
+$accountBase = Read-Source 'src\Mezhs.Integration.Browser\BrowserAccountIntegrationBase.cs'
 $chatGpt = Read-Source 'integrations\Mezhs.Integrations.ChatGpt\ChatGptIntegration.cs'
 $grok = Read-Source 'integrations\Mezhs.Integrations.Grok\GrokIntegration.cs'
 $gemini = Read-Source 'integrations\Mezhs.Integrations.Gemini\GeminiIntegration.cs'
@@ -21,47 +22,50 @@ $electron = Read-Source 'electron\main.js'
 $electronDiagnostics = Read-Source 'electron\diagnostics.js'
 $solution = Read-Source 'Mezhs.sln'
 
-Assert ($contracts.Contains('public interface IIntegrationDiagnosticsModule') -and
-        $contracts.Contains('IIntegrationDiagnosticsModule? Diagnostics')) `
-    'Diagnostics are not an optional integration capability.'
+Assert ($contracts.Contains('public virtual Task<JsonElement> DiagnoseAsync(') -and
+        $contracts.Contains('public virtual Task LoginAsync(')) `
+    'Integration operations must use direct virtual methods, not the legacy module interfaces.'
 
-Assert ($browserDiagnostics.Contains('BrowserDiagnosticsModule(BrowserAccountSession session)') -and
-        $browserDiagnostics.Contains('session.UseAuthorizedAsync') -and
-        $browserDiagnostics.Contains('$diagnostics/{normalized}')) `
-    'Browser diagnostics do not execute through the owning authenticated BrowserAccountSession.'
+Assert ($browserDiagnostics.Contains('session.UseAuthorizedAsync') -and
+        $browserDiagnostics.Contains('$diagnostics/{normalized}') -and
+        $browserDiagnostics.Contains('"inspectRspackExports"')) `
+    'Browser diagnostics must run only through the authorized session and allowlisted operations.'
 
 Assert ($browserBase.Contains('private BrowserAccountSession? _accountSession;') -and
         $browserBase.Contains('lock (_sessionSync) return _accountSession ??= new(') -and
         $browserBase.Contains('private BrowserAccountSession? _guestSession;') -and
         $browserBase.Contains('lock (_sessionSync) return _guestSession ??= new(') -and
-        $browserBase.Contains('public override IIntegrationDiagnosticsModule? Diagnostics') -and
-        $browserBase.Contains('_accountSession is null ? null : _diagnostics ??=') -and
-        $browserBase.Contains('new BrowserDiagnosticsModule(_accountSession)') -and
         $browserBase.Contains('public override async ValueTask DisposeAsync()') -and
         $browserBase.Contains('await _accountSession.DisposeAsync()') -and
         $browserBase.Contains('await _guestSession.DisposeAsync()')) `
-    'BrowserIntegrationBase must keep account diagnostics in the account-owned session and dispose both account and guest sessions.'
+    'BrowserIntegrationBase must retain one account/guest session owner and dispose both.'
+
+Assert ($accountBase.Contains('AccountSession.LoginAsync(') -and
+        $accountBase.Contains('AccountSession.OpenBrowserAsync(') -and
+        $accountBase.Contains('BrowserDiagnostics.InvokeAsync(AccountSession') -and
+        $accountBase.Contains('AccountSession.RetainConversationAsync(') -and
+        $accountBase.Contains('AccountSession.ReleaseConversationAsync(')) `
+    'Account base must reuse the existing authenticated session for login, diagnostics and chat context retention.'
 
 foreach ($source in @($chatGpt, $grok)) {
-    Assert ($source.Contains('var session = CreateAccountSession();') -and
-            $source.Contains('CreateAccountSession().UseAsync(') -and
+    Assert ($source.Contains('BrowserAccountIntegrationBase') -and
+            $source.Contains('AccountSession.UseAsync(') -and
             -not $source.Contains('private readonly BrowserAccountSession _session;') -and
-            -not $source.Contains('private readonly IIntegrationDiagnosticsModule _diagnostics;') -and
-            -not $source.Contains('override IIntegrationDiagnosticsModule Diagnostics') -and
+            -not $source.Contains('IIntegrationDiagnosticsModule') -and
             -not $source.Contains('override ValueTask DisposeAsync()')) `
-        'An account integration still duplicates base session/diagnostics ownership.'
+        'An account provider still duplicates session/diagnostics ownership.'
 }
 
-Assert ($chatGpt.Contains('SendAnonymousAsync(context, cancellationToken)') -and
-        $gemini.Contains('SendAnonymousAsync(context, cancellationToken)')) `
-    'Anonymous providers no longer use temporary anonymous transports.'
+Assert ($chatGpt.Contains('SendAnonymousAsync(chat, request, cancellationToken)') -and
+        $gemini.Contains('SendAnonymousAsync(chat, request, cancellationToken)')) `
+    'Anonymous providers no longer use the base-owned ephemeral guest transport.'
 
 Assert (-not $agentProgram.Contains('--diagnostics') -and
         $agentProgram.Contains('app.MapMezhsApi(deleteChats:')) `
     'Agent API must register the shared diagnostics endpoint through MapMezhsApi, not a separate launch mode.'
 
 Assert ($diagnosticsApi.Contains('/v1/diagnostics/connections/{connectionId}/browser/{operation}') -and
-        $diagnosticsApi.Contains('integration.Diagnostics.InvokeAsync')) `
+        $diagnosticsApi.Contains('integration.DiagnoseAsync')) `
     'Diagnostics API does not route through the integration-owned diagnostics capability.'
 
 Assert (-not $solution.Contains('Mezhs.Diagnostics.Api') -and

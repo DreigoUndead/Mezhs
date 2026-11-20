@@ -6,17 +6,19 @@ const { readConversationStream, mergeExecutionMetadata } = require('./account-st
 const { waitForConversation } = require('./account-results.js');
 
 async function sendAccountMessage(context, isNew) {
+  context.signal?.throwIfAborted();
   context.reportProgress?.({ state: "preparing", detail: "Checking ChatGPT account session." });
   const token = await requireToken(context.session);
   const selection = parseModelSelection(context.args.model);
   if (selection.model !== "auto")
     context.reportProgress?.({ state: "preparing", detail: "Applying ChatGPT model selection." });
   await setModelPreference(context.session, token, selection);
+  context.signal?.throwIfAborted();
   return sendApiAccountMessage(context, isNew, token, selection);
 }
 
 
-async function sendApiAccountMessage({ window, session, args, sleep, reportProgress }, isNew, token, selection) {
+async function sendApiAccountMessage({ window, session, args, sleep, reportProgress, signal }, isNew, token, selection) {
   if (!isNew) {
     reportProgress?.({ state: "preparing", detail: "Checking existing ChatGPT conversation." });
     const endpoint = API.conversationById(args.conversationId);
@@ -121,7 +123,11 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
       execution.initializedDefaultModel = initializedModel;
   }
 
-  const requestMessageId = randomUUID();
+  // Core has already persisted this provider-format outbound message ID.
+  // Never generate a different on-wire ID after persistence.
+  const requestMessageId = args.messageId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestMessageId || ""))
+    throw new Error("ChatGPT request requires a persisted UUID message id.");
   const posted = await postConversationTurn(
     window,
     session,
@@ -129,7 +135,8 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
     buildPayload(requestMessageId, isNew ? undefined : args.conversationId),
     args.conversationId,
     reportProgress,
-    clientSessionId
+    clientSessionId,
+    signal
   );
   let conversationId = posted.conversationId;
   mergeExecutionMetadata(execution, posted.execution);
@@ -139,7 +146,7 @@ async function sendApiAccountMessage({ window, session, args, sleep, reportProgr
   reportProgress?.({ state: "retrieving", detail: "Retrieving final ChatGPT response." });
   return completeAccountMessage(
     session, token, conversationId, requestMessageId, sleep,
-    reportProgress, execution
+    reportProgress, execution, signal
   );
 }
 
@@ -150,8 +157,10 @@ async function postConversationTurn(
   payload,
   fallbackConversationId = null,
   reportProgress,
-  clientSessionId
+  clientSessionId,
+  signal
 ) {
+  signal?.throwIfAborted();
   const turnTraceId = randomUUID();
   reportProgress?.({ state: "preparing", detail: "Obtaining ChatGPT turn preparation token." });
   const conduitToken = await getConduitToken(
@@ -179,11 +188,13 @@ async function postConversationTurn(
     }
   );
 
+  signal?.throwIfAborted();
   reportProgress?.({ state: "submitting", detail: "Submitting prompt to ChatGPT." });
   const response = await apiFetch(session, token, API.conversation, {
     method: "POST",
     headers,
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal
   });
   reportProgress?.({
     state: "waiting",
@@ -212,7 +223,8 @@ async function completeAccountMessage(
   requestMessageId,
   sleep,
   reportProgress,
-  execution
+  execution,
+  signal
 ) {
   const result = await waitForConversation(
     session,
@@ -221,7 +233,8 @@ async function completeAccountMessage(
     requestMessageId,
     sleep,
     reportProgress,
-    execution
+    execution,
+    signal
   );
 
   if (result.files?.size)

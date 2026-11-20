@@ -11,10 +11,11 @@ export type Connection = {
   name: string;
   integration: string;
   requiresLogin: boolean;
-  supportsModels: boolean;
+  allowFiles: boolean;
+  supportsModels?: boolean;
   defaultModel?: string | null;
   workspace?: string | null;
-  capabilities: IntegrationCapabilities;
+  capabilities?: IntegrationCapabilities;
 };
 
 export type ConnectionModel = {
@@ -49,6 +50,7 @@ export type ChatMessage = {
   content: string;
   document?: RichDocument | null;
   model?: string | null;
+  parentMessageId?: string | null;
   files: ApiFile[];
   status: "Queued" | "Running" | "Completed" | "Failed" | "Cancelled";
   createdAt: string;

@@ -3,6 +3,17 @@ module.exports = {
   homeUrl: "https://gemini.google.com/app",
 
   operations: {
+    async stopGeneration({ window }) {
+      // The send operation is in this same ephemeral window. This clicks
+      // the provider's visible stop control, without implying server ack.
+      return window.webContents.executeJavaScript(`(() => {
+        const button = document.querySelector('button[aria-label*="Stop"], button[mattooltip*="Stop"]');
+        if (!button || button.disabled) return { outcome: "unsupported" };
+        button.click();
+        return { outcome: "attempted" };
+      })()`, true);
+    },
+
     async sendPrompt({ window, args }) {
       if (args.newChat)
         await window.loadURL(module.exports.homeUrl);

@@ -34,16 +34,13 @@ export function ConnectionModelPicker({
   const modelSelectId = useId();
   const selectedConnection = connections.find((connection) => connection.id === connectionId);
   const availableModels = useMemo(() => {
-    const result = [...models];
-    if (!result.some((model) => !model.id))
-      result.unshift({ id: null, name: "Default" });
-    if (modelId && !result.some((model) => model.id === modelId))
+    const result = [{ id: null, name: "Default" }, ...models.filter((model) => model.id && model.id !== "default")];
+    if (modelId && modelId !== "default" && !result.some((model) => model.id === modelId))
       result.push({ id: modelId, name: modelId });
     return result;
   }, [models, modelId]);
 
-  const modelUnavailable = !selectedConnection?.supportsModels;
-  const resolvedModelDisabled = modelDisabled || modelsLoading || modelUnavailable || !connectionId;
+  const resolvedModelDisabled = modelDisabled || modelsLoading || !selectedConnection;
 
   return (
     <div className={["connection-model-picker", className].filter(Boolean).join(" ")}>
@@ -66,21 +63,17 @@ export function ConnectionModelPicker({
         <span>{modelLabel}</span>
         <select
           id={modelSelectId}
-          value={modelUnavailable ? "" : modelId}
+          value={modelId === "default" ? "" : modelId}
           onChange={(event) => onModelChange(event.target.value)}
           disabled={resolvedModelDisabled}
         >
-          {modelUnavailable
-            ? <option value="">Not supported</option>
-            : modelsLoading
-              ? <option value={modelId}>{modelId || "Loading models..."}</option>
-              : availableModels.length > 0
-                ? availableModels.map((model, index) => (
-                    <option key={model.id || `default-${index}`} value={model.id || ""}>
-                      {model.name}
-                    </option>
-                  ))
-                : <option value="">Default</option>}
+          {modelsLoading
+            ? <option value={modelId}>{modelId || "Loading models..."}</option>
+            : availableModels.map((model, index) => (
+                <option key={model.id || `default-${index}`} value={model.id || ""}>
+                  {model.name}
+                </option>
+              ))}
         </select>
       </label>
     </div>

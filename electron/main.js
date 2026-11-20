@@ -272,7 +272,7 @@ async function authorizeRequest(interactive, first) {
   return { authorized, dismissed: interactive && managementAuthorizationDismissed };
 }
 
-function invokeProvider(context, { operation, arguments: args }, reportProgress) {
+function invokeProvider(context, { operation, arguments: args }, reportProgress, signal) {
   if (!browserModule || !context || context.closed)
     throw new Error("Electron browser is not initialized.");
   const { window, session: browserSession } = context;
@@ -291,7 +291,8 @@ function invokeProvider(context, { operation, arguments: args }, reportProgress)
     },
     args: args ?? {},
     sleep,
-    reportProgress
+    reportProgress,
+    signal
   });
 }
 
@@ -324,7 +325,10 @@ function queueProviderOperation(request) {
   const ephemeral = request.ephemeral === true;
   const state = {
     status: "queued", result: undefined, error: null, code: null, progress: null,
-    cancelled: false, contextId, ephemeral, pending: null
+    cancelled: false, contextId, ephemeral, pending: null,
+    messageId: typeof request.arguments?.messageId === "string" ? request.arguments.messageId : null,
+    dispatched: false, stopPromise: null,
+    abortController: new AbortController()
   };
   providerOperations.set(operationId, state);
   void (async () => {
@@ -335,6 +339,7 @@ function queueProviderOperation(request) {
       context = await state.pending;
       if (state.cancelled || context.closed) return;
       context.busy++;
+      state.dispatched = true;
       try {
         state.result = await invokeProvider(context, request, progress => {
           if (state.cancelled || !progress || typeof progress !== "object") return;
@@ -345,7 +350,7 @@ function queueProviderOperation(request) {
             detail: progress.detail == null ? null : String(progress.detail),
             analysis: progress.analysis == null ? null : String(progress.analysis)
           };
-        });
+        }, state.abortController.signal);
         if (!state.cancelled) state.status = "completed";
       } finally {
         context.busy--;
@@ -370,10 +375,51 @@ function queueProviderOperation(request) {
   return operationId;
 }
 
+function findActiveProviderTurn(contextId, messageId) {
+  return [...providerOperations.values()].find(state =>
+    state.contextId === contextId && state.messageId === messageId &&
+    state.status === "running" && !state.cancelled) || null;
+}
+
+// This is strictly one in-flight operation; never stop by account, session, or
+// conversation alone. A successful local request is not proof of remote stop.
+async function stopProviderOperation(state) {
+  if (!state || state.cancelled || state.status !== "running" || !state.dispatched)
+    return { outcome: "notActive" };
+  if (!state.stopPromise) {
+    state.stopPromise = (async () => {
+      const context = await state.pending;
+      if (state.cancelled || context.closed) return { outcome: "notActive" };
+      const stop = browserModule?.operations?.stopGeneration;
+      if (typeof stop !== "function") return { outcome: "unsupported" };
+      const result = await stop({
+        window: context.window,
+        session: context.session,
+        args: { messageId: state.messageId },
+        ephemeral: state.ephemeral,
+        page: {
+          invoke: (operation, args, timeoutMs = 0) =>
+            invokePageOperation(context.window, operation, args, timeoutMs)
+        },
+        signal: state.abortController.signal,
+        abort: () => state.abortController.abort()
+      });
+      return { outcome: ["notActive", "unsupported", "attempted", "providerConfirmed"]
+        .includes(result?.outcome) ? result.outcome : "unsupported" };
+    })().catch(() => ({ outcome: "unsupported" }));
+  }
+  // A failed/hung provider stop cannot delay the definitive local cancellation.
+  return Promise.race([
+    state.stopPromise,
+    new Promise(resolve => setTimeout(() => resolve({ outcome: "unsupported" }), 1500))
+  ]);
+}
+
 function cancelProviderOperation(operationId) {
   const state = providerOperations.get(operationId);
   if (!state) return false;
   state.cancelled = true;
+  state.abortController.abort();
   providerOperations.delete(operationId);
   if (state.pending) {
     // Only the cancelled operation's browser context is destroyed. Never stop the shared host.
@@ -406,6 +452,16 @@ async function start() {
           status: state.status, result: state.result, error: state.error,
           code: state.code, progress: state.progress
         });
+      } else if (request.method === "POST" && /^\/invoke\/[^/]+\/stop$/.test(requestUrl.pathname)) {
+        const operationId = decodeURIComponent(requestUrl.pathname.slice(8, -5));
+        writeJson(response, 200, await stopProviderOperation(providerOperations.get(operationId)));
+      } else if (request.method === "POST" && requestUrl.pathname === "/turns/stop") {
+        const { contextId, messageId } = await readJson(request);
+        if (typeof contextId !== "string" || !contextId.trim() ||
+            typeof messageId !== "string" || !messageId.trim())
+          throw new Error("A contextId and messageId are required.");
+        writeJson(response, 200,
+          await stopProviderOperation(findActiveProviderTurn(contextId, messageId)));
       } else if (request.method === "POST" && /^\/invoke\/[^/]+\/cancel$/.test(requestUrl.pathname)) {
         const operationId = decodeURIComponent(requestUrl.pathname.slice(8, -7));
         writeJson(response, 200, { cancelled: cancelProviderOperation(operationId) });

@@ -36,3 +36,53 @@ One Electron main process belongs to each browser connection. An account connect
 `BrowserAccountSession` uses a short shared-host state lock and a separate per-account login gate; only one interactive login starts for concurrently waiting chats, and existing sends can cancel while login waits. Closing the login window ends that attempt without replaying a provider request. It does not serialize full model turns. It preserves `transport.idleMinutes` warm-host shutdown and tracks currently active sends. An Agent root execution temporarily retains its selected connection's browser context through model → shell/wait → model cycles without consuming a model-send permit during shell work; terminal execution releases that connection's retention best effort. Overlapping Agent finalization preserves a context retained by another execution. Ordinary account-chat windows are retired after each local send; the shared Electron host remains subject to its configured idle shutdown.
 
 Model selection and effort are passed with each ChatGPT turn. The existing provider-specific account-level `setModelPreference` mutation has **not** been removed: concurrent different-model/effort behavior still requires live-provider verification. Do not add a global model lock or claim independent served-model selection until that verification is available.
+
+## Integration V2 typed runtime contracts
+
+The connection-scoped `IntegrationRegistry` constructs `IntegrationBase` providers.
+`MessageService` persists the integration-generated outgoing user ID **before**
+submission and passes an immutable per-turn `ChatContext` and `PromptRequest`
+into `PromptAsync`. `ChatContext.GetHistoryAsync` queries Core-owned chat
+history on demand, including messages from other connections; integrations
+must not open Core storage directly. The `PromptResult` gives Core the
+assistant ID, complete reply text, returned model, optional provider
+conversation/parent identifiers, deep link, and output files. Core retains
+remote continuation state per local chat and connection, including legacy
+remote parent IDs; it does not replace persisted local chat IDs.
+
+`BrowserIntegrationBase` retains the single admission owner described above.
+`BrowserAccountIntegrationBase` uses the existing shared
+`BrowserAccountSession` for authenticated prompting, account login, models,
+diagnostics, and Agent context retention. Guest browser integrations use
+short-lived anonymous contexts, never the persistent account session.
+`ApiIntegrationBase` and `LocalModelIntegrationBase` remain placeholders
+until concrete implementations need them. The public integration contract
+uses direct model/login/diagnostic methods, not the former capability-module
+wrappers. `AllowFiles` gates input attachments; output files do not require
+an output capability flag.
+
+Each provider returns the executed model when available, or the best known
+current/selected model otherwise. A UI warning compares an explicitly
+requested non-default model with the integration-returned model through
+persisted reply parent IDs; it never changes the user selection, retries a
+prompt, or represents a selected model as independently verified execution.
+
+`IntegrationHttpClient` owns typed GET/POST/PATCH request encoding, response
+interpretation (JSON and C# SSE/NDJSON helpers), response-size limits, and
+single-dispatch/no-implicit-replay semantics. This is composed by the
+lightweight `ApiIntegrationBase` through ordinary `HttpClient`, and by
+`BrowserHttpExecutor` through the existing `IChatBrowserTransport`. The
+browser operation `typedHttp` executes same-origin `/backend-api/` calls
+inside the Electron-owned authenticated session, without duplicating
+cookies, authorization or session ownership. Streaming HTTP content is
+buffered within a 16 MiB bound and produces retrieval progress; provider
+interpretation happens in C# after response completion, not through a new
+public incremental-text stream contract.
+
+ChatGPT Account model retrieval uses the typed HTTP GET and C# catalog
+normalization, retaining model/effort identifiers. ChatGPT prompt sending
+continues to use the existing provider-specific JavaScript protocol, which
+owns the native Sentinel/conduit preparation and reply recovery. The
+generic transport does not claim to replace those requirements or make
+prompt mutations safely replayable after an ambiguous outcome. The separate
+provider DOM/protocol refactor remains outside this task.

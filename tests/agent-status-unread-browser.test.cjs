@@ -74,9 +74,10 @@ window.fetch = async input => {
   }]);
   if (pathname === "/v1/connections") return response([{
     id: "mock", name: "Mock", integration: "mock", requiresLogin: false,
-    supportsModels: false, defaultModel: null,
-    capabilities: { fileInput: false, imageInput: false, fileOutput: false, imageOutput: false },
+    allowFiles: false, defaultModel: null,
   }]);
+  if (pathname === "/v1/connections/mock/models")
+    return response([{ id: "default", name: "Default" }]);
   if (pathname === "/v1/categories") return response([]);
   if (pathname === "/v1/agent-chats") return response(window.fixtureChats);
   const match = /^\/v1\/agent-chats\/([^/]+)\/(messages|executions|runtime)$/.exec(pathname);
@@ -313,6 +314,16 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
     for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution", "waiting-orange-running-recovery", "capacity-spacing-provider-separation", "draft-skips-long-transcript", "draft-does-not-render-app", "unchanged-chat-poll-skips-transcript", "message-update-refreshes-transcript"])
       assert.ok(report[2].includes(expected), "Missing scenario " + expected);
   } finally {
-    fs.rmSync(folder, { recursive: true, force: true });
+    // A Chrome child process can briefly retain a file handle after the headless
+    // parent exits. Cleanup must never hide an assertion/timeout from above.
+    // Leave an inaccessible temporary profile to OS cleanup rather than fail a
+    // completed UI test solely because of a Windows file lock.
+    try {
+      fs.rmSync(folder, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 });
+    } catch (error) {
+      if (process.platform !== "win32" || !["EBUSY", "EPERM"].includes(error?.code))
+        throw error;
+      process.stderr.write("WARN: Chromium temporary profile locked; cleanup deferred: " + error.code + "\\n");
+    }
   }
 });

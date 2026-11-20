@@ -23,7 +23,7 @@ public sealed class AgentService(
         var policy = policies.Get(policyId);
         var chatId = string.IsNullOrWhiteSpace(request.ChatId) ? null : request.ChatId.Trim();
         var connectionId = ResolveConnectionId(request.ConnectionId, chatId, policy.ConnectionId);
-        var integration = integrations.Get(connectionId);
+        integrations.Get(connectionId);
         // null means inherit an existing chat connection/model state. On a fresh policy-default
         // target, the policy's model/effort default is materialized into durable execution state.
         // Empty means explicit provider Default.
@@ -33,9 +33,6 @@ public sealed class AgentService(
                 ? policy.DefaultModel
                 : null
             : request.Model.Trim();
-        if (!string.IsNullOrWhiteSpace(model) && integration.Models is null)
-            throw new RequestValidationException(
-                $"Connection '{connectionId}' does not support model selection.");
         var requestedEnvironment = request.Environment is null
             ? null
             : NormalizeEnvironment(request.Environment, policy.Settings.Environment.Allow);

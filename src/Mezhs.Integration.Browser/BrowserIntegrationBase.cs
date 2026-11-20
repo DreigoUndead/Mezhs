@@ -8,12 +8,11 @@ namespace Mezhs.Integrations.Browser;
 
 public abstract class BrowserIntegrationBase(
     IntegrationConnection connection,
-    IIntegrationHost host) : ChatIntegrationBase(connection), IConversationContextOwner
+    IIntegrationHost host) : IntegrationBase(connection, host)
 {
     private BrowserAccountSession? _accountSession;
     private BrowserAccountSession? _guestSession;
     private readonly object _sessionSync = new();
-    private BrowserDiagnosticsModule? _diagnostics;
     private readonly SemaphoreSlim? _parallelGate = connection.Limits?.MaxParallel is > 0
         ? new SemaphoreSlim(connection.Limits.MaxParallel)
         : connection.Limits is null ? new SemaphoreSlim(1) : null;
@@ -60,14 +59,23 @@ public abstract class BrowserIntegrationBase(
             guest: true));
     }
 
-    public Task RetainConversationAsync(string chatId) =>
-        Login is null ? Task.CompletedTask : CreateAccountSession().RetainConversationAsync(chatId);
-
-    public Task ReleaseConversationAsync(string chatId) =>
-        _accountSession?.ReleaseConversationAsync(chatId) ?? Task.CompletedTask;
-
-    public override IIntegrationDiagnosticsModule? Diagnostics =>
-        _accountSession is null ? null : _diagnostics ??= new BrowserDiagnosticsModule(_accountSession);
+    public sealed override async Task<IntegrationStopOutcome> StopAsync(
+        string chatId, string messageId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(chatId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
+        // Each provider uses either the account or the guest session, never both.
+        var session = _accountSession ?? _guestSession;
+        if (session is null) return IntegrationStopOutcome.NotActive;
+        var outcome = await session.StopAsync(chatId, messageId, cancellationToken);
+        return outcome switch
+        {
+            BrowserStopOutcome.NotActive => IntegrationStopOutcome.NotActive,
+            BrowserStopOutcome.Attempted => IntegrationStopOutcome.Attempted,
+            BrowserStopOutcome.ProviderConfirmed => IntegrationStopOutcome.ProviderConfirmed,
+            _ => IntegrationStopOutcome.Unsupported
+        };
+    }
 
     public override async ValueTask DisposeAsync()
     {
@@ -76,8 +84,9 @@ public abstract class BrowserIntegrationBase(
     }
 
     // All browser integrations (account and guest) use the same admission owner.
-    public sealed override async Task<IntegrationSendResult> SendMessageAsync(
-        IntegrationSendContext context,
+    public sealed override async Task<PromptResult> PromptAsync(
+        ChatContext chat,
+        PromptRequest request,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -88,7 +97,7 @@ public abstract class BrowserIntegrationBase(
             if (reason is null && !waiting)
                 return;
             waiting = reason is not null;
-            context.ReportAdmissionWait?.Invoke(reason);
+            chat.ReportAdmissionWait?.Invoke(reason);
         }
 
         try
@@ -135,7 +144,9 @@ public abstract class BrowserIntegrationBase(
             }
 
             Signal(null);
-            return await SendCoreAsync(context, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(request.Model))
+                await SetModelAsync(chat, request.Model, cancellationToken);
+            return await SendCoreAsync(chat, request, cancellationToken);
         }
         finally
         {
@@ -145,22 +156,47 @@ public abstract class BrowserIntegrationBase(
         }
     }
 
-    protected abstract Task<IntegrationSendResult> SendCoreAsync(
-        IntegrationSendContext context,
+    protected abstract Task<PromptResult> SendCoreAsync(
+        ChatContext chat,
+        PromptRequest request,
         CancellationToken cancellationToken);
 
-    protected async Task<IntegrationSendResult> SendAnonymousAsync(
-        IntegrationSendContext context,
+    protected async Task<PromptResult> SendAnonymousAsync(
+        ChatContext chat,
+        PromptRequest request,
         CancellationToken cancellationToken)
     {
         return await CreateGuestSession().UseGuestAsync(async (transport, token) =>
         {
+            var prompt = chat.RestoreConversation
+                ? await BuildRestorePromptAsync(chat, request.Text, token)
+                : request.Text;
             var response = await transport.InvokeAsync<BrowserSendResult>(
-                "sendPrompt", new { context.Prompt, NewChat = true }, token);
+                "sendPrompt", new { Prompt = prompt, NewChat = true, MessageId = request.MessageId }, token);
             if (!response.Ok)
                 throw new InvalidOperationException(response.Error ?? "Anonymous browser request failed.");
-            return new IntegrationSendResult(response.Text);
-        }, context.Chat.ChatId, cancellationToken);
+            return new PromptResult(response.Text, CreateMessageId(), request.Model ?? "default");
+        }, chat.Id, cancellationToken);
+    }
+
+    // Used only by browser providers that explicitly need history to restore a
+    // remote conversation. Local history is queried on demand, never snapshotted.
+    protected static async Task<string> BuildRestorePromptAsync(
+        ChatContext chat,
+        string currentText,
+        CancellationToken cancellationToken)
+    {
+        var messages = await chat.GetHistoryAsync(cancellationToken: cancellationToken);
+        var history = messages
+            .Where(message => message.Role == "assistant" || message.Completed)
+            .Select(message =>
+                $"[{(message.Role == "assistant" ? "Assistant" : "User")}]\n{message.Content}")
+            .ToList();
+        if (history.Count == 0)
+            return currentText;
+        history.Add($"[User]\n{currentText}");
+        return "Continue the conversation below. Reply only to the latest user message.\n\n" +
+               string.Join("\n\n", history);
     }
 
     private string GetBrowserModulePath()

@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { randomUUID } = require("node:crypto");
 
 const root = path.resolve(__dirname, "..");
 
@@ -91,7 +92,7 @@ function send(chatgpt, session) {
   return chatgpt.operations.send({
     window: noBrowserUi(),
     session,
-    args: {
+    args: { messageId: randomUUID(),
       prompt: "continue",
       conversationId: "stale-conversation",
       parentMessageId: "old-parent",

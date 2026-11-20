@@ -288,6 +288,8 @@ function toSharedMessage(message: AgentChatMessage, executions: Execution[]): Ch
   return {
     messageId: message.messageId,
     connectionId: message.connectionId,
+    model: message.model,
+    parentMessageId: message.parentMessageId,
     role: message.role,
     origin: message.origin,
     content,
@@ -712,7 +714,7 @@ useEffect(() => {
   useEffect(() => {
     let cancelled = false;
     setModels([]);
-    if (!selectedConnection?.supportsModels) {
+    if (!selectedConnection) {
       setModelsLoading(false);
       return () => { cancelled = true; };
     }
