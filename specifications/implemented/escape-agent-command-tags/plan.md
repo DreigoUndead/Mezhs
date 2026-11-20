@@ -3,7 +3,7 @@
 ID: escape-agent-command-tags  
 Branch: `escape-agent-command-tags`  
 Level: **Small — explicit owner override (2026-11-20)**  
-State: **Development committed; independent Code Review requested; fresh verification still required**
+State: **Code-review correction committed; fresh independent review and current-main integration pending**
 
 ## What
 
@@ -85,3 +85,24 @@ Only the Agent API has the concepts of Agent execution and executable `SH` comma
 **Supersedes:** The earlier instruction in this plan not to spawn an independent agent and to rely on direct owner review.
 
 **Trade-off:** Review must be performed by a fresh execution with no suggested conclusions or copied findings; it will use this plan and repository state as its source of truth.
+
+
+### 2026-11-20 — Code review: malformed leaf containment
+
+**Change:** The independent review found that escape discovery skipped only the opening tag of a non-self-closing registered Leaf control. A nested Agent command could therefore be promoted from malformed content such as `<escape><icon><SH>...</SH></icon></escape>`. Discovery now skips through the paired leaf close. Added parser and real Executor regressions proving nested SH remains inert while an independent root SH still executes.
+
+**Reason:** Malformed UI controls must not grant child command authority; this is an explicit security acceptance criterion.
+
+**Authority:** Independent Code Review against this plan's acceptance criteria.
+
+**Verification:** Corrected source and test changes were read back from branch head `c8685b932eff89ecda57b9831ff685ede0d34226`. The tests have not been executed in this review session; no PASS is claimed.
+
+### 2026-11-20 — Current-main integration limitation
+
+**Change:** Recorded that the task branch is nine commits behind current `main`, the PR currently reports `mergeable=false`, and the intervening main changes also modify `RichDocumentParser.cs` and `tests/Mezhs.RichUi.TestApp/Program.cs`.
+
+**Reason:** The final implementation must be reviewed and tested against current `main`, including its parser validation refactor, rather than treating the older PR base as current.
+
+**Authority:** Repository comparison and PR metadata observed during this review.
+
+**Trade-off:** Keep the task branch and draft PR intact; no changes to `main`, VERSION or CHANGELOG.
