@@ -26,8 +26,8 @@ At **document root**, `escape` recognizes the registered Agent protocol tags wit
 - Agent integration: split-wrapped shell command executes once, attachment stages once, policy denial and `DONE` rules unchanged, malformed command batch executes nothing.
 
 ## Implementation notes
-- Canonical parser now discovers root escaped protocol tags and split wrappers without changing Agent Registry, policy, or executor ownership. The exception is declared once as `ExposeRootCommands` in `RichTagRegistry`; the parser no longer checks the tag's string name.
-- Existing rich UI tags are registry-based `RichTagDefinition` descriptors, not individual C# classes. A full class-per-tag rearchitecture would change the entire parser and was intentionally kept outside this Small correction.
+- Canonical parser discovers root escaped protocol tags and split wrappers without changing Agent Registry, policy or executor ownership. `RichTagDefinition.Handle` registers per-tag functions: `SH`/`ATTACH`/`DONE` use `TagHandlers.Command`; `escape` uses `TagHandlers.Escape`, which discovers eligible nested tags by calling the same traversal and registered command handlers. The generic parser has no escape-specific case, nor a hardcoded escape name.
+- The tag-handler functions are grouped in `RichDocumentParser.Tags.cs` (a partial class to share private parsing primitives without a second tokenizer). Presentation tags continue to use the existing declarative role/content model. No class-per-tag hierarchy or duplicate parser is added.
 - Detailed escape guidance removed from `instructions.yaml` and the authoritative Agent prompt.
 - Regression coverage added to the rich parser, Agent parser/Executor smoke, and runtime instruction tests.
 - Windows CI result for final commit must be verified before release; no claim of independent testing under the Small owner override.

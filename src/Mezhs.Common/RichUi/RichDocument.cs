@@ -39,10 +39,12 @@ public sealed record RichTagDefinition(
     bool SearchChildren,
     // AllowAsChild: whether this tag may be discovered while traversing any
     // other searchable tag. Independent of SearchChildren and Agent policy.
-    bool AllowAsChild,
-    // This control displays literal content but discovers root-only Agent tags
-    // when used at document root. Every nested presentation scope stays inert.
-    bool ExposeRootCommands = false);
+    bool AllowAsChild)
+{
+    // Tags own their behavior; parsing remains the single source of tag boundaries,
+    // attributes and source positions. Handlers only discover command candidates.
+    internal Func<RichDocumentParser.TagContext, RichDocumentParser.TagHandling>? Handle { get; init; }
+}
 
 // The shared parser owns UI syntax. Agent command authority stays with Agent Registry.
 public static class RichTagRegistry
@@ -109,12 +111,16 @@ public static class RichTagRegistry
             Tag("Cite", RichTagRole.Leaf, "ref", "refs"),
             Tag("CodeBlock", RichTagRole.RawEditor, "language", "editable"),
             Tag("WritingBlock", RichTagRole.RawEditor, "variant", "recipient", "cc", "bcc", "subject", "id"),
-            Tag("escape", RichTagRole.OpaqueLiteral, "char") with { ExposeRootCommands = true },
+            Tag("escape", RichTagRole.OpaqueLiteral, "char") with {
+                Handle = RichDocumentParser.TagHandlers.Escape },
             // Agent commands are root-only and opaque, using the same
             // traversal policy as all other registered tags.
-            WithDiscovery(Tag("SH", RichTagRole.Command), searchChildren: false, allowAsChild: false),
-            WithDiscovery(Tag("ATTACH", RichTagRole.Command), searchChildren: false, allowAsChild: false),
+            WithDiscovery(Tag("SH", RichTagRole.Command), searchChildren: false, allowAsChild: false)
+                with { Handle = RichDocumentParser.TagHandlers.Command },
+            WithDiscovery(Tag("ATTACH", RichTagRole.Command), searchChildren: false, allowAsChild: false)
+                with { Handle = RichDocumentParser.TagHandlers.Command },
             WithDiscovery(Tag("DONE", RichTagRole.Marker), searchChildren: false, allowAsChild: false)
+                with { Handle = RichDocumentParser.TagHandlers.Command }
         }.ToDictionary(tag => tag.Name, StringComparer.Ordinal);
 
     public static bool IsSvgTag(string name) => SvgNames.Contains(name);
