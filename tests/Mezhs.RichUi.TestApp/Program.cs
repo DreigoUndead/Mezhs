@@ -713,5 +713,5 @@ finally
 }
 Console.WriteLine($"PARSER_FIRST_CHANCE_EXPECTED={parserFirstChance}");
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 18 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 18 + exceptionCases.Length} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 19 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 19 + exceptionCases.Length} passed");
 return failures == 0 ? 0 : 1;
