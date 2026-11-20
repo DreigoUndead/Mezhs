@@ -257,11 +257,11 @@ public sealed class RichDocumentParser
                     body = _source[tag.End..close];
                     after = close + tag.Name.Length + 3;
                 }
-                ParseAttributes(tag, definition);
+                var attributes = ParseAttributes(tag, definition);
                 if (_commands.Count == MaxNodes)
                     throw new RichDocumentLimitException("Command count exceeds limit.");
                 _commands.Add(new RichCommandCandidate(tag.Name, body,
-                    new RichSourceSpan(cursor, after)));
+                    new RichSourceSpan(cursor, after), attributes));
                 cursor = after;
                 continue;
             }
@@ -608,6 +608,18 @@ public sealed class RichDocumentParser
                         }
                     }
                     source = source[(stop + 1)..];
+                }
+                else if (tag.Name == "SH" && (name is "timeout" or "limit") &&
+                         char.IsAsciiDigit(source[0]))
+                {
+                    // Shell options allow the compact `timeout=60 limit=500`
+                    // form without relaxing numeric syntax for presentation tags.
+                    var stop = 0;
+                    while (stop < source.Length && char.IsAsciiDigit(source[stop])) stop++;
+                    if (stop < source.Length && !char.IsWhiteSpace(source[stop]))
+                        throw new RichDocumentException("Invalid SH numeric attribute.");
+                    value = source[..stop].ToString();
+                    source = source[stop..];
                 }
                 else throw new RichDocumentException("Attribute must be quoted or a bounded literal.");
             }
