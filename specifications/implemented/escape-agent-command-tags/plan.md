@@ -3,7 +3,7 @@
 ID: escape-agent-command-tags  
 Branch: `escape-agent-command-tags`  
 Level: **Small — explicit owner override (2026-11-20)**  
-State: **Code Review #2 correction committed; fresh independent Code Review and Testing still required**
+State: **Code Review #3 correction committed; fresh independent Code Review and Testing still required**
 
 ## What
 
@@ -160,3 +160,12 @@ Only the Agent API has the concepts of Agent execution and executable `SH` comma
 **Correction:** Generalized the full-wrapper source-span adjustment to one or more adjacent commands consuming the entire escape body. The first command now owns the opening wrapper and the last owns the closing wrapper; command order, body bytes, individual command records and text outside the wrapper remain unchanged. Added regression assertions in `tests/agent-protocol-result.ps1` for the Agent visible result and exact boundary spans, and in `tests/Mezhs.RichUi.TestApp/Program.cs` for Markdown flow with two adjacent escaped commands. Code commits: `1720c50d`, `332a3ff3`, `851e47d0`.
 
 **Review outcome:** **FAIL (corrected)** under `.agents/code-review.md`: a concrete defect was fixed, so the next Code Review must be independent. Current-HEAD build, targeted tests and CI are not yet confirmed; earlier PASS evidence applies to the pre-correction revision `45ae425b`. Keep Testing as a separate later stage and do not merge without owner approval.
+
+
+### 2026-11-21 — Independent Code Review #3: whitespace-only command gaps in escape wrappers
+
+**Finding:** The earlier complete-wrapper suppression handled adjacent escaped commands but not wrappers containing only command tags and whitespace. For example, `<escape>\n<SH>echo OK</SH>\n<DONE>\n</escape>` left `<escape>...</escape>` in `Parser.VisibleContent`. `AgentWorker.BuildExecutionResult` treats that residual markup as nonempty final assistant content, even though the rich UI displays no substantive content. This is an observable result regression, not a claim of unauthorized command execution.
+
+**Correction:** `RichDocumentParser.DiscoverInOpaque` now treats whitespace-only gaps as consumed wrapper content, extending contiguous command source spans across those gaps and the wrapper boundaries without changing command bodies, order, registry eligibility or execution policy. Regression cases were added to `tests/Mezhs.RichUi.TestApp/Program.cs` for rich Markdown flow and exact spans, and to `tests/agent-protocol-result.ps1` for parser visibility plus a real Executor execution that must not persist a nonempty final result. Code commits: `0abeee33`, `4f3c271f`, `df91f04b`, `c5a5d6ae`.
+
+**Review outcome:** **FAIL (corrected)** under `.agents/code-review.md`; require a fresh independent Code Review and then a separate Testing role. Prior successful Windows CI on `c0c2d714` (run [44832248783](https://github.com/DreigoUndead/Mezhs/actions/runs/44832248783)) predates this correction and does not verify it. The new Windows CI run [44833590238](https://github.com/DreigoUndead/Mezhs/actions/runs/44833590238) was in progress when recorded; no test PASS is claimed yet. Keep branch/PR draft and do not merge without owner approval.
