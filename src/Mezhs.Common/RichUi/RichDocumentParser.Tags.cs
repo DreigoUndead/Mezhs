@@ -15,16 +15,21 @@ public sealed partial class RichDocumentParser
             if (tag.SelfClosing)
                 throw new RichDocumentException($"{tag.Name} cannot be self-closing.");
 
-            var after = tag.End;
+            var after = context.CommandSource?.End ?? tag.End;
             string? body = null;
             if (context.Definition.Role == RichTagRole.Command)
             {
-                if (context.Closer < 0) return new TagHandling(after);
-                body = parser._source[tag.End..context.Closer];
-                after = context.Closer + tag.Name.Length + 3;
+                if (context.CommandSource is { })
+                    body = context.CommandBody;
+                else
+                {
+                    if (context.Closer < 0) return new TagHandling(after);
+                    body = parser._source[tag.End..context.Closer];
+                    after = context.Closer + tag.Name.Length + 3;
+                }
             }
             parser.AddCommand(new RichCommandCandidate(tag.Name, body,
-                new RichSourceSpan(tag.Start, after)));
+                context.CommandSource ?? new RichSourceSpan(tag.Start, after)));
             return new TagHandling(after);
         }
 
@@ -43,41 +48,38 @@ public sealed partial class RichDocumentParser
             parser.ReadChildren(wrapper.End, context.Closer, null, context.Depth + 1,
                 out _, discover: static tag => !tag.AllowAsChild && tag.Handle is not null);
 
-            // The model may put each command delimiter in a separate escape.
-            // Match those same registered command definitions; preserve the
-            // original source span as one unit for the Agent content projector.
-            var opening = wrapper.End;
-            while (opening < context.Closer && char.IsWhiteSpace(parser._source[opening]))
-                opening++;
-            if (parser._commands.Count == before &&
-                parser.TryTag(opening, context.Closer, out var opener) &&
-                !opener.Closing && !opener.SelfClosing &&
-                string.IsNullOrWhiteSpace(parser._source[opener.End..context.Closer]) &&
-                RichTagRegistry.TryGet(opener.Name, out var definition) &&
-                !definition.AllowAsChild && definition.Role == RichTagRole.Command)
+            // Both halves of a split command are found by the same first-level
+            // tag finder, then passed to the registered command handler.
+            var nested = parser.FindTags(wrapper.End, context.Closer);
+            if (parser._commands.Count == before && nested.Count == 1 &&
+                nested[0] is { Closer: < 0, Tag.Closing: false, Tag.SelfClosing: false } opening &&
+                string.IsNullOrWhiteSpace(parser._source[wrapper.End..opening.Tag.Start]) &&
+                string.IsNullOrWhiteSpace(parser._source[opening.Tag.End..context.Closer]) &&
+                RichTagRegistry.TryGet(opening.Tag.Name, out var definition) &&
+                !definition.AllowAsChild && definition.Role == RichTagRole.Command &&
+                definition.Handle is { } command)
             {
-                var closing = parser.FindOpaqueClosing(opener.Name, after, context.End);
-                var wrapperStart = closing > after
-                    ? parser._source.LastIndexOf('<', closing - 1) : -1;
-                if (wrapperStart >= after &&
-                    parser.TryTag(wrapperStart, context.End, out var next) &&
-                    !next.Closing && !next.SelfClosing && next.Name == wrapper.Name &&
-                    next.End <= closing &&
-                    string.IsNullOrWhiteSpace(parser._source[next.End..closing]))
+                foreach (var next in parser.FindTags(after, context.End))
                 {
-                    var wrapperClose = parser.FindOpaqueClosing(wrapper.Name, closing, context.End);
-                    var commandEnd = closing + opener.Name.Length + 3;
-                    if (wrapperClose >= commandEnd &&
-                        string.IsNullOrWhiteSpace(parser._source[commandEnd..wrapperClose]))
-                    {
-                        ParseAttributes(opener, definition);
-                        ParseAttributes(next, context.Definition);
-                        var fullEnd = wrapperClose + wrapper.Name.Length + 3;
-                        parser.AddCommand(new RichCommandCandidate(opener.Name,
-                            parser._source[after..wrapperStart],
-                            new RichSourceSpan(wrapper.Start, fullEnd)));
-                        return new TagHandling(fullEnd);
-                    }
+                    if (next.Tag.Closing && next.Tag.Name == opening.Tag.Name)
+                        break; // An unwrapped closing delimiter cannot finish this command.
+                    if (next.Tag.Closing || next.Closer < 0 ||
+                        next.Tag.Name != wrapper.Name)
+                        continue;
+                    var closing = parser.FindTags(next.Tag.End, next.Closer);
+                    if (closing.Count != 1 || !closing[0].Tag.Closing ||
+                        closing[0].Tag.Name != opening.Tag.Name ||
+                        !string.IsNullOrWhiteSpace(parser._source[next.Tag.End..closing[0].Tag.Start]) ||
+                        !string.IsNullOrWhiteSpace(parser._source[closing[0].Tag.End..next.Closer]))
+                        continue;
+
+                    var attributes = ParseAttributes(opening.Tag, definition);
+                    ParseAttributes(next.Tag, context.Definition);
+                    command(new TagContext(parser, opening.Tag, definition, -1,
+                        context.End, context.Depth + 1, null, false, attributes,
+                        parser._source[after..next.Tag.Start],
+                        new RichSourceSpan(wrapper.Start, next.End)));
+                    return new TagHandling(next.End);
                 }
             }
 
