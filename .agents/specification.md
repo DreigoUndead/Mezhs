@@ -1,40 +1,96 @@
-# Planning and task classification
+# Specification
 
-Start by checking the request, existing code and relevant `specifications/current/` documents. The first planner must assess feasibility, complexity, risks and conflicts with existing decisions or architecture, and report that assessment to the owner before planning.
+Defines the format and maintenance rules for task plans and specifications.
 
-**Before editing or committing any plan, create the task branch `<id>` from current `main` (or a documented dependent branch for stacked work). All planning and review corrections are committed on that branch; never commit plans directly to `main`.** This applies equally to changes to workflow and planning instructions.
+## Task plan format
 
-## Choose a level
-
-- **Small:** limited scope and low regression risk (e.g. a typo or isolated CSS). Create the task branch first; one chat may do the change, self-review, run checks and pause for owner approval. Record a brief goal and verification note in the PR description or branch.
-- **Standard:** normal feature or bug fix. Commit `specifications/planned/<id>/plan.md` to the existing task branch before implementation. Independent review is the default; independent testing depends on risk.
-- **High-risk:** architecture, security, concurrency, sensitive data or migrations. Commit the plan to the task branch; have a **separate agent** review it on that branch before implementation. Independent code review and testing are mandatory.
-
-State the chosen level, why it fits, and intended checks before coding. Escalate if new risks appear. The owner can explicitly override the process, except that implementation merging always needs their **separate explicit approval**.
-
-Use [Grill Me](skills/grill-me/SKILL.md) when requirements are unclear. Keep the plan proportional to the task:
+Keep the document proportional to the task. Include the information
+the next role needs to understand and execute the work.
 
 ```markdown
-# <Change title>
-ID: <kebab-case-id>
+# [Task title]
 
-## Goal and scope
-What changes and why? What is out of scope?
+ID: [task-id]
+Branch: [task-branch]
+Level: [Small / Standard / High-risk]
 
-## Approach
-Which component owns the behavior?
+## What
+
+[Scope, constraints and exclusions.]
+
+## Why
+
+[Problem being solved and intended outcome.]
 
 ## Acceptance criteria
-- [ ] Observable result
+
+- [ ] [Observable result]
+
+## How
+
+[Approach, important architectural decisions and responsibilities.]
+
+## Steps
+
+1. **[Role]** — [Work and expected deliverable]
+   - Dependencies: [If any]
+   - Done when: [Observable completion condition]
 
 ## Verification
-How do we prove it works?
+
+[Required checks, including live testing where applicable.]
+
+## Changes
+
+[Changes and new decisions made after the initial plan.]
 ```
 
-For complex work, add constraints, risks, alternatives or tasks **inside the plan**.
+Include only the roles and steps required for the task.
 
-Before committing a plan on the task branch, the planner must show the owner a summary of the proposed scope and approach, including significant risks or decisions. Plan approval is not release or merge approval.
+Include affected files, interfaces, assumptions, risks, migration steps,
+rollback instructions or exact verification commands only when necessary
+for correct execution.
 
-A plan reviewer checks the plan against the code and reports findings. **Inform the owner of proposed changes before editing the plan.** If the plan has already gone through a Grill Me session or records owner-agreed decisions, discuss each meaningful issue through [Grill Me](skills/grill-me/SKILL.md) and change the plan **only after explicit owner approval of that correction**. Keep undecided findings outside the plan. Otherwise, the reviewer may edit after informing the owner and repeat review until stable. Then hand off development using the final plan. A fresh agent is required for the **High-risk independent plan review**, not each minor edit.
+Define important decisions; leave ordinary implementation details
+to the Developer.
 
-Plans are allowed to evolve in development on the **same task branch**. The final plan describes the result; Git contains the earlier drafts. Move it from `planned/` to `implemented/` on that branch **before final review/testing**. Only an owner-approved completed release is merged into `main`.
+## Updating the specification
+
+Keep the main sections consistent with the current accepted
+requirements, approach and implementation.
+
+Record each meaningful addition or change in the `Changes` section,
+including changes to scope, approach, role steps, verification,
+accepted limitations or decisions.
+
+Ordinary wording and formatting corrections do not need entries.
+
+Use a concise entry:
+
+```markdown
+### [Date] — [Change title]
+
+**Change:** [What changed]
+**Reason:** [Why it changed]
+**Authority:** [Who decided or approved it, with reference]
+**Trade-off:** [Accepted consequence, if any]
+**Supersedes:** [Earlier decision, if any]
+```
+
+Omit fields that do not apply.
+
+## Decision continuity
+
+- Keep the active requirements in the main sections of the plan.
+- Preserve the rationale for superseded decisions in `Changes`.
+- Distinguish proposed changes from accepted decisions.
+- Do not silently reverse an accepted decision or reintroduce a
+  previously rejected approach.
+- Reconsider a decision when materially new evidence or requirements
+  justify it. Identify what changed.
+- Obtain owner approval before changing an owner-approved requirement,
+  guarantee or consequential architectural decision.
+
+The plan remains the source of truth for its task. Avoid duplicating
+its decisions across multiple documents or turning its Changes
+section into a transcript of ordinary implementation work.
