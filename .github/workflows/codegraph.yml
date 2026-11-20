@@ -1,0 +1,50 @@
+name: Regenerate Codegraph
+
+on:
+  push:
+    branches-ignore:
+      - main
+    paths-ignore:
+      - '.agents/codegraph/graph.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: codegraph-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Codegraph 3.0.0
+        shell: pwsh
+        run: |
+          # Pin the native dependency too: Codegraph 3.0.0 otherwise accepts newer 2.x releases.
+          npm install --global --no-audit --no-fund @lzehrung/codegraph@3.0.0 @lzehrung/codegraph-native@2.0.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          codegraph.cmd --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          codegraph.cmd doctor
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Regenerate and commit graph if changed
+        shell: bash
+        run: |
+          node .agents/codegraph/export.cjs
+          # The CLI can succeed even when its native parser silently falls back.
+          node -e "const a=require('./.agents/codegraph/graph.json').analysis; if(a.backend!=='native'||a.nativeFilesFellBack!==0){console.error('Degraded Codegraph parser:',a);process.exit(1)}"
+          git add -- .agents/codegraph/graph.json
+          if git diff --cached --quiet -- .agents/codegraph/graph.json; then
+            echo "Codegraph unchanged"
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m 'chore(codegraph): regenerate graph' -- .agents/codegraph/graph.json
+          git push origin "HEAD:${GITHUB_REF}"
