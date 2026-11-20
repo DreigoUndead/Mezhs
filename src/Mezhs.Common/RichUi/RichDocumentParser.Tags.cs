@@ -41,7 +41,7 @@ public sealed partial class RichDocumentParser
 
             var before = parser._commands.Count;
             parser.ReadChildren(wrapper.End, context.Closer, null, context.Depth + 1,
-                out _, commandsOnly: true);
+                out _, discover: static tag => !tag.AllowAsChild && tag.Handle is not null);
 
             // The model may put each command delimiter in a separate escape.
             // Match those same registered command definitions; preserve the
