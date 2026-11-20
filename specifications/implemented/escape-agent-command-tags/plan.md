@@ -3,7 +3,7 @@
 ID: escape-agent-command-tags  
 Branch: `escape-agent-command-tags`  
 Level: **Small — explicit owner override (2026-11-20)**  
-State: **Current main merged; final verification still required**
+State: **Development correction verified in CI; independent Code Review and Testing still required**
 
 ## What
 
@@ -24,7 +24,7 @@ Only the Agent API has the concepts of Agent execution and executable `SH` comma
 - [ ] `Mezhs.Agent.Api/Commands/AgentRichTags.cs` composes Core UI definitions with `Registry.All` and overrides only the base `escape` handler.
 - [ ] `Mezhs.Common` contains the injected registry and reusable parser mechanics, with no hardcoded Agent command names or Core UI catalog.
 - [ ] Escape discovery uses the shared parser traversal/tokenizer and bounded structural matching; no separate handler-side search loop, generalized tag finder, or cross-wrapper delimiter pairing.
-- [ ] Only complete, registered, root-only Agent commands/markers in a root-level escape are discovered. Other escape content remains inert; incomplete/split commands and commands nested in known, unknown, SVG, malformed, or raw controls are not promoted.
+- [ ] Only complete, registered, root-only Agent commands/markers in a root-level escape are discovered. Other escape content remains inert; incomplete/split commands and commands nested in complete known, unknown, SVG, or raw controls are not promoted. Arbitrarily malformed UI markup is not a guaranteed containment boundary, per owner override.
 - [ ] Existing command extraction, source spans, batch validation, policy checks and actual execution remain Agent-owned and unchanged in authority.
 - [ ] Generic escaped-command tests enumerate `Registry.All`; specialized containment, malformed-batch, ordering, source-span and real Executor regressions remain explicit.
 - [ ] Core/Agent DI and rich-message projection use the appropriate catalog; the radio grammar receives the active catalog on re-entrant validation.
@@ -57,7 +57,7 @@ Only the Agent API has the concepts of Agent execution and executable `SH` comma
 ## Verification
 
 - Canonical parser: complete escaped SH/ATTACH/DONE, registry-derived command forms, exact command bodies/spans, mixed inert UI, gray literal content, nested escape, unclosed/mismatched tags and DONE ordering.
-- Security boundaries: split escape wrappers are literal and never execute; nested known/unknown/SVG/raw/malformed content is not promoted; malformed command batches fail closed.
+- Security boundaries: split escape wrappers are literal and never execute; nested complete known/unknown/SVG/raw content is not promoted; invalid command batches fail closed. Malformed UI tag pairing is unsupported by owner decision.
 - Agent parser/Executor: one complete escaped shell command runs once; escaped DONE works; attachment staging and ordinary root commands remain unchanged.
 - Build and integration: .NET solution/build, `Mezhs.RichUi.TestApp`, `tests/agent-protocol-result.ps1`, `tests/policy-decoder.ps1`, relevant API and browser tests, plus the MEŽS Core GitHub Actions workflow on the final reviewed SHA.
 - Record exact commit SHA, commands, CI run URLs/results, and checks not performed.
@@ -126,3 +126,12 @@ Only the Agent API has the concepts of Agent execution and executable `SH` comma
 **Reason:** The task branch had diverged and its parser overlapped a mainline refactor.
 
 **Verification:** GitHub compare reports `behind_by=0` and PR #69 is mergeable. Tests and CI on the final revision have not yet been confirmed; no PASS is claimed here.
+
+
+### 2026-11-20 — Compiler correction and developer verification
+
+**Change:** Fixed C# compiler error CS0136 in `RichDocumentParser.cs` by renaming the discovery-local `closer` to `discoveredClose`. The branch correction was committed as `1511954c7631f92f34ded03847fc8e7d74db8548`. Updated the acceptance language and reference docs to match the owner's explicit decision not to guarantee command containment for arbitrary malformed nested markup.
+
+**Reason:** The main-integration merge introduced a scope collision with an existing `closer` local; the first CI run on `a0789dd0a2ca1d46068cc49e293d427f779e9c72` failed to compile with CS0136. Historic malformed-input promises would otherwise contradict the owner's accepted scope override.
+
+**Verification:** MEŽS Core Windows GitHub Actions run [44828360163](https://github.com/DreigoUndead/Mezhs/actions/runs/44828360163), attempt 2, completed **success** on code revision `1511954c7631f92f34ded03847fc8e7d74db8548`. All 21 job steps succeeded, including .NET solution build, RichUi parser tests, real Chromium browser regressions, real Agent Executor protocol smoke, Agent API/policy, browser lifecycle, and restart-recovery checks. Attempt 1 failed an unrelated group-deletion Chromium focus assertion; the same test passed on attempt 2 without a code change, so its root cause is undetermined. Fresh independent Code Review and a separate Testing-role verification are still outstanding. Documentation-only follow-up requires checking CI on the resulting branch revision.
