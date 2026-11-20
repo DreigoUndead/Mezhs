@@ -267,6 +267,10 @@ var malformedLeaf = parser.Parse("<escape><icon><SH>INERT</SH></icon></escape>")
 Check(malformedLeaf.Commands.Count == 0 &&
       malformedLeaf.VisibleContent.Contains("<SH>INERT</SH>", StringComparison.Ordinal),
       "Malformed paired leaf control must not promote nested shell authority.");
+var nestedMalformedLeaf = parser.Parse("<escape><box><icon>literal </box><SH>INERT</SH></icon></box></escape>");
+Check(nestedMalformedLeaf.Commands.Count == 0 &&
+      nestedMalformedLeaf.VisibleContent.Contains("<SH>INERT</SH>", StringComparison.Ordinal),
+      "A parent container must not close inside a malformed paired leaf control.");
 Console.WriteLine("PASS: Position-independent matching, unknown containment, and exact source spans.");
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
@@ -343,9 +347,11 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     # A malformed paired leaf stays opaque; only the independent root shell may execute.
     $malformedLeafRootMarker = Join-Path $temp 'malformed-leaf-root.txt'
     $malformedLeafNestedMarker = Join-Path $temp 'malformed-leaf-nested.txt'
+    $malformedLeafParentNestedMarker = Join-Path $temp 'malformed-leaf-parent-nested.txt'
     $malformedLeafRootShell = "echo ROOT>>`"$malformedLeafRootMarker`""
     $malformedLeafNestedShell = "echo NESTED>>`"$malformedLeafNestedMarker`""
-    $malformedLeafTask = "<SH>$malformedLeafRootShell</SH><escape><icon><SH>$malformedLeafNestedShell</SH></icon></escape><DONE>"
+    $malformedLeafParentNestedShell = "echo PARENT-NESTED>>`"$malformedLeafParentNestedMarker`""
+    $malformedLeafTask = "<SH>$malformedLeafRootShell</SH><escape><icon><SH>$malformedLeafNestedShell</SH></icon><box><icon>literal </box><SH>$malformedLeafParentNestedShell</SH></icon></box></escape><DONE>"
     $malformedLeafRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $malformedLeafTask })
     $malformedLeafOutcome = Wait-Execution $malformedLeafRun.executionId 20
     $malformedLeafHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($malformedLeafOutcome.chatId)/executions")
@@ -353,7 +359,8 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     if ($malformedLeafOutcome.status -ne 'Completed' -or $malformedLeafShells.Count -ne 1 -or
         $malformedLeafShells[0].status -ne 'Completed' -or
         -not (Test-Path -LiteralPath $malformedLeafRootMarker) -or
-        (Test-Path -LiteralPath $malformedLeafNestedMarker)) {
+        (Test-Path -LiteralPath $malformedLeafNestedMarker) -or
+        (Test-Path -LiteralPath $malformedLeafParentNestedMarker)) {
         throw "Malformed leaf control exposed nested shell authority."
     }
     Write-Host 'PASS: Malformed paired leaf keeps nested SH inert through the real Executor.'
