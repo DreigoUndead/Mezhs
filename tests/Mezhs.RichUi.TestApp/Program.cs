@@ -171,6 +171,20 @@ var multipleEscapedPass = multipleEscapedDoc.Document.Valid &&
     multipleEscapedParagraph.Children[1].Text == " after";
 Console.WriteLine($"{(multipleEscapedPass ? "PASS" : "FAIL")}: Adjacent escaped commands hide the wrapper without splitting Markdown flow");
 if (!multipleEscapedPass) failures++;
+var spacedEscapedSource = "Before <escape>\r\n<SH>echo ONE</SH>\r\n<ATTACH>queued.txt</ATTACH>\r\n</escape> after";
+var spacedEscapedDoc = new RichDocumentParser(AgentRichTags.Tags).Parse(spacedEscapedSource);
+var spacedParagraph = spacedEscapedDoc.Document.Nodes.SingleOrDefault();
+var spacedEscapedPass = spacedEscapedDoc.Document.Valid &&
+    spacedEscapedDoc.Commands.Select(c => c.Name).SequenceEqual(["SH", "ATTACH"]) &&
+    spacedEscapedDoc.Commands[0].SourceSpan.Start == "Before ".Length &&
+    spacedEscapedDoc.Commands[0].SourceSpan.End == spacedEscapedDoc.Commands[1].SourceSpan.Start &&
+    spacedEscapedDoc.Commands[^1].SourceSpan.End == spacedEscapedSource.Length - " after".Length &&
+    spacedParagraph?.Kind == "paragraph" &&
+    spacedParagraph.Children?.Count == 2 &&
+    spacedParagraph.Children[0].Text == "Before " &&
+    spacedParagraph.Children[1].Text == " after";
+Console.WriteLine($"{(spacedEscapedPass ? "PASS" : "FAIL")}: Whitespace-only escaped command gaps leave no wrapper or Markdown break");
+if (!spacedEscapedPass) failures++;
 
 // Regression: the rendered tree, not only VisibleContent, must keep Markdown flow.
 var shellOpen = string.Concat((char)60, "SH", (char)62);
