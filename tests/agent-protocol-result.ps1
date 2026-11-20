@@ -263,6 +263,10 @@ var malformedEditor = parser.Parse("<CodeBlock bad=\"value\"><SH>INERT</SH></Cod
 Check(malformedEditor.Commands.SequenceEqual([new Command("SH", "ROOT")]) &&
       malformedEditor.VisibleContent.Contains("<SH>INERT</SH>", StringComparison.Ordinal),
       "Malformed known opaque control must not promote nested shell authority.");
+var malformedLeaf = parser.Parse("<escape><icon><SH>INERT</SH></icon></escape>");
+Check(malformedLeaf.Commands.Count == 0 &&
+      malformedLeaf.VisibleContent.Contains("<SH>INERT</SH>", StringComparison.Ordinal),
+      "Malformed paired leaf control must not promote nested shell authority.");
 Console.WriteLine("PASS: Position-independent matching, unknown containment, and exact source spans.");
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
@@ -335,6 +339,24 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
         throw "Complete escaped command did not execute exactly once with durable evidence."
     }
     Write-Host 'PASS: Complete escaped shell command executes once and escaped DONE completes.'
+
+    # A malformed paired leaf stays opaque; only the independent root shell may execute.
+    $malformedLeafRootMarker = Join-Path $temp 'malformed-leaf-root.txt'
+    $malformedLeafNestedMarker = Join-Path $temp 'malformed-leaf-nested.txt'
+    $malformedLeafRootShell = "echo ROOT>>`"$malformedLeafRootMarker`""
+    $malformedLeafNestedShell = "echo NESTED>>`"$malformedLeafNestedMarker`""
+    $malformedLeafTask = "<SH>$malformedLeafRootShell</SH><escape><icon><SH>$malformedLeafNestedShell</SH></icon></escape><DONE>"
+    $malformedLeafRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $malformedLeafTask })
+    $malformedLeafOutcome = Wait-Execution $malformedLeafRun.executionId 20
+    $malformedLeafHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($malformedLeafOutcome.chatId)/executions")
+    $malformedLeafShells = @($malformedLeafHistory | Where-Object { $_.kind -eq 'Shell' })
+    if ($malformedLeafOutcome.status -ne 'Completed' -or $malformedLeafShells.Count -ne 1 -or
+        $malformedLeafShells[0].status -ne 'Completed' -or
+        -not (Test-Path -LiteralPath $malformedLeafRootMarker) -or
+        (Test-Path -LiteralPath $malformedLeafNestedMarker)) {
+        throw "Malformed leaf control exposed nested shell authority."
+    }
+    Write-Host 'PASS: Malformed paired leaf keeps nested SH inert through the real Executor.'
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
