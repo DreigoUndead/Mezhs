@@ -560,19 +560,21 @@ public sealed class RichDocumentParser
         }
         visible.Append(_source, from, context.BodyEnd - from);
 
-        // A fully command-consumed escape must leave no visible wrapper,
-        // whether it holds one command or several adjacent commands.
-        // Expanding only the outer command spans preserves command order and
-        // body bytes while keeping surrounding Markdown in one flow.
-        if (_commands.Count > before && visible.Length == 0)
+        // Whitespace between otherwise complete commands is not visible
+        // content. Consume the entire escape wrapper without exposing raw
+        // markup in Agent results or splitting surrounding Markdown flow.
+        // Extend source spans only: command bodies and order remain unchanged.
+        if (_commands.Count > before && string.IsNullOrWhiteSpace(visible.ToString()))
         {
-            var first = _commands[before];
-            _commands[before] = first with {
-                SourceSpan = new RichSourceSpan(context.Start, first.SourceSpan.End) };
-            var lastIndex = _commands.Count - 1;
-            var last = _commands[lastIndex];
-            _commands[lastIndex] = last with {
-                SourceSpan = new RichSourceSpan(last.SourceSpan.Start, context.End) };
+            for (var index = before; index < _commands.Count; index++)
+            {
+                var command = _commands[index];
+                var start = index == before ? context.Start : command.SourceSpan.Start;
+                var end = index + 1 < _commands.Count
+                    ? _commands[index + 1].SourceSpan.Start : context.End;
+                _commands[index] = command with {
+                    SourceSpan = new RichSourceSpan(start, end) };
+            }
             return new RichTagHandling(context.End);
         }
 
