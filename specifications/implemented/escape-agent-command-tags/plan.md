@@ -3,24 +3,85 @@
 ID: escape-agent-command-tags  
 Branch: `escape-agent-command-tags`  
 Level: **Small — explicit owner override (2026-11-20)**  
-State: **Architecture revised on task branch; pending fresh CI and owner review/merge approval**
+State: **Development committed; independent Code Review requested; fresh verification still required**
 
-## Owner decision and scope
-At document root, `escape` discovers only *complete* registered Agent commands/markers whose definitions set `AllowAsChild=false` (currently SH, ATTACH and DONE). Incomplete delimiters, including an opener inside one escape and a closer inside another, remain literal. Do not reconstruct commands across wrappers. Remaining escape content may be displayed in gray for visual inspection; it never gains UI or Agent authority. Nested escape within a complete rich container remains inert.
+## What
 
-## Implementation
-Keep the existing canonical `ReadChildren` traversal, `TryTag` tokenizer and `FindContainerClose` / `FindOpaqueClosing` matching. Register one optional handler for the `escape` tag; its small routine scans that bounded body using those existing primitives, skips other elements and collects only eligible commands through the same `ReadCommand` path as ordinary root tags. The Agent Registry, Interpreter and policy checks remain unchanged. Do not introduce a second grammar, cross-wrapper pairing, a generalized first-level tag finder or another control framework. One complete command occupying the entire escape can consume the whole wrapper span so inline Markdown flow remains unchanged.
+At document root, `escape` discovers only *complete* registered Agent commands/markers whose definitions set `AllowAsChild=false` (currently SH, ATTACH and DONE). Incomplete delimiters, including an opener inside one escape and a closer inside another, remain literal. Never reconstruct commands across wrappers. Remaining escape content is inert and may be displayed in gray. Nested escape within a complete rich container remains inert.
+
+The tag ownership boundary is:
+- `Mezhs.Api` owns base presentation UI tag definitions.
+- `Mezhs.Agent.Api` owns Agent protocol tag definitions and the Agent-specific `escape` override.
+- `Mezhs.Common` owns reusable tag/handler contracts and parsing/traversal mechanics, but no Agent command names or Core presentation-tag catalog.
+
+## Why
+
+Only the Agent API has the concepts of Agent execution and executable `SH` commands. Core UI tag definitions therefore belong to the API that owns the base UI surface, while Agent protocol additions and overrides belong to Agent API. The shared parser should consume an injected immutable catalog and reuse one traversal rather than owning Agent-specific behavior or maintaining a second tag-search implementation. Generic command coverage should derive from the Agent command registry.
+
+## Acceptance criteria
+
+- [ ] Core UI definitions are supplied by `Mezhs.Api/RichUi/UiRichTags.cs`; Core-only parsing does not promote Agent command tags into executable commands.
+- [ ] `Mezhs.Agent.Api/Commands/AgentRichTags.cs` composes Core UI definitions with `Registry.All` and overrides only the base `escape` handler.
+- [ ] `Mezhs.Common` contains the injected registry and reusable parser mechanics, with no hardcoded Agent command names or Core UI catalog.
+- [ ] Escape discovery uses the shared parser traversal/tokenizer and bounded structural matching; no separate handler-side search loop, generalized tag finder, or cross-wrapper delimiter pairing.
+- [ ] Only complete, registered, root-only Agent commands/markers in a root-level escape are discovered. Other escape content remains inert; incomplete/split commands and commands nested in known, unknown, SVG, malformed, or raw controls are not promoted.
+- [ ] Existing command extraction, source spans, batch validation, policy checks and actual execution remain Agent-owned and unchanged in authority.
+- [ ] Generic escaped-command tests enumerate `Registry.All`; specialized containment, malformed-batch, ordering, source-span and real Executor regressions remain explicit.
+- [ ] Core/Agent DI and rich-message projection use the appropriate catalog; the radio grammar receives the active catalog on re-entrant validation.
+- [ ] Relevant .NET build, parser/protocol/Executor tests, browser regressions and CI are verified on the final reviewed revision. Record any unavailable check as BLOCKED rather than claiming PASS.
+
+## How
+
+- `Mezhs.Api/RichUi/UiRichTags.cs` declares base presentation tags and exposes the Core catalog.
+- `Mezhs.Agent.Api/Commands/AgentRichTags.cs` extends that catalog from `Registry.All` and supplies the Agent-specific `escape` handler.
+- The `escape` handler requests eligible command discovery through `RichTagContext.Discover(...)`; it does not tokenize, search source or execute commands itself.
+- `Mezhs.Common/RichUi/RichDocumentParser.cs` owns bounded discovery using the existing `ReadChildren` traversal, tokenizer, closing-boundary logic and `ReadCommand` extraction.
+- Core and Agent hosts inject their respective catalogs. The Agent command parser uses the Agent catalog. Policy, interpreter, batch validation and execution remain in Agent.
+- Generic command-form tests derive from `Registry.All`; explicit tests cover security boundaries and behavior not expressible as a simple registry loop.
+
+## Steps
+
+1. **Development — complete**
+   - Implement the catalog ownership split, shared bounded discovery, API injection and registry-driven generic coverage on the task branch.
+   - Done when: changes are committed and pushed; implementation and verification evidence are recorded.
+2. **Code Review — next, independent**
+   - A fresh Code Reviewer independently reviews the complete change against `main`, this plan, architecture, ownership, security boundaries, regressions and test coverage.
+   - Correct concrete findings on this task branch, verify corrections, and record the outcome and evidence. If review returns FAIL, hand off to another fresh independent Code Reviewer after corrections.
+   - Done when: reviewer reports PASS or BLOCKED for a specific unresolved issue.
+3. **Testing — after Code Review PASS**
+   - Verify the final post-review revision with the required targeted tests and CI/browser checks. Do not reuse results from an earlier SHA.
+   - Done when: all required checks pass or remaining blockers are reported with evidence.
+4. **Deploy — owner approval only**
+   - Keep the PR open and task branch intact until the owner explicitly approves merging. Do not change VERSION or CHANGELOG as part of this task.
 
 ## Verification
-- Canonical parser: complete escaped SH/ATTACH/DONE, exact command bodies/spans, mixed inert UI, gray literal content, nested escape, unclosed tags, and DONE ordering.
-- Explicit negative checks: split escape wrappers are literal and do not execute, nested known/unknown/SVG/raw content is not promoted, and malformed command batches fail closed.
-- Agent parser/Executor: a complete escaped shell command runs once; escaped DONE works; attachment staging and ordinary root commands remain unchanged.
-- CI/build and browser checks must be verified at the final commit. No independent agent will be spawned: **the owner asked to review directly**. No merge, VERSION or CHANGELOG change before separate owner approval.
 
-## Architecture revision (owner review, 2026-11-20)
-- UI tag definitions belong to `Mezhs.Api/RichUi/UiRichTags.cs`; the reusable Common parser accepts an immutable injected catalog rather than defining presentation tags or Agent command names.
-- `Mezhs.Agent.Api/Commands/AgentRichTags.cs` adds command tags directly from `Registry.All` and overrides only the base `escape` handler. This callback requests discovery of registered root-only command/marker syntax; it never executes actions.
-- The shared `RichDocumentParser.ReadChildren` traversal performs bounded discovery and skips other complete/unknown containers. There is no separate handler-side tokenizer or search loop. Existing command validation and policy remain in Agent.
-- Core and Agent hosts inject their respective catalogs for completed-message projection; the Agent command parser uses the Agent catalog. The canonical radio grammar receives the active catalog on re-entrant validation.
-- Generic escaped-command tests iterate the Agent command registry. Explicit source span, containment, invalid-batch and real Executor tests remain.
-- Scope was revised at the owner's request after a previous simplification. The owner will review directly (no new agents); CI must run on the current candidate SHA before a PASS can be claimed. Do not spawn agents or merge.
+- Canonical parser: complete escaped SH/ATTACH/DONE, registry-derived command forms, exact command bodies/spans, mixed inert UI, gray literal content, nested escape, unclosed/mismatched tags and DONE ordering.
+- Security boundaries: split escape wrappers are literal and never execute; nested known/unknown/SVG/raw/malformed content is not promoted; malformed command batches fail closed.
+- Agent parser/Executor: one complete escaped shell command runs once; escaped DONE works; attachment staging and ordinary root commands remain unchanged.
+- Build and integration: .NET solution/build, `Mezhs.RichUi.TestApp`, `tests/agent-protocol-result.ps1`, `tests/policy-decoder.ps1`, relevant API and browser tests, plus the MEŽS Core GitHub Actions workflow on the final reviewed SHA.
+- Record exact commit SHA, commands, CI run URLs/results, and checks not performed.
+
+## Changes
+
+### 2026-11-20 — Agent/Core tag ownership and shared discovery
+
+**Change:** Base UI definitions moved to `Mezhs.Api/RichUi/UiRichTags.cs`; Agent command tags and the `escape` override moved to `Mezhs.Agent.Api/Commands/AgentRichTags.cs`. The shared parser accepts an injected registry and uses its existing traversal for bounded command discovery. Generic command coverage derives from `Registry.All`.
+
+**Reason:** The Core API owns the base UI surface; only the Agent API owns execution and `SH`. A second handler-side search implementation duplicates parser responsibility and can drift from structural matching.
+
+**Authority:** Owner decisions in the 2026-11-20 task discussion.
+
+**Trade-off:** The shared parser exposes a small discovery contract so an owning API can request command discovery without implementing a second scanner.
+
+### 2026-11-20 — Independent Code Review required
+
+**Change:** Add a fresh, independent Code Review stage before final Testing. The reviewer may correct concrete findings on the existing task branch; a FAIL requires a fresh independent reviewer after corrections.
+
+**Reason:** The owner explicitly requested a new code reviewer in the 2026-11-20 handoff.
+
+**Authority:** Owner instruction in the 2026-11-20 task execution.
+
+**Supersedes:** The earlier instruction in this plan not to spawn an independent agent and to rely on direct owner review.
+
+**Trade-off:** Review must be performed by a fresh execution with no suggested conclusions or copied findings; it will use this plan and repository state as its source of truth.
