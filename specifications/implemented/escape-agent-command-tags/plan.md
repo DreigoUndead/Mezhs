@@ -144,3 +144,10 @@ Only the Agent API has the concepts of Agent execution and executable `SH` comma
 **Reason:** `main` advanced eight commits after developer verification; the independent reviewer must evaluate against current main rather than the superseded branch base.
 
 **Verification:** GitHub comparison after merging reports `behind_by=0`. The prior successful CI run `44828360163` (attempt 2) covered code commit `1511954c`, not this integration. New mainline changes and documentation updates still require final-head CI before acceptance.
+
+
+### 2026-11-20 — Post-integration developer CI and codegraph refresh
+
+**Change:** After merging v0.9.3 main, developer verification was run on branch commit `b395a660a22566f0dd6ac7f3e873cfd462a1f3fc`; the automatic codegraph workflow then advanced the branch to `78e95d32568cf61eb0bb8d597283d460ded8abab` with exactly one changed path, `.agents/codegraph/graph.json`. No new application-source changes were introduced by that generated-graph commit.
+
+**Verification:** Windows MEŽS Core CI run [44829727497](https://github.com/DreigoUndead/Mezhs/actions/runs/44829727497) finished **success**, all 21 job steps passed on `b395a660`, including the new v0.9.3 Markdown regressions, real Chromium, Agent protocol/Executor and concurrency/restart checks. The codegraph-only bot commit received a separate `action_required` CI run and is not counted as a pass for that SHA. This documentation update records evidence and triggers a fresh check on the current head; no PASS is claimed for the independent Code Review or subsequent Testing role.
