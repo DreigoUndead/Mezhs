@@ -158,6 +158,19 @@ var soleEscapedPass = soleEscapedDoc.Document.Valid &&
     soleEscapedParagraph.Children[1].Text == " after";
 Console.WriteLine($"{(soleEscapedPass ? "PASS" : "FAIL")}: Sole escaped command preserves Markdown paragraph and full wrapper span");
 if (!soleEscapedPass) failures++;
+var multipleEscapedSource = "Before <escape><SH>echo ONE</SH><ATTACH>queued.txt</ATTACH></escape> after";
+var multipleEscapedDoc = new RichDocumentParser(AgentRichTags.Tags).Parse(multipleEscapedSource);
+var multipleEscapedParagraph = multipleEscapedDoc.Document.Nodes.SingleOrDefault();
+var multipleEscapedPass = multipleEscapedDoc.Document.Valid &&
+    multipleEscapedDoc.Commands.Select(c => c.Name).SequenceEqual(["SH", "ATTACH"]) &&
+    multipleEscapedDoc.Commands[0].SourceSpan.Start == "Before ".Length &&
+    multipleEscapedDoc.Commands[^1].SourceSpan.End == multipleEscapedSource.Length - " after".Length &&
+    multipleEscapedParagraph?.Kind == "paragraph" &&
+    multipleEscapedParagraph.Children?.Count == 2 &&
+    multipleEscapedParagraph.Children[0].Text == "Before " &&
+    multipleEscapedParagraph.Children[1].Text == " after";
+Console.WriteLine($"{(multipleEscapedPass ? "PASS" : "FAIL")}: Adjacent escaped commands hide the wrapper without splitting Markdown flow");
+if (!multipleEscapedPass) failures++;
 
 // Regression: the rendered tree, not only VisibleContent, must keep Markdown flow.
 var shellOpen = string.Concat((char)60, "SH", (char)62);
