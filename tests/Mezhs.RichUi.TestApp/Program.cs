@@ -33,11 +33,12 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Complete escaped SH", "<escape><SH>echo YES</SH></escape>", true, ["SH"]),
     ("Complete escaped ATTACH", "<escape><ATTACH>file.txt</ATTACH></escape>", true, ["ATTACH"]),
     ("Complete escaped DONE", "<escape><DONE></escape>", true, ["DONE"]),
-    ("Split escaped SH", "<escape><SH></escape>echo YES<escape></SH></escape>", true, ["SH"]),
-    ("Split escaped ATTACH", "<escape><ATTACH></escape>file.txt<escape></ATTACH></escape>", true, ["ATTACH"]),
-    ("Split escaped closer whitespace", "<escape><SH></escape>echo YES<escape> </SH> </escape>", true, ["SH"]),
+    ("Split escaped SH is literal", "<escape><SH></escape>echo YES<escape></SH></escape>", true, []),
+    ("Split escaped ATTACH is literal", "<escape><ATTACH></escape>file.txt<escape></ATTACH></escape>", true, []),
+    ("Split escaped closer whitespace is literal", "<escape><SH></escape>echo YES<escape> </SH> </escape>", true, []),
     ("Split escape without closer", "<escape><SH></escape>echo NO", true, []),
     ("Split escape with mismatched closer", "<escape><SH></escape>echo NO<escape></ATTACH></escape>", true, []),
+    ("Escaped SH body retains fake escape close", "<escape><SH>echo </escape> literal</SH></escape>", true, ["SH"]),
     ("Other tags within escape remain inert", "<escape><text><SH>echo NO</SH></text><SH>echo YES</SH></escape>", true, ["SH"]),
     ("Escaped command nested inside box inert", "<box><escape><SH>echo NO</SH></escape></box>", true, []),
     ("Nested escape remains inert", "<escape><escape><SH>echo NO</SH></escape></escape>", true, []),
@@ -110,15 +111,12 @@ foreach (var (name, source, valid, commands) in checks)
     Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; commands={string.Join(",", names)}; diagnostics={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
     if (!pass) failures++;
 }
-// Escaped delimiters retain exact shell bytes and consume both wrappers.
+// Incomplete command delimiters inside escape wrappers remain literal, not paired.
 var escapedSplitSource = "before<escape><SH></escape>\r\necho EXACT \r\n<escape></SH></escape>after";
 var escapedSplit = new RichDocumentParser().Parse(escapedSplitSource);
-var splitCandidate = escapedSplit.Commands.SingleOrDefault();
-var escapedSplitPass = escapedSplit.Document.Valid &&
-    splitCandidate?.Body == "\r\necho EXACT \r\n" &&
-    splitCandidate?.SourceSpan.Start == "before".Length &&
-    splitCandidate?.SourceSpan.End == escapedSplitSource.Length - "after".Length;
-Console.WriteLine($"{(escapedSplitPass ? "PASS" : "FAIL")}: Escaped split exact body/source spans");
+var escapedSplitPass = escapedSplit.Document.Valid && escapedSplit.Commands.Count == 0 &&
+    escapedSplit.Document.Nodes.Any(n => n.Kind == "literal" && n.Name == "escape" && n.Text == "<SH>");
+Console.WriteLine($"{(escapedSplitPass ? "PASS" : "FAIL")}: Split escape wrappers remain inert");
 if (!escapedSplitPass) failures++;
 var escapedLiteral = new RichDocumentParser().Parse("<escape>before <SH>echo HIDE</SH> after</escape>");
 var escapedLiteralPass = escapedLiteral.Document.Valid &&

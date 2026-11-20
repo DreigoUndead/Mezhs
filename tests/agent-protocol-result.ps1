@@ -155,22 +155,16 @@ Check(sameLineEscape.Document.Valid &&
 var splitSource = "prefix<escape><SH></escape>\r\necho SPLIT \r\n<escape></SH></escape>suffix";
 var splitResult = parser.Parse(splitSource);
 var splitDocument = new RichDocumentParser().Parse(splitSource);
-Check(splitResult.Commands.SequenceEqual([new Command("SH", "\r\necho SPLIT \r\n")]) &&
-      splitResult.VisibleContent == "prefixsuffix" &&
-      splitDocument.Document.Valid && splitDocument.Commands.Count == 1 &&
-      splitDocument.Commands[0].SourceSpan.Start == "prefix".Length &&
-      splitDocument.Commands[0].SourceSpan.End == splitSource.Length - "suffix".Length,
-      "Split escaped shell delimiters lost body bytes or original source span.");
+Check(splitResult.Commands.Count == 0 && splitResult.VisibleContent == splitSource &&
+      splitDocument.Document.Valid && splitDocument.Commands.Count == 0,
+      "Incomplete command tags in separate escape wrappers must stay literal.");
 var splitWithTags = parser.Parse(
     "<escape><SH></escape>echo <box>literal</box><escape></SH></escape>");
-Check(splitWithTags.Commands.SequenceEqual([
-      new Command("SH", "echo <box>literal</box>")]) &&
-      splitWithTags.VisibleContent == "",
-      "Split command must preserve intervening rich-looking text verbatim.");
+Check(splitWithTags.Commands.Count == 0,
+      "Separate escape wrappers cannot construct a command from intervening content.");
 var splitAttach = parser.Parse("<escape><ATTACH></escape>file.txt<escape></ATTACH></escape>");
-Check(splitAttach.Commands.SequenceEqual([new Command("ATTACH", "file.txt")]) &&
-      splitAttach.VisibleContent == "",
-      "Split escaped attachment delimiters were not recognized.");
+Check(splitAttach.Commands.Count == 0,
+      "Incomplete escaped attachment delimiters must remain inert.");
 var escapedDone = parser.Parse("<escape><SH>echo OK</SH></escape><escape><DONE></escape>");
 Check(escapedDone.Commands.SequenceEqual([new Command("SH", "echo OK"), new Command("DONE", null)]),
       "Escaped DONE marker did not preserve command ordering.");
@@ -315,10 +309,10 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     Assert-InlineExecuted 'prose' 'before ' ' after '
     Assert-InlineExecuted 'markdown-fence' ('```text' + "`n") ("`n" + '```')
 
-    # The reported split-wrapper syntax executes exactly once through the real Executor.
+    # A complete escaped shell command executes through the real Executor.
     $escapedMarker = Join-Path $temp 'split-escaped-command.txt'
     $escapedShell = "echo ESCAPED>>`"$escapedMarker`""
-    $escapedTask = "<escape><SH></escape>$escapedShell<escape></SH></escape><escape><DONE></escape>"
+    $escapedTask = "<escape><SH>$escapedShell</SH></escape><escape><DONE></escape>"
     $escapedRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $escapedTask })
     $escapedOutcome = Wait-Execution $escapedRun.executionId 20
     $escapedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($escapedOutcome.chatId)/executions")
@@ -327,9 +321,9 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
         $escapedShells[0].status -ne 'Completed' -or
         -not (Test-Path -LiteralPath $escapedMarker) -or
         @((Get-Content -LiteralPath $escapedMarker)).Count -ne 1) {
-        throw "Escaped split wrapper did not execute exactly once with durable evidence."
+        throw "Complete escaped command did not execute exactly once with durable evidence."
     }
-    Write-Host 'PASS: Escaped split delimiters execute once and escaped DONE completes.'
+    Write-Host 'PASS: Complete escaped shell command executes once and escaped DONE completes.'
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"

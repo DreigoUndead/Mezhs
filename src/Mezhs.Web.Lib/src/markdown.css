@@ -124,3 +124,6 @@
 .markdown-content .rich-code-block pre { margin: 0; border: 0; border-radius: 0; background: transparent; color: inherit; }
 .markdown-content .rich-code-block textarea { display: block; box-sizing: border-box; width: 100%; min-height: 110px; resize: vertical; padding: 12px 14px; border: 0; outline-offset: -2px; background: #24231f; color: #f0ede5; font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
 .markdown-content .rich-code-status { display: block; padding: 4px 12px 8px; font-size: .8em; color: #c6c0b6; }
+
+/* Root escape keeps unsupported or incomplete markup visible but inert. */
+.markdown-content .rich-escape-literal { color: #746f66; white-space: pre-wrap; }
