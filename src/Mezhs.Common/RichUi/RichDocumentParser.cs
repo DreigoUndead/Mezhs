@@ -598,8 +598,11 @@ public sealed class RichDocumentParser
                         try
                         {
                             var literal = new SafeLiteralReader(expression).Read();
-                            if (literal is not Dictionary<string, object?>)
-                                throw new FormatException("Expected an object literal.");
+                            if (literal is not Dictionary<string, object?> &&
+                                !(tag.Name == "Cite" && name == "refs" &&
+                                  literal is List<object?> references &&
+                                  references.All(reference => reference is string)))
+                                throw new FormatException("Expected an object literal or Cite reference list.");
                             value = "json:" + Uri.EscapeDataString(JsonSerializer.Serialize(literal));
                         }
                         catch (Exception e) when (e is FormatException or JsonException or OverflowException)
