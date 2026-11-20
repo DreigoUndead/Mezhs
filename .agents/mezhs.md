@@ -46,3 +46,10 @@ When live tests require running a separate MEŽS instance:
 
 Never run the test instance against the owner's active
 application storage or browser profile.
+
+## Release reference documentation
+
+During Deploy, update `docs/agent-tools.md` and
+`docs/supported-rich-ui.md` when their documented behavior
+changed. Base the updates on the final implementation,
+not planned or unmerged behavior.
