@@ -78,6 +78,8 @@
     "specifications/implemented/chat-store-sqlite/plan.md",
     "specifications/implemented/integration-config-ownership-wait-status/plan.md",
     "specifications/implemented/integration-config-ownership-wait-status/verification.md",
+    "specifications/implemented/parser-expected-failures-no-exceptions/plan.md",
+    "specifications/implemented/parser-expected-failures-no-exceptions/verification.md",
     "specifications/implemented/rich-model-ui-rendering/plan.md",
     "specifications/implemented/rich-ui-custom-controls/plan.md",
     "specifications/implemented/rich-ui-literal-fallback/plan.md",
@@ -88,8 +90,6 @@
     "specifications/implemented/waiting-command-result-label/plan.md",
     "specifications/implemented/workflow-template-role-guidance/plan.md",
     "specifications/planned/agent-policy-foundation/plan.md",
-    "specifications/planned/parser-expected-failures-no-exceptions/plan.md",
-    "specifications/planned/parser-expected-failures-no-exceptions/verification.md",
     "specifications/planned/sandboxed-agent-jobs/plan.md",
     "src/Mezhs.Agent.Api.Client/AgentApiClient.cs",
     "src/Mezhs.Agent.Api.Client/Mezhs.Agent.Api.Client.csproj",
@@ -1051,7 +1051,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/44622858631"
     },
     {
-      "from": 79,
+      "from": 81,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/actions/runs/43736150527"
@@ -1059,7 +1059,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/43736150527"
     },
     {
-      "from": 79,
+      "from": 81,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/actions/runs/43751700456"
@@ -1067,7 +1067,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/43751700456"
     },
     {
-      "from": 79,
+      "from": 81,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/actions/runs/43752357212"
@@ -1075,7 +1075,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/43752357212"
     },
     {
-      "from": 79,
+      "from": 81,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/actions/runs/43753190142"
@@ -1083,7 +1083,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/43753190142"
     },
     {
-      "from": 79,
+      "from": 81,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/actions/runs/43753948517"
@@ -1091,7 +1091,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/43753948517"
     },
     {
-      "from": 79,
+      "from": 81,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/actions/runs/43754442171"
@@ -1099,7 +1099,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/43754442171"
     },
     {
-      "from": 79,
+      "from": 81,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/actions/runs/43754845060"
@@ -1107,7 +1107,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/43754845060"
     },
     {
-      "from": 79,
+      "from": 81,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/actions/runs/43755452345"
@@ -1115,7 +1115,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/43755452345"
     },
     {
-      "from": 79,
+      "from": 81,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/actions/runs/43756009094"
@@ -1123,7 +1123,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/43756009094"
     },
     {
-      "from": 79,
+      "from": 81,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/actions/runs/43756567293"
@@ -1131,7 +1131,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/43756567293"
     },
     {
-      "from": 79,
+      "from": 81,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/pull/53#pullrequestreview-5912373579"
@@ -1139,7 +1139,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/pull/53#pullrequestreview-5912373579"
     },
     {
-      "from": 80,
+      "from": 82,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/actions/runs/44441217139"
@@ -1147,7 +1147,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/44441217139"
     },
     {
-      "from": 84,
+      "from": 86,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/actions/runs/44591703016"
@@ -1155,7 +1155,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/44591703016"
     },
     {
-      "from": 84,
+      "from": 86,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/pull/64#pullrequestreview-5967323293"
@@ -1163,7 +1163,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/pull/64#pullrequestreview-5967323293"
     },
     {
-      "from": 84,
+      "from": 86,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/pull/64#pullrequestreview-5981371040"
@@ -1171,7 +1171,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/pull/64#pullrequestreview-5981371040"
     },
     {
-      "from": 86,
+      "from": 88,
       "to": {
         "type": "external",
         "name": "https://github.com/DreigoUndead/Mezhs/pull/70"
@@ -1179,7 +1179,7 @@
       "raw": "https://github.com/DreigoUndead/Mezhs/pull/70"
     },
     {
-      "from": 87,
+      "from": 89,
       "to": {
         "type": "file",
         "path": 90
@@ -1190,7 +1190,7 @@
       "from": 90,
       "to": {
         "type": "file",
-        "path": 87
+        "path": 89
       },
       "raw": "../agent-policy-foundation/plan.md"
     },
