@@ -89,13 +89,13 @@ Only the Agent API has the concepts of Agent execution and executable `SH` comma
 
 ### 2026-11-20 — Code review: malformed leaf containment
 
-**Change:** The independent review found that escape discovery skipped only the opening tag of a non-self-closing registered Leaf control. A nested Agent command could therefore be promoted from malformed content such as `<escape><icon><SH>...</SH></icon></escape>`. Discovery now skips through the paired leaf close. Added parser and real Executor regressions proving nested SH remains inert while an independent root SH still executes.
+**Change:** The independent review found that escape discovery skipped only the opening tag of a non-self-closing registered Leaf control. A nested Agent command could therefore be promoted from malformed content such as `<escape><icon><SH>...</SH></icon></escape>`. Discovery now skips through paired leaf closes both when scanning directly and when matching a parent container's close. Added parser and real Executor regressions for direct and parent-nested malformed leaves, proving nested SH remains inert while an independent root SH still executes.
 
 **Reason:** Malformed UI controls must not grant child command authority; this is an explicit security acceptance criterion.
 
 **Authority:** Independent Code Review against this plan's acceptance criteria.
 
-**Verification:** Corrected source and test changes were read back from branch head `c8685b932eff89ecda57b9831ff685ede0d34226`. The tests have not been executed in this review session; no PASS is claimed.
+**Verification:** Corrected source and test changes were read back from branch head `fb248d5a4981fe8412ba71d575b20c16d5a4822b`. The tests have not been executed in this review session; no PASS is claimed.
 
 ### 2026-11-20 — Current-main integration limitation
 
