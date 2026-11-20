@@ -39,7 +39,10 @@ public sealed record RichTagDefinition(
     bool SearchChildren,
     // AllowAsChild: whether this tag may be discovered while traversing any
     // other searchable tag. Independent of SearchChildren and Agent policy.
-    bool AllowAsChild);
+    bool AllowAsChild,
+    // This control displays literal content but discovers root-only Agent tags
+    // when used at document root. Every nested presentation scope stays inert.
+    bool ExposeRootCommands = false);
 
 // The shared parser owns UI syntax. Agent command authority stays with Agent Registry.
 public static class RichTagRegistry
@@ -106,7 +109,7 @@ public static class RichTagRegistry
             Tag("Cite", RichTagRole.Leaf, "ref", "refs"),
             Tag("CodeBlock", RichTagRole.RawEditor, "language", "editable"),
             Tag("WritingBlock", RichTagRole.RawEditor, "variant", "recipient", "cc", "bcc", "subject", "id"),
-            Tag("escape", RichTagRole.OpaqueLiteral, "char"),
+            Tag("escape", RichTagRole.OpaqueLiteral, "char") with { ExposeRootCommands = true },
             // Agent commands are root-only and opaque, using the same
             // traversal policy as all other registered tags.
             WithDiscovery(Tag("SH", RichTagRole.Command), searchChildren: false, allowAsChild: false),

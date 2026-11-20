@@ -9,11 +9,7 @@ texts:
     Stage files with <ATTACH>one path per line</ATTACH>. Closing tags may appear on
     the same line as opening tags. An unmatched opening tag is ordinary text.
     Complete SH/ATTACH tags in ordinary Markdown can execute, including code
-    fences. A root-level <escape> also recognizes SH/ATTACH/DONE tags, including
-    opening and closing tags in separate escape wrappers; other escape content is
-    literal. Inside other complete paired UI tags, including unsupported/invalid
-    controls, SVG and raw editors, commands remain inert, even inside escape.
-    Never include complete root-level examples unless intentional.
+    fences. Never include complete command examples unless intentional.
     The runtime executes complete commands directly from the response, even if no
     shell tool is listed.
     Verify command results before reporting success.

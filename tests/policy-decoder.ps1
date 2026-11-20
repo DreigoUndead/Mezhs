@@ -200,7 +200,7 @@ try
     Assert(upgradedInstructions.Contains("Older personalized text", StringComparison.Ordinal) &&
            upgradedInstructions.Contains("Authoritative runtime protocol", StringComparison.Ordinal) &&
            upgradedInstructions.Contains("Complete command pairs inside Markdown", StringComparison.Ordinal) &&
-           upgradedInstructions.Contains("root-level escape also recognizes SH", StringComparison.Ordinal) &&
+           upgradedInstructions.Contains("Commands inside unrelated complete UI containers", StringComparison.Ordinal) &&
            upgradedInstructions.IndexOf("Authoritative runtime protocol", StringComparison.Ordinal) >
            upgradedInstructions.IndexOf("never execute", StringComparison.OrdinalIgnoreCase),
         "Older local instruction examples suppressed or overrode upgraded command semantics.");
