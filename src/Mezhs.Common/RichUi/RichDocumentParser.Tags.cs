@@ -57,7 +57,7 @@ public sealed partial class RichDocumentParser
                 string.IsNullOrWhiteSpace(parser._source[opening.Tag.End..context.Closer]) &&
                 RichTagRegistry.TryGet(opening.Tag.Name, out var definition) &&
                 !definition.AllowAsChild && definition.Role == RichTagRole.Command &&
-                definition.Handle is { } command)
+                definition.Handle is { } runCommand)
             {
                 foreach (var next in parser.FindTags(after, context.End))
                 {
@@ -75,7 +75,7 @@ public sealed partial class RichDocumentParser
 
                     var attributes = ParseAttributes(opening.Tag, definition);
                     ParseAttributes(next.Tag, context.Definition);
-                    command(new TagContext(parser, opening.Tag, definition, -1,
+                    runCommand(new TagContext(parser, opening.Tag, definition, -1,
                         context.End, context.Depth + 1, null, false, attributes,
                         parser._source[after..next.Tag.Start],
                         new RichSourceSpan(wrapper.Start, next.End)));
