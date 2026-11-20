@@ -39,12 +39,12 @@ An unexpected runtime fault may still use the top-level defensive `catch (Except
 7. Run full C# Rich UI tests, relevant Node/real-Chromium rendering and Agent protocol/policy/attachment tests, Release build and relevant CI. Preserve working login sessions, app processes, credentials and other worktrees.
 
 ## Acceptance criteria
-- [ ] No predictable first-chance `RichDocumentException`/`FormatException`/`JsonException` from invalid model syntax in focused parser tests (and ideally none across the historical corpus). Unexpected runtime faults remain visible and fail closed.
-- [ ] Existing valid source produces the same `RichDocument` and command candidates (including source spans); invalid source keeps equivalent safe Unknown/literal diagnostics or fail-closed document result.
-- [ ] Invalid command-bearing batches produce no executable candidates or side effects, including nested known/Unknown/SVG/raw wrappers, duplicate/early `DONE`, malformed tags, and resource-limit cases.
-- [ ] Unsupported attributes/JS expressions/SVG remain non-executable and do not become DOM props, embedded scripts or host actions.
-- [ ] Error reporting is useful without leaking sensitive model text.
-- [ ] A before/after read-only historical replay reports the counts, differences, and exception volume; no unexplained semantic changes.
+- [x] No predictable first-chance `RichDocumentException`/`FormatException`/`JsonException` from invalid model syntax in focused parser tests (and ideally none across the historical corpus). Unexpected runtime faults remain visible and fail closed.
+- [x] Existing valid source produces the same `RichDocument` and command candidates (including source spans); invalid source keeps equivalent safe Unknown/literal diagnostics or fail-closed document result.
+- [x] Invalid command-bearing batches produce no executable candidates or side effects, including nested known/Unknown/SVG/raw wrappers, duplicate/early `DONE`, malformed tags, and resource-limit cases.
+- [x] Unsupported attributes/JS expressions/SVG remain non-executable and do not become DOM props, embedded scripts or host actions.
+- [x] Error reporting is useful without leaking sensitive model text.
+- [x] A before/after read-only historical replay reports the counts, differences, and exception volume; no unexplained semantic changes.
 - [ ] Targeted regression tests and required Windows/Chromium/Agent suites pass at a recorded SHA. No changes to `VERSION`/`CHANGELOG.md` before owner-authorized release.
 
 ## Verification and rollout
@@ -52,10 +52,30 @@ Capture exact commands, exit codes, branch/base/test SHA, C# test counts, browse
 
 The existing suite and historic replay are safety checks; this task must not change expected behavior just to make exception counters zero. Unexpectedly broad refactoring or behavior drift triggers the repository's mandatory complexity-escalation rule: stop and ask the owner, listing simpler alternatives and cost.
 
-After development, move this plan to `specifications/implemented/parser-expected-failures-no-exceptions/plan.md` on the same branch; keep any necessary current specifications up to date. Open a draft PR and provide the owner with a complete High-risk report that **honestly notes the one-agent independence override**. Proposed release type: **PATCH** (number chosen only at release from current main). Do not merge or tag before the owner's separate explicit authorization.
+After development, keep this plan in `specifications/planned/parser-expected-failures-no-exceptions/plan.md` until the owner-approved Deploy stage, when it is archived under `specifications/implemented/`. Open a draft PR and provide the owner with a complete High-risk report that **honestly notes the one-agent independence override**. Proposed release type: **PATCH** (number chosen only at release from current main). Do not merge or tag before the owner's separate explicit authorization.
 
 ## Out of scope
 - Syntax extensions, UI redesign, parser authority changes or different fallback semantics.
 - Changing how often ChatService/MessageService parses or introducing caches without evidence and owner approval.
 - Mutating production chat/Agent SQLite, live provider credentials or a running desktop session.
 - Version bump, changelog, merge and release without renewed explicit owner approval.
+
+## Changes
+
+### 2026-11-20 — Implementation and compatibility review
+
+**Change:** Expected parser validation now reports bounded failure states rather than raising routine first-chance exceptions. New regression cases check parser-originated exception noise, fail-closed command behavior, resource budgets, and inert UI/SVG fallback. A test-only full-result replay mode compares complete document and command records.
+
+**Reason:** Frozen read-only history contained 310 first-chance exceptions in 113 of 6,666 messages. The refactor produced zero with unchanged documents and 8,325 command candidates. A later Unicode differential test exposed a compatibility discrepancy for unpaired surrogate escapes; the parser was corrected to reject them like the original. All 2,214 Unicode differential cases now match.
+
+**Authority:** The task's approved goal and the owner's pre-existing one-agent process override. This agent performed the implementation, self-review, and tests; neither review nor testing is independent.
+
+**Trade-off:** The group-deletion Chromium focus-restoration test fails in isolation even though its JavaScript dependencies and test are unchanged on this branch. The affected code is outside the parser; the failure remains recorded, not silently treated as a PASS. No unrelated UI fix is included.
+
+### 2026-11-20 — Reconcile v0.9.1 workflow
+
+**Change:** Merged `origin/main` at v0.9.1 into the task branch without modifying local `main`. Keep this plan in `specifications/planned/` until owner-approved Deploy, per the current workflow; final self-test evidence is in `verification.md`.
+
+**Reason:** Current workflow explicitly reserves plan archival for Deploy and makes the task branch the unit of review. Incoming main changes did not touch the parser or its test harness.
+
+**Authority:** Repository workflow update in `origin/main` (v0.9.1).
