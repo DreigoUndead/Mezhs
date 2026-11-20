@@ -92,3 +92,22 @@ policies:
       requiredSuccessfulCommands: []
     limits:
       commandTimeoutSeconds: 120
+
+  development:
+    name: MEŽS Development
+    connectionId: chatgpt-sub
+    defaultModel: gpt-6-thinking::thinking-effort=extended
+    instructions: |
+      {mezhs_default}
+      {mezhs_development}
+    commands:
+      allow:
+        - SH
+        - ATTACH
+    environment:
+      allow: []
+    completion:
+      requireDone: false
+      requiredSuccessfulCommands: []
+    limits:
+      commandTimeoutSeconds: 120
