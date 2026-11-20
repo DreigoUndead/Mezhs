@@ -1285,6 +1285,14 @@
       "from": 94,
       "to": {
         "type": "external",
+        "name": "System.Globalization"
+      },
+      "raw": "System.Globalization"
+    },
+    {
+      "from": 94,
+      "to": {
+        "type": "external",
         "name": "System.Text"
       },
       "raw": "System.Text"
