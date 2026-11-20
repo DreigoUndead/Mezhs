@@ -52,4 +52,4 @@ Self-check reviewed root-only command authority, document validation before comm
 
 ## Handoff
 
-Proposed version change: **PATCH**, final version chosen at authorized Deploy only. Leave `VERSION` and `CHANGELOG.md` untouched. Task plan remains in `specifications/planned/` until owner-approved Deploy. Owner's explicit authorization is required for any merge into `main`.
+Proposed version change: **PATCH**, final version chosen at authorized Deploy only. Leave `VERSION` and `CHANGELOG.md` untouched. After owner approval on 2026-11-20, the task plan and this verification record are archived under `specifications/implemented/` during Deploy. Owner's explicit authorization is required for any merge into `main`.

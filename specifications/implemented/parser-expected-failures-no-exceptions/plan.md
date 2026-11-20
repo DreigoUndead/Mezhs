@@ -87,3 +87,13 @@ After development, keep this plan in `specifications/planned/parser-expected-fai
 **Reason:** The owner identified hardcoded discovery as a maintenance burden; a parser class or namespace rename could silently disable exception attribution. The new test remains resilient to renaming and retains the same parser-origin filtering.
 
 **Authority:** Owner follow-up on PR #72; developer correction and non-independent self-test.
+
+### 2026-11-20 - Owner approved Deploy
+
+**Change:** The owner explicitly approved merging PR #72 into `main`. Archive this plan during Deploy, retaining the verification record and the documented one-agent review/testing exception.
+
+**Reason:** Development and the requested hardcoded-discovery maintenance follow-up were completed and presented for approval.
+
+**Authority:** Owner instruction on 2026-11-20: "ok, looks good. merge it into main."
+
+**Trade-off:** Independent review and live desktop testing were not performed; the unrelated group-delete focus-restoration test remains a recorded failure.
