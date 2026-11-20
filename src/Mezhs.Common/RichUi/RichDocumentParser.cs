@@ -551,17 +551,6 @@ public sealed class RichDocumentParser
         ReadChildren(context.BodyStart, context.BodyEnd, null, 1, out _,
             discover: eligible);
 
-        // A sole command occupies the whole escape so that adjacent Markdown
-        // stays in the same paragraph instead of gaining a separator.
-        if (_commands.Count == before + 1 &&
-            _commands[before].SourceSpan is { } only &&
-            only.Start == context.BodyStart && only.End == context.BodyEnd)
-        {
-            _commands[before] = _commands[before] with {
-                SourceSpan = new RichSourceSpan(context.Start, context.End) };
-            return new RichTagHandling(context.End);
-        }
-
         var visible = new StringBuilder();
         var from = context.BodyStart;
         foreach (var command in _commands.Skip(before))
@@ -570,6 +559,23 @@ public sealed class RichDocumentParser
             from = command.SourceSpan.End;
         }
         visible.Append(_source, from, context.BodyEnd - from);
+
+        // A fully command-consumed escape must leave no visible wrapper,
+        // whether it holds one command or several adjacent commands.
+        // Expanding only the outer command spans preserves command order and
+        // body bytes while keeping surrounding Markdown in one flow.
+        if (_commands.Count > before && visible.Length == 0)
+        {
+            var first = _commands[before];
+            _commands[before] = first with {
+                SourceSpan = new RichSourceSpan(context.Start, first.SourceSpan.End) };
+            var lastIndex = _commands.Count - 1;
+            var last = _commands[lastIndex];
+            _commands[lastIndex] = last with {
+                SourceSpan = new RichSourceSpan(last.SourceSpan.Start, context.End) };
+            return new RichTagHandling(context.End);
+        }
+
         return Literal(context, visible.ToString());
     }
 
