@@ -66,3 +66,10 @@ Run `dotnet run --project tests/Mezhs.RichUi.TestApp`, `pwsh -File tests/agent-p
 **Review:** Checked the complete PR diff, parser and rich-tag traversal, policy validation, Shell/Executor result handling, AgentWorker recovery path, and regression coverage. SH attributes are parsed by the shared parser; invalid options fail the batch before execution; timeouts are bounded by the effective policy before shell dispatch; prompt-only output truncation does not alter Executor history. No confirmed blocking defect or unjustified architecture was found.
 **Verification:** Independent static source/diff review. The prior developer's Windows/.NET test results are recorded above; this reviewer did not independently rerun those tests.
 **Remaining:** Independent Testing (step 4), followed by owner-approved Deploy (step 5). Do not merge without owner approval.
+
+### 2026-11-20 — Owner-approved development policy addition
+
+**Change:** Add a separate `development` policy combining the existing `mezhs_default` and new `mezhs_development` startup guidance. Permit ordered reference-only lines in policy instruction expansion without changing the existing Low/Mid/High policies.
+**Reason:** Workflow debugging found that the original development agent received a workflow pointer but began repository changes before reading the workflow. The dedicated policy requires workflow retrieval as the first development prerequisite.
+**Authority:** Owner approved the new policy, reviewed the full development-instructions text, and requested applying it on this feature branch.
+**Verification:** Additional policy decoder/bootstrap tests added; new policy revision requires build/testing and independent assessment. The prior Code Review PASS covers the earlier SH parameters implementation, not this subsequent policy change.
