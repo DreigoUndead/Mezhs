@@ -21,7 +21,7 @@ internal static class RichQuestionGrammar
         RegexOptions.CultureInvariant, RegexTimeout);
 
     public static bool TryParse(string source, int from, int end, bool[] literal,
-        out RichNode node, out int after)
+        RichTagRegistry tags, out RichNode node, out int after)
     {
         node = null!;
         after = from;
@@ -49,7 +49,7 @@ internal static class RichQuestionGrammar
             var boxEnd = HeaderEnd(source, at, limit, 512);
             if (boxEnd < 0) return false;
             var wrapperSource = source[at..boxEnd] + "</box>";
-            var verified = new RichDocumentParser().Parse(wrapperSource);
+            var verified = new RichDocumentParser(tags).Parse(wrapperSource);
             var parsedBox = verified.Document.Nodes.Count == 1
                 ? verified.Document.Nodes[0] : null;
             if (!verified.Document.Valid || verified.Commands.Count != 0 ||
@@ -81,7 +81,7 @@ internal static class RichQuestionGrammar
             if (!values.Add(value)) return false;
             var close = FindStructuralClosing(source, openEnd, limit, "</radio>", 600);
             if (close < 0) return false;
-            if (!Content(source, openEnd, close, out var display)) return false;
+            if (!Content(source, openEnd, close, tags, out var display)) return false;
             options.Add(new RichNode("questionOption", $"{at}:questionOption",
                 new RichSourceSpan(at, close + 8),
                 Attributes: new Dictionary<string, string> { ["value"] = value }, Children: display));
@@ -103,7 +103,7 @@ internal static class RichQuestionGrammar
             options.Select(o => o.Attributes!["value"]).ToArray(), out var messages)) return false;
         var buttonClose = FindStructuralClosing(source, buttonEnd, limit, "</button>", 400);
         if (buttonClose < 0) return false;
-        if (!Content(source, buttonEnd, buttonClose, out var buttonDisplay)) return false;
+        if (!Content(source, buttonEnd, buttonClose, tags, out var buttonDisplay)) return false;
         // Markdig wraps a single-line label in a paragraph. A native button
         // accepts phrasing content, not a nested <p>; unwrap only that one
         // paragraph while preserving each child's original source spans.
@@ -174,7 +174,8 @@ internal static class RichQuestionGrammar
         return -1;
     }
 
-    private static bool Content(string source, int from, int end, out IReadOnlyList<RichNode> nodes)
+    private static bool Content(string source, int from, int end, RichTagRegistry tags,
+        out IReadOnlyList<RichNode> nodes)
     {
         nodes = [];
         var value = source[from..end];
@@ -194,7 +195,7 @@ internal static class RichQuestionGrammar
                 !AllowedLiteralTag.IsMatch(normalized[at..(close + 1)])) return false;
             at = close;
         }
-        var parsed = new RichDocumentParser().Parse(normalized);
+        var parsed = new RichDocumentParser(tags).Parse(normalized);
         if (!parsed.Document.Valid || parsed.Commands.Count != 0) return false;
         bool Allowed(RichNode n) =>
             (n.Kind != "element" || n.Name is "text" or "icon") &&

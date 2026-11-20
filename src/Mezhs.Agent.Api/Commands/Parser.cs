@@ -17,7 +17,7 @@ public sealed class Parser
 {
     public CommandBatch Parse(string content)
     {
-        var parsed = new RichDocumentParser().Parse(content);
+        var parsed = new RichDocumentParser(AgentRichTags.Tags).Parse(content);
         if (!parsed.Document.Valid)
             throw new CommandParseException(parsed.Document.Diagnostics.FirstOrDefault()?.Code ??
                 "Invalid rich document.");

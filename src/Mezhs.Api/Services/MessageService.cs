@@ -12,7 +12,8 @@ namespace Mezhs.Services;
 public sealed class MessageService(
     ChatStore store,
     FileStore files,
-    IntegrationRegistry integrations) : BackgroundService
+    IntegrationRegistry integrations,
+    RichTagRegistry tags) : BackgroundService
 {
     private readonly Channel<QueuedMessage> _queue = Channel.CreateUnbounded<QueuedMessage>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
@@ -518,7 +519,7 @@ public sealed class MessageService(
             message.ActivityHistory,
             string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
             message.Status == MessageStatus.Completed
-                ? new RichDocumentParser().Parse(message.Content).Document : null);
+                ? new RichDocumentParser(tags).Parse(message.Content).Document : null);
     }
 
     private static string NormalizeStoredOrigin(StoredMessage message)

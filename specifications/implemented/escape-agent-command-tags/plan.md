@@ -16,3 +16,11 @@ Keep the existing canonical `ReadChildren` traversal, `TryTag` tokenizer and `Fi
 - Explicit negative checks: split escape wrappers are literal and do not execute, nested known/unknown/SVG/raw content is not promoted, and malformed command batches fail closed.
 - Agent parser/Executor: a complete escaped shell command runs once; escaped DONE works; attachment staging and ordinary root commands remain unchanged.
 - CI/build and browser checks must be verified at the final commit. No independent agent will be spawned: **the owner asked to review directly**. No merge, VERSION or CHANGELOG change before separate owner approval.
+
+## Architecture revision (owner review, 2026-11-20)
+- UI tag definitions belong to `Mezhs.Api/RichUi/UiRichTags.cs`; the reusable Common parser accepts an immutable injected catalog rather than defining presentation tags or Agent command names.
+- `Mezhs.Agent.Api/Commands/AgentRichTags.cs` adds command tags directly from `Registry.All` and overrides only the base `escape` handler. This callback requests discovery of registered root-only command/marker syntax; it never executes actions.
+- The shared `RichDocumentParser.ReadChildren` traversal performs bounded discovery and skips other complete/unknown containers. There is no separate handler-side tokenizer or search loop. Existing command validation and policy remain in Agent.
+- Core and Agent hosts inject their respective catalogs for completed-message projection; the Agent command parser uses the Agent catalog. The canonical radio grammar receives the active catalog on re-entrant validation.
+- Generic escaped-command tests iterate the Agent command registry. Explicit source span, containment, invalid-batch and real Executor tests remain.
+- Scope was revised at the owner's request after a previous simplification and is pending fresh CI and direct owner review. Do not spawn agents or merge.

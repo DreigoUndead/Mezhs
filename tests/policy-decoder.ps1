@@ -316,7 +316,7 @@ Assert(inlineReply.Commands.SequenceEqual([new Command("SH", "echo INLINE")]) &&
        inlineReply.VisibleContent == "before  after",
     "Inline SH syntax or exact display subtraction failed.");
 const string standaloneSource = "before\n<SH>\necho one\necho two\n</SH>\n<DONE>\nafter";
-var standaloneDocument = new RichDocumentParser().Parse(standaloneSource);
+var standaloneDocument = new RichDocumentParser(AgentRichTags.Tags).Parse(standaloneSource);
 Assert(standaloneDocument.Document.Valid,
     "Standalone SH/DONE fixture failed canonical parsing: " +
     string.Join("; ", standaloneDocument.Document.Diagnostics.Select(diagnostic => diagnostic.Code)));
@@ -330,7 +330,7 @@ Assert(parsed.VisibleContent == "before\n\n\nafter",
     $"Protocol parser did not remove executable protocol from display content: '{parsed.VisibleContent}'.");
 
 const string mappedSource = "visible before\n<SH>\necho mapped\n</SH>\n<DONE>\nvisible after";
-var mappedDocument = new RichDocumentParser().Parse(mappedSource);
+var mappedDocument = new RichDocumentParser(AgentRichTags.Tags).Parse(mappedSource);
 Assert(mappedDocument.Document.Valid,
     "Mapped SH/DONE fixture failed canonical parsing: " +
     string.Join("; ", mappedDocument.Document.Diagnostics.Select(diagnostic => diagnostic.Code)));
