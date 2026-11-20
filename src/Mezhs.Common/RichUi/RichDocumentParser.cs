@@ -517,7 +517,7 @@ public sealed class RichDocumentParser
         var wrapperStart = _source.LastIndexOf('<', close - 1);
         if (wrapperStart < bodyStart || !TryTag(wrapperStart, end, out var closingWrapper) ||
             closingWrapper.Name != wrapper.Name || closingWrapper.Closing ||
-            closingWrapper.SelfClosing || closingWrapper.End != close)
+            closingWrapper.SelfClosing || closingWrapper.End > close)
             return false;
         var wrapperEnd = FindOpaqueClosing(wrapper.Name, closingWrapper.End, end);
         var closeLength = opener.Name.Length + 3;

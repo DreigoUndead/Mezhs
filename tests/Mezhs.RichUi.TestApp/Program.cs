@@ -35,6 +35,7 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Complete escaped DONE", "<escape><DONE></escape>", true, ["DONE"]),
     ("Split escaped SH", "<escape><SH></escape>echo YES<escape></SH></escape>", true, ["SH"]),
     ("Split escaped ATTACH", "<escape><ATTACH></escape>file.txt<escape></ATTACH></escape>", true, ["ATTACH"]),
+    ("Split escaped closer whitespace", "<escape><SH></escape>echo YES<escape> </SH> </escape>", true, ["SH"]),
     ("Split escape without closer", "<escape><SH></escape>echo NO", true, []),
     ("Split escape with mismatched closer", "<escape><SH></escape>echo NO<escape></ATTACH></escape>", true, []),
     ("Other tags within escape remain inert", "<escape><text><SH>echo NO</SH></text><SH>echo YES</SH></escape>", true, ["SH"]),

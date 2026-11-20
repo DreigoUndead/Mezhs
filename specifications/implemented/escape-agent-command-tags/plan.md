@@ -18,7 +18,7 @@ At **document root**, `escape` recognizes the registered Agent protocol tags wit
 
 ## Implementation
 - Make the narrow exception in the canonical `RichDocumentParser` using its existing tag tokenizer, registry metadata, and command spans. Reuse the existing Agent `Parser` and `Interpreter`; no second parser/scanner or new authorization mechanism.
-- Update command documentation and authoritative Agent prompt instructions to reflect this exact exception. Do not change VERSION/CHANGELOG before release.
+- Document the specific exception in developer-facing command docs; keep the Agent prompt generic as the owner requested. Do not change VERSION/CHANGELOG before release.
 
 ## Verification
 - Parser tests: normal root commands unchanged; complete escaped `SH`/`ATTACH`/`DONE`, split escaped delimiters, exact body bytes, visible text, and source spans.
@@ -26,7 +26,9 @@ At **document root**, `escape` recognizes the registered Agent protocol tags wit
 - Agent integration: split-wrapped shell command executes once, attachment stages once, policy denial and `DONE` rules unchanged, malformed command batch executes nothing.
 
 ## Implementation notes
-- Canonical parser now discovers root escaped protocol tags and split wrappers without changing Agent Registry, policy, or executor ownership.
+- Canonical parser now discovers root escaped protocol tags and split wrappers without changing Agent Registry, policy, or executor ownership. The exception is declared once as `ExposeRootCommands` in `RichTagRegistry`; the parser no longer checks the tag's string name.
+- Existing rich UI tags are registry-based `RichTagDefinition` descriptors, not individual C# classes. A full class-per-tag rearchitecture would change the entire parser and was intentionally kept outside this Small correction.
+- Detailed escape guidance removed from `instructions.yaml` and the authoritative Agent prompt.
 - Regression coverage added to the rich parser, Agent parser/Executor smoke, and runtime instruction tests.
 - Windows CI result for final commit must be verified before release; no claim of independent testing under the Small owner override.
 
