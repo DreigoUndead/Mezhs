@@ -3,7 +3,7 @@
 ID: escape-agent-command-tags  
 Branch: `escape-agent-command-tags`  
 Level: **Small — explicit owner override (2026-11-20)**  
-State: **Development correction verified in CI; independent Code Review and Testing still required**
+State: **Code Review #2 correction committed; fresh independent Code Review and Testing still required**
 
 ## What
 
@@ -151,3 +151,12 @@ Only the Agent API has the concepts of Agent execution and executable `SH` comma
 **Change:** After merging v0.9.3 main, developer verification was run on branch commit `b395a660a22566f0dd6ac7f3e873cfd462a1f3fc`; the automatic codegraph workflow then advanced the branch to `78e95d32568cf61eb0bb8d597283d460ded8abab` with exactly one changed path, `.agents/codegraph/graph.json`. No new application-source changes were introduced by that generated-graph commit.
 
 **Verification:** Windows MEŽS Core CI run [44829727497](https://github.com/DreigoUndead/Mezhs/actions/runs/44829727497) finished **success**, all 21 job steps passed on `b395a660`, including the new v0.9.3 Markdown regressions, real Chromium, Agent protocol/Executor and concurrency/restart checks. The codegraph-only bot commit received a separate `action_required` CI run and is not counted as a pass for that SHA. This documentation update records evidence and triggers a fresh check on the current head; no PASS is claimed for the independent Code Review or subsequent Testing role.
+
+
+### 2026-11-21 — Code Review #2: suppress fully consumed multi-command escape wrappers
+
+**Finding:** `RichDocumentParser.DiscoverInOpaque` suppressed the complete `escape` wrapper only when it held exactly one command. For adjacent commands such as `<escape><SH>...</SH><DONE></escape>`, `Parser.VisibleContent` retained `<escape></escape>`, and `AgentWorker.BuildExecutionResult` treated that markup as a nonempty execution result despite there being no remaining visible content.
+
+**Correction:** Generalized the full-wrapper source-span adjustment to one or more adjacent commands consuming the entire escape body. The first command now owns the opening wrapper and the last owns the closing wrapper; command order, body bytes, individual command records and text outside the wrapper remain unchanged. Added regression assertions in `tests/agent-protocol-result.ps1` for the Agent visible result and exact boundary spans, and in `tests/Mezhs.RichUi.TestApp/Program.cs` for Markdown flow with two adjacent escaped commands. Code commits: `1720c50d`, `332a3ff3`, `851e47d0`.
+
+**Review outcome:** **FAIL (corrected)** under `.agents/code-review.md`: a concrete defect was fixed, so the next Code Review must be independent. Current-HEAD build, targeted tests and CI are not yet confirmed; earlier PASS evidence applies to the pre-correction revision `45ae425b`. Keep Testing as a separate later stage and do not merge without owner approval.
