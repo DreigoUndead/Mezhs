@@ -3,7 +3,7 @@
 ID: escape-agent-command-tags  
 Branch: `escape-agent-command-tags`  
 Level: **Small — explicit owner override (2026-11-20)**  
-State: **Owner accepted malformed-input behavior; current-main integration prepared; fresh testing required**
+State: **Current main merged; final verification still required**
 
 ## What
 
@@ -117,3 +117,12 @@ Only the Agent API has the concepts of Agent execution and executable `SH` comma
 **Authority:** Owner instruction in execution `exec_1adbdd26250b4e8db31e7dac795f45c9`.
 
 **Verification:** Integration keeps current main's result-based parser validation and parser-regression tests. Running the resulting tests is still required; no PASS claimed.
+
+
+### 2026-11-20 — Integrated current main into task branch
+
+**Change:** Created merge commit `3f55426cf551cea82a274c490e9fc9144c4f9c83` with the task branch and `main` (`d3a23f09fe15bf5359d447a33ad5f96fb1d3edc7`) as parents. The merged tree keeps main's result-based, exception-free parser validation and test additions, while retaining Agent escape command discovery. The review-added malformed-leaf shielding and bespoke tests were excluded per the owner's explicit scope decision. Merged codegraph snapshot selected from current main; normal branch generation may refresh it.
+
+**Reason:** The task branch had diverged and its parser overlapped a mainline refactor.
+
+**Verification:** GitHub compare reports `behind_by=0` and PR #69 is mergeable. Tests and CI on the final revision have not yet been confirmed; no PASS is claimed here.
