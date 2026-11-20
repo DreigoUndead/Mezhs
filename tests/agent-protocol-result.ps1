@@ -190,6 +190,19 @@ Check(adjacentEscaped.Commands.SequenceEqual([
       adjacentEscapedDoc.Commands[0].SourceSpan.Start == 0 &&
       adjacentEscapedDoc.Commands[^1].SourceSpan.End == adjacentEscapedSource.Length,
       "Fully consumed multi-command escape must not leak an empty wrapper into Agent results.");
+var spacedEscapedSource = "prefix<escape>\r\n<SH>echo FIRST</SH>\r\n<ATTACH>queued.txt</ATTACH>\r\n<DONE>\r\n</escape>suffix";
+var spacedEscaped = parser.Parse(spacedEscapedSource);
+var spacedEscapedDoc = new RichDocumentParser(AgentRichTags.Tags).Parse(spacedEscapedSource);
+Check(spacedEscaped.Commands.SequenceEqual([
+          new Command("SH", "echo FIRST"), new Command("ATTACH", "queued.txt"),
+          new Command("DONE", null)]) &&
+      spacedEscaped.VisibleContent == "prefixsuffix" &&
+      spacedEscapedDoc.Document.Valid && spacedEscapedDoc.Commands.Count == 3 &&
+      spacedEscapedDoc.Commands[0].SourceSpan.Start == "prefix".Length &&
+      spacedEscapedDoc.Commands[0].SourceSpan.End == spacedEscapedDoc.Commands[1].SourceSpan.Start &&
+      spacedEscapedDoc.Commands[1].SourceSpan.End == spacedEscapedDoc.Commands[2].SourceSpan.Start &&
+      spacedEscapedDoc.Commands[2].SourceSpan.End == spacedEscapedSource.Length - "suffix".Length,
+      "Whitespace-only command gaps must not leak escape markup or alter command bodies.");
 Check(parser.Parse("<escape><text><SH>NO</SH></text><SH>YES</SH></escape>")
       .Commands.SequenceEqual([new Command("SH", "YES")]),
       "Other tags within escape must not expose their child commands.");
@@ -334,7 +347,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     # A complete escaped shell command executes through the real Executor.
     $escapedMarker = Join-Path $temp 'split-escaped-command.txt'
     $escapedShell = "echo ESCAPED>>`"$escapedMarker`""
-    $escapedTask = "<escape><SH>$escapedShell</SH></escape><escape><DONE></escape>"
+    $escapedTask = "<escape>`n<SH>$escapedShell</SH>`n<DONE>`n</escape>"
     $escapedRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $escapedTask })
     $escapedOutcome = Wait-Execution $escapedRun.executionId 20
     $escapedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($escapedOutcome.chatId)/executions")
@@ -344,6 +357,9 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
         -not (Test-Path -LiteralPath $escapedMarker) -or
         @((Get-Content -LiteralPath $escapedMarker)).Count -ne 1) {
         throw "Complete escaped command did not execute exactly once with durable evidence."
+    }
+    if (-not [string]::IsNullOrEmpty($escapedOutcome.result)) {
+        throw "Whitespace-only escaped commands leaked a nonempty durable result: $($escapedOutcome.result)"
     }
     Write-Host 'PASS: Complete escaped shell command executes once and escaped DONE completes.'
 
