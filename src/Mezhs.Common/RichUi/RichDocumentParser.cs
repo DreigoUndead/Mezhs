@@ -185,44 +185,42 @@ public sealed partial class RichDocumentParser
             inline.Clear();
             plainFrom = until;
         }
-        while (cursor < end)
+        // Only the generic tag finder searches the input for '<'.
+        // These first-level elements are also reused by tag handlers.
+        var tags = FindTags(start, end);
+        void Questions(int until)
         {
-            if (discover is null && !svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
-                RichQuestionGrammar.TryParse(_source, cursor, end,
-                    _radioLiteral, out var question, out var questionEnd))
+            if (discover is not null || svgScope) return;
+            for (var at = cursor; at < until; at++)
             {
-                Flush(cursor);
+                if (_source[at] != '{' || IsEscaped(at) ||
+                    !RichQuestionGrammar.TryParse(_source, at, end,
+                        _radioLiteral, out var question, out var questionEnd))
+                    continue;
+                Flush(at);
                 Add(result, question);
                 cursor = questionEnd;
                 plainFrom = cursor;
-                continue;
+                at = cursor - 1;
             }
-            if (_source[cursor] != '<' || !TryTag(cursor, end, out var tag))
-            {
-                cursor++;
-                continue;
-            }
+        }
+        foreach (var found in tags)
+        {
+            if (found.Tag.Start < cursor) continue;
+            Questions(found.Tag.Start);
+            if (found.Tag.Start < cursor) continue;
+            var tag = found.Tag;
+            cursor = tag.Start;
             if (tag.Closing)
             {
-                if (expected == tag.Name)
-                {
-                    Flush(cursor);
-                    position = tag.End;
-                    return result;
-                }
-                cursor = tag.End; // A closing delimiter without an opener is ordinary text.
+                cursor = tag.End; // Unmatched closing delimiter is ordinary text.
                 continue;
             }
             if (discover is not null &&
                 (!RichTagRegistry.TryGet(tag.Name, out var candidate) ||
                  !discover(candidate)))
             {
-                // Skipped tags keep their complete subtree opaque.
-                if (tag.SelfClosing) { cursor = tag.End; continue; }
-                var close = RichTagRegistry.TryGet(tag.Name, out var ignored) && !ignored.SearchChildren
-                    ? FindOpaqueClosing(tag.Name, tag.End, end)
-                    : FindContainerClose(tag.Name, tag.End, end);
-                cursor = close < 0 ? end : close + tag.Name.Length + 3;
+                cursor = found.End; // Skipped elements remain opaque.
                 continue;
             }
             if (!RichTagRegistry.TryGet(tag.Name, svgScope, out var definition))
@@ -233,10 +231,12 @@ public sealed partial class RichDocumentParser
                 // an HTML diagnostic element into native SVG geometry.
                 if (svgScope)
                     throw new RichDocumentException($"Unsupported SVG child: {tag.Name}.");
-                var unknownEnd = tag.SelfClosing ? tag.End :
-                    FindContainerClose(tag.Name, tag.End, end);
-                if (unknownEnd < 0) { cursor = tag.End; continue; }
-                if (!tag.SelfClosing) unknownEnd += tag.Name.Length + 3;
+                if (found.Closer < 0 && !tag.SelfClosing)
+                {
+                    cursor = tag.End;
+                    continue;
+                }
+                var unknownEnd = found.End;
                 Flush(cursor);
                 AddUnknown(result, tag, unknownEnd, "Unsupported control", depth);
                 cursor = unknownEnd;
@@ -247,13 +247,7 @@ public sealed partial class RichDocumentParser
             // forbidden opaque child stays literal without exposing its body.
             if (expected is not null && !definition.AllowAsChild)
             {
-                if (!tag.SelfClosing && !definition.SearchChildren &&
-                    definition.Role is not (RichTagRole.Leaf or RichTagRole.Marker))
-                {
-                    var close = FindOpaqueClosing(tag.Name, tag.End, end);
-                    cursor = close < 0 ? tag.End : close + tag.Name.Length + 3;
-                }
-                else cursor = tag.End;
+                cursor = found.End;
                 continue;
             }
             var from = cursor;
@@ -261,8 +255,8 @@ public sealed partial class RichDocumentParser
             if (definition.Role == RichTagRole.Leaf && !tag.SelfClosing)
             {
                 if (svgScope) throw new RichDocumentException("Invalid SVG leaf.");
-                var leafClose = FindOpaqueClosing(tag.Name, tag.End, end);
-                var leafEnd = leafClose < 0 ? tag.End : leafClose + tag.Name.Length + 3;
+                var leafClose = found.Closer;
+                var leafEnd = found.End;
                 Flush(from);
                 AddUnknown(result, tag, leafEnd, "Leaf requires self-closing syntax", depth,
                     opaque: leafClose >= 0);
@@ -270,13 +264,12 @@ public sealed partial class RichDocumentParser
                 plainFrom = cursor;
                 continue;
             }
-            var closer = -1;
-            if (!tag.SelfClosing && definition.Role is not (RichTagRole.Leaf or RichTagRole.Marker))
+            var closer = found.Closer;
+            if (!tag.SelfClosing && definition.Role is not (RichTagRole.Leaf or RichTagRole.Marker) &&
+                closer < 0)
             {
-                closer = definition.SearchChildren
-                    ? FindContainerClose(tag.Name, tag.End, end)
-                    : FindOpaqueClosing(tag.Name, tag.End, end);
-                if (closer < 0) { cursor = tag.End; continue; }
+                cursor = tag.End;
+                continue;
             }
 
             IReadOnlyDictionary<string, string> attributes;
@@ -365,8 +358,9 @@ public sealed partial class RichDocumentParser
                 int after;
                 try
                 {
-                    children = ReadChildren(cursor, afterClose, tag.Name, depth + 1,
-                        out after, svgScope || tag.Name == "svg", inlineElement);
+                    children = ReadChildren(cursor, closer, tag.Name, depth + 1,
+                        out _, svgScope || tag.Name == "svg", inlineElement);
+                    after = afterClose;
                 }
                 catch (RichDocumentException e) when (!svgScope && e is not RichDocumentLimitException)
                 {
@@ -387,6 +381,7 @@ public sealed partial class RichDocumentParser
             }
             if (!inlineElement) plainFrom = cursor;
         }
+        Questions(end);
         Flush(end);
         position = end;
         return result;
@@ -403,7 +398,7 @@ public sealed partial class RichDocumentParser
                 children = [new RichNode("literal", $"{tag.End}:literal",
                     new RichSourceSpan(tag.End, bodyEnd), Text: _source[tag.End..bodyEnd])];
             else
-                children = ReadChildren(tag.End, end, tag.Name, depth + 1, out _);
+                children = ReadChildren(tag.End, bodyEnd, tag.Name, depth + 1, out _);
         }
         Add(nodes, new RichNode("unknown", $"{tag.Start}:unknown",
             new RichSourceSpan(tag.Start, end), Name: tag.Name,
@@ -411,36 +406,77 @@ public sealed partial class RichDocumentParser
             Children: children));
     }
 
-    // Return the first matching close, with balanced nesting for UI containers.
-    // Command bodies and raw elements do not contribute fake delimiters.
-    private int FindContainerClose(string name, int from, int end)
+    // The single tag-discovery scanner: find first-level elements in any source
+    // range. Completed containers shield their descendants; incomplete openers
+    // do not hide independently complete following tags.
+    private sealed class TagFrame(Tag tag, TagFrame? parent)
     {
-        var nesting = 1;
-        for (var at = from; at < end;)
+        public Tag Tag { get; } = tag;
+        public TagFrame? Parent { get; } = parent;
+        public bool Complete { get; set; }
+    }
+
+    private sealed record FoundTag(Tag Tag, int Closer, int End, TagFrame? Parent);
+
+    private IReadOnlyList<FoundTag> FindTags(int start, int end)
+    {
+        var found = new List<FoundTag>();
+        var active = new List<TagFrame>();
+        var frames = new List<TagFrame>();
+        for (var at = start; at < end;)
         {
-            at = _source.IndexOf('<', at);
-            if (at < 0 || at >= end) break;
-            if (!TryTag(at, end, out var tag)) { at++; continue; }
-            if (!tag.Closing && !tag.SelfClosing &&
-                RichTagRegistry.TryGet(tag.Name, out var definition) &&
-                !definition.SearchChildren &&
-                definition.Role is not (RichTagRole.Leaf or RichTagRole.Marker))
+            var atTag = _source.IndexOf('<', at);
+            if (atTag < 0 || atTag >= end) break;
+            if (!TryTag(atTag, end, out var tag)) { at = atTag + 1; continue; }
+            var parent = active.Count > 0 ? active[^1] : null;
+            if (tag.Closing)
             {
-                var opaqueClose = FindOpaqueClosing(tag.Name, tag.End, end);
-                if (opaqueClose >= 0)
+                var owner = active.FindLastIndex(frame => frame.Tag.Name == tag.Name);
+                if (owner >= 0)
                 {
-                    at = opaqueClose + tag.Name.Length + 3;
-                    continue;
+                    var frame = active[owner];
+                    frame.Complete = true;
+                    found.Add(new FoundTag(frame.Tag, atTag, tag.End, frame.Parent));
+                    active.RemoveRange(owner, active.Count - owner);
                 }
+                else
+                    found.Add(new FoundTag(tag, -1, tag.End, parent));
+                at = tag.End;
+                continue;
             }
-            if (tag.Name == name)
+
+            var known = RichTagRegistry.TryGet(tag.Name, out var definition);
+            if (tag.SelfClosing || known && definition.Role == RichTagRole.Marker)
             {
-                if (tag.Closing && --nesting == 0) return at;
-                if (!tag.Closing && !tag.SelfClosing) nesting++;
+                found.Add(new FoundTag(tag, -1, tag.End, parent));
+                at = tag.End;
+                continue;
             }
+            if (known && (!definition.SearchChildren || definition.Role == RichTagRole.Leaf))
+            {
+                var close = FindOpaqueClosing(tag.Name, tag.End, end);
+                var after = close < 0 ? tag.End : close + tag.Name.Length + 3;
+                found.Add(new FoundTag(tag, close, after, parent));
+                at = after;
+                continue;
+            }
+
+            var opened = new TagFrame(tag, parent);
+            active.Add(opened);
+            frames.Add(opened);
             at = tag.End;
         }
-        return -1;
+
+        foreach (var frame in frames)
+            if (!frame.Complete)
+                found.Add(new FoundTag(frame.Tag, -1, frame.Tag.End, frame.Parent));
+
+        return found.Where(item =>
+        {
+            for (var p = item.Parent; p is not null; p = p.Parent)
+                if (p.Complete) return false;
+            return true;
+        }).OrderBy(item => item.Tag.Start).ToArray();
     }
 
     private void AddCommand(RichCommandCandidate command)
