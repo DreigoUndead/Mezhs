@@ -356,6 +356,16 @@ var commandResultPrompt = promptBuilder.BuildCommandResults(
     normal).Content;
 Assert(commandResultPrompt.Contains("does not by itself prove the original cause", StringComparison.Ordinal),
     "Command-result prompt lost causality-calibration guidance.");
+var limitedPrompt = promptBuilder.BuildCommandResults(
+    new[] { new Result("SH", "2", true, 0, "123456789", null, 4) }, normal).Content;
+Assert(limitedPrompt.Contains("1234", StringComparison.Ordinal) &&
+       !limitedPrompt.Contains("12345", StringComparison.Ordinal) &&
+       limitedPrompt.Contains("full result remains in execution history", StringComparison.Ordinal),
+    "Per-command SH output limit did not bound the agent follow-up.");
+var defaultPrompt = promptBuilder.BuildCommandResults(
+    new[] { new Result("SH", "3", true, 0, "123456789", null) }, normal).Content;
+Assert(defaultPrompt.Contains("123456789", StringComparison.Ordinal),
+    "Unparameterized SH result unexpectedly truncated.");
 Assert(!promptBuilder.BuildContinue(normal).Content.Contains("<DONE>", StringComparison.Ordinal),
     "requireDone=false continuation still instructs DONE.");
 Assert(promptBuilder.BuildContinue(done).Content.Contains("<DONE>", StringComparison.Ordinal),
