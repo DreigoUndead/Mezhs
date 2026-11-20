@@ -1,10 +1,10 @@
-import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Check, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
 import { modelActivityLabel } from "./ChatSurface";
 import { ConversationViewport } from "./ConversationViewport";
 import { useConversationPending } from './useConversationPending';
-import { useConversationDrafts } from "./useConversationDrafts";
+import { useConversationDraftStore, useConversationDraftValue, type ConversationDraftStore } from "./useConversationDrafts";
 import { MarkdownContent } from "./MarkdownContent";
 import { ConnectionModelPicker } from "./ConnectionModelPicker";
 import { ChatProviderRegistry } from "./providers/registry";
@@ -81,6 +81,42 @@ export type MezhsChatAppProps = {
   apiBaseUrl: string;
 };
 
+type DraftTextareaProps = {
+  store: ConversationDraftStore;
+  draftKey: string;
+  inputRef: RefObject<HTMLTextAreaElement>;
+  onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  placeholder: string;
+  disabled: boolean;
+};
+
+function DraftTextarea({ store, draftKey, inputRef, onKeyDown, placeholder, disabled }: DraftTextareaProps) {
+  const draft = useConversationDraftValue(store, draftKey);
+  useAutoResizeTextArea(inputRef, draft);
+  return (
+    <textarea
+      ref={inputRef}
+      value={draft}
+      onChange={(event) => store.setDraft(draftKey, event.target.value)}
+      onKeyDown={onKeyDown}
+      placeholder={placeholder}
+      rows={1}
+      disabled={disabled}
+      aria-label="Message"
+    />
+  );
+}
+
+function DraftSendButton({ store, draftKey, fileReady, blocked }: {
+  store: ConversationDraftStore;
+  draftKey: string;
+  fileReady: boolean;
+  blocked: boolean;
+}) {
+  const draft = useConversationDraftValue(store, draftKey);
+  return <button className="send" type="submit" disabled={(!draft.trim() && !fileReady) || blocked} aria-label="Send message">^</button>;
+}
+
 export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const apiBase = apiBaseUrl.replace(/\/$/, "");
   const apiAvailability = useApiAvailability(apiBase);
@@ -135,7 +171,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
   const activeChat = chats.find((chat) => chat.chatId === chatId);
   const selectedGroup = categories.find((category) => sameCategoryId(category.categoryId, categoryFilter));
   const draftKey = chatId ? `chat:${chatId}` : `new:${newChatSequence}:${connectionId}`;
-  const { draft, setDraft, clearDraft, moveDraft, restoreDraft } = useConversationDrafts(draftKey);
+  const draftStore = useConversationDraftStore();
   const { pending: sending, start: startSend, transfer: transferSend, finish: finishSend } = useConversationPending(draftKey);
   const activeMessage = [...messages].reverse().find((message) =>
     message.role === "user" && !terminalStatuses.has(message.status));
@@ -306,7 +342,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     const submittedKey = draftKey;
     let pendingKey = submittedKey;
     if (!startSend(pendingKey)) return;
-    if (fromComposer) clearDraft(submittedKey, content);
+    if (fromComposer) draftStore.clearDraft(submittedKey, content);
     let accepted = false;
     setNotice(null);
     try {
@@ -317,7 +353,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
       );
       accepted = true;
       if (!targetChatId) {
-        if (fromComposer) moveDraft(submittedKey, `chat:${request.chatId}`, "");
+        if (fromComposer) draftStore.moveDraft(submittedKey, `chat:${request.chatId}`, "");
         transferSend(pendingKey, `chat:${request.chatId}`);
         pendingKey = `chat:${request.chatId}`;
       }
@@ -329,7 +365,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
       }
       await poll(request.messageId, request.chatId, epoch);
     } catch (error) {
-      if (fromComposer && !accepted) restoreDraft(submittedKey, content);
+      if (fromComposer && !accepted) draftStore.restoreDraft(submittedKey, content);
       if (selectionEpoch.current === epoch)
         setNotice(error instanceof Error ? error.message : "Message could not be sent.");
     } finally {
@@ -341,7 +377,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     event?.preventDefault();
     if (pendingFiles.some((item) => item.uploading)) return;
     const files = pendingFiles.flatMap((item) => item.uploaded ? [item.uploaded] : []);
-    void sendTurn(draft, files, true);
+    void sendTurn(draftStore.getDraft(draftKey), files, true);
   }
 
   function issueNewTurn(source: Message, sourceEpoch: number, content: string) {
@@ -677,8 +713,6 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     setCategoryFilter(id);
     setNewChatCategoryId(id === "all" || id === "uncategorized" ? "" : id);
   }
-
-  useAutoResizeTextArea(composerRef, draft);
 
   function handleComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -1118,15 +1152,13 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                 ))}
               </div>
             )}
-            <textarea
-              ref={composerRef}
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+            <DraftTextarea
+              store={draftStore}
+              draftKey={draftKey}
+              inputRef={composerRef}
               onKeyDown={handleComposerKey}
               placeholder={online ? `Message ${selectedConnection?.name || "an AI"}...` : "Start the API to send a message"}
-              rows={1}
               disabled={!online || !connectionId}
-              aria-label="Message"
             />
             <input
               ref={fileInputRef}
@@ -1144,12 +1176,12 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                 onClick={() => fileInputRef.current?.click()}
               >+</button>
               <span>Enter to send / Shift + Enter for a new line</span>
-              <button
-                className="send"
-                type="submit"
-                disabled={(!draft.trim() && !pendingFiles.some((item) => item.uploaded)) || pendingFiles.some((item) => item.uploading) || sending || !online}
-                aria-label="Send message"
-              >^</button>
+              <DraftSendButton
+                store={draftStore}
+                draftKey={draftKey}
+                fileReady={pendingFiles.some((item) => item.uploaded)}
+                blocked={pendingFiles.some((item) => item.uploading) || sending || !online}
+              />
             </div>
           </form>
           <small className="disclaimer">Responses come directly from the selected web AI connection.</small>

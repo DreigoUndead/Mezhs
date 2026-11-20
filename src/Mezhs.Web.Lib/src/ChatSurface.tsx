@@ -3,6 +3,7 @@ import type { ApiFile, ChatMessage } from "./providers/contracts";
 import { MarkdownContent } from "./MarkdownContent";
 import { ConversationViewport } from "./ConversationViewport";
 import { useAutoResizeTextArea } from "./useAutoResizeTextArea";
+import { useConversationDraftValue, type ConversationDraftStore } from "./useConversationDrafts";
 
 export type ChatSurfaceMessage = Pick<
   ChatMessage,
@@ -216,4 +217,14 @@ export function ChatComposer({
       {disclaimer && <small className="disclaimer">{disclaimer}</small>}
     </footer>
   );
+}
+
+export type DraftChatComposerProps = Omit<ChatComposerProps, "value" | "onChange"> & {
+  draftStore: ConversationDraftStore;
+  draftKey: string;
+};
+
+export function DraftChatComposer({ draftStore, draftKey, ...props }: DraftChatComposerProps) {
+  const draft = useConversationDraftValue(draftStore, draftKey);
+  return <ChatComposer {...props} value={draft} onChange={(value) => draftStore.setDraft(draftKey, value)} />;
 }

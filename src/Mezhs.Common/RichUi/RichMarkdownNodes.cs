@@ -1,6 +1,7 @@
 using Markdig;
 using Markdig.Extensions.Tables;
 using Markdig.Extensions.TaskLists;
+using Markdig.Parsers;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 
@@ -12,23 +13,37 @@ internal static class RichMarkdownNodes
 {
     // Use the same bounded Markdown extensions as RichDocumentParser. Generic
     // attributes are deliberately unsupported: braces remain visible text.
-    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().UsePipeTables().UseEmphasisExtras().UseTaskLists().Build();
+    private static readonly MarkdownPipeline Pipeline = BuildPipeline(false);
+    private static readonly MarkdownPipeline RichContainerPipeline = BuildPipeline(true);
+
+    private static MarkdownPipeline BuildPipeline(bool insideRichContainer)
+    {
+        var builder = new MarkdownPipelineBuilder().UsePipeTables().UseEmphasisExtras().UseTaskLists();
+        // The indentation of nested declarative UI is layout formatting,
+        // not Markdown's four-space implicit code block. Explicit fenced
+        // code and CodeBlock controls remain available inside UI containers.
+        if (insideRichContainer)
+            builder.BlockParsers.TryRemove<IndentedCodeBlockParser>();
+        return builder.Build();
+    }
 
     public static IReadOnlyList<RichNode> Convert(string source, int offset,
-        bool inlineOnly = false, IReadOnlyList<RichNode>? inlineElements = null)
+        bool inlineOnly = false, IReadOnlyList<RichNode>? inlineElements = null,
+        IReadOnlyList<RichSourceSpan>? hiddenSpans = null,
+        bool insideRichContainer = false)
     {
         // Keep the exact UTF-16 positions while Markdig reads one uninterrupted
         // Markdown scope. Each recursively validated display element occupies
         // a private-use start marker followed by private-use padding. Markdig
         // treats the marker as plain inline text; it cannot become a new tag.
-        var replacements = new Dictionary<int, RichNode>();
+        var replacements = new Dictionary<int, (int End, RichNode? Element)>();
         // Never use model-authored characters as synthetic inline markers.
         // Pick a pair absent from the *entire unmodified source* before any
         // substitution. This makes IndexOf unambiguous even when an adversarial
         // message contains the old U+E000/U+E001 sentinel sequence.
         var markerStart = '\uE000';
         var markerPad = '\uE001';
-        if (inlineElements is { Count: > 0 })
+        if (inlineElements is { Count: > 0 } || hiddenSpans is { Count: > 0 })
         {
             var occupied = new bool[0x1900]; // BMP private-use area E000..F8FF
             foreach (var c in source)
@@ -41,7 +56,7 @@ internal static class RichMarkdownNodes
             markerStart = (char)('\uE000' + unused[0]);
             markerPad = (char)('\uE000' + unused[1]);
             var chars = source.ToCharArray();
-            foreach (var element in inlineElements)
+            foreach (var element in inlineElements ?? [])
             {
                 var start = element.SourceSpan.Start - offset;
                 var end = element.SourceSpan.End - offset;
@@ -50,7 +65,18 @@ internal static class RichMarkdownNodes
                     throw new FormatException("Invalid inline element source span.");
                 for (var i = start; i < end; i++)
                     chars[i] = i == start ? markerStart : markerPad;
-                replacements.Add(start, element);
+                replacements.Add(start, (end, element));
+            }
+            foreach (var hidden in hiddenSpans ?? [])
+            {
+                var start = hidden.Start - offset;
+                var end = hidden.End - offset;
+                if (start < 0 || end > chars.Length || start >= end ||
+                    replacements.Any(item => item.Key < end && item.Value.End > start))
+                    throw new FormatException("Invalid or overlapping hidden command span.");
+                for (var i = start; i < end; i++)
+                    chars[i] = i == start ? markerStart : markerPad;
+                replacements.Add(start, (end, null));
             }
             source = new string(chars);
         }
@@ -58,7 +84,7 @@ internal static class RichMarkdownNodes
         // Pre-sort just once. Binary search per literal is O(log N), rather
         // than scanning every replacement for every Markdown inline fragment.
         var replacementStarts = replacements.Keys.OrderBy(start => start).ToArray();
-        var ast = Markdown.Parse(source, Pipeline);
+        var ast = Markdown.Parse(source, insideRichContainer ? RichContainerPipeline : Pipeline);
         var result = new List<RichNode>();
         var count = 0;
         void AppendMapped(List<RichNode> nodes, MarkdownObject input, int depth) =>
@@ -74,6 +100,11 @@ internal static class RichMarkdownNodes
             else
                 AppendMapped(result, block, 0);
         }
+        // A paragraph consisting solely of an invisible command placeholder
+        // must not render as an extra empty paragraph between visible blocks.
+        if (hiddenSpans is { Count: > 0 })
+            result.RemoveAll(node => node.Kind == "paragraph" &&
+                node.Children is null or { Count: 0 });
         return result;
     }
 
@@ -86,7 +117,7 @@ internal static class RichMarkdownNodes
     }
 
     private static RichNode Map(MarkdownObject input, string source, int offset,
-        int depth, ref int count, IReadOnlyDictionary<int, RichNode> replacements,
+        int depth, ref int count, IReadOnlyDictionary<int, (int End, RichNode? Element)> replacements,
         int[] replacementStarts, char markerStart, char markerPad)
     {
         if (++count > 4_096 || depth > 24) throw new FormatException("Markdown node budget exceeded.");
@@ -107,8 +138,8 @@ internal static class RichMarkdownNodes
                 {
                     var tokenStart = replacementStarts[tokenIndex];
                     if (tokenStart >= end) break;
-                    var element = replacements[tokenStart];
-                    var length = element.SourceSpan.End - element.SourceSpan.Start;
+                    var (tokenEnd, element) = replacements[tokenStart];
+                    var length = tokenEnd - tokenStart;
                     var marker = markerStart + new string(markerPad, length - 1);
                     var found = literalText.IndexOf(marker, at, StringComparison.Ordinal);
                     if (found < 0)
@@ -117,7 +148,7 @@ internal static class RichMarkdownNodes
                         parts.Add(new RichNode("text", $"{offset + original}:text",
                             new RichSourceSpan(offset + original, offset + tokenStart),
                             Text: literalText[at..found]));
-                    parts.Add(element);
+                    if (element is not null) parts.Add(element);
                     at = found + marker.Length;
                     original = tokenStart + length;
                 }
@@ -178,6 +209,68 @@ internal static class RichMarkdownNodes
         else if (kind == "code" && input is LeafBlock codeBlock)
             text = codeBlock.Lines.ToString();
         else if (kind == "literal") text = source[start..end];
+
+        // Markdig normalizes code nodes and treats HTML blocks as inert literal
+        // nodes, not LiteralInline children. Restore recognized rich elements
+        // from their source spans in these representation layers as well.
+        if (replacements.Count > 0 && text is not null && kind is "code" or "inlineCode" or "literal")
+        {
+            var first = Array.BinarySearch(replacementStarts, start);
+            if (first < 0) first = ~first;
+            var parts = new List<RichNode>();
+            var at = 0;
+            var original = start;
+            var hasElement = false;
+            for (var tokenIndex = first; tokenIndex < replacementStarts.Length; tokenIndex++)
+            {
+                var tokenStart = replacementStarts[tokenIndex];
+                if (tokenStart >= end) break;
+                var (tokenEnd, element) = replacements[tokenStart];
+                var marker = markerStart + new string(markerPad, tokenEnd - tokenStart - 1);
+                var found = text.IndexOf(marker, at, StringComparison.Ordinal);
+                if (found < 0)
+                {
+                    // Fenced code metadata belongs to the source span but not
+                    // the normalized Lines text. It can contain a recognized
+                    // tag or root command without breaking the entire batch.
+                    if (kind == "code")
+                    {
+                        if (element is not null) { parts.Add(element); hasElement = true; }
+                        original = tokenEnd;
+                        continue;
+                    }
+                    throw new FormatException("Markdown split an inline rich placeholder.");
+                }
+                if (found > at)
+                    parts.Add(new RichNode(kind, $"{offset + original}:{kind}",
+                        new RichSourceSpan(offset + original, offset + tokenStart),
+                        Text: text[at..found]));
+                if (element is not null)
+                {
+                    parts.Add(element);
+                    hasElement = true;
+                }
+                at = found + marker.Length;
+                original = tokenEnd;
+            }
+            if (hasElement)
+            {
+                if (at < text.Length)
+                    parts.Add(new RichNode(kind, $"{offset + original}:{kind}",
+                        new RichSourceSpan(offset + original, offset + end),
+                        Text: text[at..]));
+                return new RichNode("inlineFragment", $"{span.Start}:inlineFragment",
+                    span, Children: parts);
+            }
+        }
+
+        // In code or inert literal blocks, Markdig does not emit LiteralInline
+        // children. Remove only our synthetic marker characters from display
+        // text; the originals were chosen absent from the model source.
+        if (replacements.Count > 0 && text is not null && kind is "code" or "inlineCode" or "literal" &&
+            text.IndexOf(markerStart) >= 0)
+            text = text.Replace(markerStart.ToString(), "", StringComparison.Ordinal)
+                .Replace(markerPad.ToString(), "", StringComparison.Ordinal);
 
         var children = new List<RichNode>();
         if (kind != "literal" && kind != "code")

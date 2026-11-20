@@ -3,13 +3,13 @@ import { Check, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import {
   apiJson,
   apiJsonOrEmpty,
-  ChatComposer,
+  DraftChatComposer,
   ChatProviderRegistry,
   ChatTranscript,
   ConnectionModelPicker,
   modelActivityLabel,
   useApiAvailability,
-  useConversationDrafts,
+  useConversationDraftStore,
   useConversationPending,
   type ChatSurfaceMessage,
   type Connection,
@@ -519,7 +519,7 @@ export default function App() {
 
   const selectedChat = chats.find((chat) => chat.chatId === selectedChatId) ?? null;
   const draftKey = selectedChatId && !creating ? `chat:${selectedChatId}` : `new:${newChatSequence}:${policyId}:${connectionId}`;
-  const { draft, setDraft, clearDraft, moveDraft, restoreDraft } = useConversationDrafts(draftKey);
+  const draftStore = useConversationDraftStore();
   const { pending: sending, start: startSend, transfer: transferSend, finish: finishSend } = useConversationPending(draftKey);
   const selectedPolicy = policies.find((policy) =>
     policy.id === (selectedChat?.policyId ?? policyId));
@@ -779,7 +779,9 @@ useEffect(() => {
       const values = await apiJson<AgentChat[]>("", "/v1/agent-chats", { signal });
       if (signal?.aborted || epoch !== chatRefreshEpoch.current) return;
       const visible = values.filter((chat) => !deletedChatIdsRef.current.has(chat.chatId));
-      setChats(visible);
+      // Running execution clocks still use the periodic list tick for elapsed labels.
+      const refreshElapsed = executionsRef.current.some((execution) => !execution.isTerminal && !!execution.startedAt);
+      setChats((current) => !refreshElapsed && JSON.stringify(current) === JSON.stringify(visible) ? current : visible);
       const currentId = selectedChatIdRef.current;
       if (currentId && !visible.some((chat) => chat.chatId === currentId)) {
         deletedChatIdsRef.current.add(currentId);
@@ -977,7 +979,7 @@ useEffect(() => {
   }
 
   async function submit() {
-    const input = draft;
+    const input = draftStore.getDraft(draftKey);
     const effectivePolicyId = selectedChat?.policyId ?? policyId;
     if (!input.trim() || !effectivePolicyId || !connectionId || sending || activeExecution || selectedChat?.paused)
       return;
@@ -986,7 +988,7 @@ useEffect(() => {
     const epoch = selectionEpoch.current;
     let pendingKey = submittedKey;
     if (!startSend(pendingKey)) return;
-    clearDraft(submittedKey, input);
+    draftStore.clearDraft(submittedKey, input);
     let accepted = false;
     setNotice(null);
     try {
@@ -1011,7 +1013,7 @@ useEffect(() => {
       }
 
       const attachedChatId = await waitForAttachedChat(execution.executionId);
-      moveDraft(submittedKey, `chat:${attachedChatId}`, "");
+      draftStore.moveDraft(submittedKey, `chat:${attachedChatId}`, "");
       transferSend(pendingKey, `chat:${attachedChatId}`);
       pendingKey = `chat:${attachedChatId}`;
       await refreshChats();
@@ -1028,7 +1030,7 @@ useEffect(() => {
         }
       }
     } catch (error) {
-      if (!accepted) restoreDraft(submittedKey, input);
+      if (!accepted) draftStore.restoreDraft(submittedKey, input);
       if (selectionEpoch.current === epoch) setNotice(error instanceof Error ? error.message : "Agent execution could not be started.");
     } finally {
       finishSend(pendingKey);
@@ -1502,9 +1504,9 @@ useEffect(() => {
               </div>
             </header>
 
-            <ChatComposer
-              value={draft}
-              onChange={setDraft}
+            <DraftChatComposer
+              draftStore={draftStore}
+              draftKey={draftKey}
               onSubmit={submit}
               placeholder={composerPlaceholder}
               disabled={!policyId || !connectionId}
@@ -1784,9 +1786,9 @@ useEffect(() => {
               }}
             />
 
-            <ChatComposer
-              value={draft}
-              onChange={setDraft}
+            <DraftChatComposer
+              draftStore={draftStore}
+              draftKey={draftKey}
               onSubmit={submit}
               placeholder={composerPlaceholder}
               disabled={composerDisabled}

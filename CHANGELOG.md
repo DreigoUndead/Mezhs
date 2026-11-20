@@ -2,6 +2,59 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.9.0] - 2026-11-20
+
+### Added
+- Automatically regenerate and commit Codegraph on non-main task-branch pushes when the generated graph changes.
+
+### Changed
+- Pin Codegraph 3.0.0 and native dependency 2.0.0; reject degraded parser output before committing.
+- Use graph-only bot commits, branch-specific concurrency and non-force pushes; prevent graph-only self-trigger loops.
+- Preserve the manual exporter as a fallback and require verification against the final branch SHA.
+
+### Verification and approval
+- Independent High-risk final testing PASS at PR #67 head d29cad9b00ff5c8d94cef62e4366aff19b580d6a against main ed98bb5c3f9c0a07fbf6589b4b6819fdba0519ee.
+- Windows Codegraph workflow run 44623330636 succeeded; independent testing evidence: https://github.com/DreigoUndead/Mezhs/pull/67#issuecomment-7025777531
+- Owner explicitly approved merging PR #67 on 2026-11-20 and overrode the uncompleted independent code-review gate.
+
+### Known limitations
+- Independent code review PASS was not recorded before the owner-approved merge.
+- Full hosted Core CI did not pass on the bot-created final SHA. Available local exact-SHA regressions passed; Agent runtime resilience remained environment-blocked by missing PowerShell 7.
+- Git race and degraded-output tests used the actual workflow Bash step and disposable local Git fixtures, not a hosted concurrency test.
+
+## [0.8.3] - 2026-11-19
+
+### Fixed
+- Match complete rich UI and Agent command tags independently of line placement, with balanced containers and fail-closed command authorization.
+- Show unsupported, malformed and invalid rich controls as inert Unknown diagnostics while preserving valid registered children and independent UI siblings.
+- Keep SH, ATTACH and DONE root-only inside known and Unknown wrappers, SVG, escape and opaque editors; reject invalid command batches before side effects.
+- Preserve indented rich layouts, ordinary Markdown tables and fenced content, and safely interpret bounded data-only style objects.
+
+### Verification and approval
+- Independent High-risk full-diff code review PASS; the owner accepted malformed nested model HTML rendering as a non-blocking presentation limitation.
+- Independent Windows final testing PASS at PR #64 head c5126c04c1e2f20bfd01731c16548cf3a0ce2888 against main d4a782e18bde189e63d8e0c83007209398f9860f: Release build, 97 C# parser checks, 67 Chromium/Node tests, 19 shared UI tests, 9 adversarial parser and 11 live Chromium checks, real Agent protocol/policy/attachment and hosted failure-path tests.
+- Verification details: https://github.com/DreigoUndead/Mezhs/pull/64#issuecomment-7021222114
+- Project owner explicitly approved merging the completed PR #64 on 2026-11-19.
+
+### Known limitations
+- No full authenticated live-provider Electron desktop session was tested; Windows application hosts and real headless Chromium were exercised using isolated controlled integration responses.
+
+## [0.8.2] — 2026-11-17
+
+### Fixed
+- Keep typing responsive in long Agent and ordinary chat histories by moving unsent per-conversation drafts out of the application-level render state and subscribing only the relevant composer controls.
+- Preserve draft handoff, newer edits and failed-send restoration across new chats, existing chats and asynchronous submissions.
+- Skip unchanged Agent chat-list polling renders while retaining active execution elapsed-time updates; restore ordinary transcript and execution-history JSX without manually maintained large memoization wrappers.
+
+### Verification and approval
+- Independent Standard code review **PASS** for PR #63 at `b9a791e17418e1a95edb52009f7498d50822bf8b`.
+- Exact-head MEŽS Core Windows CI **PASS** (run `43963941068`), including frontend builds, real Chromium Agent long-history typing/render isolation, unchanged polling, live transcript updates, scoped drafts and existing handoff/restore/scroll regressions, plus Core/Agent/provider checks.
+- No separate independent final-testing execution; owner explicitly approved merging this reviewed, CI-green candidate on 2026-11-17.
+- Owner-approved PR #63 merge commit: `f50fb9bf7a02c9a7569423076243c47b7ca45672`.
+
+### Known limitations
+- Automated checks establish render isolation, not measured end-to-end keyboard latency in the owner's live Windows app; ordinary chat draft isolation is also covered by a scoped harness rather than direct parent-render instrumentation of the full chat app.
+
 ## [0.8.1] — 2026-11-16
 
 ### Changed

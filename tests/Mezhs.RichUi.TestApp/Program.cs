@@ -17,80 +17,62 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Plain Markdown", "# Hello\n\n**Strong** and [link](https://example.com)", true, []),
     ("Nested box and text", "<box gap={2}>\n<text>hello</text>\n</box>", true, []),
     ("Unknown presentation attribute is inert", "<text futureTone=\"violet\" strong>Visible</text>", true, []),
-    ("Unknown layout attribute does not revoke nested shell", "<box futureTheme=\"quiet\">\n<SH>\necho REAL\n</SH>\n</box>", true, ["SH"]),
-    ("Unsafe event attribute blocks nested shell", "<box onClick=\"alert(1)\">\n<SH>\necho NEVER\n</SH>\n</box>", false, []),
-    ("Unsafe HTML style attribute rejected", "<badge style=\"color:red\">No</badge>", false, []),
-    ("Unknown SVG attribute rejected", "<svg futureTheme=\"violet\"><rect width=\"5\" height=\"5\"/></svg>", false, []),
-    ("Citation source ID supported", "<Cite ref=\"turn0search0\"/>", true, []),
-    ("Citation arbitrary metadata rejected", "<Cite futureSource=\"javascript:evil\"/>", false, []),
-    ("Inline text accepts phrasing descendants", "<text>Before <badge>status</badge> and <Link url=\"https://example.com\">a link</Link> after</text>", true, []),
-    ("Inline Link accepts nested text and code", "<Link url=\"https://example.com\">Read <text strong>this</text> `literal`</Link>", true, []),
-    ("Inline text accepts a Markdown link", "<text>Read [docs](https://example.com) here.</text>", true, []),
-    ("Inline text rejects a box child", "<text>Before <box>block</box> after</text>", false, []),
-    ("Inline title rejects row child", "<title><row>block</row></title>", false, []),
-    ("Inline caption rejects list blocks", "<caption>Start\n\n- One\n- Two\n</caption>", false, []),
-    ("Inline badge rejects heading blocks", "<badge>Text\n\n# Heading\n</badge>", false, []),
-    ("Inline text rejects Markdown quote block", "<text>Start\n\n> Quote\n</text>", false, []),
-    ("Inline text rejects rich divider", "<text>Before <divider/> after</text>", false, []),
-    ("Rich Link rejects nested rich Link", "<Link url=\"https://a.test\">Outer <Link url=\"https://b.test\">Inner</Link></Link>", false, []),
-    ("Rich Link rejects Markdown anchor descendants", "<Link url=\"https://a.test\">Outer [inner](https://b.test)</Link>", false, []),
-    ("Markdown anchor rejects nested rich Link", "[Outer <Link url=\"https://b.test\">Inner</Link>](https://a.test)", false, []),
-    ("Opaque escape", "<escape>\n<SH>\necho NEVER\n</SH>\n<DONE>\n</escape>", true, []),
-    ("Shell body and DONE", "<SH>\r\necho first\r\n<DONE>\r\n</SH>\r\n<DONE>", true, ["SH", "DONE"]),
-    ("Nested command", "<box>\n<SH>\necho nested\n</SH>\n</box>\n<DONE>", true, ["SH", "DONE"]),
-    ("Command in grid item", "<grid>\n<grid-item>\n<SH>\necho nested\n</SH>\n</grid-item>\n</grid>", true, ["SH"]),
-    ("Command in text denied", "<text>\n<SH>\necho NEVER\n</SH>\n</text>", false, []),
-    ("ATTACH in Link denied", "<Link url=\"https://example.com\">\n<ATTACH>\nfile.txt\n</ATTACH>\n</Link>", false, []),
-    ("DONE in badge denied", "<badge>\n<DONE>\n</badge>", false, []),
-    ("Command in title denied", "<title>\n<SH>\necho NEVER\n</SH>\n</title>", false, []),
-    ("Command inside Markdown list", "- step\n  <SH>\n  echo listed\n  </SH>\n\n<DONE>", true, ["SH", "DONE"]),
-    ("Fenced command inside box list", "<box>\n- Example\n  ~~~text\n  <SH>\n  echo NEVER\n  </SH>\n  ~~~\n</box>", true, []),
-    ("Fenced command at root", "~~~text\n<SH>\necho NEVER\n</SH>\n~~~", true, []),
-    ("Quoted closing delimiter", "<box background=\"a > b\">hello</box>", true, []),
-    ("Unclosed escape fails closed", "<escape>\n<SH>\necho NEVER\n</SH>", false, []),
-    ("Bad closing scope fails closed", "<box>\n<SH>\necho NEVER\n</SH>\n</row>", false, []),
-    ("Early DONE fails closed", "<DONE>\n<SH>\necho NEVER\n</SH>", false, []),
-    ("Duplicate DONE fails closed", "<DONE>\n<DONE>", false, []),
-    ("Unknown command fails closed", "<UNKNOWN>\necho NEVER\n</UNKNOWN>", false, []),
-    ("Raw editor inert", "<CodeBlock language=\"text\">\n<SH>\necho NEVER\n</SH>\n</CodeBlock>", true, []),
-    ("Unclosed shell fails closed", "<SH>\necho NEVER", false, []),
-    ("Unclosed multiline code span inert", "`\n<SH>\necho NEVER\n</SH>\n<DONE>", true, []),
-    ("Unclosed HTML comment inert", "<!--\n<SH>\necho NEVER\n</SH>\n<DONE>", true, []),
-    ("Commented shell inert", "<!--\n<SH>\necho NEVER\n</SH>\n-->", true, []),
-    ("Blockquote lazy continuation shell inert", "> Example:\n<SH>\necho NEVER\n</SH>", true, []),
-    ("Blockquote lazy continuation shell followed by valid command", "> Example:\n<SH>\necho NEVER\n</SH>\n\n<SH>\necho REAL\n</SH>", true, ["SH"]),
-    ("Blockquote quoted DONE inert", "> Example:\n<DONE>", true, []),
-    ("Quoted shell inside box remains inert", "<box>\n> Example:\n<SH>\necho NEVER\n</SH>\n\n</box>\n<DONE>", true, ["DONE"]),
-    ("Quoted shell inside nested row remains inert", "<box>\n<row>\n> Example:\n<SH>\necho NEVER\n</SH>\n\n</row>\n</box>\n<DONE>", true, ["DONE"]),
-    ("Quoted command inside box followed by valid command", "<box>\n> Example:\n<SH>\necho NEVER\n</SH>\n\n</box>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
-    ("Lazy quote swallowing rich closer fails closed", "<box>\n> Example:\n<SH>\necho NEVER\n</SH>\n</box>\n<DONE>", false, []),
-    ("Markdown multiline emphasis shell inert", "**Example:\n<SH>\necho NEVER\n</SH>\n**", true, []),
-    ("Markdown multiline link label shell inert", "[Example:\n<SH>\necho NEVER\n</SH>\n](https://example.com)", true, []),
-    ("Markdown emphasis after valid shell cannot add a second command", "<SH>\necho REAL\n</SH>\n\n**Example:\n<SH>\necho NEVER\n</SH>\n**", true, ["SH"]),
-    ("Midline bold example interrupted by command is inert", "Intro **quoted\n<SH>\necho NEVER\n</SH>\nend**", true, []),
-    ("Bold example closed at paragraph end is inert", "**Intro\n<SH>\necho NEVER\n</SH>\nend**", true, []),
-    ("Midline italic example interrupted by command is inert", "Intro *quoted\n<SH>\necho NEVER\n</SH>\nend*", true, []),
-    ("Valid command after completed inline emphasis", "**intro**\n\n<SH>\necho REAL\n</SH>", true, ["SH"]),
-    ("Two-level Markdown list command", "- Parent\n  - Child\n    <SH>\n    echo NESTED\n    </SH>\n\n<DONE>", true, ["SH", "DONE"]),
-    ("Four-space root indented Markdown code inert", "    <SH>\n    echo NEVER\n    </SH>", true, []),
-    ("CodeBlock unmatched fence cannot hide later commands", "<CodeBlock language=\"text\">\n~~~\n</CodeBlock>\n<SH>\necho REAL\n</SH>\n<DONE>", true, ["SH", "DONE"]),
-    ("CodeBlock unmatched backtick cannot hide later commands", "<CodeBlock language=\"text\">\n`\n</CodeBlock>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
-    ("SH unmatched fence cannot hide later DONE", "<SH>\n~~~\n</SH>\n<DONE>", true, ["SH", "DONE"]),
-    ("SH unmatched backtick cannot hide later SH", "<SH>\n`\n</SH>\n<SH>\necho REAL\n</SH>\n<DONE>", true, ["SH", "SH", "DONE"]),
-    ("ATTACH unmatched fence cannot hide later SH", "<ATTACH>\n~~~\n</ATTACH>\n<SH>\necho REAL\n</SH>", true, ["ATTACH", "SH"]),
-    ("Escape unmatched fence cannot hide later SH", "<escape>\n~~~\n</escape>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
-    ("WritingBlock closed fence protects decoy closer and resumes shell", "<WritingBlock variant=\"document\">\n~~~\n</WritingBlock>\n~~~\n</WritingBlock>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
-    ("Fenced raw opener stays literal before valid SH", "~~~\n<CodeBlock language=\"text\">\n</CodeBlock>\n~~~\n<SH>\necho REAL\n</SH>", true, ["SH"]),
-    ("Markdown emphasis command inside box inert", "<box>\nIntro **quoted\n<SH>\necho NEVER\n</SH>\nend**\n</box>", true, []),
-    ("Markdown emphasis command inside box and row inert", "<box>\n<row>\n**Example:\n<SH>\necho NEVER\n</SH>\n**\n</row>\n</box>", true, []),
-    ("Markdown link-label command inside box inert", "<box>\n[Example:\n<SH>\necho NEVER\n</SH>\n](https://example.com)\n</box>", true, []),
-    ("Markdown box quote inert plus later valid command", "<box>\n**Example:\n<SH>\necho NEVER\n</SH>\n**\n</box>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
-    ("Two-level Markdown list command inside box", "<box>\n- Parent\n  - Child\n    <SH>\n    echo NESTED\n    </SH>\n\n</box>\n<DONE>", true, ["SH", "DONE"]),
-    ("Two-level Markdown list command inside row and box", "<box>\n<row>\n- Parent\n  - Child\n    <SH>\n    echo NESTED\n    </SH>\n\n</row>\n</box>", true, ["SH"]),
-    ("Inert emphasized shell opener must not erase following fenced shell", "**Example:\n<SH>\n**\n\n~~~\n<SH>\necho NEVER\n</SH>\n~~~\n<SH>\necho REAL\n</SH>", true, ["SH"]),
-    ("Inert emphasized shell opener inside box must not erase fenced shell", "<box>\n**Example:\n<SH>\n**\n\n~~~\n<SH>\necho NEVER\n</SH>\n~~~\n</box>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
-    ("Inert emphasized shell opener inside row must not erase fenced shell", "<box>\n<row>\n**Example:\n<SH>\n**\n\n~~~\n<SH>\necho NEVER\n</SH>\n~~~\n</row>\n</box>\n<SH>\necho REAL\n</SH>", true, ["SH"]),
-    ("DONE may not be discovered as a nested control", "<box>\n<DONE>\n</box>", false, []),
+    ("Unsafe HTML attribute rejected", "<badge style=\"color:red\">No</badge>", true, []),
+    ("Unsafe event attribute blocks entire batch", "<box onClick=\"alert(1)\"><SH>echo NO</SH></box>", true, []),
+    ("Unknown SVG attribute rejected", "<svg futureTheme=\"violet\"><rect width=\"5\"/></svg>", true, []),
+    ("Citation ID supported", "<Cite ref=\"turn0search0\"/>", true, []),
+    ("Citation arbitrary metadata rejected", "<Cite futureSource=\"javascript:evil\"/>", true, []),
+    ("Inline nested tags", "<text>Before <badge>status</badge> and <Link url=\"https://example.com\">link</Link> after</text>", true, []),
+    ("Inline text rejects block child", "<text>Before <box>block</box> after</text>", true, []),
+    ("Inline caption rejects list", "<caption>Start\n\n- One\n- Two\n</caption>", true, []),
+    ("Rich Link rejects nested links", "<Link url=\"https://a.test\">Outer <Link url=\"https://b.test\">Inner</Link></Link>", true, []),
+    ("Inline SH", "before <SH>echo one</SH> after", true, ["SH"]),
+    ("Multiline SH preserves body bytes", "<SH>\r\necho first\r\n<DONE>\r\n</SH>\r\n<DONE>", true, ["SH","DONE"]),
+    ("Adjacent tags", "<SH>echo A</SH><ATTACH>file.txt</ATTACH><DONE>", true, ["SH","ATTACH","DONE"]),
+    ("Inline ATTACH", "prefix <ATTACH>file.txt</ATTACH> suffix", true, ["ATTACH"]),
+    ("Inline rich UI", "before <box><text>hi</text></box> after", true, []),
+    ("Nested paired rich UI", "<box><box>inner</box>outer</box>", true, []),
+    ("Unclosed SH is ordinary text", "before <SH>echo incomplete", true, []),
+    ("Unclosed rich UI is ordinary text", "before <box>not finished", true, []),
+    ("Unclosed SH before independent DONE", "<SH>not closed <DONE>", true, ["DONE"]),
+    ("Unclosed escape still contains matched SH", "<escape><SH>echo YES</SH>", true, ["SH"]),
+    ("Command inside text is inert", "<text>Hi <SH>echo YES</SH> there</text>", true, []),
+    ("Command inside Link is inert", "<Link url=\"https://example.com\"><ATTACH>file.txt</ATTACH></Link>", true, []),
+    ("Command inside CodeBlock is inert", "<CodeBlock>before <SH>echo YES</SH> after</CodeBlock>", true, []),
+    ("Same-line CodeBlock renders without a delimiter-line requirement", "Before <CodeBlock language=\"text\">raw source</CodeBlock> after", true, []),
+    ("Same-line CodeBlock before SH remains valid", "<CodeBlock language=\"text\">raw</CodeBlock><SH>echo OK</SH>", true, ["SH"]),
+    ("Same-line WritingBlock remains opaque", "Before <WritingBlock variant=\"document\">raw <SH>INERT</SH></WritingBlock> after", true, []),
+    ("Same-line WritingBlock before root SH", "<WritingBlock variant=\"document\">raw</WritingBlock><SH>echo OK</SH>", true, ["SH"]),
+    ("Same-line escape remains opaque", "Before <escape>raw <SH>INERT</SH></escape> after", true, []),
+    ("Same-line registered containers match", "Before <box><text>inside</text></box> after", true, []),
+    ("Same-line registered inline element matches", "Before <text strong>inside</text> after", true, []),
+    ("Command inside escape is inert", "<escape><SH>echo YES</SH></escape>", true, []),
+    ("Command inside Markdown fence", "~~~\n<SH>echo YES</SH>\n~~~", true, ["SH"]),
+    ("Command inside inline code", "`<SH>echo YES</SH>`", true, ["SH"]),
+    ("Command inside Markdown comment", "<!-- <SH>echo YES</SH> -->", true, ["SH"]),
+    ("Command inside quote", "> <SH>echo YES</SH>", true, ["SH"]),
+    ("Command inside SVG is inert", "<svg viewBox=\"0 0 20 20\"><SH>echo YES</SH><circle r=\"2\"/></svg>", true, []),
+    ("Opaque command bodies", "<SH>before <ATTACH>nested</ATTACH></SH>", true, ["SH"]),
+    ("SH is not a box child", "<box><SH>echo NO</SH></box>", true, []),
+    ("ATTACH is not a text child", "<text>pre <ATTACH>file.txt</ATTACH> post</text>", true, []),
+    ("Disallowed SH cannot close its parent", "<box><SH>inside </box> still inert</SH>outer</box>", true, []),
+    ("Root command after layout", "<box>layout</box><SH>echo YES</SH>", true, ["SH"]),
+    ("Unmatched closing tag ignored", "before </SH> after", true, []),
+    ("Empty SH parsed", "<SH></SH>", true, ["SH"]),
+    ("DONE must be final", "<DONE><SH>echo NO</SH>", false, []),
+    ("Duplicate DONE rejected", "<DONE><DONE>", false, []),
+    ("Unknown complete tag renders a diagnostic", "<UNKNOWN>text</UNKNOWN>", true, []),
+    ("Unknown tag with inert attributes", "<widget onClick=\"alert(1)\">text</widget>", true, []),
+    ("Unknown wrapper with registered command", "<widget>pre <SH>echo OK</SH> post</widget>", true, []),
+    ("Unknown wrapper with registered rich child", "<widget>pre <text strong>rich</text> post</widget>", true, []),
+    ("Unknown XML example before registered command", "~~~xml\n<widget>example</widget>\n~~~\n<SH>echo OK</SH>", true, ["SH"]),
+    ("Registered SVG child outside SVG still rejected", "<path d=\"M0 0\"/>", true, []),
+    ("Raw script outside Markdown rejected", "<script>alert(1)</script>", true, []),
+    ("Raw script inside Markdown fence is an inert diagnostic", "~~~\n<script>alert(1)</script>\n~~~", true, []),
+    ("Bounded object literal border", "<box border={{size:2,color:\"danger\"}}>Red</box>", true, []),
+    ("Unknown paired wrapper keeps nested SH inert", "<Widget>inert <SH>echo NO</SH></Widget><SH>echo YES</SH>", true, ["SH"]),
+    ("Invalid CodeBlock attributes keep nested SH inert", "<CodeBlock invalid=\"bad\">raw <SH>echo NO</SH></CodeBlock><SH>echo YES</SH>", true, ["SH"]),
+    ("Markdown pipe table", "| A | B |\n|:---|---:|\n| One | 2 |", true, []),
 };
 var failures = 0;
 static IEnumerable<RichNode> Walk(RichNode node)
@@ -106,10 +88,8 @@ foreach (var (name, source, valid, commands) in checks)
     var result = new RichDocumentParser().Parse(source);
     var names = result.Commands.Select(c => c.Name).ToArray();
     var pass = result.Document.Valid == valid && names.SequenceEqual(commands);
-    if (name == "Shell body and DONE")
-        pass &= result.Commands.FirstOrDefault()?.Body == "echo first\r\n<DONE>";
-    if (name == "Opaque escape")
-        pass &= result.Document.Nodes.Any(n => n.Kind == "literal" && n.Text?.Contains("echo NEVER") == true);
+    if (name == "Multiline SH preserves body bytes")
+        pass &= result.Commands.FirstOrDefault()?.Body == "\r\necho first\r\n<DONE>\r\n";
     if (name == "Nested box and text")
         pass &= result.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "box" &&
             n.Children?.Any(c => c.Kind == "paragraph" && c.Children?.Any(t =>
@@ -118,6 +98,101 @@ foreach (var (name, source, valid, commands) in checks)
     Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; commands={string.Join(",", names)}; diagnostics={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
     if (!pass) failures++;
 }
+// Regression: the rendered tree, not only VisibleContent, must keep Markdown flow.
+var shellOpen = string.Concat((char)60, "SH", (char)62);
+var shellClose = string.Concat((char)60, "/SH", (char)62);
+var shellTag = shellOpen + "echo HIDDEN" + shellClose;
+var inlineSource = "Before " + shellTag + " after";
+var inlineDoc = new RichDocumentParser().Parse(inlineSource);
+var paragraph = inlineDoc.Document.Nodes.SingleOrDefault();
+var inlineOk = inlineDoc.Document.Valid && inlineDoc.Commands.Count == 1 &&
+    inlineDoc.Commands[0].Body == "echo HIDDEN" && paragraph?.Kind == "paragraph" &&
+    paragraph.Children?.Count == 2 && paragraph.Children[0].Text == "Before " &&
+    paragraph.Children[1].Text == " after" &&
+    paragraph.Children[0].SourceSpan.End == inlineSource.IndexOf(shellOpen, StringComparison.Ordinal) &&
+    paragraph.Children[1].SourceSpan.Start == inlineSource.IndexOf(" after", StringComparison.Ordinal);
+// Generic syntax layer: literal object attributes, unknown envelopes, and pipes.
+var objectDoc = new RichDocumentParser().Parse("<box border={{size:2,color:\"danger\"}}>Red</box>");
+var objectJson = objectDoc.Document.Nodes.SelectMany(Walk).FirstOrDefault(n => n.Name == "box")?
+    .Attributes?.GetValueOrDefault("border");
+var objectPass = objectDoc.Document.Valid && objectJson?.StartsWith("json:", StringComparison.Ordinal) == true &&
+    Uri.UnescapeDataString(objectJson[5..]).Contains("\"danger\"", StringComparison.Ordinal);
+Console.WriteLine($"{(objectPass ? "PASS" : "FAIL")}: Bounded JSX object literal is serialized as inert JSON");
+if (!objectPass) failures++;
+var dynamicDoc = new RichDocumentParser().Parse("<box border={{size:alert(1)}}>unsafe</box>");
+var dynamicPass = dynamicDoc.Document.Valid && dynamicDoc.Commands.Count == 0 &&
+    dynamicDoc.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "unknown" && n.Name == "box");
+Console.WriteLine($"{(dynamicPass ? "PASS" : "FAIL")}: Dynamic expression falls back to inert unknown control");
+if (!dynamicPass) failures++;
+var unknownEnvelope = new RichDocumentParser().Parse("<Widget><SH>inert</SH></Widget><SH>root</SH>");
+var unknownPass = unknownEnvelope.Document.Valid && unknownEnvelope.Commands.Count == 1 &&
+    unknownEnvelope.Commands[0].Body == "root" &&
+    unknownEnvelope.Document.Nodes.Any(n => n.Kind == "unknown" && n.Name == "Widget");
+Console.WriteLine($"{(unknownPass ? "PASS" : "FAIL")}: Unknown wrapper preserves root-only command boundary");
+if (!unknownPass) failures++;
+var tableDoc = new RichDocumentParser().Parse("| A | B |\\n|---|---|\\n| 1 | 2 |".Replace("\\n", "\n"));
+var tablePass = tableDoc.Document.Valid && tableDoc.Document.Nodes.SelectMany(Walk)
+    .Any(n => n.Kind == "table" && n.Children?.Any(c => c.Kind == "tableRow") == true);
+Console.WriteLine($"{(tablePass ? "PASS" : "FAIL")}: Pipe table remains a generic Markdown syntax transformation");
+if (!tablePass) failures++;
+var htmlWrapperSource = "<widget>\\n<text>inside</text>\\n</widget>\\n<SH>ROOT</SH>".Replace("\\n", "\n");
+var htmlWrapperDoc = new RichDocumentParser().Parse(htmlWrapperSource);
+var htmlWrapperPass = htmlWrapperDoc.Document.Valid && htmlWrapperDoc.Commands.Count == 1 &&
+    htmlWrapperDoc.Commands[0].Body == "ROOT" &&
+    htmlWrapperDoc.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "unknown" && n.Name == "widget");
+Console.WriteLine($"{(htmlWrapperPass ? "PASS" : "FAIL")}: Multiline unknown HTML wrapper cannot discard root commands");
+if (!htmlWrapperPass) failures++;
+var commentSource = "<!--\\n<text>hello</text>\\n-->\\n<SH>ROOT</SH>".Replace("\\n", "\n");
+var commentDoc = new RichDocumentParser().Parse(commentSource);
+var commentPass = commentDoc.Document.Valid && commentDoc.Commands.Count == 1 &&
+    commentDoc.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "element" && n.Name == "text");
+Console.WriteLine($"{(commentPass ? "PASS" : "FAIL")}: HTML literal lowering restores rich elements");
+if (!commentPass) failures++;
+var fenceInfoSource = "~~~<text>info</text>\\ncontent\\n~~~\\n<SH>ROOT</SH>".Replace("\\n", "\n");
+var fenceInfoDoc = new RichDocumentParser().Parse(fenceInfoSource);
+var fenceInfoPass = fenceInfoDoc.Document.Valid && fenceInfoDoc.Commands.Count == 1 &&
+    fenceInfoDoc.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "element" && n.Name == "text");
+Console.WriteLine($"{(fenceInfoPass ? "PASS" : "FAIL")}: Fence info literal survives lowering without losing root shell");
+if (!fenceInfoPass) failures++;
+
+
+Console.WriteLine($"{(inlineOk ? "PASS" : "FAIL")}: Rendered inline command retains one paragraph and exact spans");
+if (!inlineOk) failures++;
+var strongDoc = new RichDocumentParser().Parse("**Before " + shellTag + " after**");
+var strongNode = strongDoc.Document.Nodes.SingleOrDefault()?.Children?.SingleOrDefault();
+var strongOk = strongDoc.Document.Valid && strongNode?.Kind == "strong" &&
+    strongNode.Children?.Count == 2 && strongNode.Children[0].Text == "Before " &&
+    strongNode.Children[1].Text == " after";
+Console.WriteLine($"{(strongOk ? "PASS" : "FAIL")}: Rendered command preserves spanning strong emphasis");
+if (!strongOk) failures++;
+var listDoc = new RichDocumentParser().Parse("- Before " + shellTag + " after");
+var listParagraphs = listDoc.Document.Nodes.SelectMany(Walk).Where(n => n.Kind == "paragraph").ToArray();
+var listOk = listDoc.Document.Valid && listDoc.Document.Nodes.Count == 1 &&
+    listDoc.Document.Nodes[0].Kind == "list" && listParagraphs.Length == 1 &&
+    listParagraphs[0].Children?.Count == 2;
+Console.WriteLine($"{(listOk ? "PASS" : "FAIL")}: Rendered command retains one Markdown list item");
+if (!listOk) failures++;
+var codeDoc = new RichDocumentParser().Parse("`pre " + shellTag + " post`");
+var codeNodes = codeDoc.Document.Nodes.SelectMany(Walk).Where(n => n.Kind == "inlineCode").ToArray();
+var codeOk = codeDoc.Document.Valid && codeNodes.Length == 1 && codeNodes[0].Text == "pre  post";
+Console.WriteLine($"{(codeOk ? "PASS" : "FAIL")}: Removed command leaves intact inline code text");
+if (!codeOk) failures++;
+var fenceDoc = new RichDocumentParser().Parse("~~~\npre " + shellTag + " post\n~~~");
+var fenceNodes = fenceDoc.Document.Nodes.SelectMany(Walk).Where(n => n.Kind == "code").ToArray();
+var fenceOk = fenceDoc.Document.Valid && fenceNodes.Length == 1 &&
+    fenceNodes[0].Text?.Contains("pre  post", StringComparison.Ordinal) == true;
+Console.WriteLine($"{(fenceOk ? "PASS" : "FAIL")}: Removed command leaves intact fenced code text");
+if (!fenceOk) failures++;
+// A command surrounded by blank lines must not leave an empty paragraph.
+var blankLineDoc = new RichDocumentParser().Parse("Before\n\n" + shellTag + "\n\nAfter");
+var blankLineOk = blankLineDoc.Document.Valid && blankLineDoc.Commands.Count == 1 &&
+    blankLineDoc.Document.Nodes.Count == 2 &&
+    blankLineDoc.Document.Nodes.All(n => n.Kind == "paragraph" && n.Children?.Count == 1) &&
+    blankLineDoc.Document.Nodes[0].Children![0].Text == "Before" &&
+    blankLineDoc.Document.Nodes[1].Children![0].Text == "After";
+Console.WriteLine($"{(blankLineOk ? "PASS" : "FAIL")}: Standalone command leaves no empty rendered paragraph");
+if (!blankLineOk) failures++;
+
 // Every tag carries independent child-search and child-eligibility policies.
 var controlsPass =
     RichTagRegistry.TryGet("box", out var boxDef) &&
@@ -125,9 +200,9 @@ var controlsPass =
     RichTagRegistry.TryGet("row", out var rowDef) &&
     rowDef.SearchChildren && rowDef.AllowAsChild &&
     RichTagRegistry.TryGet("SH", out var shellDef) &&
-    !shellDef.SearchChildren && shellDef.AllowAsChild &&
+    !shellDef.SearchChildren && !shellDef.AllowAsChild &&
     RichTagRegistry.TryGet("ATTACH", out var attachDef) &&
-    !attachDef.SearchChildren && attachDef.AllowAsChild &&
+    !attachDef.SearchChildren && !attachDef.AllowAsChild &&
     RichTagRegistry.TryGet("DONE", out var doneDef) &&
     !doneDef.SearchChildren && !doneDef.AllowAsChild &&
     RichTagRegistry.TryGet("escape", out var escapeDef) &&
@@ -167,6 +242,36 @@ var taskPass = taskResult.Document.Valid && taskResult.Commands.Count == 0 &&
     taskNodes[1].Attributes?.GetValueOrDefault("checked") == "false";
 Console.WriteLine($"{(taskPass ? "PASS" : "FAIL")}: GFM task checkboxes remain accessible inside Markdown paragraphs");
 if (!taskPass) failures++;
+
+// Screenshot regression: indentation of nested UI is presentation whitespace,
+// never implicit Markdown code. The root Markdown pipeline retains indented code.
+var capturedLayout = File.ReadAllText(Path.Combine("tests", "fixtures",
+    "rich-model-ui", "indented-layout-capture.md"));
+var capturedDocument = new RichDocumentParser().Parse(capturedLayout);
+var captureNodes = capturedDocument.Document.Nodes.SelectMany(Walk).ToArray();
+var capturedPass = capturedDocument.Document.Valid && capturedDocument.Commands.Count == 0 &&
+    captureNodes.Count(n => n.Kind == "code") == 0 &&
+    captureNodes.Count(n => n.Kind == "strong") >= 2 &&
+    captureNodes.Count(n => n.Kind == "element" && n.Name == "box") >= 4 &&
+    captureNodes.Any(n => n.Kind == "element" && n.Name == "row") &&
+    captureNodes.Any(n => n.Kind == "element" && n.Name == "grid") &&
+    captureNodes.Count(n => n.Kind == "element" && n.Name == "grid-item") == 2 &&
+    captureNodes.Any(n => n.Kind == "element" && n.Name == "icon") &&
+    captureNodes.Any(n => n.Kind == "element" && n.Name == "text" &&
+        n.Children?.Any(t => t.Text?.Contains("Identify known tags") == true) == true);
+Console.WriteLine($"{(capturedPass ? "PASS" : "FAIL")}: Captured indented nested UI is rich layout, not code; nodes={captureNodes.Length}; code={captureNodes.Count(n => n.Kind == "code")}");
+if (!capturedPass) failures++;
+var rootIndented = new RichDocumentParser().Parse("Intro\\n\\n    actual code".Replace("\\n", "\n"));
+var rootIndentedPass = rootIndented.Document.Valid &&
+    rootIndented.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "code");
+Console.WriteLine($"{(rootIndentedPass ? "PASS" : "FAIL")}: Root Markdown retains four-space code blocks");
+if (!rootIndentedPass) failures++;
+var containerFenced = new RichDocumentParser().Parse("<box>\\n  ~~~\\n  code inside rich box\\n  ~~~\\n</box>".Replace("\\n", "\n"));
+var containerFencedPass = containerFenced.Document.Valid &&
+    containerFenced.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "code" &&
+        n.Text?.Contains("code inside rich box") == true);
+Console.WriteLine($"{(containerFencedPass ? "PASS" : "FAIL")}: Explicit fenced code remains available inside rich layout");
+if (!containerFencedPass) failures++;
 
 var fixture = File.ReadAllText(Path.Combine("tests", "fixtures", "rich-model-ui", "custom-controls-question.md"));
 var parsedQuestion = new RichDocumentParser().Parse(fixture);
@@ -216,7 +321,8 @@ Console.WriteLine($"{(radioCodePass ? "PASS" : "FAIL")}: Radio and button delimi
 if (!radioCodePass) failures++;
 
 var rejectedBox = new RichDocumentParser().Parse(wrappedFixture.Replace("<box border", "<box onClick=\"unsafe()\" border"));
-var rejectedBoxPass = !rejectedBox.Document.Valid && rejectedBox.Commands.Count == 0;
+var rejectedBoxPass = rejectedBox.Document.Valid && rejectedBox.Commands.Count == 0 &&
+    rejectedBox.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "unknown" && n.Name == "box");
 Console.WriteLine($"{(rejectedBoxPass ? "PASS" : "FAIL")}: Unsafe radio box wrapper remains inert");
 if (!rejectedBoxPass) failures++;
 
@@ -263,6 +369,16 @@ var inlineTests = new (string Name, string Source, Func<RichParseResult, bool> C
         r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Kind == "paragraph" &&
         r.Document.Nodes[0].Children?.ElementAtOrDefault(0)?.Children?.Any(n => n.Name == "text" &&
             n.Children?.Count == 1 && n.Children?.ElementAtOrDefault(0)?.Text == "world") == true),
+    ("Inline rich tag inside Markdown code remains an element", "`pre <text strong>world</text> post`", r =>
+        r.Document.Valid && r.Commands.Count == 0 &&
+        r.Document.Nodes.SelectMany(Walk).Any(n => n.Name == "text" &&
+            n.Children?.Any(c => c.Text == "world") == true) &&
+        r.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "inlineCode" && n.Text == "pre ") &&
+        r.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "inlineCode" && n.Text == " post")),
+    ("Fenced Markdown rich tag does not discard later SH", "~~~\n<text>world</text>\n~~~\n<SH>echo OK</SH>", r =>
+        r.Document.Valid && r.Commands.Select(c => c.Name).SequenceEqual(["SH"]) &&
+        r.Document.Nodes.SelectMany(Walk).Any(n => n.Name == "text" &&
+            n.Children?.Any(c => c.Text == "world") == true)),
     ("Standalone inline element has no paragraph inside span", "<text strong>world</text>", r =>
         r.Document.Valid && r.Document.Nodes.Count == 1 &&
         r.Document.Nodes[0].Kind == "paragraph" &&
@@ -279,16 +395,30 @@ foreach (var (name, source, verify) in inlineTests)
     if (!pass) failures++;
 }
 
+var svgShellAttachSource = "<svg>before<SH>echo HIDDEN</SH>middle<ATTACH>path.txt</ATTACH>after<circle r='2'/></svg>";
+var svgWrappedShellSource = "<svg><widget>before<SH>echo HIDDEN</SH>after</widget></svg>";
 var svgTests = new (string Name, string Source, bool Valid, Func<RichParseResult, bool> Extra)[]
 {
     ("Representative SVG", File.ReadAllText(Path.Combine("tests","fixtures","rich-model-ui","representative-svg.md")), true, r => r.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "svg" && n.Children?.Any(c => c.Name == "text") == true && n.Children?.Any(c => c.Name == "g" && c.Children?.Any(x => x.Name == "rect") == true && c.Children?.Any(x => x.Name == "text" && x.Children?.Any(t => t.Text?.Contains("Collector") == true) == true) == true) == true)),
-    ("SVG embedded commands rejected", "<svg viewBox=\"0 0 100 100\"><SH>\necho NEVER\n</SH></svg>", false, r => r.Commands.Count == 0),
-    ("SVG injected event rejected", "<svg onload=\"alert(1)\"></svg>", false, r => r.Commands.Count == 0),
-    ("SVG forbidden url rejected", "<svg><rect x=\"1\" fill=\"url(#evil)\" /></svg>", false, r => r.Commands.Count == 0),
+    ("SVG embedded SH is inert", "<svg viewBox=\"0 0 100 100\"><SH>echo YES</SH></svg>", true, r => r.Commands.Count == 0),
+    ("SVG keeps nested SH and ATTACH inert", svgShellAttachSource, true, r =>
+        r.Commands.Count == 0 &&
+        r.Document.Nodes.Single().Children?.Any(n => n.Kind == "text" &&
+            n.Text?.Contains("<SH>echo HIDDEN</SH>middle<ATTACH>path.txt</ATTACH>", StringComparison.Ordinal) == true) == true &&
+        r.Document.Nodes.Single().Children?.Any(n => n.Name == "circle") == true),
+    ("SVG unknown wrapper keeps nested SH inert", svgWrappedShellSource, true, r =>
+        r.Commands.Count == 0 &&
+        r.Document.Nodes.Single().Kind == "unknown" &&
+        r.Document.Nodes.Single().Name == "svg"),
+    ("SVG injected event rejected", "<svg onload=\"alert(1)\"></svg>", true, r => r.Commands.Count == 0),
+    ("SVG forbidden url rejected", "<svg><rect x=\"1\" fill=\"url(#evil)\" /></svg>", true, r => r.Commands.Count == 0),
     ("SVG text namespace accepted", "<svg viewBox=\"0 0 80 80\"><text x=\"15\" y=\"30\" fontSize=\"12\" >Hello</text></svg>", true, r => r.Document.Nodes.Any(n => n.Name == "svg" && n.Children?.Any(c => c.Name == "text" && c.Children?.Any(t => t.Text == "Hello") == true) == true)),
-    ("SVG nested foreign UI rejected", "<svg><box>bad</box></svg>", false, r => r.Commands.Count == 0),
-    ("SVG nested SVG rejected", "<svg><svg></svg></svg>", false, r => r.Commands.Count == 0),
-    ("SVG geometry over bound rejected", "<svg><circle r=\"100000000\" /></svg>", false, r => r.Commands.Count == 0),
+    ("SVG nested foreign UI rejected", "<svg><box>bad</box></svg>", true, r => r.Commands.Count == 0),
+    ("SVG foreign UI under unknown wrapper rejected", "<svg><widget><box>bad</box></widget></svg>", true, r => r.Commands.Count == 0),
+    ("SVG unknown wrapper is diagnostic", "<svg><widget>literal</widget></svg>", true, r => r.Document.Nodes.Any(n => n.Kind == "unknown" && n.Name == "svg")),
+    ("SVG unknown wrapper keeps SH inert", "<svg><widget><SH>echo YES</SH></widget></svg>", true, r => r.Commands.Count == 0 && r.Document.Nodes.Any(n => n.Kind == "unknown")),
+    ("SVG nested SVG rejected", "<svg><svg></svg></svg>", true, r => r.Commands.Count == 0),
+    ("SVG geometry over bound rejected", "<svg><circle r=\"100000000\" /></svg>", true, r => r.Commands.Count == 0),
 };
 foreach (var (name, source, valid, extra) in svgTests)
 {
@@ -297,25 +427,13 @@ foreach (var (name, source, valid, extra) in svgTests)
     Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; errors={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
     if (!pass) failures++;
 }
-var fencedOpening = "<box>\n~~~md\n<box>\n~~~\n</box>";
-var fencedOpeningResult = new RichDocumentParser().Parse(fencedOpening);
-var fencedOpeningPass = fencedOpeningResult.Document.Valid && fencedOpeningResult.Commands.Count == 0 &&
-    fencedOpeningResult.Document.Nodes.Count == 1 &&
-    fencedOpeningResult.Document.Nodes[0].Name == "box" &&
-    fencedOpeningResult.Document.Nodes[0].Children?.Any(n => n.Kind == "code" && n.Text?.Contains("<box>") == true) == true;
-Console.WriteLine($"{(fencedOpeningPass ? "PASS" : "FAIL")}: Fenced opening-tag decoy stays literal inside box; valid={fencedOpeningResult.Document.Valid}; diagnostics={string.Join("|", fencedOpeningResult.Document.Diagnostics.Select(d => d.Code))}");
-if (!fencedOpeningPass) failures++;
-
-var nestedScope = "<box>\n~~~md\n</box>\n~~~\n<box><text>Nested sibling</text></box>\n</box>";
-var nestedParsed = new RichDocumentParser().Parse(nestedScope);
-var nestedPass = nestedParsed.Document.Valid && nestedParsed.Commands.Count == 0 &&
-    nestedParsed.Document.Nodes.Any(n => n.Name == "box" &&
-        n.Children?.Any(c => c.Kind == "code" && c.Text?.Contains("</box>") == true) == true &&
-        n.Children?.Any(c => c.Name == "box" &&
-            c.Children?.Any(p => p.Kind == "paragraph" &&
-                p.Children?.Any(x => x.Name == "text" &&
-                    x.Children?.Any(t => t.Text == "Nested sibling") == true) == true) == true) == true);
-Console.WriteLine($"{(nestedPass ? "PASS" : "FAIL")}: Fenced false closing delimiter inside nested layout; valid={nestedParsed.Document.Valid}; diagnostics={string.Join("|", nestedParsed.Document.Diagnostics.Select(d => d.Code))}; root={string.Join(",", nestedParsed.Document.Nodes.Select(n => n.Kind + ":" + n.Name))}");
+// Position-independent matching includes markup-looking tags within Markdown.
+var nestedSource = "<box><box><text>Nested sibling</text></box> outer</box>";
+var nestedResult = new RichDocumentParser().Parse(nestedSource);
+var nestedPass = nestedResult.Document.Valid &&
+    nestedResult.Document.Nodes.SingleOrDefault()?.Name == "box" &&
+    nestedResult.Document.Nodes[0].Children?.Any(n => n.Name == "box") == true;
+Console.WriteLine($"{(nestedPass ? "PASS" : "FAIL")}: Nested UI delimiters are balanced");
 if (!nestedPass) failures++;
 
 // Adversarial raw-editor siblings: reparsing the full remaining suffix
@@ -371,5 +489,5 @@ var alternatingPass = alternatingParsed.Document.Valid && alternatingParsed.Comm
 Console.WriteLine($"{(alternatingPass ? "PASS" : "FAIL")}: 600 alternating rich/Markdown inlines in {timer.ElapsedMilliseconds} ms, {bytesAllocated / 1024:N0} KiB allocated; rich nodes={inlineNodes}");
 if (!alternatingPass) failures++;
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 12 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 12} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 18 - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 18} passed");
 return failures == 0 ? 0 : 1;

@@ -71,6 +71,11 @@ function renderNode(node: RichNode, depth: number, svgScope: boolean): ReactNode
   const content = () => node.children?.map(child =>
     <Fragment key={child.id}>{renderNode(child, depth + 1, svgScope)}</Fragment>);
   if (node.kind === "literal" || node.kind === "text") return node.text || "";
+  if (node.kind === "unknown") return <span key={key} className="rich-unknown" role="note">
+    <span className="rich-unknown-heading">Unsupported control: {node.name || "unknown"}</span>
+    <span className="rich-unknown-reason">{attrs.reason || "Unsupported markup"}</span>
+    <span className="rich-unknown-content">{content()}</span>
+  </span>;
   if (node.kind === "question") return <CanonicalQuestion key={key} node={node}
     renderChild={child => renderNode(child, depth + 1, false)} />;
   if (node.kind === "raw") {

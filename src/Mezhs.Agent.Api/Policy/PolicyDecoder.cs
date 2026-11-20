@@ -148,24 +148,22 @@ public sealed class PolicyDecoder
 
         var shell = Registry.Get(CommandBehavior.Shell);
         if (settings.Commands.Allow.Contains(shell.Name, StringComparer.OrdinalIgnoreCase) &&
-            !settings.Commands.Deny.Contains(shell.Name, StringComparer.OrdinalIgnoreCase) &&
-            !settings.Instructions.Contains($"<{shell.Name}>", StringComparison.Ordinal))
+            !settings.Commands.Deny.Contains(shell.Name, StringComparer.OrdinalIgnoreCase))
         {
             rules.Add(
-                $"To execute host shell text, return <{shell.Name}> on a line by itself, then the shell text, then </{shell.Name}> on a line by itself. " +
-                "The text between those tags is passed to the host shell unchanged. Multiple command blocks run in order.");
+                $"Authoritative runtime protocol, overriding conflicting older local instructions: to execute shell text, write <{shell.Name}>shell text</{shell.Name}> anywhere in the reply. " +
+                "The body is passed to the host shell unchanged, including whitespace. Complete command pairs inside Markdown, inline code and code fences execute only at root scope; inside complete known or unknown UI containers, including malformed controls, SVG, escape and raw editors, they remain inert text.");
         }
 
         if (settings.Commands.Allow.Contains("ATTACH", StringComparer.OrdinalIgnoreCase) &&
-            !settings.Commands.Deny.Contains("ATTACH", StringComparer.OrdinalIgnoreCase) &&
-            !settings.Instructions.Contains("<ATTACH>", StringComparison.Ordinal))
-            rules.Add("To stage locally generated attachments for your own next agent message, use <ATTACH> on its own line, list one file path per line, then </ATTACH>. Uploading does not send a message; the agent runtime includes the files in the next ordinary turn. Do not use /v1/messages from shell.");
+            !settings.Commands.Deny.Contains("ATTACH", StringComparer.OrdinalIgnoreCase))
+            rules.Add("Authoritative runtime protocol, overriding conflicting older local instructions: to stage attachments, write <ATTACH>one file path per line</ATTACH> anywhere in your reply. Staging alone does not send a message; MEŽS includes the files in the next ordinary turn. Do not use /v1/messages from shell.");
 
         if (settings.Completion.RequireDone)
         {
             var done = Registry.Get(CommandBehavior.Complete);
             rules.Add(
-                $"Signal completion by returning <{done.Name}> on a line by itself. " +
+                $"Signal completion with <{done.Name}> anywhere in your reply. " +
                 $"If <{done.Name}> follows executable commands in the same reply, MEŽS may finish immediately after those commands succeed and completion policy is satisfied; omit <{done.Name}> when you need to inspect their results first.");
         }
 
