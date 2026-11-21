@@ -6472,6 +6472,14 @@
       "from": 301,
       "to": {
         "type": "external",
+        "name": "node:stream"
+      },
+      "raw": "node:stream"
+    },
+    {
+      "from": 301,
+      "to": {
+        "type": "external",
         "name": "node:test"
       },
       "raw": "node:test"
