@@ -104,14 +104,16 @@ test("typed feasibility endpoint propagates HTTP authorization errors without re
     return json({ code: "unauthorized" }, 401);
   });
 
-  await assert.rejects(typedHttp({
+  const response = await typedHttp({
     session: authenticated,
     args: { method: "GET", path: modelsPath, body: null }
-  }), error => {
-    assert.equal(error.code, "authorization_required");
-    assert.equal(error.status, 401);
-    return true;
   });
+  // Electron returns only validated status information to the typed C# client.
+  // The C# IntegrationHttpClient raises IntegrationHttpException without exposing
+  // provider response bodies or authentication materials.
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.body, "");
+  assert.equal(response.providerCode, "unauthorized");
   assert.equal(count, 1);
 });
 
