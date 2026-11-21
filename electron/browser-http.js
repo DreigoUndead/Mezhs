@@ -6,6 +6,11 @@ const MAX_FRAME_BYTES = 256 * 1024;
 const ALLOWED_ACCEPT = new Set([
   "application/json", "text/event-stream", "application/x-ndjson", "*/*"
 ]);
+function protocolFailure(message) {
+  const error = new Error(message);
+  error.code = "stream_delivery_failed";
+  return error;
+}
 
 function validateRequest(args, policy) {
   const method = String(args?.method || "").toUpperCase();
@@ -66,8 +71,13 @@ class StreamFramer {
   }
 
   async write(bytes, final = false) {
-    const text = typeof bytes === "string"
-      ? bytes : this.decoder.decode(bytes || new Uint8Array(0), { stream: !final });
+    let text;
+    try {
+      text = typeof bytes === "string"
+        ? bytes : this.decoder.decode(bytes || new Uint8Array(0), { stream: !final });
+    } catch {
+      throw protocolFailure("Browser HTTP stream contains invalid UTF-8.");
+    }
     // A transport read may contain hundreds of small events. Bound each
     // incomplete frame, not the aggregate number of frames in one read.
     let cursor = 0;
@@ -77,7 +87,7 @@ class StreamFramer {
       const fragment = text.slice(cursor, end);
       if (Buffer.byteLength(this.pending, "utf8") +
           Buffer.byteLength(fragment, "utf8") > MAX_FRAME_BYTES)
-        throw new Error("Browser HTTP stream frame exceeded 256 KiB.");
+        throw protocolFailure("Browser HTTP stream frame exceeded 256 KiB.");
       this.pending += fragment;
       if (newline < 0) break;
       const line = this.pending.replace(/\r$/, "");
@@ -94,7 +104,7 @@ class StreamFramer {
 
   async line(line) {
     if (Buffer.byteLength(line, "utf8") > MAX_FRAME_BYTES)
-      throw new Error("Browser HTTP stream line exceeded 256 KiB.");
+      throw protocolFailure("Browser HTTP stream line exceeded 256 KiB.");
     if (this.format === "application/x-ndjson") {
       if (line.trim()) await this.reportEvent(line.trim());
       return;
@@ -104,7 +114,7 @@ class StreamFramer {
       const data = line.slice(5).replace(/^ /, "");
       this.eventBytes += Buffer.byteLength(data, "utf8");
       if (this.eventBytes > MAX_FRAME_BYTES)
-        throw new Error("Browser HTTP SSE event exceeded 256 KiB.");
+        throw protocolFailure("Browser HTTP SSE event exceeded 256 KiB.");
       this.eventData.push(data);
     }
   }
