@@ -5,7 +5,9 @@ using Mezhs.Common.RichUi;
 namespace Mezhs.Agent.Commands;
 
 public sealed record Command(string Name, string? Body,
-    int? TimeoutSeconds = null, int? OutputLimit = null);
+    int? TimeoutSeconds = null, int? OutputLimit = null,
+    int? OutputLimitStart = null, int? OutputLimitEnd = null,
+    string? OutputRegex = null);
 
 public sealed record CommandBatch(
     IReadOnlyList<Command> Commands,
@@ -37,28 +39,35 @@ public sealed class Parser
             var end = candidate.SourceSpan.End;
             if (start < cursor || end < start || end > content.Length)
                 throw new CommandParseException("Invalid command source range.");
-            // Consume only the exact matched tag span; surrounding prose and
-            // line breaks remain visible.
             visible.Append(content, cursor, start - cursor);
             cursor = end;
-            var timeout = candidate.Name == "SH"
-                ? PositiveAttribute(candidate.Attributes, "timeout") : null;
-            var limit = candidate.Name == "SH"
-                ? PositiveAttribute(candidate.Attributes, "limit") : null;
-            commands.Add(new Command(candidate.Name, candidate.Body, timeout, limit));
+            if (candidate.Name == "SH")
+            {
+                var timeout = NumberAttribute(candidate.Attributes, "timeout", positive: true);
+                var limit = NumberAttribute(candidate.Attributes, "limit");
+                var limitStart = NumberAttribute(candidate.Attributes, "limitStart");
+                var limitEnd = NumberAttribute(candidate.Attributes, "limitEnd");
+                var regex = candidate.Attributes?.GetValueOrDefault("regex");
+                if (regex is not null)
+                    ShellOutputOptions.ValidateRegex(regex);
+                commands.Add(new Command(candidate.Name, candidate.Body,
+                    timeout, limit, limitStart, limitEnd, regex));
+            }
+            else commands.Add(new Command(candidate.Name, candidate.Body));
         }
         visible.Append(content, cursor, content.Length - cursor);
         return new CommandBatch(commands, visible.ToString());
     }
 
-    private static int? PositiveAttribute(
-        IReadOnlyDictionary<string, string>? attributes, string name)
+    private static int? NumberAttribute(
+        IReadOnlyDictionary<string, string>? attributes, string name, bool positive = false)
     {
         if (attributes is null || !attributes.TryGetValue(name, out var raw))
             return null;
         if (!int.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var value) ||
-            value <= 0)
-            throw new CommandParseException($"SH {name} must be a positive integer.");
+            value < (positive ? 1 : 0))
+            throw new CommandParseException(
+                $"SH {name} must be a {(positive ? "positive" : "non-negative")} integer.");
         return value;
     }
 }

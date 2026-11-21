@@ -20,8 +20,7 @@ public sealed class PolicyDefinition
     [Required]
     public PolicyCompletionDefinition? Completion { get; set; }
 
-    [Required]
-    public PolicyLimitsDefinition? Limits { get; set; }
+    public PolicyLimitsDefinition Limits { get; set; } = new();
 }
 
 public sealed class PolicyCommandsDefinition
@@ -44,7 +43,14 @@ public sealed class PolicyCompletionDefinition
 public sealed class PolicyLimitsDefinition
 {
     [Range(1, int.MaxValue)]
-    public int CommandTimeoutSeconds { get; set; } = 120;
+    public int CommandTimeoutSeconds { get; set; } = 60;
+    [Range(0, int.MaxValue)]
+    public int? Limit { get; set; }
+    [Range(0, int.MaxValue)]
+    public int? LimitStart { get; set; }
+    [Range(0, int.MaxValue)]
+    public int? LimitEnd { get; set; }
+    public string? Regex { get; set; }
 }
 
 public sealed record PolicySettings(
@@ -68,4 +74,8 @@ public sealed record PolicyCompletionSettings(
     IReadOnlyList<string> RequiredSuccessfulCommands);
 
 public sealed record PolicyLimitsSettings(
-    int CommandTimeoutSeconds);
+    int CommandTimeoutSeconds,
+    int? Limit = null,
+    int? LimitStart = null,
+    int? LimitEnd = null,
+    string? Regex = null);

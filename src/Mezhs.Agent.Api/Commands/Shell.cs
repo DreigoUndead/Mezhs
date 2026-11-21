@@ -50,6 +50,6 @@ public sealed class Shell(
             execution.ExitCode,
             execution.Result,
             execution.Error,
-            context.OutputLimit);
+            context.OutputOptions);
     }
 }

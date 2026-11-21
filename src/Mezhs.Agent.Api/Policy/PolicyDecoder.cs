@@ -40,7 +40,18 @@ public sealed class PolicyDecoder
     {
         var commands = definition.Commands!;
         var completion = definition.Completion!;
-        var limits = definition.Limits!;
+        var limits = definition.Limits ?? new PolicyLimitsDefinition();
+        if (limits.CommandTimeoutSeconds <= 0 || limits.Limit is < 0 ||
+            limits.LimitStart is < 0 || limits.LimitEnd is < 0)
+            throw new InvalidOperationException($"policies.{id}.limits contains an invalid SH numeric setting.");
+        if (limits.Regex is { } policyRegex)
+        {
+            try { ShellOutputOptions.ValidateRegex(policyRegex); }
+            catch (CommandParseException ex)
+            {
+                throw new InvalidOperationException($"policies.{id}.limits.regex: {ex.Message}", ex);
+            }
+        }
         var name = string.IsNullOrWhiteSpace(definition.Name) ? id : definition.Name.Trim();
         var connectionId = definition.ConnectionId!.Trim();
         var defaultModel = string.IsNullOrWhiteSpace(definition.DefaultModel)
@@ -63,7 +74,9 @@ public sealed class PolicyDecoder
                 NormalizeCommandNames(
                     completion.RequiredSuccessfulCommands,
                     $"policies.{id}.completion.requiredSuccessfulCommands")),
-            new PolicyLimitsSettings(limits.CommandTimeoutSeconds));
+            new PolicyLimitsSettings(
+                limits.CommandTimeoutSeconds, limits.Limit, limits.LimitStart,
+                limits.LimitEnd, limits.Regex));
 
         return new PolicyContext(
             id,

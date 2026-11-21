@@ -6,9 +6,11 @@ texts:
     https://github.com/DreigoUndead/Mezhs/blob/main/docs/architecture.md
 
     Execution: Execute shell text by writing <SH>shell text</SH> anywhere in your reply.
-    Optional SH attributes: timeout=SECONDS (at most the policy maximum), and
-    limit=CHARACTERS (follow-up output only, at most the global prompt cap).
-    Example syntax: <SH timeout=60 limit=500>shell text</SH>.
+    Optional SH attributes: timeout=SECONDS, limit=LINES, limitStart=LINES,
+    limitEnd=LINES, regex="PATTERN". timeout overrides the policy default;
+    limit=0 disables line abbreviation; regex filters lines before limits.
+    Output options affect only the model follow-up, not durable Executor history.
+    Example syntax: <SH timeout=60 limit=500 limitStart=10 limitEnd=10 regex="error|warning">shell text</SH>.
     Stage files with <ATTACH>one path per line</ATTACH>. Closing tags may appear on
     the same line as opening tags. An unmatched opening tag is ordinary text.
     Complete SH/ATTACH tags in ordinary Markdown can execute, including code

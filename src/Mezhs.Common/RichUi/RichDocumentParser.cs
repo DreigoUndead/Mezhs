@@ -609,7 +609,7 @@ public sealed class RichDocumentParser
                     }
                     source = source[(stop + 1)..];
                 }
-                else if (tag.Name == "SH" && (name is "timeout" or "limit") &&
+                else if (tag.Name == "SH" && (name is "timeout" or "limit" or "limitStart" or "limitEnd") &&
                          char.IsAsciiDigit(source[0]))
                 {
                     // Shell options allow the compact `timeout=60 limit=500`
