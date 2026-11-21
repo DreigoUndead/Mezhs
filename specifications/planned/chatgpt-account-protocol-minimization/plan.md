@@ -76,6 +76,19 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-21 — Development BLOCKED: typed-project slice does not minimize overall account code
+
+**Change:** Project enumeration now uses the existing BrowserHttpExecutor and a ChatGPT-specific typed endpoint/DTO for paginated project listing, replacing the JavaScript getProjects operation. Updated packaging, operation, and account-login fixtures. This slice is tested, but Development is **blocked**, not complete; Code Review/Testing/Deploy stages are not authorized to proceed as a successful minimization.
+
+**Reason:** At reviewed parent baseline f2ce33d versus this slice, six account-*.js modules are 1,435 to 1,435 physical lines, mixed entry.js 256 to 235, ChatGptIntegration.cs 215 to 230, ChatGptTypedHttpEndpoints.cs 97 to 114. Combined account and guest files **2,003 to 2,014, +11 lines**; using the plan's approximately 139-line account attribution for mixed entry.js gives approximately 1,850 to 1,861 account lines, still far above the 900-line design target. There are no new shared helpers, no removed legacy account modules, and no defensible overall code reduction.
+
+**Verification:** 70 account/provider Node tests, 20 Electron context/lifecycle Node tests, one Chromium rich-UI test (after canonical .NET test project build), and account-login/model/project/restore flow passed. Release solution build (one unrelated WhatsApp CS0114 warning), ChatGPT packaging probe, integration contracts probe, Agent Web and ClientApp TypeScript/Vite builds passed. These do not establish real authenticated ChatGPT behavior, nor do they verify concurrent distinct-model/effort selections in separate authorized profiles.
+
+**Authority:** Development measurements and the plan's complexity-stop/owner-escalation rules. **Owner decision pending; no change to approved requirements is assumed.**
+
+**Trade-off:** The existing typed HTTP path buffers up to 16 MiB and accepts only static, whitelisted request headers; ChatGPT turn submission still needs incremental SSE interpretation, per-turn browser-owned Sentinel and conduit tokens, uncertain-POST handling, ancestry selection, and signed transfer protections. A larger bounded streaming/transport redesign (with fresh independent review/testing), or an owner-approved change to the quantitative target/scope, is needed before claiming a migration. The provider's setModelPreference PATCH remains; no new auth owner, retry or model lock was introduced.
+
+
 ### 2026-11-21 — Independent Plan Review PASS
 
 **Change:** Step 1 independent Plan Review PASS against branch revision `b07ac47989a68bf2b11f288a3e22f7c21cd59fb7`; Development is unblocked.
