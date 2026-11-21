@@ -1,3 +1,4 @@
+const { randomUUID } = require('node:crypto');
 const ORIGIN = "https://chatgpt.com";
 const accountIds = new WeakMap();
 const API = Object.freeze({
@@ -273,4 +274,40 @@ async function apiJson(session, token, endpoint, options = {}) {
   return text ? JSON.parse(text) : null;
 }
 
-module.exports = { ORIGIN, API, accessToken, requireToken, webApiHeaders, clientContext, nativeChatRequirementsHeaders, apiFetch, apiJson, isConversationUnavailable, parseRetryAfterMs };
+
+// Browser-native requirements are created for this one POST only. The logical
+// prepare payload is built by C#; credentials and Sentinel remain in Electron.
+async function nativeAccountTurnHeaders({ window, session, args, endpoint, signal }) {
+  if (endpoint !== API.conversation || !args || typeof args !== "object" ||
+      !args.prepare || typeof args.clientSessionId !== "string" ||
+      !/^[0-9a-f-]{36}$/i.test(args.clientSessionId))
+    throw new Error("Invalid ChatGPT native turn preparation.");
+  signal?.throwIfAborted();
+  const token = await requireToken(session);
+  const traceId = randomUUID();
+  const prepareHeaders = await webApiHeaders(session, API.conversationPrepare,
+    args.clientSessionId, {
+      "Accept": "*/*",
+      "Content-Type": "application/json",
+      "x-oai-turn-trace-id": traceId
+    });
+  const prepared = await apiJson(session, token, API.conversationPrepare, {
+    method: "POST", headers: prepareHeaders,
+    body: JSON.stringify(args.prepare), signal
+  });
+  const conduit = String(prepared?.conduit_token || "").trim();
+  if (!conduit || conduit.length > 8192 || /[\r\n]/.test(conduit))
+    throw new Error("ChatGPT conversation prepare did not return a valid conduit token.");
+
+  signal?.throwIfAborted();
+  const requirements = await nativeChatRequirementsHeaders(window, session, token);
+  const headers = await webApiHeaders(session, endpoint, args.clientSessionId, {
+    ...requirements,
+    "x-conduit-token": conduit,
+    "x-oai-turn-trace-id": traceId
+  });
+  signal?.throwIfAborted();
+  return headers;
+}
+
+module.exports = { ORIGIN, API, accessToken, requireToken, webApiHeaders, clientContext, nativeChatRequirementsHeaders, apiFetch, apiJson, isConversationUnavailable, parseRetryAfterMs, nativeAccountTurnHeaders };
