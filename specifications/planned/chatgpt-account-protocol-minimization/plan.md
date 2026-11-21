@@ -78,6 +78,22 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-21 — Independent High-risk Step 3 Code Review: bounded upload and processing event isolation (FAIL)
+
+**Reviewed:** Full task diff against `integration-architecture-v2` baseline `b8f25cff351aed34b3de2f7ef1483a01183a9049`, initially at `4c82f8aa35a409fb2129f064b8b7061e5cf19717`. Reviewed C# account protocol, conversation ancestry and final reply, files, provider native hooks, Electron HTTP/framing/event backpressure, signed transfers, C# transport, cancellation, tests, instructions and earlier review decisions.
+
+**Finding 1 (medium; deterministic upload race):** `electron/browser-transfer.js` checked a file's length with `stat()`, then created an unbounded read stream. A file appended between the size check and the read could transmit bytes beyond the validated snapshot. Fixed by bounding the source stream to the checked byte range, handling zero-byte files, and rejecting short source reads. Added a regression that appends bytes after the initial stat and checks only the original content is sent.
+
+**Finding 2 (medium; confirmed code path):** `ChatGptAccountFiles.VerifyProcessing` retained an SSE `event:` name across blank boundaries and applied it to later bare JSON lines from the mixed SSE/NDJSON upload-processing endpoint. Thus a later matching-file JSON record lacking its own success event could be misclassified as a completed upload. Fixed by clearing SSE event names at blank frame boundaries and only inheriting a name for `data:` lines. Added a C# harness case with an earlier success name on a different file followed by a bare matching-file record; it now rejects false success before prompt submission.
+
+**Corrections:** Pushed on the same task branch in `2d9b28b`, `325c553`, `5642088`, `5d2464a`. No second client, session owner, scheduler, prompt retry or change to accepted model-preference behavior. The unrelated automated `chore(codegraph): regenerate graph` subsequently advanced the branch to `52ec5e7` without changing reviewed production code.
+
+**Verified (MEŽS host shell outputs):** Targeted Node HTTP/transfer tests **21/21 PASS**; broader ChatGPT/account/provider/HTTP/Electron/model-mismatch Node tests **63/63 PASS**; typed C# account-protocol harness **PASS** including new upload-processing regression; `dotnet build Mezhs.sln -c Release --no-restore -v quiet` **PASS** (one previously documented unrelated WhatsApp CS0114 warning); `tests/architecture.ps1` **PASS**; `git diff --check` **PASS**; working tree clean at the tested `5d2464a`. The larger node suite emitted React SSR `useLayoutEffect` warnings without test failure. Prior tests and this review do not establish live authenticated Chromium functionality, provider-side cancellation, actual signed transfers with ChatGPT, or concurrent distinct served-model/effort behavior.
+
+**Outcome: FAIL.** Corrections require a **fresh independent Step 3 Code Reviewer**, followed only after independent review PASS by Step 4 independent Testing. No Testing PASS, owner merge approval, release or merge is implied. The only authorized eventual merge destination is `integration-architecture-v2`, never `main`.
+
+**Authority:** Independent High-risk Step 3 Code Reviewer under `.agents/code-review.md` and accepted task plan.
+
 ### 2026-11-21 — Fourth independent Code Review: SSE event bound (FAIL)
 
 **Reviewed:** feature commit 2a46bcea207b0d1d0984f90df3a5edf986d10d15; required parent baseline b8f25cff351aed34b3de2f7ef1483a01183a9049. Initially clean task worktree.
