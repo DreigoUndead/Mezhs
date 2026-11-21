@@ -17,6 +17,7 @@ using System.Text.Json;
 using Mezhs.Browser;
 using Mezhs.Integrations;
 using Mezhs.Integrations.ChatGpt;
+using Mezhs.Integrations.Browser;
 
 await TestNewChatMetadataAndCitations();
 await TestInaccessibleContinuationRestoration();
