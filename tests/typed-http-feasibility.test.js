@@ -3,6 +3,8 @@ const assert = require("node:assert/strict");
 const { TextDecoder, TextEncoder } = require("node:util");
 const modulePath = "../integrations/Mezhs.Integrations.ChatGpt/browser/modules/entry.js";
 const chatgpt = require(modulePath);
+const { executeBrowserHttp } = require("../electron/browser-http");
+const typedHttp = context => executeBrowserHttp(context, chatgpt.http);
 
 const modelsPath = "/backend-api/models?history_and_training_disabled=false";
 
@@ -51,7 +53,7 @@ test("typed feasibility endpoint reuses authenticated ChatGPT Electron session a
     return new Response(body, { status: 200 });
   });
 
-  const output = await chatgpt.operations.typedHttp({
+  const output = await typedHttp({
     session: authenticated,
     args: { method: "GET", path: modelsPath, body: null },
     signal: new AbortController().signal,
@@ -72,22 +74,22 @@ test("typed HTTP rejects unsupported methods, origin escapes and invalid request
     contacted = true;
     throw new Error("Unauthorized request was dispatched.");
   });
-  await assert.rejects(chatgpt.operations.typedHttp({
+  await assert.rejects(typedHttp({
     session: authenticated, args: { method: "DELETE", path: modelsPath }
   }), /not allowed/);
-  await assert.rejects(chatgpt.operations.typedHttp({
+  await assert.rejects(typedHttp({
     session: authenticated, args: { method: "GET", path: "https://example.org/" }
   }), /not allowed/);
-  await assert.rejects(chatgpt.operations.typedHttp({
+  await assert.rejects(typedHttp({
     session: authenticated, args: { method: "GET", path: modelsPath, body: {} }
   }), /not allowed/);
-  await assert.rejects(chatgpt.operations.typedHttp({
+  await assert.rejects(typedHttp({
     session: authenticated, args: { method: "GET", path: "/backend-api/../api/auth/session" }
   }), /not allowed/);
-  await assert.rejects(chatgpt.operations.typedHttp({
+  await assert.rejects(typedHttp({
     session: authenticated, args: { method: "POST", path: modelsPath, body: { message: "raw-object" } }
   }), /not allowed/);
-  await assert.rejects(chatgpt.operations.typedHttp({
+  await assert.rejects(typedHttp({
     session: authenticated, args: { method: "POST", path: modelsPath, body: "{}", accept: "Authorization: Bearer leaked" }
   }), /not allowed/);
   assert.equal(contacted, false);
@@ -102,7 +104,7 @@ test("typed feasibility endpoint propagates HTTP authorization errors without re
     return json({ code: "unauthorized" }, 401);
   });
 
-  await assert.rejects(chatgpt.operations.typedHttp({
+  await assert.rejects(typedHttp({
     session: authenticated,
     args: { method: "GET", path: modelsPath, body: null }
   }), error => {
@@ -128,7 +130,7 @@ test("typed feasibility endpoint aborts an in-flight native fetch when its opera
     });
   });
   const controller = new AbortController();
-  const pending = chatgpt.operations.typedHttp({
+  const pending = typedHttp({
     session: authenticated,
     args: { method: "GET", path: modelsPath, body: null },
     signal: controller.signal
@@ -151,7 +153,7 @@ test("typed POST/PATCH send exact serialized JSON once and stream remains raw fo
   });
   for (const method of ["POST", "PATCH"]) {
     const body = JSON.stringify({ messageId: "id-1", value: 42 });
-    const result = await chatgpt.operations.typedHttp({
+    const result = await typedHttp({
       session: authenticated,
       args: { method, path: "/backend-api/test/typed", body, accept: "text/event-stream" },
       reportProgress: value => progress.push(value)
@@ -178,7 +180,7 @@ test("typed HTTP ambiguous POST failure is surfaced without replay", async () =>
     submitted++;
     throw new Error("connection interrupted after submission");
   });
-  await assert.rejects(chatgpt.operations.typedHttp({
+  await assert.rejects(typedHttp({
     session: authenticated,
     args: { method: "POST", path: "/backend-api/test/typed", body: "{}" }
   }), /connection interrupted/);
