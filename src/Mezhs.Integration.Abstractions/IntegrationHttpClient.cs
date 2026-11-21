@@ -16,7 +16,8 @@ public sealed record HttpEndpoint<TRequest, TResponse>(
     string? Accept = null);
 
 public sealed record HttpTransportRequest(
-    string Method, string Path, string? Body, string? Accept);
+    string Method, string Path, string? Body, string? Accept,
+    bool Stream = false, string? NativeHook = null, object? NativeArgs = null);
 
 public sealed record HttpTransportResponse(
     int StatusCode, string Body, string? ContentType = null);
@@ -29,7 +30,9 @@ public sealed record HttpTransferProgress(string State, string? Detail = null);
 /// </summary>
 public sealed class IntegrationHttpClient(
     Func<HttpTransportRequest, Action<HttpTransferProgress>?, CancellationToken,
-        Task<HttpTransportResponse>> execute)
+        Task<HttpTransportResponse>> execute,
+    Func<HttpTransportRequest, Action<string>, Action<HttpTransferProgress>?, CancellationToken,
+        Task<HttpTransportResponse>>? executeStream = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     public const int MaxResponseBytes = 16 * 1024 * 1024;
@@ -88,6 +91,46 @@ public sealed class IntegrationHttpClient(
         }
         return JsonSerializer.Deserialize<TResponse>(response.Body, JsonOptions)
             ?? throw new InvalidOperationException("HTTP response was empty or could not be decoded.");
+    }
+
+    public async Task<HttpTransportResponse> CallStreamAsync<TRequest, TResponse>(
+        HttpEndpoint<TRequest, TResponse> endpoint,
+        TRequest? request,
+        Action<string> onEvent,
+        string? nativeHook = null,
+        object? nativeArgs = null,
+        Action<HttpTransferProgress>? reportProgress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        ArgumentNullException.ThrowIfNull(onEvent);
+        ValidatePath(endpoint.Path);
+        if (endpoint.Format is not (HttpResultFormat.ServerSentEvents or HttpResultFormat.Ndjson))
+            throw new ArgumentException("Streaming requires an SSE or NDJSON endpoint.", nameof(endpoint));
+        var method = endpoint.Method.Method.ToUpperInvariant();
+        if (method is not ("GET" or "POST" or "PATCH"))
+            throw new NotSupportedException($"HTTP method '{method}' is not supported.");
+        if (method == "GET" && request is not null)
+            throw new ArgumentException("GET endpoints do not accept request bodies.", nameof(request));
+        if (executeStream is null)
+            throw new NotSupportedException("This HTTP transport does not support live stream events.");
+        var accept = endpoint.Format == HttpResultFormat.ServerSentEvents
+            ? "text/event-stream" : "application/x-ndjson";
+        if (endpoint.Accept is not null && endpoint.Accept != accept)
+            throw new ArgumentException("Streaming accept type does not match the endpoint format.", nameof(endpoint));
+        var body = method == "GET" || request is null
+            ? null : JsonSerializer.Serialize(request, JsonOptions);
+        cancellationToken.ThrowIfCancellationRequested();
+        // This is exactly one dispatch: a possibly delivered mutation is never replayed.
+        var result = await executeStream(
+            new HttpTransportRequest(method, endpoint.Path, body, accept,
+                Stream: true, NativeHook: nativeHook, NativeArgs: nativeArgs),
+            onEvent, reportProgress, cancellationToken);
+        if (result.StatusCode is < 200 or >= 300)
+            throw new HttpRequestException(
+                $"HTTP {method} {endpoint.Path} failed with status {result.StatusCode}.",
+                null, (HttpStatusCode)result.StatusCode);
+        return result;
     }
 
     public static IntegrationHttpClient ForHttpClient(HttpClient client)
