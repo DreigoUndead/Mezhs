@@ -149,3 +149,14 @@ Use Windows PowerShell 5.1 where `pwsh` is absent. Run `dotnet build src/Mezhs.A
 **Independent reviewer's verification on isolated Windows worktree `D:\\Projects\\Mezhs-sh-parameters-verify`:** Agent API Release build PASS (0 warnings, 0 errors); Rich UI TestApp PASS (105/105); `tests/policy-decoder.ps1` PASS; `tests/agent-protocol-result.ps1` PASS, including the new malformed-paired-SH no-execution test, regex preview/recovery via Executor `Get`, timeout overrides/enforcement, ordered shells, and error continuation. `codegraph review` compared merge-base `72eac750` against `ee1608d8` and enumerated changed files and API-compatibility leads; its risk score is not an independent PASS.
 
 **Remaining:** Fresh independent Code Review (step 3) at the latest branch revision, then independent Testing (step 4). Deploy/merge into `main` requires owner approval.
+
+
+### 2026-11-21 — Independent Code Review step 3: PASS at 74a496a78d18c3f7661d04844cd08c400ea8c4a5
+
+**Outcome:** PASS. An independent reviewer examined the complete current feature branch against the accepted plan, its merge base, the canonical rich-tag parser and Agent adapter, policy defaults and Development policy expansion, shell/Executor execution and durable result handling, result previews/regex, and generated `Get <id>` recovery. No confirmed blocking finding or implementation correction was identified.
+
+**Verification (isolated Windows worktree `D:\\Projects\\Mezhs-sh-parameters-verify` at 74a496a78d18c3f7661d04844cd08c400ea8c4a5):** `dotnet build src/Mezhs.Agent.Api/Mezhs.Agent.Api.csproj -c Release --nologo` PASS with 0 warnings/errors (runtime command 9250); `dotnet run --project tests/Mezhs.RichUi.TestApp -c Release` PASS 105/105 (9251); `powershell -NoProfile -ExecutionPolicy Bypass -File tests/policy-decoder.ps1` PASS (9252); `powershell -NoProfile -ExecutionPolicy Bypass -File tests/agent-protocol-result.ps1` PASS (9253). Live integration output confirms malformed/invalid batches have no shell side effects, single execution for inline SH, regex/line preview preserving durable output, generated Executor `Get <id>` retrieval, timeout override/enforcement, ordered shell execution, and error continuation.
+
+**Limitations:** This Code Review does not replace the independent Testing role. The existing 16000-character model-prompt safeguard can still abbreviate retrieved records, as accepted in the plan. No changes were made to the implementation.
+
+**Next:** Independent Testing (step 4) at the exact reviewed implementation SHA, followed by owner-approved Deploy only. No merge into `main` without explicit owner approval.
