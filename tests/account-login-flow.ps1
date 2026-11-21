@@ -136,13 +136,13 @@ static async Task TestProjectDiscoveryAsync(string root)
         .Where(x => x.Operation == "typedHttp")
         .Select(x => JsonDocument.Parse(x.Arguments).RootElement
             .GetProperty("path").GetString())
+        .Where(x => x != null && x.StartsWith("/backend-api/gizmos/", StringComparison.Ordinal))
         .ToArray();
     Assert(projectPages.SequenceEqual([
         "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=0",
         "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=0&cursor=next"
     ]), "Project discovery did not use typed HTTP pagination.");
-    Assert(host.Invocations.Single(x => x.Operation == "newChat").Arguments
-        .Contains("g-p-two", StringComparison.Ordinal),
+    Assert(host.TurnPayloads.Single().Contains("g-p-two", StringComparison.Ordinal),
         "Project selection did not preserve the project ID from the second page.");
 }
 
@@ -168,9 +168,12 @@ static async Task TestStaleConversationRecoveryAsync(string root)
         chat, new PromptRequest(integration.CreateMessageId(), "new question", null, []));
 
     Assert(result.Text == "ok", "stale conversation retry did not complete");
-    Assert(host.PromptCount == 2, $"expected unavailable continuation + one new-chat retry, got {host.PromptCount} prompt calls");
-    Assert(host.Invocations.Count(item => item.Operation == "send") == 1, "stale conversation continuation was retried more than once");
-    var fallback = host.Invocations.Single(item => item.Operation == "newChat").Arguments;
+    Assert(host.PromptCount == 1, $"inaccessible continuation must not POST before one restored new-chat attempt; got {host.PromptCount} calls");
+    Assert(host.Invocations.Count(item => item.Operation == "typedHttp" &&
+        JsonDocument.Parse(item.Arguments).RootElement.GetProperty("path").GetString() ==
+        "/backend-api/conversation/stale-conversation") == 1,
+        "inaccessible continuation was preflight-checked more than once");
+    var fallback = host.TurnPayloads.Single();
     Assert(fallback.Contains("old question", StringComparison.Ordinal), "fallback prompt lost prior user history");
     Assert(fallback.Contains("old answer", StringComparison.Ordinal), "fallback prompt lost prior assistant history");
     Assert(fallback.Contains("new question", StringComparison.Ordinal), "fallback prompt lost current message");
@@ -219,12 +222,13 @@ static async Task TestSessionOwnershipAsync(string root)
         var stages = new List<IntegrationActivity>();
         var send = await Send(integration, reportActivity: stages.Add);
         Assert(send.Text == "ok", "normal sending failed after diagnostics and browser show");
-        Assert(stages.Select(stage => stage.Detail).SequenceEqual(
+        Assert(stages.Take(2).Select(stage => stage.Detail).SequenceEqual(
             ["Checking browser session.", "Browser session ready; preparing request."]),
             "authenticated request did not report the expected session preparation stages");
         await integration.GetModelsAsync();
-        Assert(host.Invocations.Select(x => x.Operation).SequenceEqual(
-            ["$diagnostics/snapshot", "newChat", "typedHttp"]),
+        Assert(host.Invocations[0].Operation == "$diagnostics/snapshot" &&
+            host.Invocations.Skip(1).All(x => x.Operation == "typedHttp") &&
+            host.PromptCount == 1,
             "diagnostics, sending, and model discovery did not use the expected transport");
         Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
             "login, sending, or model discovery created a second transport");
@@ -373,6 +377,7 @@ sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
     public int BrowserIdleMinutes => 0;
     public List<BrowserTransportOptions> Initializations { get; } = [];
     public List<(string Operation, string Arguments)> Invocations { get; } = [];
+    public List<string> TurnPayloads { get; } = [];
     public IReadOnlyList<IntegrationModel> ModelResults { get; set; } = [];
     public int PromptCount { get; set; }
     public int ActiveTransports { get; set; }
@@ -441,74 +446,108 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
     }
 
     public Task<TResult> InvokeAsync<TResult>(
-        string operation,
-        object? arguments = null,
+        string operation, object? arguments = null,
         CancellationToken cancellationToken = default)
     {
         host.Invocations.Add((operation, JsonSerializer.Serialize(arguments, JsonOptions)));
+        cancellationToken.ThrowIfCancellationRequested();
+        if (operation == "$diagnostics/snapshot")
+            return Result<TResult>(new { snapshot = true });
+        if (operation == "sendPrompt")
+            return Result<TResult>(new { ok = true, text = "guest-ok" });
+        if (operation != "typedHttp")
+            throw new InvalidOperationException($"Unexpected fake operation '{operation}'.");
 
-        if (host.AuthorizationFailureOnce && operation is "getProjects" or "newChat" or "send")
+        var request = (HttpTransportRequest)(arguments ?? throw new InvalidOperationException());
+        if (request.Path.StartsWith("/backend-api/gizmos/snorlax/sidebar?", StringComparison.Ordinal))
+        {
+            var projects = request.Path.Contains("cursor=next", StringComparison.Ordinal)
+                ? """{"items":[{"gizmo":{"id":"g-p-two","display":{"name":"Two"}}}],"cursor":null}"""
+                : """{"items":[{"gizmo":{"gizmo":{"id":"g-p-one","display":{"name":"One"}}}},{"gizmo":{"id":"not-a-project","display":{"name":"Ignore"}}}],"cursor":"next"}""";
+            return Result<TResult>(new HttpTransportResponse(200, projects, "application/json"));
+        }
+        if (request.Path.StartsWith("/backend-api/models", StringComparison.Ordinal))
+        {
+            var catalog = new { models = host.ModelResults.Select(model =>
+                new { slug = model.Id, title = model.Name }).ToArray() };
+            return Result<TResult>(new HttpTransportResponse(200,
+                JsonSerializer.Serialize(catalog, JsonOptions), "application/json"));
+        }
+        if (request.Path.StartsWith("/backend-api/settings/user_last_used_model_config", StringComparison.Ordinal))
+            return Result<TResult>(new HttpTransportResponse(200, "", "application/json"));
+        if (request.Path == "/backend-api/conversation/init")
+            return Result<TResult>(new HttpTransportResponse(200,
+                """{"default_model_slug":"served-test"}""", "application/json"));
+        if (request.Path.StartsWith("/backend-api/conversation/", StringComparison.Ordinal))
+        {
+            if (host.UnavailableContinuationOnce &&
+                request.Path == "/backend-api/conversation/stale-conversation")
+            {
+                host.UnavailableContinuationOnce = false;
+                return Result<TResult>(new HttpTransportResponse(404, "",
+                    ProviderCode: "conversation_inaccessible"));
+            }
+            if (host.TurnPayloads.Count == 0)
+                return Result<TResult>(new HttpTransportResponse(200,
+                    """{"conversation_id":"test","mapping":{}}""", "application/json"));
+            using var payload = JsonDocument.Parse(host.TurnPayloads[^1]);
+            var messageId = payload.RootElement.GetProperty("messages")[0].GetProperty("id").GetString();
+            var projectId = payload.RootElement.TryGetProperty("conversation_mode", out var mode) &&
+                mode.TryGetProperty("gizmo_id", out var id) ? id.GetString() : null;
+            var response = new {
+                conversation_id = "test", gizmo_id = projectId,
+                current_node = "assistant",
+                mapping = new Dictionary<string, object> {
+                    ["assistant"] = new { parent = "user",
+                        message = new { id = "assistant",
+                            author = new { role = "assistant" },
+                            status = "finished_successfully",
+                            content = new { parts = new [] { "ok" } },
+                            metadata = new { model_slug = "served-test" } } },
+                    ["user"] = new { parent = (string?)null,
+                        message = new { id = messageId,
+                            author = new { role = "user" },
+                            status = "finished_successfully",
+                            content = new { parts = new [] { "hello" } },
+                            metadata = new { resolved_model_slug = "served-test" } } }
+                }
+            };
+            return Result<TResult>(new HttpTransportResponse(200,
+                JsonSerializer.Serialize(response, JsonOptions), "application/json"));
+        }
+        throw new InvalidOperationException($"Unexpected typed HTTP path '{request.Path}'.");
+    }
+
+    public async Task<TResult> InvokeWithEventsAsync<TResult>(
+        string operation, object? arguments, Action<JsonElement> reportEvent,
+        Action<BrowserOperationProgress>? reportProgress = null,
+        CancellationToken cancellationToken = default)
+    {
+        host.Invocations.Add((operation, JsonSerializer.Serialize(arguments, JsonOptions)));
+        if (operation != "typedHttp")
+            throw new InvalidOperationException("Expected a typed HTTP stream.");
+        var request = (HttpTransportRequest)(arguments ?? throw new InvalidOperationException());
+        if (!request.Stream || request.Path != "/backend-api/f/conversation" ||
+            request.NativeHook != "chatgptTurn")
+            throw new InvalidOperationException("Unexpected ChatGPT stream operation.");
+        if (host.AuthorizationFailureOnce)
         {
             host.AuthorizationFailureOnce = false;
             host.Authorized = false;
             throw new BrowserAuthorizationRequiredException("Authorization required.");
         }
-
-        if (operation == "$diagnostics/snapshot")
-            return Result<TResult>(new { snapshot = true });
-        if (operation == "sendPrompt")
-            return Result<TResult>(new { ok = true, text = "guest-ok" });
-
-        if (operation == "typedHttp")
+        if (host.HangNextPrompt)
         {
-            var request = (HttpTransportRequest)(arguments ?? throw new InvalidOperationException());
-            var catalog = new
-            {
-                models = host.ModelResults.Select(model =>
-                    new { slug = model.Id, title = model.Name }).ToArray()
-            };
-            var body = request.Path.StartsWith("/backend-api/gizmos/snorlax/sidebar?", StringComparison.Ordinal)
-                ? request.Path.Contains("cursor=next", StringComparison.Ordinal)
-                    ? """{"items":[{"gizmo":{"id":"g-p-two","display":{"name":"Two"}}}],"cursor":null}"""
-                    : """{"items":[{"gizmo":{"gizmo":{"id":"g-p-one","display":{"name":"One"}}}},{"gizmo":{"id":"not-a-project","display":{"name":"Ignore"}}}],"cursor":"next"}"""
-                : JsonSerializer.Serialize(catalog, JsonOptions);
-            return Result<TResult>(new HttpTransportResponse(200, body, "application/json"));
+            host.HangNextPrompt = false;
+            host.PromptStarted.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
         }
-
-        if (operation is "newChat" or "send")
-        {
-            if (host.HangNextPrompt)
-            {
-                host.HangNextPrompt = false;
-                host.PromptStarted.TrySetResult(true);
-                return WaitForCancellation<TResult>(cancellationToken);
-            }
-            host.PromptCount++;
-            if (operation == "send" && host.UnavailableContinuationOnce)
-            {
-                host.UnavailableContinuationOnce = false;
-                return Result<TResult>(new { conversationUnavailable = true });
-            }
-
-            return Result<TResult>(new
-            {
-                text = "ok",
-                conversationId = "test",
-                parentMessageId = "assistant",
-                chatUrl = "https://chatgpt.com/c/test",
-                projectId = JsonSerializer.SerializeToElement(arguments, JsonOptions).GetProperty("projectId").GetString(),
-                artifacts = Array.Empty<BrowserArtifact>(),
-                model = "served-test"
-            });
-        }
-
-        throw new InvalidOperationException($"Unexpected fake browser operation '{operation}'.");
-    }
-
-    private static async Task<TResult> WaitForCancellation<TResult>(CancellationToken cancellationToken)
-    {
-        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-        throw new InvalidOperationException("Cancellation probe unexpectedly resumed.");
+        cancellationToken.ThrowIfCancellationRequested();
+        host.PromptCount++;
+        host.TurnPayloads.Add(request.Body ?? "");
+        reportEvent(JsonSerializer.SerializeToElement(
+            """{"conversation_id":"test"}"""));
+        return await Result<TResult>(new HttpTransportResponse(200, "", "text/event-stream"));
     }
 
     public Task ReleaseContextAsync(string chatId, CancellationToken cancellationToken = default)
@@ -531,14 +570,11 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 
     public ValueTask DisposeAsync()
     {
-        if (!_disposed)
-        {
-            _disposed = true;
-            host.ActiveTransports--;
-        }
+        if (!_disposed) { _disposed = true; host.ActiveTransports--; }
         return ValueTask.CompletedTask;
     }
 }
+
 '@ | Set-Content -LiteralPath (Join-Path $temp 'Program.cs') -Encoding UTF8
 
     if ($OwnershipOnly) {
