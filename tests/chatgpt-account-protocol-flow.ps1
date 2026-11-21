@@ -24,6 +24,7 @@ await TestInaccessibleContinuationRestoration();
 await TestPostFailureNeverReplays();
 await TestKnownConversationStreamInterruptionReconciles();
 await TestAuthorizationFailureNeverReplays();
+await TestMalformedEventIsNeverSilentlyReconciled();
 await TestImageUploadAndDownload();
 Console.WriteLine("PASS: typed C# ChatGPT protocol - metadata, citations, restoration, no-replay, interruption, auth and file transfers");
 
@@ -118,6 +119,22 @@ static async Task TestAuthorizationFailureNeverReplays()
     Verify(host.Posts == 1, "authorization failure prompted a replay");
 }
 
+static async Task TestMalformedEventIsNeverSilentlyReconciled()
+{
+    var host = new FakeHost { MalformedEvent = true };
+    await using var integration = NewIntegration(host);
+    try
+    {
+        await integration.PromptAsync(Chat(), new PromptRequest(
+            integration.CreateMessageId(), "malformed event", null, []));
+        throw new Exception("Malformed stream JSON was incorrectly reconciled.");
+    }
+    catch (BrowserStreamProtocolException) { }
+    Verify(host.Posts == 1, "Malformed stream caused a second POST.");
+    Verify(!host.Calls.Any(c => c.Path == "/backend-api/conversation/conv-1"),
+        "Malformed stream was incorrectly treated as a recoverable network interruption.");
+}
+
 static async Task TestImageUploadAndDownload()
 {
     var host = new FakeHost { WithFiles = true };
@@ -162,7 +179,8 @@ static void Verify(bool condition, string message)
 sealed class FakeHost : IBrowserIntegrationHost
 {
     public int BrowserIdleMinutes => 0;
-    public bool InaccessibleFirst, FailPost, InterruptAfterId, AuthorizationPostFailure, WithFiles;
+    public bool InaccessibleFirst, FailPost, InterruptAfterId, AuthorizationPostFailure, WithFiles,
+        MalformedEvent;
     public string? DownloadPath, SubmittedBody, SubmittedMessageId, SubmittedNativeHook;
     public int Posts;
     public List<HttpTransportRequest> Calls { get; } = [];
@@ -231,6 +249,8 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 
         void Event(string text) => reportEvent(JsonSerializer.SerializeToElement(text));
         Event("""{"type":"message_marker","marker":"cot_token","conversation_id":"conv-1"}""");
+        if (host.MalformedEvent)
+            Event("{malformed-json");
         Event("""{"type":"message_marker","marker":"final_channel_token"}""");
         Event("""{"v":{"message":{"author":{"role":"assistant"},"metadata":{"model_slug":"served-model","thinking_effort":"high","reasoning_start_time":100.25,"reasoning_end_time":103.75}}}}""");
         if (host.InterruptAfterId)
