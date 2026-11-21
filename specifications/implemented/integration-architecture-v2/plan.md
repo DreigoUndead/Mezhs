@@ -303,3 +303,20 @@ Code review of branch baseline `86595995f6b1dc76b608f62dfa1c92cb7d5da25c` identi
 Review corrections verified locally with the integration contracts probe, 59 ChatGPT provider/package tests, 16 typed HTTP/provider tests, 2 model mismatch tests, production frontend TypeScript/Vite build and full Release solution build. The solution build had one warning in unrelated `Mezhs.WhatsApp`, and no errors. These are simulated and build checks, not live-provider acceptance.
 
 **Review outcome:** FAIL after corrections; a fresh independent Code Reviewer must review the pushed exact SHA before independent testing. The original high-risk live-provider, remote-stop, output-file, guest-provider and concurrency acceptance requirements remain outstanding where not separately evidenced. No merge, tagging, VERSION or CHANGELOG changes.
+
+
+## 14. Independent testing - BLOCKED (2026-11-21)
+
+**Tested implementation SHA:** `b8f25cff351aed34b3de2f7ef1483a01183a9049` on `integration-architecture-v2`, in an isolated Windows worktree. No production source was changed by the tester.
+
+**Passed build and simulated checks:** Release solution build (0 errors, one unrelated WhatsApp CS0114 warning); 133/133 repository Node tests; 121/121 Rich UI parser tests; production web frontend build; 66/66 browser/model regressions; integration contracts probe; architecture verification; 8/8 provider-operation tests through the installed Electron 34.5.8 Node runner. These are not authenticated provider acceptance.
+
+**Passed test-only local hosts:** Core API HTTP smoke (connections, history, files, model selection, downloads, error paths); Agent API admission/capacity/spacing and Waiting projection; browser admission limits and cancellation; Agent provider lifetime; Agent TXT/PNG attachment staging and content roundtrip; eight integration cancellation registrations. The restored-conversation and account-login simulated flows also pass.
+
+**Tester corrections:** `tests/conversation-restore-prompt.ps1` now exercises the V2 `ChatContext` and production browser restoration builder instead of deleted V1 context types. `tests/account-login-flow.ps1` now asserts preservation of distinct provider model IDs sharing a display name, matching the approved V2 catalog behavior. Both tests were rerun successfully. Test-only changes; no API, provider, or application code modified.
+
+**Pre-existing browser regression:** `tests/group-delete-browser.test.cjs` intermittently fails focus restoration (3/5 failures at Integration V2 `5cbcf8d` and 3/5 failures at clean main `cce2d82`, including Cancel and Escape). Baseline reproduction establishes it is not unique to the V2 branch, not its cause. This unrelated issue was not corrected.
+
+**Untested mandatory live acceptance:** Test-owned authenticated ChatGPT Account and Grok Account, ChatGPT Guest and Gemini Guest message delivery; observable actual remote-generation Stop; and genuine generated artifact download/import remain unverified. Existing prior distinct-model overlap evidence is accepted by the owner plan and was not repeated. The outstanding fresh independent code-review PASS after review 6 is also not evidenced.
+
+**Outcome: BLOCKED.** Automated and local-host results must not be reported as a final independent Testing PASS. No external-provider confirmation, merge approval, release or version change is claimed.

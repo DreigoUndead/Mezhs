@@ -43,7 +43,7 @@ try
     await TestAutomaticLoginAsync(Path.Combine(root, "automatic"));
     await TestExpiredOperationLoginAsync(Path.Combine(root, "expired-operation"));
     await TestExplicitLoginAsync(Path.Combine(root, "explicit"));
-    await TestModelDeduplicationAsync(Path.Combine(root, "models"));
+    await TestModelIdentityPreservationAsync(Path.Combine(root, "models"));
     await TestStaleConversationRecoveryAsync(Path.Combine(root, "stale"));
     Console.WriteLine("PASS: ChatGPT account login, model discovery, served-model propagation, and stale conversation recovery are correct.");
 }
@@ -103,7 +103,7 @@ static async Task TestExplicitLoginAsync(string root)
     Assert(host.ActiveTransports == 1, "Explicit login discarded the warm shared host.");
 }
 
-static async Task TestModelDeduplicationAsync(string root)
+static async Task TestModelIdentityPreservationAsync(string root)
 {
     var host = new FakeHost(root, authorized: true)
     {
@@ -117,10 +117,11 @@ static async Task TestModelDeduplicationAsync(string root)
     await using var integration = new ChatGptAccountIntegration(Connection(), host);
     var models = await integration.GetModelsAsync();
 
-    Assert(models.Count == 3, $"expected one Default plus deduplicated native models, got {models.Count} models");
+    Assert(models.Count == 4, $"expected one Default plus three distinct native model IDs, got {models.Count} models");
     Assert(models[0].Id == "default" && models[0].Name == "Default", "direct model discovery must expose exactly one Default.");
     Assert(models[1].Id == "gpt-sol-primary", "provider order was not retained for duplicate model names");
-    Assert(models[2].Id == "gpt-thinking", "unique model was removed during deduplication");
+    Assert(models[2].Id == "gpt-sol-alias", "distinct model ID with the same display name was removed");
+    Assert(models[3].Id == "gpt-thinking", "provider model order was not retained");
 }
 
 static async Task TestStaleConversationRecoveryAsync(string root)
