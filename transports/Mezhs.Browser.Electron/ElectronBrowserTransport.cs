@@ -83,13 +83,23 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         CancellationToken cancellationToken = default) =>
         InvokeCoreAsync<TResult>(operation, arguments, reportProgress, cancellationToken, null, false);
 
+    public Task<TResult> InvokeWithEventsAsync<TResult>(
+        string operation,
+        object? arguments,
+        Action<JsonElement> reportEvent,
+        Action<BrowserOperationProgress>? reportProgress = null,
+        CancellationToken cancellationToken = default) =>
+        InvokeCoreAsync<TResult>(operation, arguments, reportProgress,
+            cancellationToken, null, false, reportEvent);
+
     private async Task<TResult> InvokeCoreAsync<TResult>(
         string operation,
         object? arguments,
         Action<BrowserOperationProgress>? reportProgress,
         CancellationToken cancellationToken,
         string? contextId,
-        bool ephemeral)
+        bool ephemeral,
+        Action<JsonElement>? reportEvent = null)
     {
         EnsureRunning();
         string? operationId = null;
@@ -115,11 +125,12 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
 
         operationId = started.OperationId;
         BrowserOperationProgress? lastProgress = null;
+        long acknowledgedEvent = 0;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
             using var statusResponse = await _http.GetAsync(
-                $"invoke/{Uri.EscapeDataString(started.OperationId)}",
+                $"invoke/{Uri.EscapeDataString(started.OperationId)}?after={acknowledgedEvent}",
                 cancellationToken);
             if (!statusResponse.IsSuccessStatusCode)
                 throw new InvalidOperationException(
@@ -131,11 +142,30 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
                 ?? throw new InvalidOperationException(
                     $"Electron provider operation '{operation}' returned no status.");
 
+            foreach (var evt in state.Events ?? [])
+            {
+                if (evt.Sequence != acknowledgedEvent + 1)
+                    throw new InvalidOperationException(
+                        "Browser stream event sequence was not contiguous.");
+                if (reportEvent is null)
+                    throw new InvalidOperationException(
+                        "Browser delivered protocol events without an event consumer.");
+                reportEvent(evt.Value);
+                acknowledgedEvent = evt.Sequence;
+            }
+            if (state.LastSequence < acknowledgedEvent)
+                throw new InvalidOperationException("Browser stream event cursor regressed.");
+
             if (state.Progress is { } progress && progress != lastProgress)
             {
                 lastProgress = progress;
                 reportProgress?.Invoke(progress);
             }
+
+            // A terminal status can precede the end of a bounded event batch.
+            if (state.Status is "completed" or "failed" &&
+                state.LastSequence > acknowledgedEvent)
+                continue;
 
             switch (state.Status)
             {
@@ -185,6 +215,12 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
                 catch (Exception) { /* A failed provider stop must not block local cancel. */ }
                 await CancelOperationBestEffortAsync(operationId);
             }
+            throw;
+        }
+        catch
+        {
+            if (operationId is not null)
+                await CancelOperationBestEffortAsync(operationId);
             throw;
         }
     }
@@ -277,6 +313,11 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         public Task<TResult> InvokeWithProgressAsync<TResult>(string operation, object? arguments,
             Action<BrowserOperationProgress>? reportProgress, CancellationToken cancellationToken = default) =>
             owner.InvokeCoreAsync<TResult>(operation, arguments, reportProgress, cancellationToken, chatId, ephemeral);
+        public Task<TResult> InvokeWithEventsAsync<TResult>(string operation, object? arguments,
+            Action<JsonElement> reportEvent, Action<BrowserOperationProgress>? reportProgress = null,
+            CancellationToken cancellationToken = default) =>
+            owner.InvokeCoreAsync<TResult>(operation, arguments, reportProgress,
+                cancellationToken, chatId, ephemeral, reportEvent);
         public Task ShowAsync(CancellationToken cancellationToken = default) => owner.ShowAsync(cancellationToken);
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
@@ -396,7 +437,10 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         JsonElement? Result,
         string? Error,
         string? Code,
-        BrowserOperationProgress? Progress);
+        BrowserOperationProgress? Progress,
+        IReadOnlyList<ProviderOperationEvent>? Events = null,
+        long LastSequence = 0);
+    private sealed record ProviderOperationEvent(long Sequence, JsonElement Value);
 
     private static async Task IgnoreFailureAsync(Task task)
     {
