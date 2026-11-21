@@ -39,10 +39,11 @@ public sealed class BrowserHttpExecutor(IChatBrowserTransport transport)
         Action<string> onEvent,
         string? nativeHook = null,
         object? nativeArgs = null,
+        string? turnMessageId = null,
         Action<BrowserOperationProgress>? reportProgress = null,
         CancellationToken cancellationToken = default) =>
         _http.CallStreamAsync(endpoint, request, onEvent,
-            nativeHook, nativeArgs,
+            nativeHook, nativeArgs, turnMessageId,
             progress => reportProgress?.Invoke(new BrowserOperationProgress(
                 progress.State, progress.Detail)), cancellationToken);
 
