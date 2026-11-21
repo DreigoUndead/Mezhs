@@ -4,6 +4,8 @@ namespace Mezhs.Browser;
 
 public sealed class BrowserAuthorizationRequiredException(string message)
     : InvalidOperationException(message);
+public sealed class BrowserStreamProtocolException(string message)
+    : InvalidOperationException(message);
 
 public interface IChatBrowserTransport : IAsyncDisposable
 {
