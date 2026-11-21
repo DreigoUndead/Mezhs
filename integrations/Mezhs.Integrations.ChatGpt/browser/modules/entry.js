@@ -105,27 +105,6 @@ module.exports = {
       };
     },
 
-    async getProjects({ session }) {
-      const token = await requireToken(session);
-      const projects = [];
-      let cursor = null;
-      do {
-        const url = new URL(API.projects, ORIGIN);
-        url.searchParams.set("conversations_per_gizmo", "0");
-        if (cursor) url.searchParams.set("cursor", cursor);
-        const page = await apiJson(session, token, url.pathname + url.search);
-        for (const item of page?.items || []) {
-          const project = item?.gizmo?.gizmo || item?.gizmo;
-          const id = String(project?.id || "");
-          const name = String(project?.display?.name || "").trim();
-          if (id.startsWith("g-p-") && name) projects.push({ id, name });
-        }
-        cursor = typeof page?.cursor === "string" && page.cursor ? page.cursor : null;
-      } while (cursor);
-      return projects;
-    },
-
-
     newChat(context) {
       return sendAccountMessage(context, true);
     },
