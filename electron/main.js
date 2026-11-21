@@ -7,6 +7,7 @@ const {
   configureSessionBrowserIdentity
 } = require("./browser-identity");
 const { invokeDiagnostic } = require("./diagnostics");
+const { executeBrowserHttp } = require("./browser-http");
 
 let browserModule = null;
 let authenticatedSession = null;
@@ -313,6 +314,9 @@ function invokeProvider(context, { operation, arguments: args }, reportProgress,
   if (!browserModule || !context || context.closed)
     throw new Error("Electron browser is not initialized.");
   const { window, session: browserSession } = context;
+  if (operation === "typedHttp")
+    return executeBrowserHttp({ window, session: browserSession, args: args ?? {},
+      reportProgress, reportEvent, signal }, browserModule.http);
   if (String(operation || "").startsWith("$diagnostics/"))
     return invokeDiagnostic(String(operation).slice("$diagnostics/".length), args ?? {},
       { window, browserModule, sleep });
