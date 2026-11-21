@@ -109,3 +109,19 @@ Use Windows PowerShell 5.1 where `pwsh` is absent. Run `dotnet build src/Mezhs.A
 **Authority:** Owner's follow-up decisions on `limit`, `limitStart`, `limitEnd`, `regex`, default values, and subsequent instruction to proceed with the agreed design.
 **Trade-off:** The existing separate Agent prompt-character safeguard can still abbreviate a large retrieved record; command guidance must not promise it bypasses that safeguard.
 **Supersedes:** The initial character-count interpretation, timeout-above-policy-max rule, related implementation acceptance criteria, and the earlier Code Review PASS as evidence for the **new** behavior. Keep the historical PASS recorded below as a review of its exact previous SHA.
+
+
+### 2026-11-21 — Revised SH implementation and developer verification (step 2)
+
+**Change:** Implemented five root-SH attributes in the canonical rich parser and Agent adapter. The single execution timeout resolves SH attribute → existing policy default → 60 seconds; optional line-count preview and regex settings resolve SH attribute → policy → built-in defaults. Regex filtering precedes selected-line previews, explicit incompatible preview counts reject the whole command batch before shell dispatch, and full Executor records are unaffected. Abbreviations include a generated executable `<SH limit=0>... Get <id></SH>` command using the actual Executor assembly and storage path. The existing separate 16,000-character model-prompt safeguard remains described explicitly. Updated branch-only instruction examples; preserved Low/Mid/High policy instruction bodies and the approved Development policy.
+
+**Implementation revision:** `5241dd353d6ed551ce4e70533967732335278bff` (remote and clean local feature worktree). Earlier intermediate commits included a fixed C# compile error and a repaired PowerShell test-script regression; report success only against this final revision.
+
+**Verified on isolated Windows worktree** `D:\\Projects\\Mezhs-sh-parameters-verify`:
+- `dotnet build src/Mezhs.Agent.Api/Mezhs.Agent.Api.csproj -c Release --nologo` — PASS, 0 warnings, 0 errors.
+- `dotnet run --project tests/Mezhs.RichUi.TestApp -c Release` — PASS, 103/103.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File tests/policy-decoder.ps1` — PASS (policy, development policy bootstrap, durable shell identity, Unicode, timeout, output formatting/default assertions).
+- `powershell -NoProfile -ExecutionPolicy Bypass -File tests/agent-protocol-result.ps1` — PASS on final revision: invalid attributes/regex and incompatible previews rejected without side effects; inline shell execution; regex + line preview with full durable output; generated Executor CLI `Get <id>` executed and retrieved original content; explicit timeout greater than policy default succeeded; shorter timeout enforced by Executor; two-shell ordering, partial failure, and Agent completion/continuation checked.
+- `codegraph review` from a clean HEAD worktree — no_changes; this is a working-tree status observation, **not** an independent branch code-review PASS.
+
+**Remaining:** Independent Code Review (step 3) and independent Testing (step 4), then owner-approved Deploy only. No merge into `main`.
