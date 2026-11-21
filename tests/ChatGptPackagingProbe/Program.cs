@@ -29,8 +29,8 @@ var assembly = typeof(ChatGptWebIntegration).Assembly;
 var names = assembly.GetManifestResourceNames()
     .Where(resource => resource.StartsWith(prefix, StringComparison.Ordinal))
     .OrderBy(resource => resource, StringComparer.Ordinal).ToArray();
-if (names.Length != 8)
-    throw new Exception($"Expected eight ChatGPT module resources, got {names.Length}.");
+if (names.Length != 3)
+    throw new Exception($"Expected three ChatGPT browser-native modules, got {names.Length}.");
 void CheckResources()
 {
     foreach (var resource in names)
@@ -44,7 +44,7 @@ void CheckResources()
     }
 }
 CheckResources();
-var unchanged = Path.Combine(moduleDirectory, "account-files.js");
+var unchanged = Path.Combine(moduleDirectory, "account-transport.js");
 var oldTime = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 File.SetLastWriteTimeUtc(unchanged, oldTime);
 if (ModulePath(integration) != entry || ModulePath(new ChatGptWebIntegration(connection, host)) != entry)
@@ -89,7 +89,7 @@ var node = new ProcessStartInfo("node")
     UseShellExecute = false
 };
 node.ArgumentList.Add("-e");
-node.ArgumentList.Add("const assert = require('node:assert/strict'); const m = require(process.argv[1]); assert.equal(m.name, 'ChatGPT'); for (const op of ['typedHttp','newChat','send','sendPrompt','stopGeneration']) assert.equal(typeof m.operations[op], 'function'); console.log('NATIVE_REQUIRE_OK');");
+node.ArgumentList.Add("const assert = require('node:assert/strict'); const m = require(process.argv[1]); assert.equal(m.name, 'ChatGPT'); for (const op of ['sendPrompt','stopGeneration']) assert.equal(typeof m.operations[op], 'function'); for (const op of ['typedHttp','newChat','send']) assert.equal(m.operations[op], undefined); assert.equal(typeof m.http.nativeHooks.chatgptTurn, 'function'); console.log('NATIVE_REQUIRE_OK');");
 node.ArgumentList.Add(entry);
 using var process = Process.Start(node) ?? throw new Exception("Could not launch Node.");
 var output = process.StandardOutput.ReadToEnd();
