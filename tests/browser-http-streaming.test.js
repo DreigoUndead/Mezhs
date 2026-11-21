@@ -125,3 +125,35 @@ test("generic transport rejects unsupported origins, headers and native hooks be
   ]) await assert.rejects(executeBrowserHttp({ args }, p), /not allowed/);
   assert.equal(called, 0);
 });
+
+test("failed streamed framing cancels the unread upstream response", async () => {
+  let cancelled = false;
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("data: " + "x".repeat(256 * 1024 + 1) + "\n\n"));
+    },
+    cancel() { cancelled = true; }
+  });
+  await assert.rejects(executeBrowserHttp({
+    args: { method: "POST", path: "/backend-api/f/conversation",
+      body: "{}", accept: "text/event-stream", stream: true },
+    reportEvent: () => {}
+  }, policy(async () => new Response(body, { status: 200,
+    headers: { "content-type": "text/event-stream" } }))), /256 KiB/);
+  assert.equal(cancelled, true, "failed framing must cancel its source");
+});
+
+test("oversized JSON response cancels the unread upstream response", async () => {
+  let cancelled = false;
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array(16 * 1024 * 1024 + 1));
+    },
+    cancel() { cancelled = true; }
+  });
+  await assert.rejects(executeBrowserHttp({
+    args: { method: "GET", path: "/backend-api/models" }
+  }, policy(async () => new Response(body, { status: 200,
+    headers: { "content-type": "application/json" } }))), /16 MiB/);
+  assert.equal(cancelled, true, "oversized response must cancel its source");
+});

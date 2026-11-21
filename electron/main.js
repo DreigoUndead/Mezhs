@@ -509,10 +509,8 @@ async function start() {
         const rawAfter = requestUrl.searchParams.get("after");
         const after = rawAfter === null ? 0 : Number(rawAfter);
         const events = acknowledgeOperationEvents(state, after);
-        // Retain terminal results until the C# consumer acknowledges its events.
-        if ((state.status === "completed" || state.status === "failed") &&
-            events.length === 0 && after === state.eventSequence)
-          response.once("finish", () => providerOperations.delete(operationId));
+        // A socket finish does not prove the C# caller received the final result.
+        // Keep terminal results available for retry until existing TTL cleanup.
         writeJson(response, 200, {
           status: state.status, result: state.result, error: state.error,
           code: state.code, progress: state.progress, events,

@@ -72,3 +72,9 @@ test("single oversized event fails before enqueueing; byte accounting remains bo
   assert.equal(s.events.length, 0);
   assert.equal(s.eventBytes, 0);
 });
+
+test("terminal results survive a status response that is sent but not acknowledged", () => {
+  // Successful socket flush is not proof that the remote poller received the result.
+  assert.doesNotMatch(main, /response\.once\("finish",[^\n]*providerOperations\.delete/);
+  assert.match(main, /setTimeout\(\(\) => providerOperations\.delete\(operationId\), 10 \* 60 \* 1000\)/);
+});

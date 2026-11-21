@@ -188,15 +188,21 @@ async function executeBrowserHttp({ window, session, args, signal, reportProgres
     const framer = new StreamFramer(request.accept, value => reportEvent(value));
     if (response.body?.getReader) {
       const reader = response.body.getReader();
+      let completed = false;
       try {
         while (true) {
           signal?.throwIfAborted();
           const { value, done } = await reader.read();
-          if (done) break;
+          if (done) { completed = true; break; }
           await framer.write(value);
         }
         await framer.write(new Uint8Array(0), true);
       } finally {
+        if (!completed) {
+          try { await reader.cancel(); }
+          catch { /* Preserve original failure. */ }
+        }
+
         reader.releaseLock();
       }
     } else {
@@ -212,11 +218,12 @@ async function executeBrowserHttp({ window, session, args, signal, reportProgres
   let size = 0;
   if (response.body?.getReader) {
     const reader = response.body.getReader();
+    let completed = false;
     try {
       while (true) {
         signal?.throwIfAborted();
         const { value, done } = await reader.read();
-        if (done) break;
+        if (done) { completed = true; break; }
         size += value.byteLength;
         if (size > MAX_RESPONSE_BYTES)
           throw new Error("Browser HTTP response exceeded the 16 MiB limit.");
@@ -225,6 +232,11 @@ async function executeBrowserHttp({ window, session, args, signal, reportProgres
       }
       chunks.push(decoder.decode());
     } finally {
+      if (!completed) {
+        try { await reader.cancel(); }
+        catch { /* Preserve original failure. */ }
+      }
+
       reader.releaseLock();
     }
   } else {

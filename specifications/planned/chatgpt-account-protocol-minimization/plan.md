@@ -78,6 +78,23 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-21 — Fresh independent Code Review corrections; next review required (FAIL)
+
+**Reviewed:** feature revision `e05721aac967d2747559c4d260fd3989c97bd801`, relative to approved `integration-architecture-v2` baseline `b8f25cff351aed34b3de2f7ef1483a01183a9049`. Initial feature worktree was clean.
+
+**Finding 1 (medium, reproduced):** `electron/browser-http.js` released incremental body readers without cancelling unread responses following malformed/oversized streamed frames or oversized JSON. A 256 KiB+ SSE frame raised the expected error but reported `UPSTREAM_CANCELLED=false`. Corrected both streaming and JSON reader paths to cancel unfinished streams in `finally`, preserving the originating failure, with two regression tests. This establishes response-resource cleanup, not the cause of any unrelated application symptom.
+
+**Finding 2 (medium, code path):** `electron/main.js` deleted terminal operation state on HTTP response `finish` when the event cursor had been acknowledged. Socket write completion does not prove that the C# client received the terminal result; later duplicate status polls could therefore get 404. Removed that eager deletion and retained the existing bounded 10-minute TTL, with a guard test. This preserves server-side retryability but does **not** implement automatic HTTP status-poll retry in C#: a transport failure can still end a call. No provider prompt is replayed.
+
+**Corrections:** `electron/browser-http.js`, `electron/main.js`, `tests/browser-http-streaming.test.js`, `tests/electron-operation-stream-events.test.js`. No extra credential owner, browser session, scheduler, or provider-state framework.
+
+**Verified:** 56/56 targeted account/provider/HTTP/transfer/Electron Node tests; C# ChatGPT account protocol flow harness (metadata, citations, restoration, no replay, interruption, authorization, uploads/downloads); Release solution build (`dotnet build Mezhs.sln -c Release --no-restore -v quiet`, only previously documented WhatsApp CS0114 warning); `tests/architecture.ps1`; JavaScript syntax checks and `git diff --check`. The terminal-result regression test verifies the source lifetime rule, not a complete lost-response network simulation. Did not execute authenticated live ChatGPT Chromium, overlapping distinct model/effort sessions, or the unrelated known group-dialog focus test in this review.
+
+**Outcome: FAIL** per `.agents/code-review.md` because code and tests were corrected. Spawn a fresh independent Step 3 Code Reviewer to assess the committed corrections; independent Testing, owner merge approval and integration into `integration-architecture-v2` remain pending. Never merge directly to `main`.
+
+**Authority:** Independent High-risk Step 3 Code Reviewer.
+
+
 ### 2026-11-21 — Independent Code Review corrections; fresh review required (FAIL)
 
 **Change:** Reviewed implementation at `fe09cf71699db509268c590466128b310428b0eb`; identified an existing-conversation preflight regression: typed GET parsed the entire conversation body under the 16 MiB response limit, where the previous path only checked HTTP accessibility. Corrected on task branch in `1baaeda0c0fa8e90ae6a87c491c71b89adafdb83`: added a reusable headers-only typed HTTP GET, cancelled its unread Electron response body, and used it for ChatGPT continuation preflight. Also rejected streaming responses lacking an incremental reader instead of buffering unbounded response text. Added Node and C# regression coverage.
