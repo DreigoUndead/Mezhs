@@ -145,6 +145,38 @@ async function nativeChatRequirementsHeaders(window, session, token) {
   return headers;
 }
 
+// Browser-native authenticated JSON is outside the shared typed HTTP reader.
+// Bound it explicitly so a successful auth/prepare response cannot buffer
+// arbitrary bytes before the one-time conversation POST.
+const MAX_NATIVE_JSON_BYTES = 1024 * 1024;
+async function readBoundedNativeJson(response) {
+  const reader = response.body?.getReader?.();
+  if (!reader)
+    throw new Error("ChatGPT native JSON response requires an incremental body.");
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let body = "";
+  let size = 0;
+  let completed = false;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) { completed = true; break; }
+      size += value.byteLength;
+      if (size > MAX_NATIVE_JSON_BYTES)
+        throw new Error("ChatGPT native JSON response exceeded 1 MiB.");
+      body += decoder.decode(value, { stream: true });
+    }
+    body += decoder.decode();
+    return body ? JSON.parse(body) : null;
+  } finally {
+    if (!completed) {
+      try { await reader.cancel(); }
+      catch { /* Preserve the original JSON or size error. */ }
+    }
+    reader.releaseLock();
+  }
+}
+
 async function accessToken(session) {
   const response = await session.fetch(ORIGIN + API.session, {
     credentials: "include",
@@ -155,7 +187,7 @@ async function accessToken(session) {
     return null;
   }
 
-  const auth = await response.json();
+  const auth = await readBoundedNativeJson(response);
   const accountId = String(
     auth?.account?.id ||
     auth?.accountId ||
@@ -299,8 +331,7 @@ function isConversationUnavailable(error, conversationId) {
 
 async function apiJson(session, token, endpoint, options = {}) {
   const response = await apiFetch(session, token, endpoint, options);
-  const text = await response.text();
-  return text ? JSON.parse(text) : null;
+  return readBoundedNativeJson(response);
 }
 
 
