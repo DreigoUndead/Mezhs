@@ -169,3 +169,10 @@ test('JSON HTTP rejects non-incremental nonempty bodies rather than unbounded te
   }, policy), /requires an incremental body/);
   assert.equal(textCalls, 0);
 });
+
+test('SSE empty data lines count toward event size', async () => {
+  const events = [];
+  const f = new StreamFramer('text/event-stream', async x => events.push(x));
+  await assert.rejects(f.write(('data:' + String.fromCharCode(10)).repeat(256 * 1024 + 2)), /256 KiB/);
+  assert.equal(events.length, 0);
+});

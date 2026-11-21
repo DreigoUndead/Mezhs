@@ -115,7 +115,8 @@ class StreamFramer {
     if (line === "") { await this.dispatch(); return; }
     if (line.startsWith("data:")) {
       const data = line.slice(5).replace(/^ /, "");
-      this.eventBytes += Buffer.byteLength(data, "utf8");
+      // Count newline separators between SSE data lines, including empty lines.
+      this.eventBytes += Buffer.byteLength(data, "utf8") + (this.eventData.length ? 1 : 0);
       if (this.eventBytes > MAX_FRAME_BYTES)
         throw protocolFailure("Browser HTTP SSE event exceeded 256 KiB.");
       this.eventData.push(data);

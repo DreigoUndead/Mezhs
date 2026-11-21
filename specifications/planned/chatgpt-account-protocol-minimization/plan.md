@@ -78,6 +78,21 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-21 — Fourth independent Code Review: SSE event bound (FAIL)
+
+**Reviewed:** feature commit 2a46bcea207b0d1d0984f90df3a5edf986d10d15; required parent baseline b8f25cff351aed34b3de2f7ef1483a01183a9049. Initially clean task worktree.
+
+**Finding (medium; reproduced):** StreamFramer in electron/browser-http.js counted SSE data content bytes but not newline separators between data lines. A reproduction accepted 307,200 empty data lines with eventBytes=0 despite a 262,144-byte event limit. This permits oversized buffered SSE events; no unrelated live-provider failure is inferred.
+
+**Correction:** Account for the one-byte newline separating subsequent SSE data lines; add regression covering oversized empty-line events. No added ownership or queueing mechanisms.
+
+**Verification:** Targeted Node 20/20 PASS; expanded account/provider/Electron/HTTP/transfer Node 56/56 PASS; typed C# ChatGPT account protocol harness PASS; Release solution build PASS (one previously documented WhatsApp CS0114 warning); tests/architecture.ps1 PASS; JavaScript syntax checks and git diff --check PASS. No live authenticated Chromium test or overlapping distinct-model/effort verification; unrelated prior group-focus failure not rerun.
+
+**Outcome: FAIL** because code and tests were corrected. Fresh independent Step 3 Code Review required before independent Testing and explicit owner approval for eventual merge to integration-architecture-v2. Do not merge to main.
+
+**Authority:** Independent High-risk Step 3 Code Reviewer.
+
+
 ### 2026-11-21 - Third independent Code Review corrections; fresh review required (FAIL)
 
 **Reviewed:** feature revision 6cd359b543a2aa91c6b252ce208fe3a14e829c7b relative to required integration-architecture-v2 baseline b8f25cff351aed34b3de2f7ef1483a01183a9049. The initial task worktree was clean.
