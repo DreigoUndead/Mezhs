@@ -126,19 +126,28 @@ internal static class ChatGptAccountFiles
         foreach (var raw in body.Split('\n'))
         {
             var line = raw.Trim();
+            if (line.Length == 0)
+            {
+                // An SSE event name cannot carry across a frame boundary.
+                frameEvent = "";
+                continue;
+            }
             if (line.StartsWith("event:", StringComparison.Ordinal))
             {
                 frameEvent = line[6..].Trim();
                 continue;
             }
-            var text = line.StartsWith("data:", StringComparison.Ordinal)
-                ? line[5..].Trim() : line;
+            var isSseData = line.StartsWith("data:", StringComparison.Ordinal);
+            var text = isSseData ? line[5..].Trim() : line;
             if (!text.StartsWith("{", StringComparison.Ordinal)) continue;
             try
             {
                 using var parsed = JsonDocument.Parse(text);
                 var value = parsed.RootElement;
-                var eventName = ChatGptJson.String(value, "event") ?? frameEvent;
+                // The endpoint also returns bare NDJSON. Only SSE data lines
+                // inherit an SSE event name; bare JSON needs its own event.
+                var eventName = ChatGptJson.String(value, "event") ??
+                    (isSseData ? frameEvent : "");
                 if (ChatGptJson.String(value, "file_id") != fileId) continue;
                 if (eventName.EndsWith(".error", StringComparison.Ordinal) ||
                     eventName.EndsWith(".failed", StringComparison.Ordinal) ||
