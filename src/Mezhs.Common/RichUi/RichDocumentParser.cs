@@ -581,12 +581,18 @@ public sealed class RichDocumentParser
                 definition.AllowedAttributes is null && UnsafePresentationAttribute(name))
                 throw new RichDocumentException($"Unsupported or duplicate {tag.Name} attribute: {name}.");
             source = source[i..].TrimStart();
+            if (tag.Name == "SH" && name == "regex" &&
+                (source.Length == 0 || source[0] != '='))
+                throw new RichDocumentException("SH regex must be a quoted string.");
             string value;
             if (source.Length == 0 || source[0] != '=') value = "true";
             else
             {
                 source = source[1..].TrimStart();
                 if (source.Length == 0) throw new RichDocumentException("Empty attribute value.");
+                if (tag.Name == "SH" && name == "regex" &&
+                    source[0] != '\'' && source[0] != '"')
+                    throw new RichDocumentException("SH regex must be a quoted string.");
                 if (source[0] is '\'' or '"')
                 {
                     var quote = source[0];
