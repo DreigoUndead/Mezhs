@@ -334,3 +334,19 @@ test("a scoped Stop cannot match a peer request or the wrong chat ID", async () 
   h.cancelProviderOperation(a);
   assert.equal(h.findActiveProviderTurn("chat-A", "msg-A"), null);
 });
+
+test("typed HTTP streams retain message identity for exact scoped Stop", async () => {
+  const h = harness();
+  const id = h.queueProviderOperation({ contextId: "typed-chat", operation: "typedHttp",
+    arguments: { turnMessageId: "persisted-user-id", path: "/backend-api/f/conversation",
+      stream: true } });
+  await flush();
+  assert.equal(h.operations.length, 1);
+  assert.equal(h.findActiveProviderTurn("typed-chat", "persisted-user-id"),
+    h.providerOperations.get(id));
+  assert.equal(h.findActiveProviderTurn("another-chat", "persisted-user-id"), null);
+  assert.equal(h.findActiveProviderTurn("typed-chat", "other-id"), null);
+  assert.equal((await h.stopProviderOperation(h.providerOperations.get(id))).outcome, "attempted");
+  assert.equal(h.operations[0].signal.aborted, true);
+  assert.equal(h.cancelProviderOperation(id), true);
+});
