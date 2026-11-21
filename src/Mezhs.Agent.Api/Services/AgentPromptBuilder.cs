@@ -135,7 +135,8 @@ public sealed class AgentPromptBuilder(AgentOptions options, ExecutorService exe
                 ? "Full output is retained in Executor history; a CLI recovery command could not be resolved."
                 : "Run recoveryCommand as an SH block to fetch the stored Executor record without rerunning " +
                   "the original shell command. The record's Result is JSON-escaped. " +
-                  "limit=0 disables line abbreviation; the separate 16000-character model-prompt safeguard still applies.");
+                  "limit=0 disables line abbreviation; regex=\"\" overrides policy regex filtering. " +
+                  "The separate 16000-character model-prompt safeguard still applies.");
     }
 
     private string? RecoveryCommand(string? executionId)
@@ -147,9 +148,9 @@ public sealed class AgentPromptBuilder(AgentOptions options, ExecutorService exe
         if (string.IsNullOrWhiteSpace(assembly) || !File.Exists(assembly))
             return null;
         if (OperatingSystem.IsWindows())
-            return $"<SH limit=0>set \"{ExecutorEnvironment.StorageVariable}={executor.StoragePath}\" && dotnet \"{assembly}\" Get {id}</SH>";
+            return $"<SH limit=0 regex=\"\">set \"{ExecutorEnvironment.StorageVariable}={executor.StoragePath}\" && dotnet \"{assembly}\" Get {id}</SH>";
         static string Quote(string value) => "'" + value.Replace("'", "'\\''", StringComparison.Ordinal) + "'";
-        return $"<SH limit=0>{ExecutorEnvironment.StorageVariable}={Quote(executor.StoragePath)} dotnet {Quote(assembly)} Get {id}</SH>";
+        return $"<SH limit=0 regex=\"\">{ExecutorEnvironment.StorageVariable}={Quote(executor.StoragePath)} dotnet {Quote(assembly)} Get {id}</SH>";
     }
 
     private string BuildBootstrap(PolicyContext policy)
