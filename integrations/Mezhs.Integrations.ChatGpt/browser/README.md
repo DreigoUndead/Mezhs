@@ -1,26 +1,46 @@
 # ChatGPT browser integration
 
-The files in `modules/` are the deployed CommonJS source (no generated bundle).
-The .NET integration embeds each `modules/*.js` file under the resource prefix
-`Mezhs.Integrations.ChatGpt.BrowserModule.`. The shared browser host extracts them
-side by side into the connection's module directory and passes `entry.js` to Electron.
-Electron uses Node's ordinary `require()` to resolve the sibling files.
+Authenticated ChatGPT Account private-API request construction, turn orchestration,
+SSE interpretation, persisted conversation retrieval, citations, file metadata and
+model/effort attribution live in C# in `ChatGptAccountProtocol.cs`,
+`ChatGptConversationState.cs`, `ChatGptAccountFiles.cs`, and
+`ChatGptTypedHttpEndpoints.cs`.
 
-## Module ownership
+The existing `BrowserAccountSession` owns the shared authenticated Electron
+host, authorization and per-chat contexts. `BrowserHttpExecutor` executes typed
+C# endpoint mappings, and the reusable Electron `browser-http.js` provides
+same-origin request validation, bounded incremental SSE/NDJSON event framing,
+ordered acknowledged backpressure, and safe error handling. Electron
+`browser-transfer.js` performs bounded signed binary transfers separately from
+account credentials. The legacy account JavaScript send/receive and file modules
+have been removed; there is no second account client or scheduler.
 
-- `entry.js`: public ChatGPT integration descriptor and operations.
-- `guest.js`: anonymous ChatGPT DOM composer and reply collection.
-- `account-transport.js`: authenticated API requests, session tokens, and browser-owned Sentinel requirements.
-- `account-models.js`: model ID parsing and provider preferences.
-- `account-files.js`: uploaded attachment preparation and downloaded artifacts.
-- `account-messages.js`: semantic new/follow-up submission and completion orchestration.
-- `account-stream.js`: streamed response metadata, progress, and execution metadata.
-- `account-results.js`: conversation state polling and visible reply extraction.
+## Native CommonJS module ownership
+
+Only three source modules are embedded and deployed side by side, unchanged:
+
+- `entry.js`: provider descriptor, authorization policy, native-hook and
+  guest operation registration; `typedHttp` and signed transfer mechanics
+  are owned by Electron, not provider operations.
+- `account-transport.js`: browser-owned token/cookie/integrity state,
+  authenticated fetch, and per-turn native ChatGPT Sentinel and conduit
+  preparation. These require the live browser security runtime; generated
+  credentials or challenges are never returned to C#.
+- `guest.js`: the unrelated anonymous browser integration (unchanged).
+
+`ChatGptAccountProtocol` retains the provider's model-preference PATCH; the
+effect of distinct overlapping model/effort selections cannot be guaranteed
+without independent authenticated live verification.
 
 ## Packaging and checks
 
-Run `node --check` on each `browser/modules/*.js` file and `node --test tests/*.test.js`.
-Build with `dotnet build Mezhs.sln -c Release` and run `tests/integration-resources.ps1`.
-The package regression tests verify that all eight modules load from an isolated directory.
-The published-module probe additionally checks the real embedded resources and extraction
-without access to the source checkout.
+The .NET integration embeds `browser/modules/*.js` as
+`Mezhs.Integrations.ChatGpt.BrowserModule.*`; the common browser base extracts
+an immutable content-addressed directory and loads `entry.js` using Node's
+ordinary `require()`. There is no generated JS bundle.
+
+Run `node --test tests/*.test.js`, the `tests/chatgpt-account-protocol-flow.ps1`
+and `tests/account-login-flow.ps1` C# probes, `dotnet build Mezhs.sln -c Release`,
+`tests/integration-resources.ps1`, and the isolated
+`tests/ChatGptPackagingProbe`. The account protocol's native hook and generic
+stream framing can be tested without reintroducing account-specific JS.
