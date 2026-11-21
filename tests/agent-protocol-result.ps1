@@ -139,6 +139,13 @@ Reject(parser, "<SH timeout=abc>echo NO</SH>", "Non-numeric timeout was accepted
 Reject(parser, "<SH timeout=9999999999999>echo NO</SH>", "Overflow timeout was accepted.");
 Reject(parser, "<SH timeout=1 timeout=2>echo NO</SH>", "Duplicate timeout was accepted.");
 Reject(parser, "<SH regex=\"[\">echo NO</SH>", "Invalid regex syntax was accepted.");
+Reject(parser, "<SH>echo EARLIER</SH><SH regex=\"unfinished>echo NEVER</SH>",
+       "Malformed paired SH opener left an earlier command executable.");
+Check(parser.Parse("before <SH regex=\"unfinished").Commands.Count == 0,
+      "An unmatched malformed opener stopped being ordinary text.");
+Check(parser.Parse("<box><SH regex=\"unfinished>INERT</SH></box><SH>echo ROOT</SH>")
+          .Commands.SequenceEqual([new Command("SH", "echo ROOT")]),
+      "Malformed SH inside a UI container gained command authority.");
 Reject(parser, "<SH limitStart=-1>echo NO</SH>", "Negative preview start was accepted.");
 Reject(parser, "<SH limitEnd=xyz>echo NO</SH>", "Non-numeric preview end was accepted.");
 Reject(parser, "<SH regex=\"a\" regex=\"b\">echo NO</SH>", "Duplicate regex was accepted.");
@@ -288,6 +295,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
 
     Assert-RejectedBatch 'invalid-command' '<SH bad="evil">echo NEVER</SH>'
     Assert-RejectedBatch 'invalid-regex' '<SH regex="[">echo NEVER</SH>'
+    Assert-RejectedBatch 'unterminated-quoted-sh' '<SH regex="unfinished>echo NEVER</SH>'
     Assert-RejectedBatch 'explicit-preview-over-limit' '<SH limit=2 limitStart=2 limitEnd=1>echo NEVER</SH>'
     Assert-RejectedBatch 'empty-shell' "<SH>`n `n</SH>"
     Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"

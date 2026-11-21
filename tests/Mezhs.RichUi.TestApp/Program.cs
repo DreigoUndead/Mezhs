@@ -32,6 +32,8 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Zero limit and previews", "<SH limit=0 limitStart=0 limitEnd=0>echo one</SH>", true, ["SH"]),
     ("SH unknown parameter rejects batch", "<SH unknown=1>echo one</SH>", false, []),
     ("SH duplicate parameter rejects batch", "<SH timeout=1 timeout=2>echo one</SH>", false, []),
+    ("Malformed paired root SH rejects batch", "<SH>echo FIRST</SH><SH regex=\"unfinished>echo NO</SH>", false, []),
+    ("Malformed nested SH stays inert", "<box><SH regex=\"unfinished>INERT</SH></box><SH>echo ROOT</SH>", true, ["SH"]),
     ("Inert nested bounded SH", "<box><SH timeout=60>INERT</SH></box>", true, []),
     ("Multiline SH preserves body bytes", "<SH>\r\necho first\r\n<DONE>\r\n</SH>\r\n<DONE>", true, ["SH","DONE"]),
     ("Adjacent tags", "<SH>echo A</SH><ATTACH>file.txt</ATTACH><DONE>", true, ["SH","ATTACH","DONE"]),

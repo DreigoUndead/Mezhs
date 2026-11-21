@@ -197,6 +197,9 @@ public sealed class RichDocumentParser
             }
             if (_source[cursor] != '<' || !TryTag(cursor, end, out var tag))
             {
+                if (expected is null && _source[cursor] == '<' &&
+                    IsMalformedRootShOpener(cursor, end))
+                    throw new RichDocumentException("Malformed SH opening tag.");
                 cursor++;
                 continue;
             }
@@ -433,6 +436,18 @@ public sealed class RichDocumentParser
             at = tag.End;
         }
         return -1;
+    }
+
+    // A root SH pair must not be skipped when malformed quoting prevents
+    // TryTag from recognizing its opener. Incomplete, unpaired openers stay text.
+    private bool IsMalformedRootShOpener(int at, int end)
+    {
+        if (!_source.AsSpan(at).StartsWith("<SH", StringComparison.Ordinal))
+            return false;
+        var next = at + 3;
+        if (next >= end || !(char.IsWhiteSpace(_source[next]) || _source[next] is '>' or '/'))
+            return false;
+        return FindOpaqueClosing("SH", next, end) >= 0;
     }
 
     private int FindOpaqueClosing(string name, int from, int end)
