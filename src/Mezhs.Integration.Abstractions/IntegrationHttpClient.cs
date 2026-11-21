@@ -19,7 +19,8 @@ public sealed record HttpEndpoint<TRequest, TResponse>(
 
 public sealed record HttpTransportRequest(
     string Method, string Path, string? Body, string? Accept,
-    bool Stream = false, string? NativeHook = null, object? NativeArgs = null);
+    bool Stream = false, string? NativeHook = null, object? NativeArgs = null,
+    string? TurnMessageId = null);
 
 public sealed record HttpTransportResponse(
     int StatusCode, string Body, string? ContentType = null,
@@ -113,6 +114,7 @@ public sealed class IntegrationHttpClient(
         Action<string> onEvent,
         string? nativeHook = null,
         object? nativeArgs = null,
+        string? turnMessageId = null,
         Action<HttpTransferProgress>? reportProgress = null,
         CancellationToken cancellationToken = default)
     {
@@ -138,7 +140,8 @@ public sealed class IntegrationHttpClient(
         // This is exactly one dispatch: a possibly delivered mutation is never replayed.
         var result = await executeStream(
             new HttpTransportRequest(method, endpoint.Path, body, accept,
-                Stream: true, NativeHook: nativeHook, NativeArgs: nativeArgs),
+                Stream: true, NativeHook: nativeHook, NativeArgs: nativeArgs,
+                TurnMessageId: turnMessageId),
             onEvent, reportProgress, cancellationToken);
         if (result.StatusCode is < 200 or >= 300)
             throw new IntegrationHttpException(method, endpoint.Path, result.StatusCode,
