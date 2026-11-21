@@ -126,6 +126,7 @@ internal static class ChatGptAccountProtocol
             await http.CallStreamAsync(ConversationStream, payload, stream.OnEvent,
                 nativeHook: "chatgptTurn",
                 nativeArgs: new { ClientSessionId = sessionId, Prepare = prepare },
+                turnMessageId: request.MessageId,
                 reportProgress: progress, cancellationToken: cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
