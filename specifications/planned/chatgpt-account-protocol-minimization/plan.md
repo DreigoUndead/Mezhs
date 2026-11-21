@@ -78,6 +78,18 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-21 — Independent Code Review corrections; fresh review required (FAIL)
+
+**Change:** Reviewed implementation at `fe09cf71699db509268c590466128b310428b0eb`; identified an existing-conversation preflight regression: typed GET parsed the entire conversation body under the 16 MiB response limit, where the previous path only checked HTTP accessibility. Corrected on task branch in `1baaeda0c0fa8e90ae6a87c491c71b89adafdb83`: added a reusable headers-only typed HTTP GET, cancelled its unread Electron response body, and used it for ChatGPT continuation preflight. Also rejected streaming responses lacking an incremental reader instead of buffering unbounded response text. Added Node and C# regression coverage.
+
+**Reason:** An accessible conversation with a large response body could fail before an otherwise valid continuation was submitted. The non-incremental streaming fallback contradicted the accepted bounded, request-active protocol event contract.
+
+**Verification:** After correction, clean task worktree at `1baaeda`: 32/32 targeted Node tests, C# ChatGPT account protocol flow (including large continuation, no-replay, restoration, files), Release solution build and frontend builds, architecture and account-login scripts, Integration Contracts probe, ChatGPT packaging probe (3 published resources and 96 concurrent initializations), and agent/provider lifetime checks passed. Release build had one pre-existing WhatsApp CS0114 warning. The first packaging invocation omitted its required extraction directory; rerun with an isolated directory passed. `git diff --check` passed. Authenticated live ChatGPT, overlapping distinct-model selections and the known unfiltered unrelated group-focus test failure were not reverified by this review.
+
+**Outcome:** **FAIL** per `.agents/code-review.md` because the reviewer corrected implementation and tests. A fresh independent Step 3 Code Reviewer must inspect the current revision before any Code Review PASS; Step 4 Testing and merge remain pending. No owner approval is implied.
+
+**Authority:** Independent Code Review, Step 3, following the High-risk development workflow.
+
 ### 2026-11-21 — Development implementation and verification, ready for independent Code Review
 
 **Change:** Moved authenticated ChatGPT Account new/follow-up turn protocol, models/projects, reply ancestry and polling, incremental event interpretation, citations/analysis/model-effort metadata and file-processing orchestration to typed C#. Deleted the obsolete `account-files.js` (215 lines), `account-messages.js` (350), `account-models.js` (34), `account-results.js` (315) and `account-stream.js` (245), totaling **1,159 removed production JavaScript lines**. Retained `account-transport.js` for browser-owned credentials, integrity observation, Sentinel and conduit preparation; `entry.js` for the provider bootstrap/native hooks and untouched Guest page operations; and `guest.js` for guest orchestration. Added reusable bounded authenticated HTTP framing, ordered acknowledged event delivery with backpressure, safe signed binary transfers, explicit framing errors, scoped Stop message identity and protected HTTP redirect handling. The existing account-level model-preference PATCH remains.
