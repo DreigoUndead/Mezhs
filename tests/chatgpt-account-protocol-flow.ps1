@@ -21,6 +21,7 @@ using Mezhs.Integrations.Browser;
 
 await TestNewChatMetadataAndCitations();
 await TestInaccessibleContinuationRestoration();
+await TestLargeConversationPreflight();
 await TestPostFailureNeverReplays();
 await TestKnownConversationStreamInterruptionReconciles();
 await TestAuthorizationFailureNeverReplays();
@@ -83,6 +84,21 @@ static async Task TestInaccessibleContinuationRestoration()
         "stale conversation was not checked exactly once before sending");
     Verify(host.SubmittedBody!.Contains("older question") && host.SubmittedBody.Contains("older answer")
         && host.SubmittedBody.Contains("current question"), "restoration omitted history");
+}
+
+static async Task TestLargeConversationPreflight()
+{
+    var host = new FakeHost { LargeContinuation = true };
+    await using var integration = NewIntegration(host);
+    var chat = new ChatContext("chat", "account", "existing",
+        (_, _, _, _) => Task.FromResult<IReadOnlyList<ChatMessage>>([]),
+        remoteParentMessageId: "previous-assistant");
+    var result = await integration.PromptAsync(chat, new PromptRequest(
+        integration.CreateMessageId(), "continue a large conversation", null, []));
+    Verify(result.MessageId == "assistant-final" && host.Posts == 1,
+        "Large accessible conversation was not continued exactly once.");
+    Verify(host.Calls.Any(call => call.Path == "/backend-api/conversation/existing" &&
+        call.HeadersOnly), "Continuation preflight must use a headers-only GET.");
 }
 
 static async Task TestPostFailureNeverReplays()
@@ -179,8 +195,8 @@ static void Verify(bool condition, string message)
 sealed class FakeHost : IBrowserIntegrationHost
 {
     public int BrowserIdleMinutes => 0;
-    public bool InaccessibleFirst, FailPost, InterruptAfterId, AuthorizationPostFailure, WithFiles,
-        MalformedEvent;
+    public bool InaccessibleFirst, LargeContinuation, FailPost, InterruptAfterId,
+        AuthorizationPostFailure, WithFiles, MalformedEvent;
     public string? DownloadPath, SubmittedBody, SubmittedMessageId, SubmittedNativeHook;
     public int Posts;
     public List<HttpTransportRequest> Calls { get; } = [];
@@ -265,6 +281,9 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
             return new(200, "", "application/json");
         if (path == "/backend-api/conversation/stale-conversation" && host.InaccessibleFirst)
             return new(404, "", ProviderCode: "conversation_inaccessible");
+        if (path == "/backend-api/conversation/existing" && host.LargeContinuation)
+            return new(200, req.HeadersOnly ? "" : new string('x', 16 * 1024 * 1024 + 1),
+                "application/json");
         if (path == "/backend-api/files")
             return new(200, """{"file_id":"file-1","upload_url":"https://test.blob.core.windows.net/container/name","upload_headers":{"x-ms-meta-test":"ok"}}""");
         if (path == "/backend-api/files/process_upload_stream")

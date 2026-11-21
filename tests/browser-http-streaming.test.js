@@ -70,6 +70,40 @@ test("stream backpressure is awaited before reading following frames", async () 
   assert.deepEqual(calls, ['{"n":1}', '{"n":2}']);
 });
 
+test("headers-only GET cancels the unread body instead of buffering it", async () => {
+  let cancelled = false;
+  const response = {
+    status: 200,
+    headers: { get: name => name === "content-type" ? "application/json" : null },
+    body: {
+      async cancel() { cancelled = true; },
+      getReader() { throw new Error("Large conversation body must not be read."); }
+    },
+    text() { throw new Error("Large conversation body must not be buffered."); }
+  };
+  const result = await executeBrowserHttp({
+    args: { method: "GET", path: "/backend-api/conversation/large",
+      headersOnly: true }
+  }, policy(async () => response));
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body, "");
+  assert.equal(cancelled, true);
+});
+
+test("streaming rejects a response without an incremental reader", async () => {
+  const response = {
+    status: 200,
+    headers: { get: () => "text/event-stream" },
+    body: null,
+    text() { throw new Error("Unbounded body buffering is forbidden."); }
+  };
+  await assert.rejects(executeBrowserHttp({
+    args: { method: "POST", path: "/backend-api/f/conversation", body: "{}",
+      accept: "text/event-stream", stream: true },
+    reportEvent: () => {}
+  }, policy(async () => response)), /incremental response body/);
+});
+
 test("malformed UTF-8 and oversized streamed frames fail explicitly", async () => {
   const framer = new StreamFramer("text/event-stream", async () => {});
   await assert.rejects(framer.write(new Uint8Array([0xc3, 0x28])), /encoded|valid|UTF/i);
@@ -86,7 +120,8 @@ test("generic transport rejects unsupported origins, headers and native hooks be
     { method: "GET", path: "https://evil.example/api" },
     { method: "POST", path: "/backend-api/test", body: {}, accept: "application/json" },
     { method: "GET", path: "/backend-api/test", nativeHook: "unknown" },
-    { method: "GET", path: "/backend-api/test", stream: true, accept: "application/json" }
+    { method: "GET", path: "/backend-api/test", stream: true, accept: "application/json" },
+    { method: "POST", path: "/backend-api/test", headersOnly: true }
   ]) await assert.rejects(executeBrowserHttp({ args }, p), /not allowed/);
   assert.equal(called, 0);
 });

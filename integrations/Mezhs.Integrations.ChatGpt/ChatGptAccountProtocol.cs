@@ -72,8 +72,9 @@ internal static class ChatGptAccountProtocol
             progress?.Invoke(new("preparing", "Checking existing ChatGPT conversation."));
             try
             {
-                await http.CallAsync(new HttpEndpoint<EmptyHttpRequest, JsonElement>(
-                    HttpMethod.Get, ConversationPath(request.ConversationId!)),
+                await http.CallAsync(new HttpEndpoint<EmptyHttpRequest, bool>(
+                    HttpMethod.Get, ConversationPath(request.ConversationId!),
+                    HttpResultFormat.HeadersOnly, Interpret: _ => true),
                     request: null, cancellationToken: cancellationToken);
             }
             catch (IntegrationHttpException error) when (

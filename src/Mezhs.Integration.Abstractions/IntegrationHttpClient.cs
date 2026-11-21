@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace Mezhs.Integrations;
 
-public enum HttpResultFormat { Json, Text, ServerSentEvents, Ndjson }
+public enum HttpResultFormat { Json, Text, ServerSentEvents, Ndjson, HeadersOnly }
 
 // Endpoint metadata is independent of the HTTP transport and any browser session.
 public sealed record HttpEndpoint<TRequest, TResponse>(
@@ -20,7 +20,7 @@ public sealed record HttpEndpoint<TRequest, TResponse>(
 public sealed record HttpTransportRequest(
     string Method, string Path, string? Body, string? Accept,
     bool Stream = false, string? NativeHook = null, object? NativeArgs = null,
-    string? TurnMessageId = null);
+    string? TurnMessageId = null, bool HeadersOnly = false);
 
 public sealed record HttpTransportResponse(
     int StatusCode, string Body, string? ContentType = null,
@@ -79,6 +79,10 @@ public sealed class IntegrationHttpClient(
             throw new NotSupportedException($"HTTP method '{method}' is not supported.");
         if (method == "GET" && request is not null)
             throw new ArgumentException("GET endpoints do not accept request bodies.", nameof(request));
+        if (endpoint.Format == HttpResultFormat.HeadersOnly &&
+            (method != "GET" || endpoint.Interpret is null))
+            throw new ArgumentException(
+                "Headers-only GET endpoints require an explicit response interpreter.", nameof(endpoint));
         if (endpoint.Accept is not null && (endpoint.Accept.Contains('\r') || endpoint.Accept.Contains('\n')))
             throw new ArgumentException("Accept must not contain line breaks.", nameof(endpoint));
         var body = method == "GET" || request is null
@@ -87,7 +91,8 @@ public sealed class IntegrationHttpClient(
 
         // Exactly one transport invocation. A failed or ambiguous mutation is never replayed.
         var response = await execute(new HttpTransportRequest(method, endpoint.Path, body, endpoint.Accept,
-                NativeHook: endpoint.NativeHook, NativeArgs: endpoint.NativeArgs),
+                NativeHook: endpoint.NativeHook, NativeArgs: endpoint.NativeArgs,
+                HeadersOnly: endpoint.Format == HttpResultFormat.HeadersOnly),
             reportProgress, cancellationToken);
         if (response.StatusCode is < 200 or >= 300)
             throw new IntegrationHttpException(method, endpoint.Path, response.StatusCode,

@@ -18,6 +18,7 @@ function validateRequest(args, policy) {
   const body = args?.body;
   const accept = args?.accept;
   const stream = args?.stream === true;
+  const headersOnly = args?.headersOnly === true;
   if (!["GET", "POST", "PATCH"].includes(method) ||
       typeof endpoint !== "string" ||
       !endpoint.startsWith(policy.pathPrefix) ||
@@ -33,14 +34,16 @@ function validateRequest(args, policy) {
       (method !== "GET" && body != null && typeof body !== "string") ||
       (body != null && Buffer.byteLength(body, "utf8") > MAX_REQUEST_BYTES) ||
       (accept != null && !ALLOWED_ACCEPT.has(accept)) ||
-      (stream && !["text/event-stream", "application/x-ndjson"].includes(accept)))
+      (stream && !["text/event-stream", "application/x-ndjson"].includes(accept)) ||
+      (args?.headersOnly != null && typeof args.headersOnly !== "boolean") ||
+      (headersOnly && (method !== "GET" || stream)))
     throw new Error("Browser HTTP endpoint, request or accept header is not allowed.");
 
   const hook = args?.nativeHook;
   if (hook != null && (typeof hook !== "string" ||
       !Object.hasOwn(policy.nativeHooks || {}, hook)))
     throw new Error("Browser HTTP native preparation hook is not allowed.");
-  return { method, endpoint, body, accept, stream, hook };
+  return { method, endpoint, body, accept, stream, headersOnly, hook };
 }
 
 function checkedHeaders(value) {
@@ -172,6 +175,13 @@ async function executeBrowserHttp({ window, session, args, signal, reportProgres
   }
   reportProgress?.({ state: "retrieving", detail: "Receiving browser HTTP response." });
 
+  // A continuation accessibility probe must not read a potentially unbounded
+  // conversation body. Preserve HTTP status and provider error codes.
+  if (request.headersOnly) {
+    await response.body?.cancel?.();
+    return { statusCode: response.status, contentType: response.headers.get("content-type"), body: "" };
+  }
+
   if (request.stream) {
     if (typeof reportEvent !== "function")
       throw new Error("Streaming HTTP requires an ordered event consumer.");
@@ -190,10 +200,9 @@ async function executeBrowserHttp({ window, session, args, signal, reportProgres
         reader.releaseLock();
       }
     } else {
-      const text = await response.text();
-      if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES)
-        throw new Error("Browser HTTP response exceeded the 16 MiB limit.");
-      await framer.write(text, true);
+      // response.text() would buffer the entire response before any limit
+      // could be enforced; streamed protocol events require a real reader.
+      throw protocolFailure("Browser HTTP stream requires an incremental response body.");
     }
     return { statusCode: response.status, contentType: response.headers.get("content-type"), body: "" };
   }
