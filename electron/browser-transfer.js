@@ -75,7 +75,11 @@ async function executeBinaryTransfer({ session, args, signal, reportProgress }, 
     const info = await fsp.stat(args.localPath);
     if (!info.isFile() || info.size > MAX_FILE_BYTES)
       throw new Error("Upload file is not a supported regular file or exceeds 100 MiB.");
-    const source = fs.createReadStream(args.localPath, { signal });
+    // A local file can grow after stat(). Never upload more than the
+    // validated snapshot length, even if another process appends to it.
+    const source = info.size === 0
+      ? Readable.from([])
+      : fs.createReadStream(args.localPath, { signal, start: 0, end: info.size - 1 });
     try {
       const response = await session.fetch(destination.href, {
         method: "PUT", credentials: "omit", redirect: "error",
@@ -85,6 +89,8 @@ async function executeBinaryTransfer({ session, args, signal, reportProgress }, 
       await cancelUnreadBody(response.body);
       if (!response.ok)
         throw new Error("Signed file upload failed with HTTP " + response.status + ".");
+      if (info.size > 0 && source.bytesRead !== info.size)
+        throw new Error("Signed file upload source changed during transfer.");
       reportProgress?.({ state: "retrieving", detail: "Signed file upload completed." });
       return { size: info.size, statusCode: response.status };
     } finally {
