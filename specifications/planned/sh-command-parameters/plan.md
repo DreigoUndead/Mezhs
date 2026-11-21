@@ -192,3 +192,15 @@ Use Windows PowerShell 5.1 where `pwsh` is absent. Run `dotnet build src/Mezhs.A
 **Verification:** Clean isolated Windows worktree `D:\\Projects\\Mezhs-sh-parameters-verify` was fast-forwarded to `e351d456`. MEŽS execution 9364: Agent API Release build PASS (0 warnings/errors). 9365: Rich UI TestApp PASS 105/105. 9366: policy decoder and shell tests PASS, including the new regression assertions. 9368: live Agent protocol suite PASS, including invalid-batch no-side-effects, timeout precedence and enforcement, regex previews and durable CLI `Get` retrieval, ordered shells, partial failures, and continuation. The live test used its isolated test configuration, not the owner's running environment.
 
 **Remaining:** Fresh independent Code Review step 3 for the corrected branch, then follow plan role transition requirements. No merge to `main` without owner approval.
+
+### 2026-11-22 — Code Review step 3: reject bare/non-string SH regex
+
+**Outcome:** FAIL / corrected and verified at `52faa549108d1637e3e3883014840bab977e4fed`. This reviewer's correction requires a fresh independent Code Review; this entry is not a PASS.
+
+**Finding:** The canonical `RichDocumentParser.ParseAttributes` applied its presentation-attribute boolean fallback to root SH: a bare `regex` attribute was silently interpreted as the valid pattern `"true"`, while `regex={true}` was also accepted after expression conversion. Those malformed SH regex attributes were accepted rather than rejecting the whole batch before shell execution. The accepted SH syntax requires a quoted regex string; `regex=""` is needed for Executor recovery and must remain accepted.
+
+**Correction:** Commit `f27550717ce63c19a7ead4603274fef7546e3d62` requires SH `regex` to use a quoted value, without changing presentation tags or other SH attributes. Commit `52faa549108d1637e3e3883014840bab977e4fed` adds Rich UI regression cases for bare regex, expression regex, and empty quoted regex. Production changes are limited to this validation path.
+
+**Verification (isolated Windows worktree `D:\\Projects\\Mezhs-sh-parameters-verify`, exact commit `52faa549`):** 9382 fast-forwarded a clean branch; 9383 Agent API Release build PASS (0 warnings, 0 errors); 9384 Rich UI TestApp PASS (108/108, including the new rejects); 9386 `tests/policy-decoder.ps1` PASS; 9387 `tests/agent-protocol-result.ps1` PASS, including rejected-batch no-side-effects and live regex/line preview, durable `Get` recovery, timeout precedence/enforcement, ordered shells, and error continuation. The live integration suite did not add a separate filesystem side-effect case for the newly rejected bare regex; canonical parser regression directly verifies its batch rejection.
+
+**Remaining:** Fresh independent Code Review (step 3), then follow the role transition defined in this plan. No merge to `main` without owner approval.
