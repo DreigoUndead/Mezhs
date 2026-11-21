@@ -92,3 +92,22 @@ test("C# stream reconciliation is never a hidden replay after an uncertain POST"
   assert.equal(entry.operations.newChat, undefined);
   assert.equal(entry.operations.send, undefined);
 });
+
+test("authenticated ChatGPT API requests reject redirects before forwarding credentials", async () => {
+  const native = require("../integrations/Mezhs.Integrations.ChatGpt/browser/modules/account-transport.js");
+  const observed = [];
+  const actor = {
+    cookies: { get: async () => [], set: async () => {} },
+    async fetch(url, options = {}) {
+      observed.push({ url, options });
+      return new Response(null, { status: 302,
+        headers: { location: "https://untrusted.example/collect" } });
+    }
+  };
+  await assert.rejects(native.apiFetch(actor, "secret-token",
+    "/backend-api/models", { redirect: "follow" }), /HTTP 302/);
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0].options.redirect, "error");
+  assert.equal(observed[0].options.headers.Authorization, "Bearer secret-token");
+  assert.match(observed[0].url, /^https:\/\/chatgpt\.com\/backend-api\//);
+});
