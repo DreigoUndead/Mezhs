@@ -26,6 +26,13 @@ public sealed class BrowserHttpExecutor(IChatBrowserTransport transport)
                 progress => report?.Invoke(new HttpTransferProgress(progress.State, progress.Detail)),
                 token));
 
+    public Task<BrowserBinaryTransferResult> TransferAsync(
+        BrowserBinaryTransferRequest request,
+        Action<BrowserOperationProgress>? reportProgress = null,
+        CancellationToken cancellationToken = default) =>
+        transport.InvokeWithProgressAsync<BrowserBinaryTransferResult>(
+            "binaryTransfer", request, reportProgress, cancellationToken);
+
     public Task<HttpTransportResponse> CallStreamAsync<TRequest, TResponse>(
         HttpEndpoint<TRequest, TResponse> endpoint,
         TRequest? request,
@@ -48,3 +55,10 @@ public sealed class BrowserHttpExecutor(IChatBrowserTransport transport)
             progress => reportProgress?.Invoke(new BrowserOperationProgress(
                 progress.State, progress.Detail)), cancellationToken);
 }
+
+public sealed record BrowserBinaryTransferRequest(
+    string Action, string Url, string? LocalPath = null, string? Name = null,
+    string? ContentType = null, IReadOnlyDictionary<string, string>? Headers = null);
+
+public sealed record BrowserBinaryTransferResult(
+    long Size, int StatusCode, string? LocalPath = null, string? ContentType = null);
