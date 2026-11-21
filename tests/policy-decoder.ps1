@@ -115,7 +115,7 @@ var developmentExecution = new ExecutionRecord
     Source = "manual", Status = AgentExecutionStatus.Running, Request = "Feature request",
     PolicySnapshot = developmentPolicy.Snapshot
 };
-var developmentPrompt = new AgentPromptBuilder(defaultAgentOptions)
+var developmentPrompt = new AgentPromptBuilder(defaultAgentOptions, new ExecutorService())
     .BuildInitial(developmentExecution, developmentPolicy, true).Content.Replace("\r\n", "\n", StringComparison.Ordinal);
 Assert(developmentPrompt.IndexOf("You are a MEŽS agent operating", StringComparison.Ordinal) >= 0 &&
        developmentPrompt.IndexOf("Before performing any repository changes", StringComparison.Ordinal) >
@@ -130,7 +130,7 @@ var exampleExecution = new ExecutionRecord
     Source = "manual", Status = AgentExecutionStatus.Running, Request = "Test instructions",
     PolicySnapshot = defaultAgentOptions.Policies["low"].Snapshot
 };
-var initialPrompt = new AgentPromptBuilder(defaultAgentOptions)
+var initialPrompt = new AgentPromptBuilder(defaultAgentOptions, new ExecutorService())
     .BuildInitial(exampleExecution, defaultAgentOptions.Policies["low"], true).Content;
 Assert(initialPrompt.Contains($"MEŽS runtime on {os}", StringComparison.Ordinal),
     "Runtime startup did not resolve the host OS in shared instructions.");
@@ -378,7 +378,7 @@ Assert(mappedMessage.Commands.Count == 1 &&
        mappedMessage.CompletionClaimed,
     "Agent API protocol view lost SH body/index or DONE claim.");
 
-var promptBuilder = new AgentPromptBuilder(options);
+var promptBuilder = new AgentPromptBuilder(options, new ExecutorService());
 Assert(options.Messages.ProtocolIntro!.Contains("Separate observed facts from hypotheses", StringComparison.Ordinal),
     "Initial Agent protocol lost evidence-calibration guidance.");
 var commandResultPrompt = promptBuilder.BuildCommandResults(
@@ -386,12 +386,69 @@ var commandResultPrompt = promptBuilder.BuildCommandResults(
     normal).Content;
 Assert(commandResultPrompt.Contains("does not by itself prove the original cause", StringComparison.Ordinal),
     "Command-result prompt lost causality-calibration guidance.");
+var lines = string.Join("\n", Enumerable.Range(1, 8).Select(i => $"LINE_{i}"));
 var limitedPrompt = promptBuilder.BuildCommandResults(
-    new[] { new Result("SH", "2", true, 0, "123456789", null, 4) }, normal).Content;
-Assert(limitedPrompt.Contains("1234", StringComparison.Ordinal) &&
-       !limitedPrompt.Contains("12345", StringComparison.Ordinal) &&
-       limitedPrompt.Contains("full result remains in execution history", StringComparison.Ordinal),
-    "Per-command SH output limit did not bound the agent follow-up.");
+    new[] { new Result("SH", "2", true, 0, lines, null,
+        new ShellOutputOptions(4, 2, 1, null)) }, normal).Content;
+Assert(limitedPrompt.Contains("LINE_1", StringComparison.Ordinal) &&
+       limitedPrompt.Contains("LINE_2", StringComparison.Ordinal) &&
+       limitedPrompt.Contains("LINE_8", StringComparison.Ordinal) &&
+       !limitedPrompt.Contains("LINE_3", StringComparison.Ordinal) &&
+       !limitedPrompt.Contains("LINE_7", StringComparison.Ordinal) &&
+       limitedPrompt.Contains("5 omitted", StringComparison.Ordinal) &&
+       limitedPrompt.Contains("recoveryCommand", StringComparison.Ordinal) &&
+       limitedPrompt.Contains("Get 2", StringComparison.Ordinal),
+    "Line-based SH preview omitted metadata, duplicated lines or lost CLI recovery.");
+var regexPrompt = promptBuilder.BuildCommandResults(
+    new[] { new Result("SH", "4", false, 9, "info A\nerror B\ninfo C\nwarning D\nerror E", "failed",
+        new ShellOutputOptions(2, 1, 1, "error|warning")) }, normal).Content;
+Assert(regexPrompt.Contains("error B", StringComparison.Ordinal) &&
+       regexPrompt.Contains("error E", StringComparison.Ordinal) &&
+       !regexPrompt.Contains("warning D", StringComparison.Ordinal) &&
+       !regexPrompt.Contains("info A", StringComparison.Ordinal) &&
+       regexPrompt.Contains("1 omitted", StringComparison.Ordinal) &&
+       regexPrompt.Contains("\"exitCode\": 9", StringComparison.Ordinal) &&
+       regexPrompt.Contains("\"error\": \"failed\"", StringComparison.Ordinal),
+    "Regex-before-limit presentation changed the durable status/error evidence.");
+var exactPrompt = promptBuilder.BuildCommandResults(
+    new[] { new Result("SH", "5", true, 0, "A\nB", null,
+        new ShellOutputOptions(2, 1, 1, null)) }, normal).Content;
+Assert(exactPrompt.Contains("A\\nB", StringComparison.Ordinal) &&
+       !exactPrompt.Contains("line preview", StringComparison.Ordinal),
+    "Exact line-limit threshold was abbreviated.");
+var zeroPrompt = promptBuilder.BuildCommandResults(
+    new[] { new Result("SH", "6", true, 0, lines, null,
+        new ShellOutputOptions(0, 10, 10, null)) }, normal).Content;
+Assert(zeroPrompt.Contains("LINE_8", StringComparison.Ordinal) &&
+       !zeroPrompt.Contains("line preview", StringComparison.Ordinal),
+    "limit=0 abbreviated result lines.");
+var charPrompt = promptBuilder.BuildCommandResults(
+    new[] { new Result("SH", "7", true, 0, new string('Z', 17000), null,
+        new ShellOutputOptions(0, 10, 10, null)) }, normal).Content;
+Assert(charPrompt.Contains("character safeguard activated", StringComparison.Ordinal) &&
+       charPrompt.Contains("Get 7", StringComparison.Ordinal),
+    "Separate model-prompt character safeguard failed or lacked recovery.");
+var noDefaults = ShellOutputOptions.Resolve(new Command("SH", "echo"), new PolicyLimitsSettings(60));
+Assert(noDefaults.Limit == 0 && noDefaults.LimitStart == 10 &&
+       noDefaults.LimitEnd == 10 && noDefaults.Regex is null,
+    "Missing policy output settings did not use built-in defaults.");
+var shortLimit = ShellOutputOptions.Resolve(new Command("SH", "echo", OutputLimit: 3),
+    new PolicyLimitsSettings(60));
+Assert(shortLimit.LimitStart == 2 && shortLimit.LimitEnd == 1,
+    "Implicit preview defaults were not fitted inside a small line limit.");
+var overrideOutput = ShellOutputOptions.Resolve(
+    new Command("SH", "echo", OutputLimit: 4, OutputLimitStart: 1, OutputRegex: "warn"),
+    new PolicyLimitsSettings(60, 7, 2, null, "error"));
+Assert(overrideOutput.Limit == 4 && overrideOutput.LimitStart == 1 &&
+       overrideOutput.LimitEnd == 3 && overrideOutput.Regex == "warn",
+    "SH output settings did not override policy defaults.");
+try
+{
+    ShellOutputOptions.Resolve(new Command("SH", "echo", OutputLimit: 2, OutputLimitStart: 2,
+        OutputLimitEnd: 1), new PolicyLimitsSettings(60));
+    throw new Exception("Explicit incompatible preview sizes were accepted.");
+}
+catch (CommandParseException) { }
 var defaultPrompt = promptBuilder.BuildCommandResults(
     new[] { new Result("SH", "3", true, 0, "123456789", null) }, normal).Content;
 Assert(defaultPrompt.Contains("123456789", StringComparison.Ordinal),
