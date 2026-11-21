@@ -174,6 +174,10 @@ record Transfer(string Action, string Url, string? ContentType);
 
 sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 {
+    private static void Verify(bool condition, string message)
+    {
+        if (!condition) throw new Exception(message);
+    }
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     public string Name => "ProtocolFake";
     public Task InitializeAsync(BrowserTransportOptions _, CancellationToken cancellationToken = default) => Task.CompletedTask;
