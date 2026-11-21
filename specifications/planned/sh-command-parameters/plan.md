@@ -6,38 +6,66 @@ Level: Standard
 
 ## What
 
-Support optional positive integer attributes on root shell commands, for example `<SH timeout=60 limit=500>command</SH>`. `timeout` is seconds; `limit` is the maximum number of command-output characters passed into the agent's follow-up prompt. Both may be omitted independently. Plain `<SH>` remains unchanged.
+Support five optional attributes on root SH blocks: `timeout`, `limit`, `limitStart`, `limitEnd`, and `regex`. For example, `<SH timeout=60 limit=500 limitStart=10 limitEnd=10 regex="error|warning">command</SH>`. Existing plain `<SH>` works unchanged.
 
-The requested timeout must not exceed the effective policy's `commandTimeoutSeconds`. The existing 16,000-character command-result prompt cap remains in force even if `limit` is larger. Executor history keeps the full command output. Neither attribute changes the shell body or policy command validation.
+Each SH block has one effective execution timeout (seconds): explicit `timeout` → policy value → built-in 60 seconds. The policy timeout is a **default**, not a second maximum or a separate timeout. `timeout` must be positive.
+
+Result presentation is separate from execution. All shell output and exit/status evidence remain intact in durable Executor history. Apply optional regex matching to output lines first, then count the selected lines against `limit`. Effective values use SH attribute → optional policy setting → built-in default:
+
+| Attribute | Default | Semantics |
+| --- | --- | --- |
+| `timeout` | 60 | Seconds for this SH execution |
+| `limit` | 0 | Maximum selected output lines before abbreviation; 0 disables line-based abbreviation |
+| `limitStart` | 10 | Beginning lines in the abbreviated result |
+| `limitEnd` | 10 | Ending lines in the abbreviated result |
+| `regex` | null | Return only lines matching the regex; null leaves lines unfiltered |
+
+All five values may be specified per SH block; policy fields are optional. Preserve the existing policy timeout field (`commandTimeoutSeconds`) as the **single** policy timeout setting, now with a 60-second fallback when absent. Do not add a second default/maximum timeout field. Add optional policy settings for the other four parameters, with names corresponding to the SH attributes.
+
+If `limit > 0` and the selected line count exceeds `limit`, show first `limitStart` and last `limitEnd` selected lines, an omitted-line count, and identification of the stored Executor result. Show all selected lines when their count is at most `limit`; `limit=0` leaves them unrestricted by line count. Avoid duplicated lines in overlapping previews. For `limit` smaller than the implicit 10+10 preview, fit the defaults within the limit. Reject *explicit* incompatible preview sizes instead of silently exceeding the requested line limit. A zero preview count is allowed.
+
+A separate existing model-prompt character safeguard may still abbreviate very large results, including `limit=0` or unusually long lines. Its activation and recovery guidance must be explicit; do not mislabel this as the line limit.
+
+For any abbreviated result, MEŽS should supply a **fully formed executable SH retrieval command**, not merely tell the agent to discover the CLI. Include the actual integer Executor execution ID, the executable/assembly path valid for the running installation, and appropriate parameters (such as `limit=0`) so a repeated line-based abbreviation is not the default. The existing Executor CLI command is `Get <id>`; it returns the durable execution record, not a new shell execution of the original command. The record's `Result` property is serialized as an escaped string; distinguish full durable retrieval from the separate Agent prompt-size safeguard. Do not invent unsupported Executor CLI flags, add an Executor retrieval API, or promise an unbounded model prompt.
 
 ## Why
 
-Allow an agent to select a shorter execution timeout and smaller follow-up result for individual shell commands without changing policy or losing persisted diagnostic evidence.
+Give agents predictable per-block timeouts, succinct previews for long output, and optional regex filtering while preserving the complete Executor evidence and providing an immediate copyable recovery command.
 
 ## Acceptance criteria
 
-- [ ] Unquoted positive decimal attributes `timeout` and `limit` are recognized on root `SH`; existing commands are unchanged.
-- [ ] Invalid, duplicate, unsupported or nonpositive parameters reject the batch before shell execution.
-- [ ] A requested timeout above the effective policy's maximum rejects the batch; individual accepted timeouts reach Executor.
-- [ ] Requested result limits truncate only the model follow-up output, with clear truncation notice; durable shell execution results remain intact.
-- [ ] Commands inside inert rich UI scopes remain inert, and source spans/command bodies are preserved.
-- [ ] Parser, execution and result-prompt regressions are covered by tests and reference instructions are updated.
+- [ ] The canonical root-SH parser accepts the five attributes, including quoted regex values, while keeping command bodies/source spans and inert UI scopes unchanged.
+- [ ] Duplicate, unsupported, malformed or invalid numeric attributes and invalid regex reject the whole command batch before executing any shell command. A regex evaluation timeout prevents unbounded pattern evaluation.
+- [ ] One effective timeout uses SH → policy → 60 seconds; `timeout=0` is invalid. An explicit timeout does not encounter a *second* policy maximum. Existing policy/local config semantics are migrated compatibly.
+- [ ] Policy output defaults are optional; `limit=0` means no line-based truncation. `limitStart` and `limitEnd` may be zero; implicit previews fit within small limits and explicit incompatible values are rejected.
+- [ ] Apply regex line matching before counting lines. For selected count at or below `limit`, return all selected lines; for count above `limit`, show selected first/last lines, counts and truncation metadata without duplicates.
+- [ ] Preserve complete stdout/stderr, exit code, errors, durable Executor records and restart/recovery command identity independent of follow-up presentation.
+- [ ] On abbreviation provide an accurate ready-to-execute SH command using the installed Executor CLI `Get <id>`; verify its exact invocation against the CLI, avoid rerunning the original command, and disclose the separate prompt-character safeguard.
+- [ ] Update relevant guidance, built-in example/default policy configuration, canonical parser and Agent regression tests. Do not change unrelated Low/Mid/High policy instruction content.
+- [ ] The owner-approved separate MEŽS Development policy already present on this branch continues to compose both instruction blocks and passes its focused tests.
 
 ## How
 
-Extend the canonical rich-tag registry and command candidate to carry validated SH attributes to the Agent Parser; restrict bare numeric attribute syntax to SH. The Agent Interpreter validates the timeout against the immutable effective policy and passes it through the existing Shell/Executor execution context. Apply per-result output limit only in AgentPromptBuilder, which already enforces the global 16,000-character cap. Do not introduce a second parser, a new Executor setting or a persistence migration.
+Keep the existing canonical rich-tag parser → Agent command Interpreter → Shell → Executor execution path. Revise prior character-based `limit` behavior to line-based filtering and preview formatting in the Agent result follow-up path only. Prevalidate attributes/regex before dispatch; avoid re-running commands to obtain previews. Resolve the existing CLI path and execution ID from runtime context when constructing recovery guidance. Reuse the Executor durable `Get` command and existing storage; do not introduce a second parser, persistent output copy, separate retrieval API or database migration.
+
+The current branch contains an earlier, superseded character-limit implementation and a subsequent owner-approved MEŽS Development policy. Development must reconcile existing code and tests with this **current** specification rather than treating the prior independent review PASS as approval of the revised behavior.
 
 ## Steps
 
-1. **Plan** — Record scope and limits on a task branch.
-2. **Development** — Implement parser → interpreter → shell/result-prompt flow, targeted tests and protocol documentation.
-3. **Code Review (independent)** — Verify authority, fail-closed parsing, timeout enforcement, output history and simplicity.
-4. **Testing** — Run parser, Agent protocol and relevant project tests, including live Executor checks where available.
-5. **Deploy** — Obtain owner approval before merging to main.
+1. **Plan** — Revise the authoritative plan and preserve prior implementation/review history in Changes.
+   - Done when: scope, policy fallback, preview/regex semantics and recovery behavior are documented.
+2. **Development** — Correct the implementation and tests against this plan, verify the real Executor CLI invocation, update branch-only guidance, and commit/push.
+   - Done when: relevant build/parser/Agent integration tests pass and revised behavior is evidenced.
+3. **Code Review (independent)** — Review the complete current feature branch, including the policy addition and revised SH behavior.
+   - Done when: independent PASS at an exact branch revision, or resolved FAIL/BLOCKED.
+4. **Testing (independent)** — Verify CLI retrieval, timeout and output scenarios on Windows and test regressions without disturbing the owner's running environment.
+   - Done when: independent results are recorded against the implementation SHA.
+5. **Deploy** — Present verification and obtain owner approval before any merge to `main`.
+   - Done when: owner authorizes release and deploy obligations are fulfilled.
 
 ## Verification
 
-Run `dotnet run --project tests/Mezhs.RichUi.TestApp`, `pwsh -File tests/agent-protocol-result.ps1` and `pwsh -File tests/policy-decoder.ps1` on the configured Windows host. Inspect durable Executor records for per-command timeout and untruncated output; verify malformed batches produce no shell records.
+Use Windows PowerShell 5.1 where `pwsh` is absent. Run `dotnet build src/Mezhs.Agent.Api/Mezhs.Agent.Api.csproj -c Release`, `dotnet run --project tests/Mezhs.RichUi.TestApp -c Release`, `powershell -NoProfile -ExecutionPolicy Bypass -File tests/policy-decoder.ps1`, and `powershell -NoProfile -ExecutionPolicy Bypass -File tests/agent-protocol-result.ps1`. Also verify the actual `Mezhs.Executor` CLI `Get` syntax and the emitted recovery command in an isolated environment. Include tests for missing defaults, override precedence, `limit=0`, exact threshold, exceeded threshold, small preview limits, regex zero/some/many matches, invalid regex, long lines, prompt safeguard, preserved durable output and exit codes. Record actual tests and evidence; do not infer end-to-end success from compilation.
 
 ## Changes
 
@@ -73,3 +101,11 @@ Run `dotnet run --project tests/Mezhs.RichUi.TestApp`, `pwsh -File tests/agent-p
 **Reason:** Workflow debugging found that the original development agent received a workflow pointer but began repository changes before reading the workflow. The dedicated policy requires workflow retrieval as the first development prerequisite.
 **Authority:** Owner approved the new policy, reviewed the full development-instructions text, and requested applying it on this feature branch.
 **Verification:** Additional policy decoder/bootstrap tests added; new policy revision requires build/testing and independent assessment. The prior Code Review PASS covers the earlier SH parameters implementation, not this subsequent policy change.
+
+### 2026-11-21 — Owner-approved revised SH requirements and renewed Planning
+
+**Change:** Replace character-based `limit` with line-based output selection, optional regex-before-limit filtering, first/last abbreviated previews, explicit full-record recovery via a generated Executor CLI `Get` command, and optional policy defaults (timeout 60 seconds and limit 0 when absent). Preserve one policy timeout setting rather than a separate maximum/default pair; update the implementation, Code Review and independent Testing steps accordingly.
+**Reason:** The owner clarified the ambiguous `limit` requirement and preferred the existing Executor CLI over a new retrieval API.
+**Authority:** Owner's follow-up decisions on `limit`, `limitStart`, `limitEnd`, `regex`, default values, and subsequent instruction to proceed with the agreed design.
+**Trade-off:** The existing separate Agent prompt-character safeguard can still abbreviate a large retrieved record; command guidance must not promise it bypasses that safeguard.
+**Supersedes:** The initial character-count interpretation, timeout-above-policy-max rule, related implementation acceptance criteria, and the earlier Code Review PASS as evidence for the **new** behavior. Keep the historical PASS recorded below as a review of its exact previous SHA.
