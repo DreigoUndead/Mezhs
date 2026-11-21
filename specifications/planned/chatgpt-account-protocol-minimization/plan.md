@@ -78,6 +78,21 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-22 — Independent Step 3 Code Review: bounded page-native Sentinel preparation (FAIL)
+
+**Reviewed:** Task branch at `80e4ad078138f5124e452f539ab38d9021a3f34c`, compared with approved `integration-architecture-v2` baseline `b8f25cff351aed34b3de2f7ef1483a01183a9049`. Inspected the injected Sentinel page hook, browser HTTP/transfer boundaries, account C# protocol and regression coverage. Remote parent later advanced to `52d1c88`; no parent reconciliation occurred.
+
+**Finding (medium; confirmed code path):** `nativeChatRequirementsHeaders` consumed a successful `/backend-api/sentinel/chat-requirements/prepare` response through unbounded page-side `response.json()`, outside the shared bounded HTTP reader and the previously corrected native auth/conduit JSON reader. The code permits arbitrary successful response buffering; no live provider outage or memory exhaustion is claimed.
+
+**Correction:** Replaced unbounded page-side JSON parsing with a 1 MiB incremental UTF-8 reader, early cancellation of unread bodies on overflow or parse/decoding failure, and explicit rejection when no incremental reader exists. Added redirect rejection and cancellation of rejected HTTP response bodies. Extended the existing VM-backed Rspack signature tests to use actual streaming `Response` objects, with a regression checking early cancellation and no preparation replay.
+
+**Verification (MEŽS host results):** 19/19 focused Node tests PASS; 73/73 expanded browser HTTP, signed-transfer, account, native Sentinel, conversation recovery and Electron operation/context tests PASS; `tests/chatgpt-account-protocol-flow.ps1` PASS; `tests/architecture.ps1` PASS; `Mezhs.Integration.Contracts.Probe` PASS; `dotnet build Mezhs.sln -c Release --no-restore -v quiet` PASS (0 errors, one previously documented WhatsApp CS0114 warning); `git diff --check` PASS. No isolated authenticated live ChatGPT/Chromium session, real provider signed transfer, or overlapping distinct-model/effort served selection was tested during this review.
+
+**Outcome: FAIL** under `.agents/code-review.md` because production code and regression tests were corrected. Hand off to a fresh independent Step 3 Code Reviewer before Step 4 Testing. Do not merge without explicit owner approval; authorized merge destination remains `integration-architecture-v2`, never `main`.
+
+**Authority:** Independent High-risk Step 3 Code Reviewer.
+
+
 ### 2026-11-21 — Independent Step 3 Code Review: bounded native JSON success responses (FAIL)
 
 **Reviewed:** Task branch at `bef2b5772ac1275dce9636545543d372928fd801`, compared with the approved `integration-architecture-v2` baseline `b8f25cff351aed34b3de2f7ef1483a01183a9049`. Confirmed earlier transport corrections and inspected the native ChatGPT account authentication, Sentinel/conduit preparation, incremental streaming, ordered operation events, signed transfers, C# protocol, and regression tests.

@@ -108,11 +108,39 @@ async function nativeChatRequirementsHeaders(window, session, token) {
             "Content-Type": "application/json",
             "OAI-Language": "en-US"
           },
-          body: JSON.stringify({ p: requirementsKey })
+          body: JSON.stringify({ p: requirementsKey }),
+          redirect: "error"
         });
-        if (!response.ok)
+        if (!response.ok) {
+          try { await response.body?.cancel?.(); } catch {}
           throw new Error("ChatGPT requirements prepare failed with HTTP " + response.status);
-        return response.json();
+        }
+        // Native page-side Sentinel response does not pass through the shared
+        // transport reader. Apply a bounded incremental read before parsing.
+        const reader = response.body?.getReader?.();
+        if (!reader)
+          throw new Error("ChatGPT requirements prepare requires an incremental body.");
+        const decoder = new TextDecoder("utf-8", { fatal: true });
+        let json = "";
+        let bytes = 0;
+        let completed = false;
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) { completed = true; break; }
+            bytes += value.byteLength;
+            if (bytes > 1024 * 1024)
+              throw new Error("ChatGPT requirements prepare response exceeded 1 MiB.");
+            json += decoder.decode(value, { stream: true });
+          }
+          json += decoder.decode();
+          return JSON.parse(json);
+        } finally {
+          if (!completed) {
+            try { await reader.cancel(); } catch {}
+          }
+          reader.releaseLock();
+        }
       });
       return {
         forceLogin: prepared?.chatRequirements?.force_login === true,

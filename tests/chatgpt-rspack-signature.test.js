@@ -10,7 +10,8 @@ const { nativeChatRequirementsHeaders: getNativeHeaders } = require(
 
 function testBrowser({ requirements, returnedHeaders, status = 200, providerAvailable = true,
   resourceNames = ["https://chatgpt.com/cdn/assets/manifest-currentbuild.js"],
-  providerResourceName = resourceNames[0], providerModuleId = "lXEa" }) {
+  providerResourceName = resourceNames[0], providerModuleId = "lXEa",
+  prepareResponse = null }) {
   const calls = [];
   const imports = [];
   let resourceVisible = true;
@@ -28,6 +29,7 @@ function testBrowser({ requirements, returnedHeaders, status = 200, providerAvai
   // One context represents one renderer document. Consecutive script executions
   // must share the same global object even when Resource Timing entries disappear.
   const context = vm.createContext({
+    TextDecoder,
     performance: { getEntriesByType: () => resourceVisible
       ? resourceNames.map(name => ({ name }))
       : [] },
@@ -37,11 +39,9 @@ function testBrowser({ requirements, returnedHeaders, status = 200, providerAvai
     },
     fetch: async (url, options) => {
       calls.push({ url, ...options });
-      return {
-        ok: status === 200,
-        status,
-        json: async () => requirements
-      };
+      return prepareResponse || new Response(JSON.stringify(requirements), {
+        status, headers: { "content-type": "application/json" }
+      });
     }
   });
   const window = { webContents: { executeJavaScript: async script => {
@@ -169,4 +169,28 @@ test("native requirements fail closed for missing final requirements headers", a
     /did not produce a requirements token/
   );
   assert.equal(calls.length, 1);
+});
+
+test("native Sentinel preparation rejects and cancels oversized successful response", async () => {
+  let cancelled = false;
+  let readCount = 0;
+  const body = new ReadableStream({
+    pull(controller) {
+      readCount++;
+      controller.enqueue(new Uint8Array(256 * 1024));
+    },
+    cancel() { cancelled = true; }
+  });
+  const { window, calls } = testBrowser({
+    requirements: {},
+    returnedHeaders: { "OpenAI-Sentinel-Chat-Requirements-Token": "not-used" },
+    prepareResponse: new Response(body, { status: 200 })
+  });
+  await assert.rejects(
+    getNativeHeaders(window, {}, "private-token"),
+    /ChatGPT requirements prepare response exceeded 1 MiB/
+  );
+  assert.equal(cancelled, true, "unread source must be cancelled");
+  assert.ok(readCount <= 8, "must stop reading near the 1 MiB limit");
+  assert.equal(calls.length, 1, "native preparation must not be replayed");
 });
