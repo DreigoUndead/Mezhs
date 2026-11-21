@@ -91,7 +91,7 @@ public sealed class AgentPromptBuilder(AgentOptions options, ExecutorService exe
                 {
                     var matcher = new Regex(pattern, RegexOptions.CultureInvariant,
                         ShellOutputOptions.MatchTimeout);
-                    selected = lines.Where(matcher.IsMatch).ToList();
+                    selected = lines.Where(line => matcher.IsMatch(line)).ToList();
                 }
                 catch (RegexMatchTimeoutException)
                 {
