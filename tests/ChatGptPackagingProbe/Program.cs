@@ -89,7 +89,7 @@ var node = new ProcessStartInfo("node")
     UseShellExecute = false
 };
 node.ArgumentList.Add("-e");
-node.ArgumentList.Add("const assert = require('node:assert/strict'); const m = require(process.argv[1]); assert.equal(m.name, 'ChatGPT'); for (const op of ['getModels','getProjects','newChat','send','sendPrompt']) assert.equal(typeof m.operations[op], 'function'); console.log('NATIVE_REQUIRE_OK');");
+node.ArgumentList.Add("const assert = require('node:assert/strict'); const m = require(process.argv[1]); assert.equal(m.name, 'ChatGPT'); for (const op of ['typedHttp','newChat','send','sendPrompt','stopGeneration']) assert.equal(typeof m.operations[op], 'function'); console.log('NATIVE_REQUIRE_OK');");
 node.ArgumentList.Add(entry);
 using var process = Process.Start(node) ?? throw new Exception("Could not launch Node.");
 var output = process.StandardOutput.ReadToEnd();
