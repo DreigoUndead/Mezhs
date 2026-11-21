@@ -68,14 +68,22 @@ class StreamFramer {
   async write(bytes, final = false) {
     const text = typeof bytes === "string"
       ? bytes : this.decoder.decode(bytes || new Uint8Array(0), { stream: !final });
-    this.pending += text;
-    if (Buffer.byteLength(this.pending, "utf8") > MAX_FRAME_BYTES)
-      throw new Error("Browser HTTP stream frame exceeded 256 KiB.");
-    let newline;
-    while ((newline = this.pending.indexOf("\n")) >= 0) {
-      const line = this.pending.slice(0, newline).replace(/\r$/, "");
-      this.pending = this.pending.slice(newline + 1);
+    // A transport read may contain hundreds of small events. Bound each
+    // incomplete frame, not the aggregate number of frames in one read.
+    let cursor = 0;
+    while (cursor < text.length) {
+      const newline = text.indexOf("\n", cursor);
+      const end = newline < 0 ? text.length : newline;
+      const fragment = text.slice(cursor, end);
+      if (Buffer.byteLength(this.pending, "utf8") +
+          Buffer.byteLength(fragment, "utf8") > MAX_FRAME_BYTES)
+        throw new Error("Browser HTTP stream frame exceeded 256 KiB.");
+      this.pending += fragment;
+      if (newline < 0) break;
+      const line = this.pending.replace(/\r$/, "");
+      this.pending = "";
       await this.line(line);
+      cursor = newline + 1;
     }
     if (final) {
       if (this.pending) await this.line(this.pending.replace(/\r$/, ""));
