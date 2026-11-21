@@ -179,6 +179,41 @@ const INTEGRITY_STATE_PATTERN =
   /^ois1\.[A-Za-z0-9_-]+\.([A-Za-z0-9_-]{16})\.[A-Za-z0-9_-]+$/;
 const INTEGRITY_STATE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
+// Error bodies are untrusted and can be arbitrarily large. Only a small,
+// explicitly validated provider code is needed for recovery decisions.
+const MAX_ERROR_BODY_BYTES = 64 * 1024;
+async function safeProviderErrorCode(response) {
+  const reader = response.body?.getReader?.();
+  if (!reader) return null;
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let body = "";
+  let length = 0;
+  let completed = false;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) { completed = true; break; }
+      length += value.byteLength;
+      if (length > MAX_ERROR_BODY_BYTES) return null;
+      body += decoder.decode(value, { stream: true });
+    }
+    body += decoder.decode();
+    const parsed = JSON.parse(body);
+    const code = parsed?.detail?.code ?? parsed?.code;
+    return typeof code === "string" && /^[a-z0-9_-]{1,80}$/i.test(code)
+      ? code : null;
+  } catch {
+    // Invalid/malformed error bodies preserve HTTP status without exposing data.
+    return null;
+  } finally {
+    if (!completed) {
+      try { await reader.cancel(); }
+      catch { /* Preserve the HTTP status and discard private response data. */ }
+    }
+    reader.releaseLock();
+  }
+}
+
 async function apiFetch(session, token, endpoint, options = {}) {
   const accountId = accountIds.get(session);
   const headers = {
@@ -201,15 +236,7 @@ async function apiFetch(session, token, endpoint, options = {}) {
 
   if (response.ok) return response;
 
-  let providerCode = null;
-  try {
-    const error = await response.json();
-    const code = error?.detail?.code ?? error?.code;
-    if (typeof code === "string" && /^[a-z0-9_-]{1,80}$/i.test(code))
-      providerCode = code;
-  } catch {
-    // Non-JSON errors still retain HTTP status without retaining private response bodies.
-  }
+  const providerCode = await safeProviderErrorCode(response);
   throw Object.assign(
     new Error(`ChatGPT ${endpoint} failed with HTTP ${response.status}`),
     {
