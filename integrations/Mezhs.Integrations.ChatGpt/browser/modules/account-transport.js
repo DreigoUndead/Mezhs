@@ -193,7 +193,9 @@ async function apiFetch(session, token, endpoint, options = {}) {
     ...options,
     headers,
     credentials: "include",
-    cache: "no-store"
+    cache: "no-store",
+    // Never forward Bearer/account/integrity headers to a redirect target.
+    redirect: "error"
   });
   await applyIntegrityStateUpdate(session, response.headers);
 
