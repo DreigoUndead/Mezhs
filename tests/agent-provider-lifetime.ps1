@@ -6,15 +6,19 @@ function Read-Source([string] $relativePath) {
     return [System.IO.File]::ReadAllText((Join-Path $root $relativePath))
 }
 
-$chatGpt = Read-Source 'integrations\Mezhs.Integrations.ChatGpt\browser\modules\account-messages.js'
-if ($chatGpt.Contains('canUseNativeSend') -or
-    $chatGpt.Contains('sendNativeAccountMessage') -or
+$chatGpt = Read-Source 'integrations\Mezhs.Integrations.ChatGpt\ChatGptAccountProtocol.cs'
+$integration = Read-Source 'integrations\Mezhs.Integrations.ChatGpt\ChatGptIntegration.cs'
+$entry = Read-Source 'integrations\Mezhs.Integrations.ChatGpt\browser\modules\entry.js'
+if ($chatGpt.Contains('sendNativeAccountMessage') -or
     $chatGpt.Contains('observeNativeConversationRequest') -or
-    $chatGpt.Contains('waitForNativeConversationId')) {
-    throw 'ChatGPT account sending must not depend on the browser UI/debugger path.'
+    $chatGpt.Contains('waitForNativeConversationId') -or
+    $entry.Contains('sendAccountMessage') -or $entry.Contains('newChat(context)') -or
+    $entry.Contains('send(context)')) {
+    throw 'ChatGPT Account must not retain a parallel JavaScript send protocol.'
 }
-if (-not $chatGpt.Contains('return sendApiAccountMessage(context, isNew, token, selection);')) {
-    throw 'ChatGPT account sending must use the semantic API path.'
+if (-not $chatGpt.Contains('http.CallStreamAsync(') -or
+    -not $integration.Contains('ChatGptAccountProtocol.SendAsync(')) {
+    throw 'ChatGPT Account sending must use the C# typed semantic streaming API.'
 }
 
 $policyModels = Read-Source 'src\Mezhs.Agent.Api\Policy\PolicyModels.cs'
