@@ -204,3 +204,15 @@ Use Windows PowerShell 5.1 where `pwsh` is absent. Run `dotnet build src/Mezhs.A
 **Verification (isolated Windows worktree `D:\\Projects\\Mezhs-sh-parameters-verify`, exact commit `52faa549`):** 9382 fast-forwarded a clean branch; 9383 Agent API Release build PASS (0 warnings, 0 errors); 9384 Rich UI TestApp PASS (108/108, including the new rejects); 9386 `tests/policy-decoder.ps1` PASS; 9387 `tests/agent-protocol-result.ps1` PASS, including rejected-batch no-side-effects and live regex/line preview, durable `Get` recovery, timeout precedence/enforcement, ordered shells, and error continuation. The live integration suite did not add a separate filesystem side-effect case for the newly rejected bare regex; canonical parser regression directly verifies its batch rejection.
 
 **Remaining:** Fresh independent Code Review (step 3), then follow the role transition defined in this plan. No merge to `main` without owner approval.
+
+### 2026-11-22 - Independent Code Review 3: PASS at 52faa54
+
+**Outcome:** PASS for implementation revision `52faa549108d1637e3e3883014840bab977e4fed`. No confirmed blocking defect or corrective implementation change was identified.
+
+**Scope:** Reviewed the complete feature change against the current plan and base, including canonical rich-tag SH parsing and inert UI boundaries, pre-dispatch validation, command timeout resolution, optional policy defaults, Development policy instruction composition, regex-before-line-limit previews, durable Executor results, executable `Get` recovery, guidance and regression coverage. The newer regex validation rejects missing and non-string values while accepting an explicitly empty quoted regex. No previously settled architecture decision was reopened.
+
+**Independent verification on Windows at the reviewed SHA:** MEZS runtime execution 9402: Agent API Release build PASS (0 warnings, 0 errors); 9403: Rich UI suite PASS 108/108; 9404: policy-decoder and shell suite PASS; 9405: isolated live Agent protocol suite PASS, including rejected batches without side effects, timeout override and enforcement, preview/recovery using Executor `Get`, multi-command ordering, errors and continuation. Execution 9411: Codegraph impact analysis completed, no broken Markdown links; `git diff --check` PASS. Local and remote feature HEAD matched and the worktree was clean before this documentation entry (9409, 9414).
+
+**Limitations:** No independent forced pathological-regex timeout or production-instance test was performed. The accepted separate 16000-character model-prompt safeguard remains in effect for retrieved records. This Code Review does not replace independent Testing.
+
+**Next:** Independent Testing (plan step 4) at the reviewed implementation SHA, followed by Deploy only with explicit owner merge approval. No merge into `main` was performed.
