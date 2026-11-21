@@ -1,3 +1,4 @@
+using System.Net;
 using Mezhs.Browser;
 
 namespace Mezhs.Integrations.Browser;
@@ -33,7 +34,7 @@ public sealed class BrowserHttpExecutor(IChatBrowserTransport transport)
         transport.InvokeWithProgressAsync<BrowserBinaryTransferResult>(
             "binaryTransfer", request, reportProgress, cancellationToken);
 
-    public Task<HttpTransportResponse> CallStreamAsync<TRequest, TResponse>(
+    public async Task<HttpTransportResponse> CallStreamAsync<TRequest, TResponse>(
         HttpEndpoint<TRequest, TResponse> endpoint,
         TRequest? request,
         Action<string> onEvent,
@@ -41,20 +42,38 @@ public sealed class BrowserHttpExecutor(IChatBrowserTransport transport)
         object? nativeArgs = null,
         string? turnMessageId = null,
         Action<BrowserOperationProgress>? reportProgress = null,
-        CancellationToken cancellationToken = default) =>
-        _http.CallStreamAsync(endpoint, request, onEvent,
-            nativeHook, nativeArgs, turnMessageId,
-            progress => reportProgress?.Invoke(new BrowserOperationProgress(
-                progress.State, progress.Detail)), cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _http.CallStreamAsync(endpoint, request, onEvent,
+                nativeHook, nativeArgs, turnMessageId,
+                progress => reportProgress?.Invoke(new BrowserOperationProgress(
+                    progress.State, progress.Detail)), cancellationToken);
+        }
+        catch (IntegrationHttpException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            throw new BrowserAuthorizationRequiredException("Browser session authorization has expired.");
+        }
+    }
 
-    public Task<TResponse> CallAsync<TRequest, TResponse>(
+    public async Task<TResponse> CallAsync<TRequest, TResponse>(
         HttpEndpoint<TRequest, TResponse> endpoint,
         TRequest? request,
         Action<BrowserOperationProgress>? reportProgress = null,
-        CancellationToken cancellationToken = default) =>
-        _http.CallAsync(endpoint, request,
-            progress => reportProgress?.Invoke(new BrowserOperationProgress(
-                progress.State, progress.Detail)), cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _http.CallAsync(endpoint, request,
+                progress => reportProgress?.Invoke(new BrowserOperationProgress(
+                    progress.State, progress.Detail)), cancellationToken);
+        }
+        catch (IntegrationHttpException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            throw new BrowserAuthorizationRequiredException("Browser session authorization has expired.");
+        }
+    }
 }
 
 public sealed record BrowserBinaryTransferRequest(
