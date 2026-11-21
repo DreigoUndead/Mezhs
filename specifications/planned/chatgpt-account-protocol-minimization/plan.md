@@ -78,6 +78,14 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-21 — Fresh independent Plan Review PASS for the JS-first design
+
+**Change:** Step 1 independent Plan Review PASS against task branch revision `e87dfdcc81e50b89d471b3d1c5bca64fb83eebb0`, after the ordered-stream-event and bounded-transfer corrections. Development may proceed on this task branch under the revised majority-JavaScript-removal acceptance criteria.
+**Reason:** Reviewed the updated plan, workflow, integration architecture and existing ChatGPT Account JS/C# plus typed HTTP and Electron transport contracts. The plan preserves single browser/session ownership, authenticated native security preparation, non-replayable submissions, per-chat concurrency and retained model-preference behavior. It explicitly requires request-active, ordered and bounded event delivery independent of best-effort progress snapshots; bounded, credential-separated file transfers and redirect checks; transparent account-specific versus shared code accounting; and relevant failure, Chromium and integration testing. No remaining blocking plan defect was identified.
+**Authority:** Fresh independent Plan Reviewer following `.agents/plan-review.md`, against parent baseline `b8f25cff351aed34b3de2f7ef1483a01183a9049`.
+**Trade-off:** This PASS validates the proposed approach, not implemented security or compatibility. The specific transport design, quantitative JS removal, no-loss event delivery and authorized live-provider behavior must be demonstrated during Development, Code Review and Testing. The eventual merge destination remains `integration-architecture-v2` and requires explicit owner approval.
+
+
 ### 2026-11-21 - Independent review: ordered event delivery and bounded file transfer
 
 **Change:** Clarified that incremental protocol events need a bounded, ordered, non-coalescing delivery path to C# rather than the Electron latest-progress snapshot; explicitly require frame-boundary, overflow and cancellation checks. Clarified cross-origin credential separation, redirect validation and bounded file I/O with security regression tests.
