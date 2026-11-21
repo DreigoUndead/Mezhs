@@ -339,7 +339,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     $recoveryObject = ConvertFrom-Json $recoveryText.Groups[1].Value
     $recovery = [string]$recoveryObject[0].recoveryCommand
     $expectedShellId = [string]($boundedShells[0].executionId)
-    if (-not $recovery.StartsWith('<SH limit=0>') -or
+    if (-not $recovery.StartsWith('<SH limit=0 regex="">') -or
         -not $recovery.EndsWith((' Get ' + $expectedShellId + '</SH>'))) {
         throw "Missing complete executable Executor Get recovery command (expected ID=$expectedShellId): $recovery"
     }
