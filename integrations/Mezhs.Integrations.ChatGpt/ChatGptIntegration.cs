@@ -147,9 +147,24 @@ public sealed class ChatGptAccountIntegration : BrowserAccountIntegrationBase
         if (string.IsNullOrWhiteSpace(projectName))
             return null;
 
-        var projects = await transport.InvokeAsync<ChatGptProject[]>(
-            "getProjects",
-            cancellationToken: cancellationToken);
+        var executor = new BrowserHttpExecutor(transport);
+        var projects = new List<ChatGptProject>();
+        string? cursor = null;
+        do
+        {
+            var page = await executor.CallAsync(
+                ChatGptTypedHttpEndpoints.Projects(cursor), request: null,
+                cancellationToken: cancellationToken);
+            foreach (var item in page.Items ?? [])
+            {
+                var project = item.Gizmo?.Gizmo ?? item.Gizmo;
+                var id = project?.Id ?? "";
+                var name = project?.Display?.Name?.Trim() ?? "";
+                if (id.StartsWith("g-p-", StringComparison.Ordinal) && name.Length > 0)
+                    projects.Add(new ChatGptProject(id, name));
+            }
+            cursor = string.IsNullOrEmpty(page.Cursor) ? null : page.Cursor;
+        } while (cursor is not null);
         var matches = projects
             .Where(project => project.Name.Equals(
                 projectName.Trim(),
