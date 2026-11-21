@@ -6,13 +6,10 @@ const path = require("node:path");
 
 const browser = path.resolve(__dirname, "../integrations/Mezhs.Integrations.ChatGpt/browser");
 const modules = path.join(browser, "modules");
-const names = [
-  "account-files.js", "account-messages.js", "account-models.js", "account-results.js",
-  "account-stream.js", "account-transport.js", "entry.js", "guest.js"
-];
-const operationNames = ["newChat", "send", "sendPrompt", "stopGeneration", "typedHttp"];
+const names = ["account-transport.js", "entry.js", "guest.js"];
+const operationNames = ["sendPrompt", "stopGeneration"];
 
-test("ChatGPT deploys only the eight original CommonJS modules", () => {
+test("ChatGPT deploys only the three required browser-native modules", () => {
   assert.deepEqual(fs.readdirSync(modules).filter(name => name.endsWith(".js")).sort(), names);
   assert.equal(fs.existsSync(path.join(browser, "chatgpt.ts")), false);
   assert.equal(fs.existsSync(path.join(browser, "build.js")), false);
@@ -34,6 +31,12 @@ test("ChatGPT CommonJS modules load in an isolated directory with native require
     assert.deepEqual(Object.keys(packaged.operations).sort(), operationNames);
     assert.deepEqual(Object.keys(modular.operations).sort(), operationNames);
     for (const operation of operationNames) assert.equal(typeof packaged.operations[operation], "function");
+    assert.equal(typeof packaged.http.fetch, "function");
+    assert.equal(typeof packaged.http.nativeHooks.chatgptTurn, "function");
+    assert.equal(typeof packaged.transfer.sameOriginDownload, "function");
+    assert.equal(packaged.operations.send, undefined);
+    assert.equal(packaged.operations.newChat, undefined);
+    assert.equal(packaged.operations.typedHttp, undefined);
     assert.throws(() => {
       fs.rmSync(path.join(temp, "account-transport.js"));
       for (const file of Object.keys(require.cache).filter(file => file.startsWith(temp + path.sep)))
