@@ -13,7 +13,9 @@ public sealed record HttpEndpoint<TRequest, TResponse>(
     string Path,
     HttpResultFormat Format = HttpResultFormat.Json,
     Func<string, TResponse>? Interpret = null,
-    string? Accept = null);
+    string? Accept = null,
+    string? NativeHook = null,
+    object? NativeArgs = null);
 
 public sealed record HttpTransportRequest(
     string Method, string Path, string? Body, string? Accept,
@@ -78,11 +80,13 @@ public sealed class IntegrationHttpClient(
             throw new ArgumentException("GET endpoints do not accept request bodies.", nameof(request));
         if (endpoint.Accept is not null && (endpoint.Accept.Contains('\r') || endpoint.Accept.Contains('\n')))
             throw new ArgumentException("Accept must not contain line breaks.", nameof(endpoint));
-        var body = method == "GET" ? null : JsonSerializer.Serialize(request, JsonOptions);
+        var body = method == "GET" || request is null
+            ? null : JsonSerializer.Serialize(request, JsonOptions);
         cancellationToken.ThrowIfCancellationRequested();
 
         // Exactly one transport invocation. A failed or ambiguous mutation is never replayed.
-        var response = await execute(new HttpTransportRequest(method, endpoint.Path, body, endpoint.Accept),
+        var response = await execute(new HttpTransportRequest(method, endpoint.Path, body, endpoint.Accept,
+                NativeHook: endpoint.NativeHook, NativeArgs: endpoint.NativeArgs),
             reportProgress, cancellationToken);
         if (response.StatusCode is < 200 or >= 300)
             throw new IntegrationHttpException(method, endpoint.Path, response.StatusCode,
