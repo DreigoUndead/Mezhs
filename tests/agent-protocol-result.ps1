@@ -338,9 +338,10 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     if (-not $recoveryText.Success) { throw 'Could not locate command-result JSON for recovery.' }
     $recoveryObject = ConvertFrom-Json $recoveryText.Groups[1].Value
     $recovery = [string]$recoveryObject[0].recoveryCommand
-    if ($recovery -notmatch '(?s)^<SH limit=0 regex="\.\*">(.+)</SH>$' -or
-        $recovery -notmatch (' Get ' + $boundedShells[0].executionId + '</SH>$')) {
-        throw "Missing complete executable Executor Get recovery command: $recovery"
+    $expectedShellId = [string]$boundedShells[0].executionId
+    if (-not $recovery.StartsWith('<SH limit=0>') -or
+        -not $recovery.EndsWith((' Get ' + $expectedShellId + '</SH>'))) {
+        throw "Missing complete executable Executor Get recovery command (expected ID=$expectedShellId): $recovery"
     }
     $retrieval = [regex]::Match($recovery, '(?s)^<SH[^>]*>(.*)</SH>$').Groups[1].Value
     $retrieved = (& cmd.exe /d /c $retrieval 2>&1 | Out-String)
