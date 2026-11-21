@@ -131,12 +131,21 @@ Check(individuallyOptional.Commands.SequenceEqual([
       new Command("SH", "echo B", 12)]),
       "Independent SH parameters did not parse.");
 Reject(parser, "<SH timeout=0>echo NO</SH>", "Zero timeout was accepted.");
-Reject(parser, "<SH limit=0>echo NO</SH>", "Zero output limit was accepted.");
+Check(parser.Parse("<SH limit=0>echo YES</SH>").Commands.Single().OutputLimit == 0,
+      "limit=0 must disable line abbreviation.");
 Reject(parser, "<SH timeout=-1>echo NO</SH>", "Negative timeout was accepted.");
 Reject(parser, "<SH timeout=1.5>echo NO</SH>", "Fractional timeout was accepted.");
 Reject(parser, "<SH timeout=abc>echo NO</SH>", "Non-numeric timeout was accepted.");
 Reject(parser, "<SH timeout=9999999999999>echo NO</SH>", "Overflow timeout was accepted.");
 Reject(parser, "<SH timeout=1 timeout=2>echo NO</SH>", "Duplicate timeout was accepted.");
+Reject(parser, "<SH regex=\"[\">echo NO</SH>", "Invalid regex syntax was accepted.");
+Reject(parser, "<SH limitStart=-1>echo NO</SH>", "Negative preview start was accepted.");
+Reject(parser, "<SH limitEnd=xyz>echo NO</SH>", "Non-numeric preview end was accepted.");
+Reject(parser, "<SH regex=\"a\" regex=\"b\">echo NO</SH>", "Duplicate regex was accepted.");
+var allParameters = parser.Parse("before <SH timeout=4 limit=3 limitStart=2 limitEnd=1 regex=\"error|warning\">echo HI</SH> after");
+Check(allParameters.Commands.SequenceEqual([new Command("SH", "echo HI", 4, 3, 2, 1, "error|warning")]) &&
+      allParameters.VisibleContent == "before  after",
+      "Five SH parameters or source-span handling failed.");
 Reject(parser, "<SH unexpected=1>echo NO</SH>", "Unknown SH parameter was accepted.");
 Reject(parser, "<ATTACH limit=1>file</ATTACH>", "ATTACH gained SH parameters.");
 Check(parser.Parse("<box><SH timeout=1>INERT</SH></box><SH limit=5>ROOT</SH>")
@@ -278,7 +287,8 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     }
 
     Assert-RejectedBatch 'invalid-command' '<SH bad="evil">echo NEVER</SH>'
-    Assert-RejectedBatch 'timeout-over-policy' '<SH timeout=999999>echo NEVER</SH>'
+    Assert-RejectedBatch 'invalid-regex' '<SH regex="[">echo NEVER</SH>'
+    Assert-RejectedBatch 'explicit-preview-over-limit' '<SH limit=2 limitStart=2 limitEnd=1>echo NEVER</SH>'
     Assert-RejectedBatch 'empty-shell' "<SH>`n `n</SH>"
     Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"
     Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"
@@ -301,25 +311,448 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     Assert-InlineExecuted 'prose' 'before ' ' after '
     Assert-InlineExecuted 'markdown-fence' ('```text' + "`n") ("`n" + '```')
 
-    # Positive SH parameters execute once; output is truncated only in the model prompt.
-    $boundedTask = '<SH timeout=2 limit=5>echo RESULT_123456789</SH>'
+    # Positive SH parameters execute once; regex selection precedes the line preview.
+    $boundedTask = '<SH timeout=4 limit=3 limitStart=2 limitEnd=1 regex="RESULT_">echo RESULT_1 & echo RESULT_2 & echo RESULT_3 & echo RESULT_4 & echo RESULT_5 & echo RESULT_6 & echo RESULT_7 & echo RESULT_8</SH>'
     $boundedRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence-auto'; input = $boundedTask })
     $boundedOutcome = Wait-Execution $boundedRun.executionId 20
     $boundedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($boundedOutcome.chatId)/executions")
     $boundedShells = @($boundedHistory | Where-Object { $_.kind -eq 'Shell' })
     if ($boundedOutcome.status -ne 'Completed' -or $boundedShells.Count -ne 1 -or
         $boundedShells[0].status -ne 'Completed' -or
-        $boundedShells[0].result -notmatch 'RESULT_123456789') {
+        $boundedShells[0].result -notmatch 'RESULT_3' -or
+        $boundedShells[0].result -notmatch 'RESULT_8') {
         throw "Positive SH timeout/limit did not execute or preserve complete durable output."
     }
     $boundedMessages = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($boundedOutcome.chatId)/messages")
     $boundedPrompts = @($boundedMessages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'user' -and $_.content -match 'Command results JSON:' })
     if ($boundedPrompts.Count -ne 1 -or
-        -not $boundedPrompts[0].content.Contains('command result truncated in prompt') -or
-        $boundedPrompts[0].content.Contains('RESULT_123456789')) {
-        throw "SH limit failed to truncate only the follow-up prompt."
+        -not $boundedPrompts[0].content.Contains('line preview') -or
+        -not $boundedPrompts[0].content.Contains('RESULT_1') -or
+        -not $boundedPrompts[0].content.Contains('RESULT_8') -or
+        $boundedPrompts[0].content.Contains('RESULT_3') -or
+        -not $boundedPrompts[0].content.Contains('5 omitted')) {
+        throw "SH regex/limit failed to abbreviate only the follow-up prompt."
     }
-    Write-Host 'PASS: SH timeout=2 limit=5 executed, limited model prompt, preserved full durable output.'
+    $recoveryText = [regex]::Match($boundedPrompts[0].content,
+        '(?s)Command results JSON:\s*(\[.*?\])\s*Continue the assigned deterministic test task')
+    if (-not $recoveryText.Success) { throw 'Could not locate command-result JSON for recovery.' }
+    $recoveryObject = ConvertFrom-Json $recoveryText.Groups[1].Value
+    $recovery = [string]$recoveryObject[0].recoveryCommand
+    if ($recovery -notmatch '(?s)^<SH limit=0 regex="\.\*">(.+)</SH>
+
+    # A shorter per-command timeout must be enforced by Executor.
+    $timeoutTask = '<SH timeout=1>powershell -NoProfile -Command "Start-Sleep -Seconds 4"</SH>'
+    $timeoutRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $timeoutTask })
+    $timeoutOutcome = Wait-Execution $timeoutRun.executionId 20
+    $timeoutHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($timeoutOutcome.chatId)/executions")
+    $timeoutShells = @($timeoutHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+    if ($timeoutOutcome.status -ne 'Completed' -or $timeoutShells.Count -ne 1 -or
+        $timeoutShells[0].status -ne 'TimedOut' -or
+        $timeoutShells[0].error -notmatch 'timed out after 1') {
+        throw "SH timeout=1 was not enforced by Executor: $($timeoutHistory | ConvertTo-Json -Depth 6 -Compress)"
+    }
+    Write-Host 'PASS: SH timeout=1 reaches Executor and terminates a longer command.'
+
+    $orderedFile = Join-Path $temp 'ordered-batch.txt'
+    $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
+    $orderedCreated = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
+        -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $orderedTask })
+    $orderedResult = Wait-Execution $orderedCreated.executionId 20
+    if ($orderedResult.status -ne 'Completed') {
+        throw "Valid ordered SH + SH + DONE failed: $($orderedResult.status), $($orderedResult.error)"
+    }
+    $orderedLines = @(Get-Content -LiteralPath $orderedFile)
+    if ($orderedLines.Count -ne 2 -or $orderedLines[0] -ne 'FIRST' -or $orderedLines[1] -ne 'SECOND') {
+        throw "Valid batch did not run exactly once in order: $($orderedLines -join ', ')"
+    }
+    $orderedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($orderedResult.chatId)/executions")
+    $orderedShells = @($orderedHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' } | Sort-Object commandIndex)
+    if ($orderedShells.Count -ne 2 -or $orderedShells[0].commandIndex -ne 0 -or
+        $orderedShells[1].commandIndex -ne 1 -or
+        $orderedShells[0].executionId -eq $orderedShells[1].executionId -or
+        @($orderedShells | Where-Object { $_.status -ne 'Completed' }).Count -ne 0) {
+        throw "Valid batch lost shell ordering, unique durable IDs, or success: $($orderedHistory | ConvertTo-Json -Depth 6 -Compress)"
+    }
+    Write-Host 'PASS: Valid two-shell batch executes exactly once in order with durable IDs and command indices.'
+
+    $partialFile = Join-Path $temp 'partial-results.txt'
+    $firstShell = 'echo EARLIER>>' + [char]34 + $partialFile + [char]34
+    $partialTask = '<SH>' + [char]10 + $firstShell + [char]10 + '</SH>' + [char]10 + '<SH>' + [char]10 + 'exit /b 37' + [char]10 + '</SH>'
+    $partialCreated = Invoke-RestMethod -Method Post -Uri ($base + '/v1/executions') -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence-auto'; input = $partialTask })
+    $partialResult = Wait-Execution $partialCreated.executionId 20
+    if ($partialResult.status -ne 'Completed') { throw 'Failure-result batch did not finish.' }
+    $partialLines = @(Get-Content -LiteralPath $partialFile)
+    $partialHistory = @(Invoke-RestMethod -Uri ($base + '/v1/agent-chats/' + $partialResult.chatId + '/executions'))
+    $partialShells = @($partialHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' } | Sort-Object commandIndex)
+    if ($partialLines.Count -ne 1 -or $partialShells.Count -ne 2 -or $partialShells[0].status -ne 'Completed' -or $partialShells[1].status -ne 'Failed') {
+        throw 'Partial failure lost exactly-once execution or durable shell records.'
+    }
+    $partialMessages = @(Invoke-RestMethod -Uri ($base + '/v1/agent-chats/' + $partialResult.chatId + '/messages'))
+    $partialPrompts = @($partialMessages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'user' -and $_.content -match 'Command results JSON:' })
+    if ($partialPrompts.Count -ne 1 -or -not $partialPrompts[0].content.Contains($partialShells[0].executionId) -or
+        -not $partialPrompts[0].content.Contains($partialShells[1].executionId)) {
+        throw 'Partial failure did not communicate both actual shell results and durable IDs to the agent.'
+    }
+    Write-Host 'PASS: Later shell failure preserves earlier result and communicates both durable execution IDs.'
+
+    $task = @'
+<SH>
+echo SAME_TURN_DONE_OK
+</SH>
+VISIBLE_FINAL_RESULT
+<DONE>
+'@
+    $created = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
+        -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $task })
+    $completed = Wait-Execution $created.executionId 20
+    if ($completed.status -ne 'Completed') {
+        throw "SH + DONE execution did not complete: status=$($completed.status), error=$($completed.error)"
+    }
+    if ($completed.result -notmatch 'VISIBLE_FINAL_RESULT') {
+        throw "Agent durable result lost the visible final conclusion: $($completed.result)"
+    }
+    if ($completed.result -match 'echo SAME_TURN_DONE_OK') {
+        throw "Agent durable result contains executable protocol instead of only visible assistant content: $($completed.result)"
+    }
+
+    $messages = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($completed.chatId)/messages")
+    $assistantMessages = @($messages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'assistant' })
+    if ($assistantMessages.Count -ne 1) {
+        throw "SH + DONE required another assistant turn instead of completing immediately. Assistant turns=$($assistantMessages.Count)"
+    }
+
+    $executions = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($completed.chatId)/executions")
+    $shells = @($executions | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+    if ($shells.Count -ne 1 -or $shells[0].status -ne 'Completed' -or $shells[0].result -notmatch 'SAME_TURN_DONE_OK') {
+        $observed = $executions | ConvertTo-Json -Depth 6 -Compress
+        throw "Same-turn completion did not retain successful Executor evidence. Observed: $observed"
+    }
+
+    $continuedTask = @'
+<SH>
+echo CONTINUED_RESULT_OK
+</SH>
+FIRST_VISIBLE_RESULT
+'@
+    $continuedCreated = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
+        -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence-auto'; input = $continuedTask })
+    $continued = Wait-Execution $continuedCreated.executionId 20
+    if ($continued.status -ne 'Completed') {
+        throw "Continued execution did not complete: status=$($continued.status), error=$($continued.error)"
+    }
+    if ($continued.result -notmatch 'FIRST_VISIBLE_RESULT') {
+        throw "Agent durable result lost visible output from the pre-continuation turn: $($continued.result)"
+    }
+    if ($continued.result -match 'echo CONTINUED_RESULT_OK') {
+        throw "Aggregated Agent result contains executable SH protocol: $($continued.result)"
+    }
+
+    $continuedMessages = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($continued.chatId)/messages")
+    $continuedAssistantMessages = @($continuedMessages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'assistant' })
+    if ($continuedAssistantMessages.Count -lt 2) {
+        throw "Continuation-result regression did not actually cross an assistant command-result turn. Assistant turns=$($continuedAssistantMessages.Count)"
+    }
+
+    Write-Host 'PASS: Same-turn completion and command-result continuation both preserve protocol-stripped visible Agent results.'
+}
+finally {
+    if ($null -ne $agent -and -not $agent.HasExited) {
+        Stop-Process -Id $agent.Id -Force
+        $agent.WaitForExit()
+    }
+    if (Test-Path -LiteralPath $agentOut) {
+        Write-Host "AGENT STDOUT (last 50 lines):"
+        Get-Content -LiteralPath $agentOut -Tail 50 | ForEach-Object { Write-Host $_ }
+    }
+    if (Test-Path -LiteralPath $agentErr) {
+        Write-Host "AGENT STDERR (last 50 lines):"
+        Get-Content -LiteralPath $agentErr -Tail 50 | ForEach-Object { Write-Host $_ }
+    }
+    Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+} -or
+        $recovery -notmatch (' Get ' + $boundedShells[0].executionId + '</SH>
+
+    # A shorter per-command timeout must be enforced by Executor.
+    $timeoutTask = '<SH timeout=1>powershell -NoProfile -Command "Start-Sleep -Seconds 4"</SH>'
+    $timeoutRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $timeoutTask })
+    $timeoutOutcome = Wait-Execution $timeoutRun.executionId 20
+    $timeoutHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($timeoutOutcome.chatId)/executions")
+    $timeoutShells = @($timeoutHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+    if ($timeoutOutcome.status -ne 'Completed' -or $timeoutShells.Count -ne 1 -or
+        $timeoutShells[0].status -ne 'TimedOut' -or
+        $timeoutShells[0].error -notmatch 'timed out after 1') {
+        throw "SH timeout=1 was not enforced by Executor: $($timeoutHistory | ConvertTo-Json -Depth 6 -Compress)"
+    }
+    Write-Host 'PASS: SH timeout=1 reaches Executor and terminates a longer command.'
+
+    $orderedFile = Join-Path $temp 'ordered-batch.txt'
+    $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
+    $orderedCreated = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
+        -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $orderedTask })
+    $orderedResult = Wait-Execution $orderedCreated.executionId 20
+    if ($orderedResult.status -ne 'Completed') {
+        throw "Valid ordered SH + SH + DONE failed: $($orderedResult.status), $($orderedResult.error)"
+    }
+    $orderedLines = @(Get-Content -LiteralPath $orderedFile)
+    if ($orderedLines.Count -ne 2 -or $orderedLines[0] -ne 'FIRST' -or $orderedLines[1] -ne 'SECOND') {
+        throw "Valid batch did not run exactly once in order: $($orderedLines -join ', ')"
+    }
+    $orderedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($orderedResult.chatId)/executions")
+    $orderedShells = @($orderedHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' } | Sort-Object commandIndex)
+    if ($orderedShells.Count -ne 2 -or $orderedShells[0].commandIndex -ne 0 -or
+        $orderedShells[1].commandIndex -ne 1 -or
+        $orderedShells[0].executionId -eq $orderedShells[1].executionId -or
+        @($orderedShells | Where-Object { $_.status -ne 'Completed' }).Count -ne 0) {
+        throw "Valid batch lost shell ordering, unique durable IDs, or success: $($orderedHistory | ConvertTo-Json -Depth 6 -Compress)"
+    }
+    Write-Host 'PASS: Valid two-shell batch executes exactly once in order with durable IDs and command indices.'
+
+    $partialFile = Join-Path $temp 'partial-results.txt'
+    $firstShell = 'echo EARLIER>>' + [char]34 + $partialFile + [char]34
+    $partialTask = '<SH>' + [char]10 + $firstShell + [char]10 + '</SH>' + [char]10 + '<SH>' + [char]10 + 'exit /b 37' + [char]10 + '</SH>'
+    $partialCreated = Invoke-RestMethod -Method Post -Uri ($base + '/v1/executions') -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence-auto'; input = $partialTask })
+    $partialResult = Wait-Execution $partialCreated.executionId 20
+    if ($partialResult.status -ne 'Completed') { throw 'Failure-result batch did not finish.' }
+    $partialLines = @(Get-Content -LiteralPath $partialFile)
+    $partialHistory = @(Invoke-RestMethod -Uri ($base + '/v1/agent-chats/' + $partialResult.chatId + '/executions'))
+    $partialShells = @($partialHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' } | Sort-Object commandIndex)
+    if ($partialLines.Count -ne 1 -or $partialShells.Count -ne 2 -or $partialShells[0].status -ne 'Completed' -or $partialShells[1].status -ne 'Failed') {
+        throw 'Partial failure lost exactly-once execution or durable shell records.'
+    }
+    $partialMessages = @(Invoke-RestMethod -Uri ($base + '/v1/agent-chats/' + $partialResult.chatId + '/messages'))
+    $partialPrompts = @($partialMessages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'user' -and $_.content -match 'Command results JSON:' })
+    if ($partialPrompts.Count -ne 1 -or -not $partialPrompts[0].content.Contains($partialShells[0].executionId) -or
+        -not $partialPrompts[0].content.Contains($partialShells[1].executionId)) {
+        throw 'Partial failure did not communicate both actual shell results and durable IDs to the agent.'
+    }
+    Write-Host 'PASS: Later shell failure preserves earlier result and communicates both durable execution IDs.'
+
+    $task = @'
+<SH>
+echo SAME_TURN_DONE_OK
+</SH>
+VISIBLE_FINAL_RESULT
+<DONE>
+'@
+    $created = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
+        -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $task })
+    $completed = Wait-Execution $created.executionId 20
+    if ($completed.status -ne 'Completed') {
+        throw "SH + DONE execution did not complete: status=$($completed.status), error=$($completed.error)"
+    }
+    if ($completed.result -notmatch 'VISIBLE_FINAL_RESULT') {
+        throw "Agent durable result lost the visible final conclusion: $($completed.result)"
+    }
+    if ($completed.result -match 'echo SAME_TURN_DONE_OK') {
+        throw "Agent durable result contains executable protocol instead of only visible assistant content: $($completed.result)"
+    }
+
+    $messages = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($completed.chatId)/messages")
+    $assistantMessages = @($messages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'assistant' })
+    if ($assistantMessages.Count -ne 1) {
+        throw "SH + DONE required another assistant turn instead of completing immediately. Assistant turns=$($assistantMessages.Count)"
+    }
+
+    $executions = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($completed.chatId)/executions")
+    $shells = @($executions | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+    if ($shells.Count -ne 1 -or $shells[0].status -ne 'Completed' -or $shells[0].result -notmatch 'SAME_TURN_DONE_OK') {
+        $observed = $executions | ConvertTo-Json -Depth 6 -Compress
+        throw "Same-turn completion did not retain successful Executor evidence. Observed: $observed"
+    }
+
+    $continuedTask = @'
+<SH>
+echo CONTINUED_RESULT_OK
+</SH>
+FIRST_VISIBLE_RESULT
+'@
+    $continuedCreated = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
+        -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence-auto'; input = $continuedTask })
+    $continued = Wait-Execution $continuedCreated.executionId 20
+    if ($continued.status -ne 'Completed') {
+        throw "Continued execution did not complete: status=$($continued.status), error=$($continued.error)"
+    }
+    if ($continued.result -notmatch 'FIRST_VISIBLE_RESULT') {
+        throw "Agent durable result lost visible output from the pre-continuation turn: $($continued.result)"
+    }
+    if ($continued.result -match 'echo CONTINUED_RESULT_OK') {
+        throw "Aggregated Agent result contains executable SH protocol: $($continued.result)"
+    }
+
+    $continuedMessages = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($continued.chatId)/messages")
+    $continuedAssistantMessages = @($continuedMessages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'assistant' })
+    if ($continuedAssistantMessages.Count -lt 2) {
+        throw "Continuation-result regression did not actually cross an assistant command-result turn. Assistant turns=$($continuedAssistantMessages.Count)"
+    }
+
+    Write-Host 'PASS: Same-turn completion and command-result continuation both preserve protocol-stripped visible Agent results.'
+}
+finally {
+    if ($null -ne $agent -and -not $agent.HasExited) {
+        Stop-Process -Id $agent.Id -Force
+        $agent.WaitForExit()
+    }
+    if (Test-Path -LiteralPath $agentOut) {
+        Write-Host "AGENT STDOUT (last 50 lines):"
+        Get-Content -LiteralPath $agentOut -Tail 50 | ForEach-Object { Write-Host $_ }
+    }
+    if (Test-Path -LiteralPath $agentErr) {
+        Write-Host "AGENT STDERR (last 50 lines):"
+        Get-Content -LiteralPath $agentErr -Tail 50 | ForEach-Object { Write-Host $_ }
+    }
+    Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+})) {
+        throw "Missing complete executable Executor Get recovery command: $recovery"
+    }
+    $retrieval = [regex]::Match($recovery, '(?s)^<SH[^>]*>(.*)</SH>
+
+    # A shorter per-command timeout must be enforced by Executor.
+    $timeoutTask = '<SH timeout=1>powershell -NoProfile -Command "Start-Sleep -Seconds 4"</SH>'
+    $timeoutRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $timeoutTask })
+    $timeoutOutcome = Wait-Execution $timeoutRun.executionId 20
+    $timeoutHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($timeoutOutcome.chatId)/executions")
+    $timeoutShells = @($timeoutHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+    if ($timeoutOutcome.status -ne 'Completed' -or $timeoutShells.Count -ne 1 -or
+        $timeoutShells[0].status -ne 'TimedOut' -or
+        $timeoutShells[0].error -notmatch 'timed out after 1') {
+        throw "SH timeout=1 was not enforced by Executor: $($timeoutHistory | ConvertTo-Json -Depth 6 -Compress)"
+    }
+    Write-Host 'PASS: SH timeout=1 reaches Executor and terminates a longer command.'
+
+    $orderedFile = Join-Path $temp 'ordered-batch.txt'
+    $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
+    $orderedCreated = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
+        -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $orderedTask })
+    $orderedResult = Wait-Execution $orderedCreated.executionId 20
+    if ($orderedResult.status -ne 'Completed') {
+        throw "Valid ordered SH + SH + DONE failed: $($orderedResult.status), $($orderedResult.error)"
+    }
+    $orderedLines = @(Get-Content -LiteralPath $orderedFile)
+    if ($orderedLines.Count -ne 2 -or $orderedLines[0] -ne 'FIRST' -or $orderedLines[1] -ne 'SECOND') {
+        throw "Valid batch did not run exactly once in order: $($orderedLines -join ', ')"
+    }
+    $orderedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($orderedResult.chatId)/executions")
+    $orderedShells = @($orderedHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' } | Sort-Object commandIndex)
+    if ($orderedShells.Count -ne 2 -or $orderedShells[0].commandIndex -ne 0 -or
+        $orderedShells[1].commandIndex -ne 1 -or
+        $orderedShells[0].executionId -eq $orderedShells[1].executionId -or
+        @($orderedShells | Where-Object { $_.status -ne 'Completed' }).Count -ne 0) {
+        throw "Valid batch lost shell ordering, unique durable IDs, or success: $($orderedHistory | ConvertTo-Json -Depth 6 -Compress)"
+    }
+    Write-Host 'PASS: Valid two-shell batch executes exactly once in order with durable IDs and command indices.'
+
+    $partialFile = Join-Path $temp 'partial-results.txt'
+    $firstShell = 'echo EARLIER>>' + [char]34 + $partialFile + [char]34
+    $partialTask = '<SH>' + [char]10 + $firstShell + [char]10 + '</SH>' + [char]10 + '<SH>' + [char]10 + 'exit /b 37' + [char]10 + '</SH>'
+    $partialCreated = Invoke-RestMethod -Method Post -Uri ($base + '/v1/executions') -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence-auto'; input = $partialTask })
+    $partialResult = Wait-Execution $partialCreated.executionId 20
+    if ($partialResult.status -ne 'Completed') { throw 'Failure-result batch did not finish.' }
+    $partialLines = @(Get-Content -LiteralPath $partialFile)
+    $partialHistory = @(Invoke-RestMethod -Uri ($base + '/v1/agent-chats/' + $partialResult.chatId + '/executions'))
+    $partialShells = @($partialHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' } | Sort-Object commandIndex)
+    if ($partialLines.Count -ne 1 -or $partialShells.Count -ne 2 -or $partialShells[0].status -ne 'Completed' -or $partialShells[1].status -ne 'Failed') {
+        throw 'Partial failure lost exactly-once execution or durable shell records.'
+    }
+    $partialMessages = @(Invoke-RestMethod -Uri ($base + '/v1/agent-chats/' + $partialResult.chatId + '/messages'))
+    $partialPrompts = @($partialMessages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'user' -and $_.content -match 'Command results JSON:' })
+    if ($partialPrompts.Count -ne 1 -or -not $partialPrompts[0].content.Contains($partialShells[0].executionId) -or
+        -not $partialPrompts[0].content.Contains($partialShells[1].executionId)) {
+        throw 'Partial failure did not communicate both actual shell results and durable IDs to the agent.'
+    }
+    Write-Host 'PASS: Later shell failure preserves earlier result and communicates both durable execution IDs.'
+
+    $task = @'
+<SH>
+echo SAME_TURN_DONE_OK
+</SH>
+VISIBLE_FINAL_RESULT
+<DONE>
+'@
+    $created = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
+        -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $task })
+    $completed = Wait-Execution $created.executionId 20
+    if ($completed.status -ne 'Completed') {
+        throw "SH + DONE execution did not complete: status=$($completed.status), error=$($completed.error)"
+    }
+    if ($completed.result -notmatch 'VISIBLE_FINAL_RESULT') {
+        throw "Agent durable result lost the visible final conclusion: $($completed.result)"
+    }
+    if ($completed.result -match 'echo SAME_TURN_DONE_OK') {
+        throw "Agent durable result contains executable protocol instead of only visible assistant content: $($completed.result)"
+    }
+
+    $messages = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($completed.chatId)/messages")
+    $assistantMessages = @($messages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'assistant' })
+    if ($assistantMessages.Count -ne 1) {
+        throw "SH + DONE required another assistant turn instead of completing immediately. Assistant turns=$($assistantMessages.Count)"
+    }
+
+    $executions = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($completed.chatId)/executions")
+    $shells = @($executions | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+    if ($shells.Count -ne 1 -or $shells[0].status -ne 'Completed' -or $shells[0].result -notmatch 'SAME_TURN_DONE_OK') {
+        $observed = $executions | ConvertTo-Json -Depth 6 -Compress
+        throw "Same-turn completion did not retain successful Executor evidence. Observed: $observed"
+    }
+
+    $continuedTask = @'
+<SH>
+echo CONTINUED_RESULT_OK
+</SH>
+FIRST_VISIBLE_RESULT
+'@
+    $continuedCreated = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" `
+        -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence-auto'; input = $continuedTask })
+    $continued = Wait-Execution $continuedCreated.executionId 20
+    if ($continued.status -ne 'Completed') {
+        throw "Continued execution did not complete: status=$($continued.status), error=$($continued.error)"
+    }
+    if ($continued.result -notmatch 'FIRST_VISIBLE_RESULT') {
+        throw "Agent durable result lost visible output from the pre-continuation turn: $($continued.result)"
+    }
+    if ($continued.result -match 'echo CONTINUED_RESULT_OK') {
+        throw "Aggregated Agent result contains executable SH protocol: $($continued.result)"
+    }
+
+    $continuedMessages = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($continued.chatId)/messages")
+    $continuedAssistantMessages = @($continuedMessages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'assistant' })
+    if ($continuedAssistantMessages.Count -lt 2) {
+        throw "Continuation-result regression did not actually cross an assistant command-result turn. Assistant turns=$($continuedAssistantMessages.Count)"
+    }
+
+    Write-Host 'PASS: Same-turn completion and command-result continuation both preserve protocol-stripped visible Agent results.'
+}
+finally {
+    if ($null -ne $agent -and -not $agent.HasExited) {
+        Stop-Process -Id $agent.Id -Force
+        $agent.WaitForExit()
+    }
+    if (Test-Path -LiteralPath $agentOut) {
+        Write-Host "AGENT STDOUT (last 50 lines):"
+        Get-Content -LiteralPath $agentOut -Tail 50 | ForEach-Object { Write-Host $_ }
+    }
+    if (Test-Path -LiteralPath $agentErr) {
+        Write-Host "AGENT STDERR (last 50 lines):"
+        Get-Content -LiteralPath $agentErr -Tail 50 | ForEach-Object { Write-Host $_ }
+    }
+    Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+}).Groups[1].Value
+    $retrieved = (& cmd.exe /d /c $retrieval 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $retrieved -notmatch 'RESULT_3') {
+        throw "Generated Executor Get command failed to retrieve the full durable record: $retrieved"
+    }
+    Write-Host 'PASS: SH regex/line preview preserves durable output; generated Get command retrieves original result.'
+
+    # An explicit timeout exceeds the policy's default (2s) without a second cap.
+    $overrideTask = '<SH timeout=6>powershell -NoProfile -Command "Start-Sleep -Seconds 3; echo OVERRIDE_OK"</SH>'
+    $overrideRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $overrideTask })
+    $overrideOutcome = Wait-Execution $overrideRun.executionId 20
+    $overrideHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($overrideOutcome.chatId)/executions")
+    $overrideShells = @($overrideHistory | Where-Object { $_.kind -eq 'Shell' })
+    if ($overrideOutcome.status -ne 'Completed' -or $overrideShells.Count -ne 1 -or
+        $overrideShells[0].status -ne 'Completed' -or $overrideShells[0].result -notmatch 'OVERRIDE_OK') {
+        throw 'An explicit timeout above the policy default was rejected or capped.'
+    }
+    Write-Host 'PASS: Explicit SH timeout overrides the policy default without a second maximum.'
 
     # A shorter per-command timeout must be enforced by Executor.
     $timeoutTask = '<SH timeout=1>powershell -NoProfile -Command "Start-Sleep -Seconds 4"</SH>'
