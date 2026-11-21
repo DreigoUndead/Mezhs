@@ -194,3 +194,29 @@ test('signed download cancels the reader on an oversized streamed chunk', async 
   assert.equal(cancelled, true, 'partially consumed download reader must be cancelled');
   assert.equal(released, true);
 });
+
+test("signed upload cannot send bytes appended after the validated stat", async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "mezhs-transfer-race-"));
+  const file = path.join(dir, "growing.bin");
+  try {
+    await fsp.writeFile(file, "before");
+    const session = { async fetch(_, options) {
+      // The source stream is not opened/read until the consumer starts. This
+      // append happens after the initial stat and before the first read.
+      await fsp.appendFile(file, "after");
+      const chunks = [];
+      for await (const chunk of require("node:stream").Readable.fromWeb(options.body))
+        chunks.push(Buffer.from(chunk));
+      assert.equal(Buffer.concat(chunks).toString(), "before");
+      return new Response(null, { status: 201 });
+    } };
+    const result = await executeBinaryTransfer({
+      session, args: { action: "upload", url: signed, localPath: file,
+        contentType: "application/octet-stream" }
+    }, policy);
+    assert.equal(result.size, 6);
+    assert.equal(await fsp.readFile(file, "utf8"), "beforeafter");
+  } finally {
+    await fsp.rm(dir, { recursive: true, force: true });
+  }
+});
