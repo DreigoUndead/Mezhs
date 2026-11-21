@@ -111,3 +111,26 @@ test("authenticated ChatGPT API requests reject redirects before forwarding cred
   assert.equal(observed[0].options.headers.Authorization, "Bearer secret-token");
   assert.match(observed[0].url, /^https:\/\/chatgpt\.com\/backend-api\//);
 });
+
+test("provider error parsing stops at a bounded size and cancels unread response", async () => {
+  let reads = 0;
+  let cancelled = false;
+  const body = new ReadableStream({
+    pull(controller) {
+      reads++;
+      if (reads <= 8)
+        controller.enqueue(new Uint8Array(32 * 1024).fill(0x78));
+      else controller.close();
+    },
+    cancel() { cancelled = true; }
+  });
+  const result = await executeBrowserHttp({
+    session: session(() => new Response(body, { status: 502 })),
+    args: request
+  }, chatgpt.http);
+  assert.equal(result.statusCode, 502);
+  assert.equal(result.body, "");
+  assert.equal(result.providerCode, null);
+  assert.ok(reads <= 4, "provider error response must not be consumed unbounded");
+  assert.equal(cancelled, true, "unread error stream must be cancelled");
+});
