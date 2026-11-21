@@ -432,6 +432,11 @@ var noDefaults = ShellOutputOptions.Resolve(new Command("SH", "echo"), new Polic
 Assert(noDefaults.Limit == 0 && noDefaults.LimitStart == 10 &&
        noDefaults.LimitEnd == 10 && noDefaults.Regex is null,
     "Missing policy output settings did not use built-in defaults.");
+var recoveryDefaults = ShellOutputOptions.Resolve(
+    parser.Parse("<SH limit=0 regex=\"\">echo RETRIEVE</SH>").Commands.Single(),
+    new PolicyLimitsSettings(60, Limit: 2, Regex: "error"));
+Assert(recoveryDefaults.Limit == 0 && recoveryDefaults.Regex == string.Empty,
+    "Generated recovery SH syntax must override both policy line limit and regex filter.");
 var shortLimit = ShellOutputOptions.Resolve(new Command("SH", "echo", OutputLimit: 3),
     new PolicyLimitsSettings(60));
 Assert(shortLimit.LimitStart == 2 && shortLimit.LimitEnd == 1,
