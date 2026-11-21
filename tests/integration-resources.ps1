@@ -3,8 +3,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $output = Join-Path $root 'src\Mezhs.Api\bin\Release\net10.0'
 $moduleDirectory = Join-Path $root 'integrations\Mezhs.Integrations.ChatGpt\browser\modules'
-$chatGptNames = @('account-files.js', 'account-messages.js', 'account-models.js',
-    'account-results.js', 'account-stream.js', 'account-transport.js', 'entry.js', 'guest.js')
+$chatGptNames = @('account-transport.js', 'entry.js', 'guest.js')
 
 $checks = @(
     @{ Assembly = 'Mezhs.Integrations.ChatGpt.dll'; Prefix = 'Mezhs.Integrations.ChatGpt.BrowserModule.' },
@@ -23,7 +22,7 @@ foreach ($check in $checks) {
         $expectedResources = @($chatGptNames | ForEach-Object { $check.Prefix + $_ })
         $actualResources = @($resources | Where-Object { $_.StartsWith($check.Prefix) })
         if (@(Compare-Object $expectedResources $actualResources).Count -ne 0) {
-            throw "ChatGPT embedded resources do not match the eight CommonJS source modules: $($actualResources -join ', ')"
+            throw "ChatGPT embedded resources do not match the three required browser-native CommonJS source modules: $($actualResources -join ', ')"
         }
     }
     else { $expectedResources = @($check.Resource) }
@@ -57,4 +56,4 @@ foreach ($check in $checks) {
     }
 }
 
-Write-Host 'PASS: all eight ChatGPT source modules and single-file Grok/Gemini modules are embedded unchanged.'
+Write-Host 'PASS: all three ChatGPT source modules and single-file Grok/Gemini modules are embedded unchanged.'
