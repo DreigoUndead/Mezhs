@@ -7,6 +7,17 @@ module.exports = {
   homeUrl: ORIGIN + "/",
   // The Electron-owned HTTP executor handles validation, framing and delivery;
   // provider code supplies only the origin and authenticated fetch semantics.
+  transfer: {
+    origin: ORIGIN,
+    async sameOriginDownload(session, url, signal) {
+      const token = await requireToken(session);
+      return session.fetch(url, {
+        method: "GET", credentials: "include", redirect: "error",
+        headers: { Authorization: "Bearer " + token },
+        signal
+      });
+    }
+  },
   http: {
     origin: ORIGIN,
     pathPrefix: "/backend-api/",
