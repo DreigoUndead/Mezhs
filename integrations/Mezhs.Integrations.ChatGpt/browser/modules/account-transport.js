@@ -144,27 +144,72 @@ async function nativeChatRequirementsHeaders(window, session, token) {
   return headers;
 }
 
-async function accessToken(session) {
-  const response = await session.fetch(ORIGIN + API.session, {
-    credentials: "include",
-    cache: "no-store"
-  });
-  if (!response.ok) {
-    accountIds.delete(session);
-    return null;
-  }
 
-  const auth = await response.json();
-  const accountId = String(
-    auth?.account?.id ||
-    auth?.accountId ||
-    auth?.account_id ||
-    auth?.user?.id ||
-    ""
-  ).trim();
-  if (accountId) accountIds.set(session, accountId);
-  else accountIds.delete(session);
-  return auth?.accessToken || null;
+const TRANSIENT_READ_RETRY_DELAYS_MS = [150, 400, 900];
+const TRANSIENT_READ_CODES = new Set([
+  "ERR_HTTP2_PROTOCOL_ERROR",
+  "ERR_NETWORK_IO_SUSPENDED",
+  "ERR_CONNECTION_RESET",
+  "ERR_CONNECTION_CLOSED",
+  "ERR_NETWORK_CHANGED",
+  "ERR_TIMED_OUT"
+]);
+
+function transientReadCode(error) {
+  const code = String(error?.code || "").replace(/^net::/, "");
+  if (TRANSIENT_READ_CODES.has(code)) return code;
+  const match = /\b(ERR_[A-Z0-9_]+)\b/.exec(String(error?.message || ""));
+  return match && TRANSIENT_READ_CODES.has(match[1]) ? match[1] : null;
+}
+
+function safeReadPath(endpoint) {
+  const pathname = new URL(endpoint, ORIGIN).pathname;
+  if (pathname.startsWith("/backend-api/conversation/"))
+    return "/backend-api/conversation/:id";
+  if (pathname.startsWith("/backend-api/files/"))
+    return "/backend-api/files/:id";
+  return pathname;
+}
+
+async function retryTransientRead(read, method, endpoint) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await read();
+    } catch (error) {
+      const code = transientReadCode(error);
+      if (!code || attempt >= TRANSIENT_READ_RETRY_DELAYS_MS.length)
+        throw error;
+      const delayMs = TRANSIENT_READ_RETRY_DELAYS_MS[attempt];
+      console.error(
+        `ChatGPT transient ${method} ${safeReadPath(endpoint)} ${code}; retry ${attempt + 1}/${TRANSIENT_READ_RETRY_DELAYS_MS.length} in ${delayMs}ms.`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
+async function accessToken(session) {
+  return retryTransientRead(async () => {
+    const response = await session.fetch(ORIGIN + API.session, {
+      credentials: "include",
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      accountIds.delete(session);
+      return null;
+    }
+
+    const auth = await response.json();
+    const accountId = String(
+      auth?.account?.id ||
+      auth?.accountId ||
+      auth?.account_id ||
+      auth?.user?.id ||
+      ""
+    ).trim();
+    if (accountId) accountIds.set(session, accountId);
+    else accountIds.delete(session);
+    return auth?.accessToken || null;
+  }, "GET", API.session);
 }
 
 async function requireToken(session) {
@@ -178,7 +223,7 @@ const INTEGRITY_STATE_PATTERN =
   /^ois1\.[A-Za-z0-9_-]+\.([A-Za-z0-9_-]{16})\.[A-Za-z0-9_-]+$/;
 const INTEGRITY_STATE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
-async function apiFetch(session, token, endpoint, options = {}) {
+async function apiFetch(session, token, endpoint, options = {}, consume = null) {
   const accountId = accountIds.get(session);
   const headers = {
     Authorization: `Bearer ${token}`,
@@ -188,35 +233,44 @@ async function apiFetch(session, token, endpoint, options = {}) {
   headers["X-OAI-IS-Client-Observation"] =
     await integrityStateObservation(session);
 
-  const response = await session.fetch(ORIGIN + endpoint, {
-    ...options,
-    headers,
-    credentials: "include",
-    cache: "no-store"
-  });
-  await applyIntegrityStateUpdate(session, response.headers);
+  const method = String(options.method || "GET").toUpperCase();
+  const request = async () => {
+    const response = await session.fetch(ORIGIN + endpoint, {
+      ...options,
+      headers,
+      credentials: "include",
+      cache: "no-store"
+    });
+    await applyIntegrityStateUpdate(session, response.headers);
 
-  if (response.ok) return response;
+    if (response.ok)
+      return consume ? consume(response) : response;
 
-  let providerCode = null;
-  try {
-    const error = await response.json();
-    const code = error?.detail?.code ?? error?.code;
-    if (typeof code === "string" && /^[a-z0-9_-]{1,80}$/i.test(code))
-      providerCode = code;
-  } catch {
-    // Non-JSON errors still retain HTTP status without retaining private response bodies.
-  }
-  throw Object.assign(
-    new Error(`ChatGPT ${endpoint} failed with HTTP ${response.status}`),
-    {
-      code: response.status === 401 ? "authorization_required" : null,
-      status: response.status,
-      endpoint,
-      providerCode,
-      retryAfterMs: parseRetryAfterMs(response.headers.get("retry-after"))
+    let providerCode = null;
+    try {
+      const error = await response.json();
+      const code = error?.detail?.code ?? error?.code;
+      if (typeof code === "string" && /^[a-z0-9_-]{1,80}$/i.test(code))
+        providerCode = code;
+    } catch {
+      // Non-JSON errors still retain HTTP status without retaining private response bodies.
     }
-  );
+    throw Object.assign(
+      new Error(`ChatGPT ${endpoint} failed with HTTP ${response.status}`),
+      {
+        code: response.status === 401 ? "authorization_required" : null,
+        status: response.status,
+        endpoint,
+        providerCode,
+        retryAfterMs: parseRetryAfterMs(response.headers.get("retry-after"))
+      }
+    );
+  };
+
+  // POSTs (including conversation submission) must never be automatically replayed.
+  return method === "GET" || method === "HEAD"
+    ? retryTransientRead(request, method, endpoint)
+    : request();
 }
 
 async function integrityStateObservation(session) {
@@ -268,9 +322,10 @@ function isConversationUnavailable(error, conversationId) {
 }
 
 async function apiJson(session, token, endpoint, options = {}) {
-  const response = await apiFetch(session, token, endpoint, options);
-  const text = await response.text();
-  return text ? JSON.parse(text) : null;
+  return apiFetch(session, token, endpoint, options, async response => {
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
+  });
 }
 
 module.exports = { ORIGIN, API, accessToken, requireToken, webApiHeaders, clientContext, nativeChatRequirementsHeaders, apiFetch, apiJson, isConversationUnavailable, parseRetryAfterMs };
