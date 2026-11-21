@@ -17,6 +17,43 @@ let shuttingDown = false;
 const guest = process.env.MEZHS_GUEST === "1";
 const contexts = new Map(); // local ChatId -> Promise<context>
 const providerOperations = new Map();
+// The stream is separate from best-effort progress, with bounded backpressure.
+// The acknowledgement cursor makes retried status polls lossless.
+const MAX_OPERATION_EVENTS = 128;
+const MAX_OPERATION_EVENT_BYTES = 4 * 1024 * 1024;
+const MAX_OPERATION_EVENT_BYTES_SINGLE = 256 * 1024;
+
+async function queueOperationEvent(state, value) {
+  const encoded = JSON.stringify(value);
+  if (typeof encoded !== "string")
+    throw new Error("Browser HTTP stream produced an invalid event.");
+  const bytes = Buffer.byteLength(encoded, "utf8");
+  if (bytes > MAX_OPERATION_EVENT_BYTES_SINGLE)
+    throw new Error("Browser HTTP stream event exceeded the 256 KiB limit.");
+  while (!state.cancelled &&
+         (state.events.length >= MAX_OPERATION_EVENTS ||
+          state.eventBytes + bytes > MAX_OPERATION_EVENT_BYTES)) {
+    await new Promise(resolve => state.eventWaiters.push(resolve));
+  }
+  if (state.cancelled || state.abortController.signal.aborted)
+    throw new Error("Browser HTTP stream operation was cancelled.");
+  state.eventSequence++;
+  state.events.push({ sequence: state.eventSequence, value, bytes });
+  state.eventBytes += bytes;
+}
+
+function acknowledgeOperationEvents(state, after) {
+  if (!Number.isSafeInteger(after) || after < 0 || after > state.eventSequence)
+    throw new Error("Invalid browser operation stream acknowledgement.");
+  while (state.events.length && state.events[0].sequence <= after)
+    state.eventBytes -= state.events.shift().bytes;
+  if (state.events.length < MAX_OPERATION_EVENTS &&
+      state.eventBytes < MAX_OPERATION_EVENT_BYTES) {
+    for (const wake of state.eventWaiters.splice(0)) wake();
+  }
+  return state.events.slice(0, 64).map(({ sequence, value }) => ({ sequence, value }));
+}
+
 const parentProcessId = Number(process.env.MEZHS_PARENT_PROCESS_ID || 0);
 const browserPreload = path.join(__dirname, "browser-preload.js");
 
@@ -272,7 +309,7 @@ async function authorizeRequest(interactive, first) {
   return { authorized, dismissed: interactive && managementAuthorizationDismissed };
 }
 
-function invokeProvider(context, { operation, arguments: args }, reportProgress, signal) {
+function invokeProvider(context, { operation, arguments: args }, reportProgress, signal, reportEvent) {
   if (!browserModule || !context || context.closed)
     throw new Error("Electron browser is not initialized.");
   const { window, session: browserSession } = context;
@@ -292,6 +329,7 @@ function invokeProvider(context, { operation, arguments: args }, reportProgress,
     args: args ?? {},
     sleep,
     reportProgress,
+    reportEvent,
     signal
   });
 }
@@ -328,6 +366,7 @@ function queueProviderOperation(request) {
     cancelled: false, contextId, ephemeral, pending: null,
     messageId: typeof request.arguments?.messageId === "string" ? request.arguments.messageId : null,
     dispatched: false, stopPromise: null,
+    events: [], eventBytes: 0, eventSequence: 0, eventWaiters: [],
     abortController: new AbortController()
   };
   providerOperations.set(operationId, state);
@@ -350,7 +389,7 @@ function queueProviderOperation(request) {
             detail: progress.detail == null ? null : String(progress.detail),
             analysis: progress.analysis == null ? null : String(progress.analysis)
           };
-        }, state.abortController.signal);
+        }, state.abortController.signal, value => queueOperationEvent(state, value));
         if (!state.cancelled) state.status = "completed";
       } finally {
         context.busy--;
@@ -420,6 +459,7 @@ function cancelProviderOperation(operationId) {
   if (!state) return false;
   state.cancelled = true;
   state.abortController.abort();
+  for (const wake of state.eventWaiters.splice(0)) wake();
   providerOperations.delete(operationId);
   if (state.pending) {
     // Only the cancelled operation's browser context is destroyed. Never stop the shared host.
@@ -446,11 +486,17 @@ async function start() {
           writeJson(response, 404, { error: "Provider operation was not found." });
           return;
         }
-        if (state.status === "completed" || state.status === "failed")
+        const rawAfter = requestUrl.searchParams.get("after");
+        const after = rawAfter === null ? 0 : Number(rawAfter);
+        const events = acknowledgeOperationEvents(state, after);
+        // Retain terminal results until the C# consumer acknowledges its events.
+        if ((state.status === "completed" || state.status === "failed") &&
+            events.length === 0 && after === state.eventSequence)
           response.once("finish", () => providerOperations.delete(operationId));
         writeJson(response, 200, {
           status: state.status, result: state.result, error: state.error,
-          code: state.code, progress: state.progress
+          code: state.code, progress: state.progress, events,
+          lastSequence: state.eventSequence
         });
       } else if (request.method === "POST" && /^\/invoke\/[^/]+\/stop$/.test(requestUrl.pathname)) {
         const operationId = decodeURIComponent(requestUrl.pathname.slice(8, -5));
