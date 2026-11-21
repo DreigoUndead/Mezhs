@@ -160,3 +160,23 @@ Use Windows PowerShell 5.1 where `pwsh` is absent. Run `dotnet build src/Mezhs.A
 **Limitations:** This Code Review does not replace the independent Testing role. The existing 16000-character model-prompt safeguard can still abbreviate retrieved records, as accepted in the plan. No changes were made to the implementation.
 
 **Next:** Independent Testing (step 4) at the exact reviewed implementation SHA, followed by owner-approved Deploy only. No merge into `main` without explicit owner approval.
+
+
+### 2026-11-21 - Independent Testing (step 4): PASS
+
+**Outcome:** PASS. Independent Windows verification of implementation `74a496a78d18c3f7661d04844cd08c400ea8c4a5`. Test execution used branch HEAD `20faed716789f1b396496402640a8c90539ca404`, whose only change since the reviewed implementation was this plan file. No implementation changes were needed.
+
+**Environment:** Windows cmd.exe, PowerShell 5.1, .NET SDK 10.0.401, dedicated `D:\Projects\Mezhs-sh-parameters-verify` worktree. The live Agent integration harness allocated a loopback port dynamically, used temporary isolated databases and storage, and did not use the owner active instance.
+
+**Independent execution evidence:**
+- 9262: `dotnet build src/Mezhs.Agent.Api/Mezhs.Agent.Api.csproj -c Release --nologo` - PASS, zero warnings and zero errors.
+- 9263: `dotnet run --project tests/Mezhs.RichUi.TestApp -c Release` - PASS, 105/105; including all five root SH attributes, malformed paired tags, duplicate/unknown attributes, source spans and inert nested UI scopes.
+- 9264 and 9271/9275: `powershell -NoProfile -ExecutionPolicy Bypass -File tests/policy-decoder.ps1` - PASS; policy/defaults/precedence, preview threshold and limit=0, regex-before-limit, small limits, prompt-character safeguard, durable command identity, timeout and Development policy.
+- 9265: `powershell -NoProfile -ExecutionPolicy Bypass -File tests/agent-protocol-result.ps1` - PASS; live rejected invalid/malformed/regex/preview batches had no shell side effects; inline SH executed once; regex and limited previews preserved durable Executor output; generated CLI Get retrieved the original record; explicit timeout above policy default succeeded, shorter timeout was enforced; ordered multi-SH and partial failure evidence passed.
+- 9267: Actual installed Executor CLI reported `Get <id>` with required Int32 ID using `Help Get`; the live generated recovery command was executed successfully by the integration test (9265). `Get --help` is unsupported (9266); the supported Help Get invocation succeeded.
+- 9276: Supplemental temporary harness PASS for regex zero matches, one match exactly at limit, and limitStart=0/limitEnd=0 with omitted-line count and CLI recovery. The original test file bytes were restored.
+- 9270/9272/9274: Initial supplementary harness attempts failed before added assertions because writing the original PowerShell script without its UTF-8 BOM caused PowerShell 5.1 to misread Latvian policy text. The original baseline passed after restoring its tracked bytes (9275), and the corrected BOM-preserving supplemental run passed (9276). These harness failures are not evidence of a product defect.
+
+**Limits:** No independent forced pathological-regex timeout or production-instance test was performed; code uses a bounded regex match timeout, and isolated test coverage includes invalid regex and nonmatching/matching filters. The separate 16000-character model prompt safeguard is covered by regression assertions rather than an unbounded delivery guarantee. No merge or deployment was attempted.
+
+**Next:** Deploy role may present the verified branch for explicit owner approval; do not merge to `main` without that approval.
