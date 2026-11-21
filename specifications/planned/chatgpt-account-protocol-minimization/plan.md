@@ -78,6 +78,23 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-21 - Third independent Code Review corrections; fresh review required (FAIL)
+
+**Reviewed:** feature revision 6cd359b543a2aa91c6b252ce208fe3a14e829c7b relative to required integration-architecture-v2 baseline b8f25cff351aed34b3de2f7ef1483a01183a9049. The initial task worktree was clean.
+
+**Finding 1 (medium, reproduced):** Interrupted signed downloads in electron/browser-transfer.js released the reader lock without cancelling an unread upstream body. An oversized streamed chunk produced the expected transfer failure and partial-file cleanup, but the isolated reproduction reported UPSTREAM_CANCELLED=false. Other rejected download responses and upload responses also left unread bodies open. Corrected reader cancellation on incomplete downloads, and early rejection/unused upload response cleanup. This is resource cleanup, not evidence of an unrelated application failure.
+
+**Finding 2 (medium, code path):** A non-streaming browser HTTP response lacking an incremental reader could fall through to response.text() before the 16 MiB response limit was checked. That fallback cannot enforce bounded reads. Replaced it with an explicit protocol failure for non-null bodies without a reader; empty-body responses remain supported.
+
+**Corrections:** electron/browser-transfer.js, electron/browser-http.js and targeted regression tests tests/browser-signed-transfer.test.js and tests/browser-http-streaming.test.js. Kept existing transfer/session/credential ownership; no new client, scheduler or provider state.
+
+**Verification:** Targeted response and signed-transfer tests 19/19 PASS; broader account/provider/HTTP/Electron Node suite PASS (59 tests); C# ChatGPT account protocol flow PASS (restoration, no replay, metadata, citations, authorization and attachments); architecture checks PASS; dotnet build Mezhs.sln -c Release --no-restore -v quiet PASS with one documented WhatsApp CS0114 warning; git diff --check PASS. Initial read-only oversized-download reproduction showed the uncancelled response. No isolated authenticated live ChatGPT Chromium test or concurrent distinct model/effort provider test was performed; the unrelated known group-focus test was not rerun.
+
+**Outcome: FAIL** per .agents/code-review.md because implementation and tests were corrected. A fresh independent Step 3 Code Reviewer must review the corrected revision; independent Testing, explicit owner merge approval and merge to integration-architecture-v2 remain pending. Do not merge to main.
+
+**Authority:** Independent High-risk Step 3 Code Reviewer.
+
+
 ### 2026-11-21 — Fresh independent Code Review corrections; next review required (FAIL)
 
 **Reviewed:** feature revision `e05721aac967d2747559c4d260fd3989c97bd801`, relative to approved `integration-architecture-v2` baseline `b8f25cff351aed34b3de2f7ef1483a01183a9049`. Initial feature worktree was clean.

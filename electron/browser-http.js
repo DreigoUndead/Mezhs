@@ -239,11 +239,9 @@ async function executeBrowserHttp({ window, session, args, signal, reportProgres
 
       reader.releaseLock();
     }
-  } else {
-    const text = await response.text();
-    if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES)
-      throw new Error("Browser HTTP response exceeded the 16 MiB limit.");
-    chunks.push(text);
+  } else if (response.body != null) {
+    // No bounded reader means response.text() would buffer unbounded data.
+    throw protocolFailure("Browser HTTP response requires an incremental body.");
   }
   return {
     statusCode: response.status,

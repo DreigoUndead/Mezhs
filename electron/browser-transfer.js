@@ -53,6 +53,11 @@ function safeFileName(value) {
   return base && base !== "." && base !== ".." ? base : "download";
 }
 
+async function cancelUnreadBody(body) {
+  try { await body?.cancel?.(); }
+  catch { /* Preserve the original transfer failure. */ }
+}
+
 async function executeBinaryTransfer({ session, args, signal, reportProgress }, policy) {
   const action = args?.action;
   if (action !== "upload" && action !== "download")
@@ -76,6 +81,8 @@ async function executeBinaryTransfer({ session, args, signal, reportProgress }, 
         method: "PUT", credentials: "omit", redirect: "error",
         headers, body: Readable.toWeb(source), duplex: "half", signal
       });
+      // Upload responses contain no needed data; release their body on success or failure.
+      await cancelUnreadBody(response.body);
       if (!response.ok)
         throw new Error("Signed file upload failed with HTTP " + response.status + ".");
       reportProgress?.({ state: "retrieving", detail: "Signed file upload completed." });
@@ -92,31 +99,42 @@ async function executeBinaryTransfer({ session, args, signal, reportProgress }, 
     : await session.fetch(destination.href, {
         method: "GET", credentials: "omit", redirect: "error", signal
       });
-  if (!response.ok)
+  if (!response.ok) {
+    await cancelUnreadBody(response.body);
     throw new Error("Signed file download failed with HTTP " + response.status + ".");
+  }
   const declaredSize = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredSize) && declaredSize > MAX_FILE_BYTES)
+  if (Number.isFinite(declaredSize) && declaredSize > MAX_FILE_BYTES) {
+    await cancelUnreadBody(response.body);
     throw new Error("Signed file download exceeds 100 MiB.");
+  }
   const name = safeFileName(args.name);
   const localPath = path.join(os.tmpdir(), "mezhs-artifact-" + randomUUID() + "-" + name);
   let output;
   let total = 0;
   try {
     output = await fsp.open(localPath, "wx");
-    if (!response.body?.getReader)
+    if (!response.body?.getReader) {
+      await cancelUnreadBody(response.body);
       throw new Error("Signed download did not provide an incremental body.");
+    }
     const reader = response.body.getReader();
+    let completed = false;
     try {
       while (true) {
         signal?.throwIfAborted();
         const { value, done } = await reader.read();
-        if (done) break;
+        if (done) { completed = true; break; }
         total += value.byteLength;
         if (total > MAX_FILE_BYTES)
           throw new Error("Signed file download exceeds 100 MiB.");
         await output.writeFile(value);
       }
     } finally {
+      if (!completed) {
+        try { await reader.cancel(); }
+        catch { /* Preserve the original transfer failure. */ }
+      }
       reader.releaseLock();
     }
     await output.close();

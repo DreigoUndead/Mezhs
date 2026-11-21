@@ -157,3 +157,15 @@ test("oversized JSON response cancels the unread upstream response", async () =>
     headers: { "content-type": "application/json" } }))), /16 MiB/);
   assert.equal(cancelled, true, "oversized response must cancel its source");
 });
+
+// review: unread response cleanup; do not buffer a nonstandard body without a reader
+test('JSON HTTP rejects non-incremental nonempty bodies rather than unbounded text()', async () => {
+  let textCalls = 0;
+  const policy = { origin: 'https://chatgpt.com', pathPrefix: '/backend-api/',
+    fetch: async () => ({ status: 200, headers: new Headers(), body: {},
+      text() { textCalls++; return Promise.resolve('unbounded'); } }) };
+  await assert.rejects(executeBrowserHttp({
+    args: { method: 'GET', path: '/backend-api/models', accept: 'application/json' }
+  }, policy), /requires an incremental body/);
+  assert.equal(textCalls, 0);
+});

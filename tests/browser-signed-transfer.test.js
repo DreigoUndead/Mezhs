@@ -157,3 +157,40 @@ test("signed upload file size is bounded before sending", async () => {
     assert.equal(calls, 0);
   } finally { await fsp.rm(dir, { recursive: true, force: true }); }
 });
+
+// review: unread response cleanup
+test('signed download cancels rejected HTTP and oversized content-length bodies', async () => {
+  for (const { status, length } of [
+    { status: 302, length: null },
+    { status: 200, length: String(100 * 1024 * 1024 + 1) }
+  ]) {
+    let cancelled = false;
+    const body = new ReadableStream({ cancel() { cancelled = true; } });
+    const session = { async fetch() {
+      return new Response(body, { status, headers: length ? { 'content-length': length } : {} });
+    } };
+    await assert.rejects(executeBinaryTransfer({
+      session, args: { action: 'download', url: signed, name: 'rejected.bin' }
+    }, policy), status === 302 ? /HTTP 302/ : /exceeds 100 MiB/);
+    assert.equal(cancelled, true, 'unread download body must be cancelled');
+  }
+});
+
+test('signed download cancels the reader on an oversized streamed chunk', async () => {
+  let cancelled = false;
+  let released = false;
+  const session = { async fetch() {
+    return { ok: true, status: 200, headers: new Headers(), body: {
+      getReader() { return {
+        async read() { return { done: false, value: { byteLength: 100 * 1024 * 1024 + 1 } }; },
+        async cancel() { cancelled = true; },
+        releaseLock() { released = true; }
+      }; }
+    } };
+  } };
+  await assert.rejects(executeBinaryTransfer({
+    session, args: { action: 'download', url: signed, name: 'overflow.bin' }
+  }, policy), /exceeds 100 MiB/);
+  assert.equal(cancelled, true, 'partially consumed download reader must be cancelled');
+  assert.equal(released, true);
+});
