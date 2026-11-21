@@ -375,7 +375,10 @@ function queueProviderOperation(request) {
   const state = {
     status: "queued", result: undefined, error: null, code: null, progress: null,
     cancelled: false, contextId, ephemeral, pending: null,
-    messageId: typeof request.arguments?.messageId === "string" ? request.arguments.messageId : null,
+    messageId: typeof request.arguments?.messageId === "string"
+      ? request.arguments.messageId
+      : typeof request.arguments?.turnMessageId === "string"
+        ? request.arguments.turnMessageId : null,
     dispatched: false, stopPromise: null,
     events: [], eventBytes: 0, eventSequence: 0, eventWaiters: [],
     abortController: new AbortController()
