@@ -166,6 +166,11 @@ public sealed class IntegrationHttpClient(
                 message.Headers.TryAddWithoutValidation("Accept", request.Accept);
             using var response = await client.SendAsync(
                 message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            // A headers-only probe must not consume a potentially enormous body,
+            // including for the plain HttpClient adapter.
+            if (request.HeadersOnly)
+                return new HttpTransportResponse((int)response.StatusCode, "",
+                    response.Content.Headers.ContentType?.MediaType);
             await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var buffer = new MemoryStream();
             var chunk = new byte[16 * 1024];
