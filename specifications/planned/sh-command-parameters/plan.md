@@ -180,3 +180,15 @@ Use Windows PowerShell 5.1 where `pwsh` is absent. Run `dotnet build src/Mezhs.A
 **Limits:** No independent forced pathological-regex timeout or production-instance test was performed; code uses a bounded regex match timeout, and isolated test coverage includes invalid regex and nonmatching/matching filters. The separate 16000-character model prompt safeguard is covered by regression assertions rather than an unbounded delivery guarantee. No merge or deployment was attempted.
 
 **Next:** Deploy role may present the verified branch for explicit owner approval; do not merge to `main` without that approval.
+
+### 2026-11-22 — Code Review step 3: documentation and regression correction
+
+**Outcome:** FAIL / corrected and verified at `e351d4561c74f3b65c6e27d897c665859a5410ec`. Under the Code Review workflow, the reviewer who made corrections must hand off to a fresh independent reviewer rather than declare PASS. This entry is not an independent review PASS.
+
+**Findings:** `docs/agent-tools.md` still described the SH timeout as policy-only and omitted the per-command output settings, conflicting with the accepted plan and current code. Regex zero-match, one-match-at-limit, and zero-length preview cases had been exercised by prior independent testing but were not retained as committed regression assertions.
+
+**Corrections:** `422877f65db5ac48b6271016ebf60a9755aa5f66` updates agent-tools guidance for per-command timeout, regex/line-preview settings, durable result and prompt safeguard. `e351d4561c74f3b65c6e27d897c665859a5410ec` retains the three regression cases in `tests/policy-decoder.ps1` (preserving the UTF-8 BOM). Production C# implementation is unchanged from `74a496a78d18c3f7661d04844cd08c400ea8c4a5`.
+
+**Verification:** Clean isolated Windows worktree `D:\\Projects\\Mezhs-sh-parameters-verify` was fast-forwarded to `e351d456`. MEŽS execution 9364: Agent API Release build PASS (0 warnings/errors). 9365: Rich UI TestApp PASS 105/105. 9366: policy decoder and shell tests PASS, including the new regression assertions. 9368: live Agent protocol suite PASS, including invalid-batch no-side-effects, timeout precedence and enforcement, regex previews and durable CLI `Get` retrieval, ordered shells, partial failures, and continuation. The live test used its isolated test configuration, not the owner's running environment.
+
+**Remaining:** Fresh independent Code Review step 3 for the corrected branch, then follow plan role transition requirements. No merge to `main` without owner approval.
