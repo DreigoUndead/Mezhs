@@ -6,6 +6,7 @@ using Mezhs.Configuration;
 using Mezhs.Integrations;
 using Mezhs.Models;
 using Mezhs.Services;
+using Mezhs.RichUi;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Mezhs;
@@ -24,6 +25,7 @@ public static class MezhsApi
         builder.Services.AddExceptionHandler<ApiExceptionHandler>();
         builder.Services.AddProblemDetails();
         builder.Services.AddSingleton(options);
+        builder.Services.AddSingleton(UiRichTags.Tags);
         builder.Services.AddSingleton<ChatStore>();
         builder.Services.AddSingleton<ChatService>();
         builder.Services.AddSingleton<FileStore>();

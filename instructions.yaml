@@ -9,9 +9,7 @@ texts:
     Stage files with <ATTACH>one path per line</ATTACH>. Closing tags may appear on
     the same line as opening tags. An unmatched opening tag is ordinary text.
     Complete SH/ATTACH tags in ordinary Markdown can execute, including code
-    fences. Inside any complete paired UI tag, including unsupported/invalid
-    controls, SVG, raw editors and <escape>, commands are inert text.
-    Never include complete root-level examples unless intentional.
+    fences. Never include complete command examples unless intentional.
     The runtime executes complete commands directly from the response, even if no
     shell tool is listed.
     Verify command results before reporting success.

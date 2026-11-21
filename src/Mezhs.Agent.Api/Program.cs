@@ -23,6 +23,8 @@ var executorStorage = Path.Combine(
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddMezhsApi(coreOptions, options.Server.Listen);
+// Agent extends Core's UI catalog without changing the standalone Core API.
+builder.Services.AddSingleton(AgentRichTags.Tags);
 builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
     policy.SetIsOriginAllowed(origin =>
             Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.IsLoopback)

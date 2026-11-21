@@ -39,94 +39,61 @@ public sealed record RichTagDefinition(
     bool SearchChildren,
     // AllowAsChild: whether this tag may be discovered while traversing any
     // other searchable tag. Independent of SearchChildren and Agent policy.
-    bool AllowAsChild);
-
-// The shared parser owns UI syntax. Agent command authority stays with Agent Registry.
-public static class RichTagRegistry
+    bool AllowAsChild)
 {
-    private static RichTagDefinition Tag(string name, RichTagRole role, params string[] attributes) =>
-        new(name, role, new HashSet<string>(attributes, StringComparer.Ordinal),
-            SearchChildren: role == RichTagRole.Container,
-            AllowAsChild: name != "DONE");
+    // Optional specialized behavior; ordinary presentation still uses its role.
+    public Func<RichTagContext, RichTagHandling>? Handle { get; init; }
+}
 
-    // Presentation components receive bounded inert attributes and interpret them locally.
-    // Restricted namespaces (SVG, raw editors, Agent commands) keep explicit contracts.
-    private static RichTagDefinition Presentation(string name, RichTagRole role) =>
-        Tag(name, role) with { AllowedAttributes = null };
 
-    // An individual tag may override either traversal policy without
-    // changing its role, syntax, attribute allowlist or siblings.
-    private static RichTagDefinition WithDiscovery(RichTagDefinition tag,
-        bool? searchChildren = null, bool? allowAsChild = null) =>
-        tag with
-        {
-            SearchChildren = searchChildren ?? tag.SearchChildren,
-            AllowAsChild = allowAsChild ?? tag.AllowAsChild
-        };
+public readonly record struct RichTagHandling(int End, RichNode? Display = null);
 
-    private static readonly string[] SvgCommon =
-    ["fill", "stroke", "strokeWidth", "strokeLinecap", "strokeLinejoin",
-     "strokeDasharray", "opacity", "fillOpacity", "strokeOpacity", "transform",
-     "fontSize", "fontFamily", "fontWeight", "textAnchor", "dominantBaseline"];
-    private static RichTagDefinition SvgTag(string name, RichTagRole role, params string[] attributes) =>
-        Tag(name, role, [..SvgCommon, ..attributes]);
-    private static readonly RichTagDefinition SvgText = SvgTag("text", RichTagRole.Container, "x", "y");
-    private static readonly HashSet<string> SvgNames = new(
-        ["svg", "g", "rect", "path", "line", "polyline", "polygon", "circle", "ellipse", "text", "tspan"],
-        StringComparer.Ordinal);
+// Tag handlers request bounded discovery; the parser alone owns scanning.
+public sealed class RichTagContext
+{
+    private readonly RichDocumentParser _parser;
+    internal RichTagContext(RichDocumentParser parser, string name, int start,
+        int bodyStart, int bodyEnd, int end, bool isRoot,
+        IReadOnlyDictionary<string, string> attributes)
+    {
+        _parser = parser; Name = name; Start = start; BodyStart = bodyStart;
+        BodyEnd = bodyEnd; End = end; IsRoot = isRoot; Attributes = attributes;
+    }
+    public string Name { get; }
+    public int Start { get; }
+    public int BodyStart { get; }
+    public int BodyEnd { get; }
+    public int End { get; }
+    public bool IsRoot { get; }
+    public IReadOnlyDictionary<string, string> Attributes { get; }
+    public RichTagHandling Discover(Func<RichTagDefinition, bool> eligible) =>
+        _parser.DiscoverInOpaque(this, eligible);
+}
 
-    private static readonly IReadOnlyDictionary<string, RichTagDefinition> Tags =
-        new[]
-        {
-            Presentation("box", RichTagRole.Container),
-            Presentation("row", RichTagRole.Container),
-            Presentation("col", RichTagRole.Container),
-            Presentation("grid", RichTagRole.Container),
-            Presentation("grid-item", RichTagRole.Container),
-            Presentation("text", RichTagRole.Container),
-            Presentation("title", RichTagRole.Container),
-            Presentation("caption", RichTagRole.Container),
-            Presentation("badge", RichTagRole.Container),
-            Presentation("Link", RichTagRole.Container),
-            // SVG uses the same tag registry, with SVG-specific attributes and nesting.
-            SvgTag("svg", RichTagRole.Container, "viewBox", "width", "height", "preserveAspectRatio", "aria-label", "role"),
-            SvgTag("g", RichTagRole.Container),
-            SvgTag("rect", RichTagRole.Leaf, "x", "y", "rx", "ry", "width", "height"),
-            SvgTag("path", RichTagRole.Leaf, "d"),
-            SvgTag("line", RichTagRole.Leaf, "x1", "y1", "x2", "y2"),
-            SvgTag("polyline", RichTagRole.Leaf, "points"),
-            SvgTag("polygon", RichTagRole.Leaf, "points"),
-            SvgTag("circle", RichTagRole.Leaf, "cx", "cy", "r"),
-            SvgTag("ellipse", RichTagRole.Leaf, "cx", "cy", "rx", "ry"),
-            SvgTag("tspan", RichTagRole.Container, "x", "y"),
-            Presentation("divider", RichTagRole.Leaf),
-            Presentation("icon", RichTagRole.Leaf),
-            Presentation("Chart", RichTagRole.Leaf),
-            // Citation provenance is a security-sensitive namespace, not general presentation.
-            Tag("Cite", RichTagRole.Leaf, "ref", "refs"),
-            Tag("CodeBlock", RichTagRole.RawEditor, "language", "editable"),
-            Tag("WritingBlock", RichTagRole.RawEditor, "variant", "recipient", "cc", "bcc", "subject", "id"),
-            Tag("escape", RichTagRole.OpaqueLiteral, "char"),
-            // Agent commands are root-only and opaque, using the same
-            // traversal policy as all other registered tags.
-            WithDiscovery(Tag("SH", RichTagRole.Command), searchChildren: false, allowAsChild: false),
-            WithDiscovery(Tag("ATTACH", RichTagRole.Command), searchChildren: false, allowAsChild: false),
-            WithDiscovery(Tag("DONE", RichTagRole.Marker), searchChildren: false, allowAsChild: false)
-        }.ToDictionary(tag => tag.Name, StringComparer.Ordinal);
+// Definitions are injected by the owner: UI API supplies base tags,
+// Agent API extends them with command tags and handler overrides.
+public sealed class RichTagRegistry
+{
+    private static readonly IReadOnlySet<string> SvgNames = new HashSet<string>(
+        ["svg", "g", "rect", "path", "line", "polyline", "polygon",
+         "circle", "ellipse", "text", "tspan"], StringComparer.Ordinal);
+    private readonly IReadOnlyDictionary<string, RichTagDefinition> _tags;
 
-    public static bool IsSvgTag(string name) => SvgNames.Contains(name);
-
-    public static bool TryGet(string name, bool svgScope, out RichTagDefinition definition)
+    public RichTagRegistry(IEnumerable<RichTagDefinition> definitions, RichTagDefinition svgText)
+    {
+        _tags = definitions.ToDictionary(tag => tag.Name, StringComparer.Ordinal);
+        SvgText = svgText;
+    }
+    public IEnumerable<RichTagDefinition> Definitions => _tags.Values;
+    public RichTagDefinition SvgText { get; }
+    public bool TryGet(string name, bool svgScope, out RichTagDefinition definition)
     {
         if (svgScope && name == "text") { definition = SvgText; return true; }
-        if (!Tags.TryGetValue(name, out definition!)) return false;
-        // Resolve root-only tags inside a child scope only so their eligibility
-        // policy can keep them inert; other foreign SVG content remains invalid.
+        if (!_tags.TryGetValue(name, out definition!)) return false;
         return svgScope
             ? SvgNames.Contains(name) || !definition.AllowAsChild
             : !SvgNames.Contains(name) || (name is "svg" or "text");
     }
-
-    public static bool TryGet(string name, out RichTagDefinition definition) =>
+    public bool TryGet(string name, out RichTagDefinition definition) =>
         TryGet(name, false, out definition);
 }

@@ -99,20 +99,31 @@ static void Reject(Parser parser, string content, string message)
 // authority; every executable command must have exactly one canonical tag role.
 foreach (var command in Registry.All)
 {
-    Check(RichTagRegistry.TryGet(command.Name, out var tag) &&
+    Check(AgentRichTags.Tags.TryGet(command.Name, out var tag) &&
           tag.Role == (command.Form == CommandForm.Block
               ? RichTagRole.Command : RichTagRole.Marker),
           "Canonical rich tags diverged from Agent command definitions.");
 }
-Check(RichTagRegistry.TryGet("box", out var boxTag) &&
+Check(AgentRichTags.Tags.TryGet("box", out var boxTag) &&
       boxTag.Role == RichTagRole.Container, "Box must be a container node.");
-Check(RichTagRegistry.TryGet("CodeBlock", out var codeTag) &&
+Check(AgentRichTags.Tags.TryGet("CodeBlock", out var codeTag) &&
       codeTag.Role == RichTagRole.RawEditor, "CodeBlock must remain literal raw source.");
-Check(RichTagRegistry.TryGet("WritingBlock", out var writingTag) &&
+Check(AgentRichTags.Tags.TryGet("WritingBlock", out var writingTag) &&
       writingTag.Role == RichTagRole.RawEditor, "WritingBlock must remain literal raw source.");
-Check(RichTagRegistry.TryGet("icon", out var iconTag) &&
+Check(AgentRichTags.Tags.TryGet("icon", out var iconTag) &&
       iconTag.Role == RichTagRole.Leaf, "Icon cannot own command descendants.");
-Check(!RichTagRegistry.TryGet("UNKNOWN", out _), "Unknown tags must not be registered.");
+Check(!AgentRichTags.Tags.TryGet("UNKNOWN", out _), "Unknown tags must not be registered.");
+
+// All supported command forms are tested from the Agent command registry.
+foreach (var command in Registry.All)
+{
+    var body = command.Form == CommandForm.Marker ? null : "registry-payload";
+    var source = body is null ? $"<escape><{command.Name}></escape>"
+        : $"<escape><{command.Name}>{body}</{command.Name}></escape>";
+    var result = parser.Parse(source);
+    Check(result.Commands.SequenceEqual([new Command(command.Name, body)]),
+        $"Escaped registered command {command.Name} was not recognized.");
+}
 
 // All supported paired tags use source-position matching, not line boundaries.
 var inline = parser.Parse("prefix <SH>echo INLINE</SH> suffix");
@@ -122,7 +133,7 @@ Check(inline.Commands.SequenceEqual([new Command("SH", "echo INLINE")]) &&
 
 // Rich raw editors also use paired-tag matching independent of line position.
 // Their nested command-looking text must stay opaque.
-var sameLineCode = new RichDocumentParser().Parse(
+var sameLineCode = new RichDocumentParser(AgentRichTags.Tags).Parse(
     "before <CodeBlock language=\"text\">raw <SH>INERT</SH></CodeBlock> after");
 Check(sameLineCode.Document.Valid && sameLineCode.Commands.Count == 0 &&
       sameLineCode.Document.Nodes.Any(n => n.Kind == "raw" && n.Name == "CodeBlock" &&
@@ -134,7 +145,7 @@ Check(rawBeforeShell.Commands.SequenceEqual([new Command("SH", "echo OK")]) &&
       rawBeforeShell.VisibleContent == "before <CodeBlock language=\"text\">raw</CodeBlock>",
       "Inline CodeBlock prevented a following root command.");
 
-var sameLineWriting = new RichDocumentParser().Parse(
+var sameLineWriting = new RichDocumentParser(AgentRichTags.Tags).Parse(
     "before <WritingBlock variant=\"document\">raw <SH>INERT</SH></WritingBlock> after");
 Check(sameLineWriting.Document.Valid && sameLineWriting.Commands.Count == 0 &&
       sameLineWriting.Document.Nodes.Any(n => n.Kind == "raw" && n.Name == "WritingBlock" &&
@@ -145,10 +156,61 @@ var writingBeforeShell = parser.Parse(
 Check(writingBeforeShell.Commands.SequenceEqual([new Command("SH", "echo OK")]) &&
       writingBeforeShell.VisibleContent == "before <WritingBlock variant=\"document\">raw</WritingBlock>",
       "Inline WritingBlock prevented a following root command.");
-var sameLineEscape = new RichDocumentParser().Parse(
-    "before <escape>raw <SH>INERT</SH></escape> after");
-Check(sameLineEscape.Document.Valid && sameLineEscape.Commands.Count == 0,
-      "Inline escape must be opaque to nested Agent commands.");
+var sameLineEscape = new RichDocumentParser(AgentRichTags.Tags).Parse(
+    "before <escape>raw <SH>EXECUTED</SH></escape> after");
+Check(sameLineEscape.Document.Valid &&
+      sameLineEscape.Commands.Select(c => c.Body).SequenceEqual(["EXECUTED"]) &&
+      sameLineEscape.Document.Nodes.Any(n => n.Kind == "literal" && n.Text == "raw "),
+      "Root escape must discover Agent commands without showing executable content.");
+
+var splitSource = "prefix<escape><SH></escape>\r\necho SPLIT \r\n<escape></SH></escape>suffix";
+var splitResult = parser.Parse(splitSource);
+var splitDocument = new RichDocumentParser(AgentRichTags.Tags).Parse(splitSource);
+Check(splitResult.Commands.Count == 0 && splitResult.VisibleContent == splitSource &&
+      splitDocument.Document.Valid && splitDocument.Commands.Count == 0,
+      "Incomplete command tags in separate escape wrappers must stay literal.");
+var splitWithTags = parser.Parse(
+    "<escape><SH></escape>echo <box>literal</box><escape></SH></escape>");
+Check(splitWithTags.Commands.Count == 0,
+      "Separate escape wrappers cannot construct a command from intervening content.");
+var splitAttach = parser.Parse("<escape><ATTACH></escape>file.txt<escape></ATTACH></escape>");
+Check(splitAttach.Commands.Count == 0,
+      "Incomplete escaped attachment delimiters must remain inert.");
+var escapedDone = parser.Parse("<escape><SH>echo OK</SH></escape><escape><DONE></escape>");
+Check(escapedDone.Commands.SequenceEqual([new Command("SH", "echo OK"), new Command("DONE", null)]),
+      "Escaped DONE marker did not preserve command ordering.");
+var adjacentEscapedSource = "<escape><SH>echo FIRST</SH><ATTACH>queued.txt</ATTACH><DONE></escape>";
+var adjacentEscaped = parser.Parse(adjacentEscapedSource);
+var adjacentEscapedDoc = new RichDocumentParser(AgentRichTags.Tags).Parse(adjacentEscapedSource);
+Check(adjacentEscaped.Commands.SequenceEqual([
+          new Command("SH", "echo FIRST"), new Command("ATTACH", "queued.txt"),
+          new Command("DONE", null)]) &&
+      adjacentEscaped.VisibleContent == "" && adjacentEscapedDoc.Document.Valid &&
+      adjacentEscapedDoc.Commands.Count == 3 &&
+      adjacentEscapedDoc.Commands[0].SourceSpan.Start == 0 &&
+      adjacentEscapedDoc.Commands[^1].SourceSpan.End == adjacentEscapedSource.Length,
+      "Fully consumed multi-command escape must not leak an empty wrapper into Agent results.");
+var spacedEscapedSource = "prefix<escape>\r\n<SH>echo FIRST</SH>\r\n<ATTACH>queued.txt</ATTACH>\r\n<DONE>\r\n</escape>suffix";
+var spacedEscaped = parser.Parse(spacedEscapedSource);
+var spacedEscapedDoc = new RichDocumentParser(AgentRichTags.Tags).Parse(spacedEscapedSource);
+Check(spacedEscaped.Commands.SequenceEqual([
+          new Command("SH", "echo FIRST"), new Command("ATTACH", "queued.txt"),
+          new Command("DONE", null)]) &&
+      spacedEscaped.VisibleContent == "prefixsuffix" &&
+      spacedEscapedDoc.Document.Valid && spacedEscapedDoc.Commands.Count == 3 &&
+      spacedEscapedDoc.Commands[0].SourceSpan.Start == "prefix".Length &&
+      spacedEscapedDoc.Commands[0].SourceSpan.End == spacedEscapedDoc.Commands[1].SourceSpan.Start &&
+      spacedEscapedDoc.Commands[1].SourceSpan.End == spacedEscapedDoc.Commands[2].SourceSpan.Start &&
+      spacedEscapedDoc.Commands[2].SourceSpan.End == spacedEscapedSource.Length - "suffix".Length,
+      "Whitespace-only command gaps must not leak escape markup or alter command bodies.");
+Check(parser.Parse("<escape><text><SH>NO</SH></text><SH>YES</SH></escape>")
+      .Commands.SequenceEqual([new Command("SH", "YES")]),
+      "Other tags within escape must not expose their child commands.");
+Check(parser.Parse("<box><escape><SH>NO</SH></escape></box>").Commands.Count == 0 &&
+      parser.Parse("<escape><escape><SH>NO</SH></escape></escape>").Commands.Count == 0,
+      "Nested UI and nested escape cannot authorize root-only commands.");
+Check(parser.Parse("<escape><SH></escape>no closing delimiter").Commands.Count == 0,
+      "Unmatched escaped command opener must stay inert.");
 
 var multiline = parser.Parse("before\n<SH>\r\necho first\r\n</SH>\n<DONE>\nafter");
 Check(multiline.Commands.SequenceEqual([
@@ -183,10 +245,10 @@ var acrossContexts = parser.Parse(
     "`<SH>inline-code</SH>`" +
     "<!-- <SH>comment</SH> -->");
 Check(acrossContexts.Commands.Select(c => c.Body).SequenceEqual([
-      "inline-code", "comment"]) &&
-      acrossContexts.VisibleContent.Contains("<SH>escape</SH>", StringComparison.Ordinal) &&
+      "escape", "inline-code", "comment"]) &&
+      !acrossContexts.VisibleContent.Contains("<SH>escape</SH>", StringComparison.Ordinal) &&
       acrossContexts.VisibleContent.Contains("<SH>raw</SH>", StringComparison.Ordinal),
-      "Registered rich elements must keep nested SH inert while root Markdown commands execute.");
+      "Root escape commands must execute; other registered containers remain inert.");
 
 var original = "<SH> cd /d D:\\Projects\\eflex-framework && git status --short --branch && git branch --show-current && type specifications\\planned\\debug-log-files\\plan.md && if exist AGENTS.md type AGENTS.md </SH>";
 Check(parser.Parse(original).Commands.Single() ==
@@ -196,6 +258,10 @@ Check(parser.Parse(original).Commands.Single() ==
 Reject(parser, "<DONE><SH>echo NEVER</SH>",
       "DONE may not precede another command.");
 Reject(parser, "<DONE><DONE>", "Duplicate DONE must be rejected.");
+Reject(parser, "<escape><DONE></escape><SH>echo NEVER</SH>",
+      "Escaped DONE must still be final.");
+Reject(parser, "<SH>echo NEVER</SH><escape><DONE></escape><DONE>",
+      "Duplicate DONE after an escaped marker must fail closed.");
 Reject(parser, "<SH extra=\"true\">echo NEVER</SH>",
       "Invalid complete SH attributes must be rejected.");
 Reject(parser, "<DONE/>", "Self-closing DONE must be rejected.");
@@ -211,7 +277,7 @@ var malformedUnknown = parser.Parse("prose </unknown bad> tail");
 Check(malformedUnknown.Commands.Count == 0 &&
       malformedUnknown.VisibleContent == "prose </unknown bad> tail",
       "Malformed unknown closing markup must remain ordinary text.");
-var foreignSvg = new RichDocumentParser().Parse("<path d=\"M0 0\"/>");
+var foreignSvg = new RichDocumentParser(AgentRichTags.Tags).Parse("<path d=\"M0 0\"/>");
 Check(foreignSvg.Document.Valid && foreignSvg.Commands.Count == 0 &&
       foreignSvg.Document.Nodes.Any(n => n.Kind == "unknown" && n.Name == "path"),
       "Registered SVG geometry outside SVG must render an inert diagnostic.");
@@ -258,6 +324,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     Assert-RejectedBatch 'empty-shell' "<SH>`n `n</SH>"
     Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"
     Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"
+    Assert-RejectedBatch 'escaped-done-order' '<escape><DONE></escape><SH>echo LATER</SH>'
 
     # Real Executor proof: root-level matched pairs execute regardless of line placement.
     function Assert-InlineExecuted([string]$label, [string]$prefix, [string]$suffix) {
@@ -276,6 +343,25 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     }
     Assert-InlineExecuted 'prose' 'before ' ' after '
     Assert-InlineExecuted 'markdown-fence' ('```text' + "`n") ("`n" + '```')
+
+    # A complete escaped shell command executes through the real Executor.
+    $escapedMarker = Join-Path $temp 'split-escaped-command.txt'
+    $escapedShell = "echo ESCAPED>>`"$escapedMarker`""
+    $escapedTask = "<escape>`n<SH>$escapedShell</SH>`n<DONE>`n</escape>"
+    $escapedRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $escapedTask })
+    $escapedOutcome = Wait-Execution $escapedRun.executionId 20
+    $escapedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($escapedOutcome.chatId)/executions")
+    $escapedShells = @($escapedHistory | Where-Object { $_.kind -eq 'Shell' })
+    if ($escapedOutcome.status -ne 'Completed' -or $escapedShells.Count -ne 1 -or
+        $escapedShells[0].status -ne 'Completed' -or
+        -not (Test-Path -LiteralPath $escapedMarker) -or
+        @((Get-Content -LiteralPath $escapedMarker)).Count -ne 1) {
+        throw "Complete escaped command did not execute exactly once with durable evidence."
+    }
+    if (-not [string]::IsNullOrEmpty($escapedOutcome.result)) {
+        throw "Whitespace-only escaped commands leaked a nonempty durable result: $($escapedOutcome.result)"
+    }
+    Write-Host 'PASS: Complete escaped shell command executes once and escaped DONE completes.'
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
