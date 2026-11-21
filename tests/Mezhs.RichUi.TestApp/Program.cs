@@ -28,6 +28,8 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Rich Link rejects nested links", "<Link url=\"https://a.test\">Outer <Link url=\"https://b.test\">Inner</Link></Link>", true, []),
     ("Inline SH", "before <SH>echo one</SH> after", true, ["SH"]),
     ("Bounded SH", "<SH timeout=60 limit=500>echo one</SH>", true, ["SH"]),
+    ("All SH parameters", "<SH timeout=60 limit=5 limitStart=2 limitEnd=1 regex=\"error|warning\">echo one</SH>", true, ["SH"]),
+    ("Zero limit and previews", "<SH limit=0 limitStart=0 limitEnd=0>echo one</SH>", true, ["SH"]),
     ("SH unknown parameter rejects batch", "<SH unknown=1>echo one</SH>", false, []),
     ("SH duplicate parameter rejects batch", "<SH timeout=1 timeout=2>echo one</SH>", false, []),
     ("Inert nested bounded SH", "<box><SH timeout=60>INERT</SH></box>", true, []),
