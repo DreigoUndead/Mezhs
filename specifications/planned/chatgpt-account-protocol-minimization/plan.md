@@ -78,6 +78,21 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-21 — Independent Step 3 Code Review: bounded native JSON success responses (FAIL)
+
+**Reviewed:** Task branch at `bef2b5772ac1275dce9636545543d372928fd801`, compared with the approved `integration-architecture-v2` baseline `b8f25cff351aed34b3de2f7ef1483a01183a9049`. Confirmed earlier transport corrections and inspected the native ChatGPT account authentication, Sentinel/conduit preparation, incremental streaming, ordered operation events, signed transfers, C# protocol, and regression tests.
+
+**Finding (medium; confirmed code path):** `account-transport.js` used unbounded `response.json()` for successful `/api/auth/session` and unbounded `response.text()` for successful `/backend-api/f/conversation/prepare`. These requests run inside a provider-native hook, outside the shared 16 MiB typed HTTP reader, so a successful oversized body could be buffered without a byte bound. The finding establishes an unbounded success-response path, not an observed live provider outage or memory-exhaustion incident.
+
+**Correction:** Added an incremental 1 MiB UTF-8 JSON reader that cancels unfinished native response streams, rejecting oversized/nonincremental responses before the one-time conversation POST. Added a Node regression for oversized auth and prepare success responses, requiring upstream cancellation and zero conversation submissions. Committed on the task branch as `3101028` and `6e17a78`; corrected revision `6e17a78ddecc921f7d00e320b40070a8d483a8b3`.
+
+**Verification (MEŽS host command results):** 25/25 targeted Node HTTP/transfer/account tests PASS; 65/65 expanded account/browser/Electron/context/model-mismatch Node tests PASS; `tests/chatgpt-account-protocol-flow.ps1` PASS (metadata, citations, restoration, no replay, interrupted streams, auth, files, SSE integrity); `tests/architecture.ps1` PASS; `Mezhs.Integration.Contracts.Probe` PASS; `dotnet build Mezhs.sln -c Release --no-restore -v quiet` PASS (0 errors, one existing WhatsApp CS0114 warning); `git diff --check` PASS and task worktree clean. React SSR `useLayoutEffect` warnings were non-failing. No isolated authenticated live ChatGPT/Chromium session, actual signed provider transfer or overlapping served-model/effort check was executed.
+
+**Outcome: FAIL** under `.agents/code-review.md` because code and regression tests were corrected. A fresh independent Step 3 Code Reviewer must review the new revision before Step 4 independent Testing. No owner merge approval or merge is implied. The authorized future merge destination is `integration-architecture-v2`, never `main`.
+
+**Authority:** Independent High-risk Step 3 Code Reviewer.
+
+
 ### 2026-11-21 — Independent Step 3 Code Review: bounded error reads and headers-only adapter (FAIL)
 
 **Reviewed:** feature commit `80e06d7d2f8225724378f228fa4ed0b336ca24de` against the required `integration-architecture-v2` baseline `b8f25cff351aed34b3de2f7ef1483a01183a9049`. The task worktree was initially clean. The remote parent has since advanced to `52d1c88`, to be reconciled only at the authorized integration stage.
