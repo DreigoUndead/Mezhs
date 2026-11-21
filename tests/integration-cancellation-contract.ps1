@@ -373,6 +373,15 @@ sealed class ProbeTransport(ProbeHost host) : IChatBrowserTransport
         throw new InvalidOperationException("Cancellation probe unexpectedly resumed.");
     }
 
+    // Typed account streams use the event-capable transport operation.
+    // Keep this fake request pending until cancellation, as with InvokeAsync.
+    public Task<TResult> InvokeWithEventsAsync<TResult>(
+        string operation, object? arguments,
+        Action<System.Text.Json.JsonElement> reportEvent,
+        Action<BrowserOperationProgress>? reportProgress = null,
+        CancellationToken cancellationToken = default) =>
+        InvokeAsync<TResult>(operation, arguments, cancellationToken);
+
     public Task<BrowserStopOutcome> StopTurnAsync(string chatId, string messageId,
         CancellationToken cancellationToken = default)
     {

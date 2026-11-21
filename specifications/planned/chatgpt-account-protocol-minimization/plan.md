@@ -284,3 +284,19 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 **Reason:** Owner identified that the v2 account implementation still has excessive provider-specific JavaScript and requested a substantial architectural simplification without bypassing the parent branch.
 **Authority:** Owner request in this task.
 **Trade-off:** Ambitious size target is subordinate to full functionality, secure browser session ownership and non-replayable submission semantics; inability to meet it requires an explicit owner decision, not hidden scope reductions.
+
+### 2026-11-22 - Independent Step 3 Code Review: cancellation probe adapter (FAIL)
+
+**Reviewed:** Feature revision c85d760 against the approved integration-architecture-v2 baseline b8f25cff.
+
+**Finding:** The cancellation contract fake implemented InvokeAsync but not InvokeWithEventsAsync, which the migrated ChatGPT Account protocol requires. Its first run timed out without observing a transport invocation. This demonstrates an obsolete test adapter, not a confirmed production cancellation failure.
+
+**Correction:** Added InvokeWithEventsAsync to the cancellation fake, delegating to its existing cancellable InvokeAsync. No production behavior changed.
+
+**Verification:** 75 focused Node tests, typed C# protocol, authentication, architecture, integration contracts, resource packaging, 96 concurrent packaging initializations, corrected cancellation contract for eight registrations, Grok checks, and one real-Chromium UI test passed. Release build passed with one unrelated WhatsApp CS0114 warning.
+
+**Limitations:** Live authenticated ChatGPT, real signed provider transfers, and concurrent distinct served-model and effort combinations remain unverified. Parent reconciliation and owner-approved merge remain pending.
+
+**Outcome: FAIL.** Because the review corrected a regression test, a fresh independent Step 3 Code Review is required before independent Testing. The eventual merge target is integration-architecture-v2, never main.
+
+**Authority:** Independent High-risk Step 3 Code Reviewer.
