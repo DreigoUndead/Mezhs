@@ -101,12 +101,10 @@ public sealed class ChatGptAccountIntegration : BrowserAccountIntegrationBase
                     projectId,
                     request.Model,
                     files);
-                var response = await transport.InvokeWithProgressAsync<ChatGptSendResponse>(
-                    newChat ? "newChat" : "send",
-                    payload,
+                var response = await ChatGptAccountProtocol.SendAsync(
+                    transport, payload, newChat,
                     progress => chat.ReportActivity?.Invoke(new IntegrationActivity(
-                        progress.State, progress.Detail, progress.Analysis)),
-                    token);
+                        progress.State, progress.Detail, progress.Analysis)), token);
                 return (response, projectId);
             }
 
@@ -204,27 +202,4 @@ public sealed class ChatGptAccountIntegration : BrowserAccountIntegrationBase
 
     private sealed record ChatGptProject(string Id, string Name);
 
-    private sealed record ChatGptInputFile(
-        string Path,
-        string Name,
-        string ContentType);
-
-    private sealed record ChatGptSendRequest(
-        string Prompt,
-        string MessageId,
-        string? ConversationId,
-        string? ParentMessageId,
-        string? ProjectId,
-        string? Model,
-        IReadOnlyList<ChatGptInputFile> Files);
-
-    private sealed record ChatGptSendResponse(
-        string Text,
-        string ConversationId,
-        string ParentMessageId,
-        string? ProjectId,
-        string? ChatUrl,
-        IReadOnlyList<BrowserArtifact>? Artifacts,
-        string? Model = null,
-        bool ConversationUnavailable = false);
 }
