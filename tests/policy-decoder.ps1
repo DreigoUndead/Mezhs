@@ -410,6 +410,31 @@ Assert(regexPrompt.Contains("error B", StringComparison.Ordinal) &&
        regexPrompt.Contains("\"exitCode\": 9", StringComparison.Ordinal) &&
        regexPrompt.Contains("\"error\": \"failed\"", StringComparison.Ordinal),
     "Regex-before-limit presentation changed the durable status/error evidence.");
+var noMatchesPrompt = promptBuilder.BuildCommandResults(
+    new[] { new Result("SH", "8", true, 0, "info A\ninfo B", null,
+        new ShellOutputOptions(1, 1, 0, "error")) }, normal).Content;
+Assert(noMatchesPrompt.Contains("0/2 original lines matched", StringComparison.Ordinal) &&
+       !noMatchesPrompt.Contains("info A", StringComparison.Ordinal) &&
+       !noMatchesPrompt.Contains("info B", StringComparison.Ordinal) &&
+       noMatchesPrompt.Contains("Get 8", StringComparison.Ordinal),
+    "Zero-match SH regex did not hide unmatched lines or supply recovery.");
+var oneMatchPrompt = promptBuilder.BuildCommandResults(
+    new[] { new Result("SH", "9", true, 0, "info A\nerror B\ninfo C", null,
+        new ShellOutputOptions(1, 1, 0, "error")) }, normal).Content;
+Assert(oneMatchPrompt.Contains("error B", StringComparison.Ordinal) &&
+       !oneMatchPrompt.Contains("info A", StringComparison.Ordinal) &&
+       !oneMatchPrompt.Contains("info C", StringComparison.Ordinal) &&
+       oneMatchPrompt.Contains("1/3 original lines matched", StringComparison.Ordinal) &&
+       !oneMatchPrompt.Contains("line preview", StringComparison.Ordinal),
+    "One regex match exactly at the line limit was incorrectly abbreviated.");
+var emptyPreviewPrompt = promptBuilder.BuildCommandResults(
+    new[] { new Result("SH", "10", true, 0, lines, null,
+        new ShellOutputOptions(2, 0, 0, null)) }, normal).Content;
+Assert(emptyPreviewPrompt.Contains("0/8 selected lines shown; 8 omitted", StringComparison.Ordinal) &&
+       !emptyPreviewPrompt.Contains("LINE_1", StringComparison.Ordinal) &&
+       !emptyPreviewPrompt.Contains("LINE_8", StringComparison.Ordinal) &&
+       emptyPreviewPrompt.Contains("Get 10", StringComparison.Ordinal),
+    "Zero-length line previews did not preserve omission metadata and recovery.");
 var exactPrompt = promptBuilder.BuildCommandResults(
     new[] { new Result("SH", "5", true, 0, "A\nB", null,
         new ShellOutputOptions(2, 1, 1, null)) }, normal).Content;
