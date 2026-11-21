@@ -90,8 +90,25 @@ public sealed record ChatGptModelProbe(
     [property: JsonPropertyName("display_name")] string? DisplayName = null,
     string? Name = null);
 
+public sealed record ChatGptProjectsPage(
+    IReadOnlyList<ChatGptProjectItem>? Items,
+    string? Cursor);
+
+public sealed record ChatGptProjectItem(ChatGptProjectNode? Gizmo);
+
+public sealed record ChatGptProjectNode(
+    string? Id = null,
+    ChatGptProjectDisplay? Display = null,
+    ChatGptProjectNode? Gizmo = null);
+
+public sealed record ChatGptProjectDisplay(string? Name);
+
 internal static class ChatGptTypedHttpEndpoints
 {
     internal static readonly HttpEndpoint<EmptyHttpRequest, ChatGptModelCatalogProbe> Models =
         new(HttpMethod.Get, "/backend-api/models?history_and_training_disabled=false");
+
+    internal static HttpEndpoint<EmptyHttpRequest, ChatGptProjectsPage> Projects(string? cursor) =>
+        new(HttpMethod.Get, "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=0" +
+            (cursor is null ? "" : "&cursor=" + Uri.EscapeDataString(cursor)));
 }
