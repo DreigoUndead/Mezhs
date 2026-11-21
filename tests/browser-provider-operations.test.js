@@ -153,43 +153,12 @@ test("provider response lifetime is not capped by wall-clock deadlines", () => {
   }
 });
 
-test("ChatGPT getProjects uses the private API and follows pagination", async () => {
+test("ChatGPT project discovery is no longer a separate JavaScript operation", () => {
   const chatgpt = loadChatGptModule();
-  const calls = [];
-  const session = mockSession(async (url, options = {}) => {
-    const target = new URL(String(url));
-    calls.push({ target, options });
-
-    if (target.pathname === "/api/auth/session")
-      return jsonResponse({ accessToken: "token" });
-
-    if (target.pathname === "/backend-api/gizmos/snorlax/sidebar") {
-      assert.equal(options.headers.Authorization, "Bearer token");
-      if (!target.searchParams.has("cursor")) {
-        return jsonResponse({
-          items: [
-            { gizmo: { gizmo: { id: "g-p-one", display: { name: "One" } } } },
-            { gizmo: { gizmo: { id: "not-a-project", display: { name: "Ignore" } } } }
-          ],
-          cursor: "next"
-        });
-      }
-      assert.equal(target.searchParams.get("cursor"), "next");
-      return jsonResponse({
-        items: [{ gizmo: { id: "g-p-two", display: { name: "Two" } } }],
-        cursor: null
-      });
-    }
-
-    throw new Error(`Unexpected request ${target}`);
-  });
-
-  const result = await chatgpt.operations.getProjects({ session, args: {}, sleep: async () => {} });
-  assert.deepEqual(result, [
-    { id: "g-p-one", name: "One" },
-    { id: "g-p-two", name: "Two" }
-  ]);
-  assert.equal(calls.filter(call => call.target.pathname === "/backend-api/gizmos/snorlax/sidebar").length, 2);
+  assert.equal(chatgpt.operations.getProjects, undefined);
+  const accountSource = fs.readFileSync(path.join(root,
+    "integrations", "Mezhs.Integrations.ChatGpt", "ChatGptIntegration.cs"), "utf8");
+  assert.match(accountSource, /ChatGptTypedHttpEndpoints\.Projects/);
 });
 
 
