@@ -119,10 +119,10 @@ static async Task TestModelDeduplicationAsync(string root)
     await using var integration = new ChatGptAccountIntegration(Connection(), host);
     var models = await integration.GetModelsAsync();
 
-    Assert(models.Count == 3, $"expected one Default plus deduplicated native models, got {models.Count} models");
+    Assert(models.Count == 4, $"expected one Default plus deduplicated native models, got {models.Count} models");
     Assert(models[0].Id == "default" && models[0].Name == "Default", "direct model discovery must expose exactly one Default.");
     Assert(models[1].Id == "gpt-sol-primary", "provider order was not retained for duplicate model names");
-    Assert(models[2].Id == "gpt-thinking", "unique model was removed during deduplication");
+    Assert(models[3].Id == "gpt-thinking", "unique model was removed during deduplication");
 }
 
 static async Task TestProjectDiscoveryAsync(string root)
@@ -461,6 +461,7 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 
         if (operation == "typedHttp")
         {
+            var request = (HttpTransportRequest)(arguments ?? throw new InvalidOperationException());
             var catalog = new
             {
                 models = host.ModelResults.Select(model =>
@@ -473,8 +474,6 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
                 : JsonSerializer.Serialize(catalog, JsonOptions);
             return Result<TResult>(new HttpTransportResponse(200, body, "application/json"));
         }
-        if (operation == "getProjects")
-            return Result<TResult>(Array.Empty<object>());
 
         if (operation is "newChat" or "send")
         {
@@ -497,7 +496,7 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
                 conversationId = "test",
                 parentMessageId = "assistant",
                 chatUrl = "https://chatgpt.com/c/test",
-                projectId = (string?)null,
+                projectId = JsonSerializer.SerializeToElement(arguments, JsonOptions).GetProperty("projectId").GetString(),
                 artifacts = Array.Empty<BrowserArtifact>(),
                 model = "served-test"
             });
