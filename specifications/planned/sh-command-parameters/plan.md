@@ -125,3 +125,15 @@ Use Windows PowerShell 5.1 where `pwsh` is absent. Run `dotnet build src/Mezhs.A
 - `codegraph review` from a clean HEAD worktree — no_changes; this is a working-tree status observation, **not** an independent branch code-review PASS.
 
 **Remaining:** Independent Code Review (step 3) and independent Testing (step 4), then owner-approved Deploy only. No merge into `main`.
+
+### 2026-11-21 — Independent Code Review step 3: recovery correction and verification
+
+**Outcome:** FAIL / correction committed at `e5a03322538dc0a6b929f34ba852e92011b738b4`; the author of this correction must hand off to a **fresh independent Code Reviewer**. This is not a review PASS.
+
+**Finding:** The generated Executor `Get <id>` recovery SH block used `limit=0` but inherited a nonempty policy-level `regex`. Consequently, retrieval under a policy regex could silently filter the returned durable record despite disabling the line limit.
+
+**Correction:** Generate `<SH limit=0 regex="">` so both line abbreviation and policy regex filtering are overridden. Update the recovery explanation and regression expectations; add a `ShellOutputOptions.Resolve` test verifying that an explicitly empty regex supersedes a policy regex default. The underlying Executor history and command execution path remain unchanged.
+
+**Verification (isolated Windows worktree at `e5a0332`, runtime command results 9146/9147/9149):** Agent API Release build PASS (0 warnings/0 errors); Rich UI TestApp PASS (103/103); `tests/policy-decoder.ps1` PASS; `tests/agent-protocol-result.ps1` PASS, including live Executor `Get` recovery, timeout override and enforcement, invalid-batch no-side-effects, ordered shells, partial failure and continuation. These checks confirm the current scenarios, not a fresh independent review.
+
+**Next:** New independent Code Review for the corrected branch and this plan entry; then independent Testing, followed by Deploy only after owner approval. No merge to `main`.
