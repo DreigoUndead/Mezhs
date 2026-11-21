@@ -74,15 +74,21 @@ lightweight `ApiIntegrationBase` through ordinary `HttpClient`, and by
 `BrowserHttpExecutor` through the existing `IChatBrowserTransport`. The
 browser operation `typedHttp` executes same-origin `/backend-api/` calls
 inside the Electron-owned authenticated session, without duplicating
-cookies, authorization or session ownership. Streaming HTTP content is
-buffered within a 16 MiB bound and produces retrieval progress; provider
-interpretation happens in C# after response completion, not through a new
-public incremental-text stream contract.
+cookies, authorization or session ownership.
+Streaming HTTP response bodies are incrementally framed as bounded SSE/NDJSON
+events inside Electron and delivered in order to C# while the request is active.
+An acknowledged, bounded event queue provides backpressure separately from
+best-effort progress snapshots; invalid frames and delivery failures fail
+explicitly. Headers-only GET probes avoid buffering large conversation bodies.
+Shared signed binary transfer enforces destination/header validation, credential
+separation, redirect rejection and bounded upload/download streaming.
 
-ChatGPT Account model retrieval uses the typed HTTP GET and C# catalog
-normalization, retaining model/effort identifiers. ChatGPT prompt sending
-continues to use the existing provider-specific JavaScript protocol, which
-owns the native Sentinel/conduit preparation and reply recovery. The
-generic transport does not claim to replace those requirements or make
-prompt mutations safely replayable after an ambiguous outcome. The separate
-provider DOM/protocol refactor remains outside this task.
+ChatGPT Account models and projects use typed HTTP and C# normalization.
+Its prompt preparation, submission mapping, stream interpretation, reply
+ancestry, citation handling, file processing and final conversation recovery
+are implemented in C#. The provider-specific JavaScript that remains owns
+authenticated browser fetch, request-local native Sentinel/conduit preparation
+and required browser-page security hooks. Uncertain prompt submissions are
+never automatically replayed. The existing provider-level model preference
+PATCH remains in place; concurrent distinct-model behavior awaits isolated
+live-provider verification.

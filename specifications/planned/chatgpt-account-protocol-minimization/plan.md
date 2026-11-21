@@ -78,6 +78,19 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-21 - Independent Step 3 Code Review: architecture description corrected (FAIL)
+
+**Reviewed:** chatgpt-account-protocol-minimization at 7b0bf105cbc3982e31d979394f5d862ae2904894, against the accepted integration-architecture-v2 baseline b8f25cff351aed34b3de2f7ef1483a01183a9049. Initial task worktree was clean.
+
+**Finding (low, confirmed documentation mismatch):** docs/architecture.md still described streaming HTTP as buffered until completion and ChatGPT Account prompt/recovery as owned by provider-specific JavaScript, with the protocol refactor outside scope. The implementation instead frames incremental ordered bounded SSE/NDJSON events and handles the account protocol in typed C#. This is a misleading architectural description, not evidence of an application runtime failure.
+
+**Correction:** Updated the architecture description to reflect incremental bounded event delivery, acknowledged backpressure, signed transfer controls, typed C# account protocol orchestration, retained browser-native JS hooks and no-replay behavior. No production implementation or test code was changed.
+
+**Verification:** 40/40 focused Node tests, 25/25 further context/provider/transport tests, and 3/3 UI/model tests including real Chromium passed; typed C# ChatGPT account protocol, architecture, account login/model/recovery, agent/provider lifetime and integration-contract harnesses passed; Release solution build passed with one previously documented unrelated WhatsApp CS0114 warning; ChatGPT packaging probe passed with three embedded modules and 96 concurrent versioned initializations; git diff --check passed. Model-mismatch SSR tests emitted non-failing useLayoutEffect warnings. Tests do not establish isolated authenticated live ChatGPT behavior, real provider signed transfers or overlapping distinct served-model/effort behavior.
+
+**Outcome: FAIL** under .agents/code-review.md because this reviewer corrected documentation. A fresh independent Step 3 Code Reviewer must inspect the corrected branch before independent Step 4 Testing. Owner merge approval remains required; eventual integration target is integration-architecture-v2, never main.
+
+
 ### 2026-11-21 — Independent High-risk Step 3 Code Review: bounded upload and processing event isolation (FAIL)
 
 **Reviewed:** Full task diff against `integration-architecture-v2` baseline `b8f25cff351aed34b3de2f7ef1483a01183a9049`, initially at `4c82f8aa35a409fb2129f064b8b7061e5cf19717`. Reviewed C# account protocol, conversation ancestry and final reply, files, provider native hooks, Electron HTTP/framing/event backpressure, signed transfers, C# transport, cancellation, tests, instructions and earlier review decisions.
