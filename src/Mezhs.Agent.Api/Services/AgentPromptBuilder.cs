@@ -147,9 +147,9 @@ public sealed class AgentPromptBuilder(AgentOptions options, ExecutorService exe
         if (string.IsNullOrWhiteSpace(assembly) || !File.Exists(assembly))
             return null;
         if (OperatingSystem.IsWindows())
-            return $"<SH limit=0 regex=\".*\">set \"{ExecutorEnvironment.StorageVariable}={executor.StoragePath}\" && dotnet \"{assembly}\" Get {id}</SH>";
+            return $"<SH limit=0>set \"{ExecutorEnvironment.StorageVariable}={executor.StoragePath}\" && dotnet \"{assembly}\" Get {id}</SH>";
         static string Quote(string value) => "'" + value.Replace("'", "'\\''", StringComparison.Ordinal) + "'";
-        return $"<SH limit=0 regex=\".*\">{ExecutorEnvironment.StorageVariable}={Quote(executor.StoragePath)} dotnet {Quote(assembly)} Get {id}</SH>";
+        return $"<SH limit=0>{ExecutorEnvironment.StorageVariable}={Quote(executor.StoragePath)} dotnet {Quote(assembly)} Get {id}</SH>";
     }
 
     private string BuildBootstrap(PolicyContext policy)
