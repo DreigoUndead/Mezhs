@@ -1,166 +1,94 @@
-// Regression tests for ChatGPT's expected inaccessible-conversation provider state.
+// Regression tests for unavailable remote conversations without resurrecting
+// the deleted JavaScript Account send/receive protocol.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
-const { randomUUID } = require("node:crypto");
+const { executeBrowserHttp } = require("../electron/browser-http");
+const chatgpt = require("../integrations/Mezhs.Integrations.ChatGpt/browser/modules/entry.js");
 
-const root = path.resolve(__dirname, "..");
+const directory = path.resolve(__dirname, "../integrations/Mezhs.Integrations.ChatGpt");
+const request = { method: "GET", path: "/backend-api/conversation/stale-conversation" };
 
-function loadChatGptModule() {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mezhs-chatgpt-unavailable-test-"));
-  fs.cpSync(path.join(root, "integrations", "Mezhs.Integrations.ChatGpt", "browser", "modules"), directory, { recursive: true });
-  return require(path.join(directory, "entry.js"));
-}
-
-function jsonResponse(value, status = 200) {
-  return new Response(JSON.stringify(value), {
-    status,
-    headers: { "content-type": "application/json" }
-  });
-}
-
-function textResponse(value, status = 200, contentType = "text/plain") {
-  return new Response(value, {
-    status,
-    headers: { "content-type": contentType }
-  });
-}
-
-function sessionForConversationError(code, { availableBeforeSubmission = false } = {}) {
-  let posts = 0;
+function session(backendResponse) {
   return {
-    get posts() { return posts; },
-    cookies: { get: async () => [] },
-    async fetch(url, options = {}) {
-      const target = new URL(String(url));
-      if (target.pathname === "/api/auth/session")
-        return jsonResponse({ accessToken: "token" });
-      if (target.pathname === "/backend-api/f/conversation/prepare")
-        return jsonResponse({ conduit_token: "conduit" });
-      if (target.pathname === "/backend-api/sentinel/chat-requirements/prepare")
-        return jsonResponse({ prepare_token: "prepared" });
-      if (target.pathname === "/backend-api/sentinel/chat-requirements/finalize")
-        return jsonResponse({ token: "sentinel" });
-      if (target.pathname === "/backend-api/f/conversation" && options.method === "POST") {
-        posts++;
-        return textResponse(
-          'data: {"conversation_id":"stale-conversation"}\n\n',
-          200,
-          "text/event-stream"
-        );
-      }
-      if (target.pathname === "/backend-api/conversation/stale-conversation") {
-        if (availableBeforeSubmission && posts === 0)
-          return jsonResponse({ conversation_id: "stale-conversation" });
-        return jsonResponse({
-          detail: {
-            message: "You don’t have access to this conversation.",
-            code,
-            can_retry: false
-          },
-          conversation_id: "stale-conversation"
-        }, 404);
-      }
-      throw new Error(`Unexpected request ${target}`);
+    cookies: { get: async () => [], set: async () => {} },
+    async fetch(url) {
+      const endpoint = new URL(String(url)).pathname;
+      if (endpoint === "/api/auth/session")
+        return new Response(JSON.stringify({ accessToken: "access-token" }), {
+          status: 200, headers: { "content-type": "application/json" }
+        });
+      if (endpoint === request.path) return backendResponse();
+      throw Error("Unexpected provider endpoint.");
     }
   };
 }
 
-function noBrowserUi() {
-  return {
-    webContents: {
-      executeJavaScript: async source => {
-        assert.match(source, /lXE/);
-        assert.doesNotThrow(() => new Function(`return ${source};`));
-        assert.doesNotMatch(source, /document\.querySelector|querySelectorAll|sendInputEvent/);
-        return {
-          headers: {
-            "OpenAI-Sentinel-Chat-Requirements-Token": "native-requirements",
-            "OpenAI-Sentinel-Proof-Token": "native-proof",
-            "OpenAI-Sentinel-Turnstile-Token": "native-turnstile"
-          },
-          forceLogin: false
-        };
-      }
-    }
-  };
+function responseWithCode(code) {
+  return new Response(JSON.stringify({
+    detail: { message: "Private provider error text", code, can_retry: false }
+  }), { status: 404, headers: { "content-type": "application/json" } });
 }
 
-function send(chatgpt, session) {
-  return chatgpt.operations.send({
-    window: noBrowserUi(),
-    session,
-    args: { messageId: randomUUID(),
-      prompt: "continue",
-      conversationId: "stale-conversation",
-      parentMessageId: "old-parent",
-      files: []
-    },
-    sleep: async () => {}
-  });
-}
-
-test("ChatGPT inaccessible continuation is detected before submission", async () => {
-  const chatgpt = loadChatGptModule();
-  const session = sessionForConversationError("conversation_inaccessible");
-  const result = await send(chatgpt, session);
-  assert.deepEqual(result, { conversationUnavailable: true });
-  assert.equal(session.posts, 0);
+test("preflight preserves safe conversation_inaccessible code for C# restoration", async () => {
+  const result = await executeBrowserHttp({
+    session: session(() => responseWithCode("conversation_inaccessible")),
+    args: request
+  }, chatgpt.http);
+  assert.equal(result.statusCode, 404);
+  assert.equal(result.providerCode, "conversation_inaccessible");
+  assert.equal(result.body, "");
+  assert.doesNotMatch(JSON.stringify(result), /Private provider error text|access-token/);
+  const typedProtocol = fs.readFileSync(path.join(directory,
+    "ChatGptAccountProtocol.cs"), "utf8");
+  assert.match(typedProtocol, /error\.ProviderCode == "conversation_inaccessible"/);
+  assert.match(typedProtocol, /ConversationUnavailable: true/);
 });
 
-test("ChatGPT inaccessible polling after an accepted POST never triggers an automatic replay", async () => {
-  const chatgpt = loadChatGptModule();
-  const session = sessionForConversationError("conversation_inaccessible", { availableBeforeSubmission: true });
-  await assert.rejects(send(chatgpt, session), error =>
-    error.status === 404 && error.providerCode === "conversation_inaccessible");
-  assert.equal(session.posts, 1);
+test("unrelated conversation 404 is not treated as inaccessible-remote recovery", async () => {
+  const result = await executeBrowserHttp({
+    session: session(() => responseWithCode("some_other_error")),
+    args: request
+  }, chatgpt.http);
+  assert.equal(result.statusCode, 404);
+  assert.equal(result.providerCode, "some_other_error");
+  const typedProtocol = fs.readFileSync(path.join(directory,
+    "ChatGptAccountProtocol.cs"), "utf8");
+  assert.match(typedProtocol, /error\.ProviderCode == "conversation_inaccessible"/);
+  assert.doesNotMatch(JSON.stringify(result), /Private provider error text/);
 });
 
-test("ChatGPT unrelated conversation 404 fails without exposing provider response text", async () => {
-  const chatgpt = loadChatGptModule();
-  const session = sessionForConversationError("some_other_error");
-  await assert.rejects(
-    send(chatgpt, session),
-    error => {
-      assert.equal(error.status, 404);
-      assert.equal(error.providerCode, "some_other_error");
-      assert.match(error.message, /ChatGPT \/backend-api\/conversation\/stale-conversation failed with HTTP 404/);
-      assert.doesNotMatch(String(error.stack), /You don.t have access/);
-      assert.equal(Object.hasOwn(error, "detail"), false);
-      return true;
-    }
-  );
-  assert.equal(session.posts, 0);
+test("non-JSON failures expose HTTP status but never response bodies", async () => {
+  const result = await executeBrowserHttp({
+    session: session(() => new Response("private-server-response-secret", { status: 503 })),
+    args: request
+  }, chatgpt.http);
+  assert.equal(result.statusCode, 503);
+  assert.equal(result.body, "");
+  assert.equal(result.providerCode, null);
+  assert.doesNotMatch(JSON.stringify(result), /private-server-response-secret/);
 });
 
-test("ChatGPT non-JSON HTTP errors retain status without logging response bodies", async () => {
-  const { apiFetch } = require(path.join(root,
-    "integrations/Mezhs.Integrations.ChatGpt/browser/modules/account-transport.js"));
-  const session = {
-    cookies: { get: async () => [] },
-    fetch: async () => new Response("private-server-response-secret", { status: 503 })
-  };
-  await assert.rejects(apiFetch(session, "access-token", "/backend-api/f/conversation"), error => {
-    assert.equal(error.status, 503);
-    assert.equal(error.providerCode, null);
-    assert.doesNotMatch(String(error.stack), /private-server-response-secret/);
-    assert.doesNotMatch(JSON.stringify(error), /private-server-response-secret/);
-    return true;
-  });
+test("401 after session validation preserves status for C# reauthorization", async () => {
+  const result = await executeBrowserHttp({
+    session: session(() => new Response(null, { status: 401 })),
+    args: request
+  }, chatgpt.http);
+  assert.equal(result.statusCode, 401);
+  const executor = fs.readFileSync(path.resolve(__dirname,
+    "../src/Mezhs.Integration.Browser/BrowserHttpExecutor.cs"), "utf8");
+  assert.match(executor, /HttpStatusCode\.Unauthorized/);
+  assert.match(executor, /BrowserAuthorizationRequiredException/);
 });
 
-test("ChatGPT HTTP 401 errors request reauthorization", async () => {
-  const { apiFetch } = require(path.join(root,
-    "integrations/Mezhs.Integrations.ChatGpt/browser/modules/account-transport.js"));
-  const session = {
-    cookies: { get: async () => [] },
-    fetch: async () => new Response(null, { status: 401 })
-  };
-  await assert.rejects(apiFetch(session, "stale-token", "/backend-api/models"), error => {
-    assert.equal(error.status, 401);
-    assert.equal(error.code, "authorization_required");
-    return true;
-  });
+test("C# stream reconciliation is never a hidden replay after an uncertain POST", () => {
+  const typedProtocol = fs.readFileSync(path.join(directory,
+    "ChatGptAccountProtocol.cs"), "utf8");
+  assert.match(typedProtocol, /must not be resent/);
+  assert.match(typedProtocol, /ChatGptConversationState\.WaitAsync/);
+  assert.doesNotMatch(typedProtocol, /RetryIfSafe|while\s*\([^)]*post/i);
+  const entry = require(path.join(directory, "browser/modules/entry.js"));
+  assert.equal(entry.operations.newChat, undefined);
+  assert.equal(entry.operations.send, undefined);
 });
