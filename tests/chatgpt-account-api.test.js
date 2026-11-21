@@ -113,3 +113,35 @@ test("provider streaming HTTP errors expose only bounded safe status fields", as
   assert.equal(response.body, "");
   assert.doesNotMatch(JSON.stringify(response), /private-provider-detail|conduit/);
 });
+
+test("native auth and prepare JSON reject oversized success bodies before submission", async () => {
+  for (const oversizedAt of ["/api/auth/session", "/backend-api/f/conversation/prepare"]) {
+    let cancelled = false;
+    let submissions = 0;
+    const actor = session(async url => {
+      const endpoint = new URL(String(url)).pathname;
+      if (endpoint === oversizedAt) {
+        return new Response(new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(1024 * 1024 + 1));
+          },
+          cancel() { cancelled = true; }
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (endpoint === "/api/auth/session") return json({ accessToken: "private-token" });
+      if (endpoint === "/backend-api/f/conversation/prepare")
+        return json({ conduit_token: "conduit" });
+      if (endpoint === "/backend-api/f/conversation") {
+        submissions++;
+        return new Response(null, { status: 200 });
+      }
+      throw new Error("Unexpected endpoint.");
+    });
+    await assert.rejects(executeBrowserHttp({
+      window: nativeWindow, session: actor, args: turnArgs,
+      reportEvent: () => {}
+    }, chatgpt.http), /native JSON response exceeded 1 MiB/);
+    assert.equal(cancelled, true, "oversized native response must cancel its source");
+    assert.equal(submissions, 0, "must not send a turn after a failed prepare or auth read");
+  }
+});
