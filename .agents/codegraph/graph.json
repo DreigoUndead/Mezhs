@@ -6664,6 +6664,14 @@
       "from": 305,
       "to": {
         "type": "file",
+        "path": 51
+      },
+      "raw": "../integrations/Mezhs.Integrations.ChatGpt/browser/modules/account-transport.js"
+    },
+    {
+      "from": 305,
+      "to": {
+        "type": "file",
         "path": 52
       },
       "raw": "../integrations/Mezhs.Integrations.ChatGpt/browser/modules/entry.js"
