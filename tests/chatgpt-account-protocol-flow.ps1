@@ -27,7 +27,8 @@ await TestKnownConversationStreamInterruptionReconciles();
 await TestAuthorizationFailureNeverReplays();
 await TestMalformedEventIsNeverSilentlyReconciled();
 await TestImageUploadAndDownload();
-Console.WriteLine("PASS: typed C# ChatGPT protocol - metadata, citations, restoration, no-replay, interruption, auth and file transfers");
+await TestUploadRejectsStaleSseProcessingEvent();
+Console.WriteLine("PASS: typed C# ChatGPT protocol - metadata, citations, restoration, no-replay, interruption, auth, files and SSE processing integrity");
 
 static async Task TestNewChatMetadataAndCitations()
 {
@@ -179,6 +180,31 @@ static async Task TestImageUploadAndDownload()
     finally { File.Delete(image); File.Delete(output); }
 }
 
+static async Task TestUploadRejectsStaleSseProcessingEvent()
+{
+    var host = new FakeHost { WithFiles = true, MisleadingProcessing = true };
+    var file = Path.Combine(Path.GetTempPath(),
+        "mezhs-stale-processing-" + Guid.NewGuid().ToString("N") + ".txt");
+    await File.WriteAllTextAsync(file, "test document");
+    try
+    {
+        await using var integration = NewIntegration(host);
+        try
+        {
+            await integration.PromptAsync(Chat(), new PromptRequest(
+                integration.CreateMessageId(), "read attached file", null,
+                [new IntegrationInputFile("test-file", file, "document.txt",
+                    "text/plain", new FileInfo(file).Length)]));
+            throw new Exception("Stale SSE event falsely accepted bare NDJSON as upload success.");
+        }
+        catch (InvalidOperationException e) when (
+            e.Message.Contains("file processing did not confirm success")) { }
+        Verify(host.Posts == 0, "Upload processing did not stop before prompt submission.");
+        Verify(host.Transfers.Count == 1, "Expected exactly one signed upload transfer.");
+    }
+    finally { File.Delete(file); }
+}
+
 static ChatGptAccountIntegration NewIntegration(FakeHost host) =>
     new(new IntegrationConnection("account", "Account", "chatgpt-web-account",
         new Dictionary<string,string?>()), host);
@@ -196,7 +222,7 @@ sealed class FakeHost : IBrowserIntegrationHost
 {
     public int BrowserIdleMinutes => 0;
     public bool InaccessibleFirst, LargeContinuation, FailPost, InterruptAfterId,
-        AuthorizationPostFailure, WithFiles, MalformedEvent;
+        AuthorizationPostFailure, WithFiles, MalformedEvent, MisleadingProcessing;
     public string? DownloadPath, SubmittedBody, SubmittedMessageId, SubmittedNativeHook;
     public int Posts;
     public List<HttpTransportRequest> Calls { get; } = [];
@@ -287,8 +313,12 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         if (path == "/backend-api/files")
             return new(200, """{"file_id":"file-1","upload_url":"https://test.blob.core.windows.net/container/name","upload_headers":{"x-ms-meta-test":"ok"}}""");
         if (path == "/backend-api/files/process_upload_stream")
-            return new(200, "{\"event\":\"file.processing.completed\",\"file_id\":\"file-1\"}\n",
-                "text/event-stream");
+            return host.MisleadingProcessing
+                ? new(200, "event: file.processing.completed\n" +
+                    "data: {\"file_id\":\"someone-else\"}\n\n" +
+                    "{\"file_id\":\"file-1\"}\n", "text/event-stream")
+                : new(200, "{\"event\":\"file.processing.completed\",\"file_id\":\"file-1\"}\n",
+                    "text/event-stream");
         if (path == "/backend-api/files/file-output/download")
             return new(200, """{"download_url":"https://test.blob.core.windows.net/out/file"}""");
         if (path == "/backend-api/conversation/conv-1")
