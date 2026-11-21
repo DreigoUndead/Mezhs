@@ -301,7 +301,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
         $run = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $task })
         $outcome = Wait-Execution $run.executionId 20
         $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/executions")
-        $shells = @($history | Where-Object { $_.kind -eq 'Shell' })
+        $shells = @($history | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
         if ($outcome.status -ne 'Completed' -or $shells.Count -ne 1 -or
             $shells[0].status -ne 'Completed' -or -not (Test-Path -LiteralPath $marker)) {
             throw "Position-independent $label did not execute once. Status=$($outcome.status); shells=$($shells.Count)."
@@ -316,7 +316,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     $boundedRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence-auto'; input = $boundedTask })
     $boundedOutcome = Wait-Execution $boundedRun.executionId 20
     $boundedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($boundedOutcome.chatId)/executions")
-    $boundedShells = @($boundedHistory | Where-Object { $_.kind -eq 'Shell' })
+    $boundedShells = @($boundedHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
     if ($boundedOutcome.status -ne 'Completed' -or $boundedShells.Count -ne 1 -or
         $boundedShells[0].status -ne 'Completed' -or
         $boundedShells[0].result -notmatch 'RESULT_3' -or
@@ -338,7 +338,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     if (-not $recoveryText.Success) { throw 'Could not locate command-result JSON for recovery.' }
     $recoveryObject = ConvertFrom-Json $recoveryText.Groups[1].Value
     $recovery = [string]$recoveryObject[0].recoveryCommand
-    $expectedShellId = [string]$boundedShells[0].executionId
+    $expectedShellId = [string]($boundedShells[0].executionId)
     if (-not $recovery.StartsWith('<SH limit=0>') -or
         -not $recovery.EndsWith((' Get ' + $expectedShellId + '</SH>'))) {
         throw "Missing complete executable Executor Get recovery command (expected ID=$expectedShellId): $recovery"
@@ -355,7 +355,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     $overrideRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $overrideTask })
     $overrideOutcome = Wait-Execution $overrideRun.executionId 20
     $overrideHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($overrideOutcome.chatId)/executions")
-    $overrideShells = @($overrideHistory | Where-Object { $_.kind -eq 'Shell' })
+    $overrideShells = @($overrideHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
     if ($overrideOutcome.status -ne 'Completed' -or $overrideShells.Count -ne 1 -or
         $overrideShells[0].status -ne 'Completed' -or $overrideShells[0].result -notmatch 'OVERRIDE_OK') {
         throw 'An explicit timeout above the policy default was rejected or capped.'
