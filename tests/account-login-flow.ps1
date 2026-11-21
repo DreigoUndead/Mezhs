@@ -44,6 +44,7 @@ try
     await TestExpiredOperationLoginAsync(Path.Combine(root, "expired-operation"));
     await TestExplicitLoginAsync(Path.Combine(root, "explicit"));
     await TestModelDeduplicationAsync(Path.Combine(root, "models"));
+    await TestProjectDiscoveryAsync(Path.Combine(root, "projects"));
     await TestStaleConversationRecoveryAsync(Path.Combine(root, "stale"));
     Console.WriteLine("PASS: ChatGPT account login, model discovery, served-model propagation, and stale conversation recovery are correct.");
 }
@@ -52,11 +53,12 @@ finally
     try { Directory.Delete(root, recursive: true); } catch { }
 }
 
-static IntegrationConnection Connection(int? maxParallel = null) => new(
+static IntegrationConnection Connection(int? maxParallel = null, string? workspace = null) => new(
     "account",
     "Account",
     "chatgpt-web-account",
-    new Dictionary<string, string?>(),
+    workspace is null ? new Dictionary<string, string?>()
+        : new Dictionary<string, string?> { ["workspace"] = workspace },
     maxParallel is null ? null : new IntegrationLimits { MaxParallel = maxParallel.Value });
 
 static async Task TestExpiredOperationLoginAsync(string root)
@@ -121,6 +123,27 @@ static async Task TestModelDeduplicationAsync(string root)
     Assert(models[0].Id == "default" && models[0].Name == "Default", "direct model discovery must expose exactly one Default.");
     Assert(models[1].Id == "gpt-sol-primary", "provider order was not retained for duplicate model names");
     Assert(models[2].Id == "gpt-thinking", "unique model was removed during deduplication");
+}
+
+static async Task TestProjectDiscoveryAsync(string root)
+{
+    var host = new FakeHost(root, authorized: true);
+    await using var integration = new ChatGptAccountIntegration(
+        Connection(workspace: "Two"), host);
+    var result = await Send(integration);
+    Assert(result.Text == "ok", "Project-bound send did not complete.");
+    var projectPages = host.Invocations
+        .Where(x => x.Operation == "typedHttp")
+        .Select(x => JsonDocument.Parse(x.Arguments).RootElement
+            .GetProperty("path").GetString())
+        .ToArray();
+    Assert(projectPages.SequenceEqual([
+        "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=0",
+        "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=0&cursor=next"
+    ]), "Project discovery did not use typed HTTP pagination.");
+    Assert(host.Invocations.Single(x => x.Operation == "newChat").Arguments
+        .Contains("g-p-two", StringComparison.Ordinal),
+        "Project selection did not preserve the project ID from the second page.");
 }
 
 static async Task TestStaleConversationRecoveryAsync(string root)
@@ -443,8 +466,12 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
                 models = host.ModelResults.Select(model =>
                     new { slug = model.Id, title = model.Name }).ToArray()
             };
-            return Result<TResult>(new HttpTransportResponse(200,
-                JsonSerializer.Serialize(catalog, JsonOptions), "application/json"));
+            var body = request.Path.StartsWith("/backend-api/gizmos/snorlax/sidebar?", StringComparison.Ordinal)
+                ? request.Path.Contains("cursor=next", StringComparison.Ordinal)
+                    ? """{"items":[{"gizmo":{"id":"g-p-two","display":{"name":"Two"}}}],"cursor":null}"""
+                    : """{"items":[{"gizmo":{"gizmo":{"id":"g-p-one","display":{"name":"One"}}}},{"gizmo":{"id":"not-a-project","display":{"name":"Ignore"}}}],"cursor":"next"}"""
+                : JsonSerializer.Serialize(catalog, JsonOptions);
+            return Result<TResult>(new HttpTransportResponse(200, body, "application/json"));
         }
         if (operation == "getProjects")
             return Result<TResult>(Array.Empty<object>());
