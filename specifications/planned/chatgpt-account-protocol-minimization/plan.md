@@ -78,6 +78,23 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-21 — Independent Step 3 Code Review: bounded error reads and headers-only adapter (FAIL)
+
+**Reviewed:** feature commit `80e06d7d2f8225724378f228fa4ed0b336ca24de` against the required `integration-architecture-v2` baseline `b8f25cff351aed34b3de2f7ef1483a01183a9049`. The task worktree was initially clean. The remote parent has since advanced to `52d1c88`, to be reconciled only at the authorized integration stage.
+
+**Finding 1 (medium, reproduced):** The ChatGPT authenticated `apiFetch` error path used `response.json()` without an incrementally enforced byte limit. An isolated 404 response probe consumed all 201 streamed chunks without upstream cancellation, notwithstanding the typed browser HTTP 16 MiB response bound. The probe establishes the unbounded error-read path, not a real provider outage or memory-exhaustion incident. **Correction:** Use a 64 KiB limited, incremental error parser retaining only an allowlisted provider code, cancel unread error data on overflow or decode failure, and preserve HTTP status. Added a Node regression that requires early cancellation.
+
+**Finding 2 (low, code path):** `IntegrationHttpClient.ForHttpClient` ignored the newly introduced `HeadersOnly` request property and always consumed the response stream. That conflicted with the shared typed HTTP contract and could reject large otherwise-accessible responses. The actual ChatGPT continuation preflight already runs through the separate Electron adapter; this finding is limited to consumers of the plain `HttpClient` adapter. **Correction:** Return status/content type without reading the response body for headers-only GET. Added an Integration Contracts probe for a response larger than 16 MiB.
+
+**Commits:** `3976f63` error-read limit; `504e9f3` headers-only fix; `4ea8dc7` Node regression; `91c338d` contracts regression. Corrected implementation reviewed in the task worktree at `91c338de2e65d30d4347b80f6951ef963aa23cda`.
+
+**Verified:** 39/39 targeted Node tests, then 62/62 expanded account/browser transport/Electron Node tests; `tests/chatgpt-account-protocol-flow.ps1` PASS (metadata, citations, restoration, replay, interrupted stream, authorization, files and processing); `tests/architecture.ps1` PASS; `dotnet run --project tests/Mezhs.Integration.Contracts.Probe -c Release` PASS; `dotnet build Mezhs.sln -c Release --no-restore -v quiet` PASS with one existing WhatsApp CS0114 warning; `git diff --check` PASS and clean feature worktree. No authenticated isolated live ChatGPT/Chromium run, overlapping distinct-model/effort provider test, or known unrelated group-focus test was performed in this review.
+
+**Outcome: FAIL** under `.agents/code-review.md` because code and tests were corrected. A new independent Step 3 Code Reviewer must inspect the corrected task branch without being given this review's conclusions; proceed to independent Step 4 Testing only after its PASS. No merge, release, or owner approval implied. Required merge destination remains `integration-architecture-v2`, never `main`.
+
+**Authority:** Independent High-risk Step 3 Code Reviewer.
+
+
 ### 2026-11-21 - Independent Step 3 Code Review: architecture description corrected (FAIL)
 
 **Reviewed:** chatgpt-account-protocol-minimization at 7b0bf105cbc3982e31d979394f5d862ae2904894, against the accepted integration-architecture-v2 baseline b8f25cff351aed34b3de2f7ef1483a01183a9049. Initial task worktree was clean.
