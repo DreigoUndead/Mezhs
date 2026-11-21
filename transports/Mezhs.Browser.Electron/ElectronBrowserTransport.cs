@@ -191,6 +191,9 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
                         StringComparison.OrdinalIgnoreCase)
                         ? new BrowserAuthorizationRequiredException(
                             state.Error ?? "Browser authorization is required.")
+                        : string.Equals(state.Code, "stream_delivery_failed", StringComparison.Ordinal)
+                        ? new BrowserStreamProtocolException(
+                            "Browser HTTP protocol event framing or delivery failed.")
                         : new InvalidOperationException(
                             $"Electron provider operation failed: {state.Error ?? "Unknown provider error."}");
 
