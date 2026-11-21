@@ -169,3 +169,13 @@ Only the Agent API has the concepts of Agent execution and executable `SH` comma
 **Correction:** `RichDocumentParser.DiscoverInOpaque` now treats whitespace-only gaps as consumed wrapper content, extending contiguous command source spans across those gaps and the wrapper boundaries without changing command bodies, order, registry eligibility or execution policy. Regression cases were added to `tests/Mezhs.RichUi.TestApp/Program.cs` for rich Markdown flow and exact spans, and to `tests/agent-protocol-result.ps1` for parser visibility plus a real Executor execution that must not persist a nonempty final result. Code commits: `0abeee33`, `4f3c271f`, `df91f04b`, `c5a5d6ae`.
 
 **Review outcome:** **FAIL (corrected)** under `.agents/code-review.md`; require a fresh independent Code Review and then a separate Testing role. Prior successful Windows CI on `c0c2d714` (run [44832248783](https://github.com/DreigoUndead/Mezhs/actions/runs/44832248783)) predates this correction and does not verify it. The new Windows CI run [44833590238](https://github.com/DreigoUndead/Mezhs/actions/runs/44833590238) was in progress when recorded; no test PASS is claimed yet. Keep branch/PR draft and do not merge without owner approval.
+
+### 2026-11-21 — Independent Code Review #4: local verification passed; CI blocked
+
+**Reviewed:** Commit `3c1fc268977b6959685f2869faf558f5127f2a69`, compared with `main` at `cce2d8236d63254f726f325ff566d7bf1b98331b`. No actionable implementation defects identified. No application-source corrections made.
+
+**Verification:** Release build PASS (0 errors, 1 unrelated WhatsApp CS0114 warning); RichUi TestApp 134/134 PASS; Agent protocol and real Executor PASS; policy decoder PASS; Chromium browser regressions 67/67 PASS. Independent review worktree clean.
+
+**Blocker:** Current-HEAD GitHub Actions run 44833980706 completed with `action_required` and no jobs; it is not a CI PASS. Prior source-revision run 44833674186 was cancelled. Under the plan acceptance criteria, review outcome is **BLOCKED** pending final-revision CI verification.
+
+**Next:** Resolve the GitHub Actions approval requirement, verify CI against the final revision, then proceed to the separate Testing role when Code Review can report PASS. PR #69 remains draft; owner approval is required before merging.
