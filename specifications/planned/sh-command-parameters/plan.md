@@ -137,3 +137,15 @@ Use Windows PowerShell 5.1 where `pwsh` is absent. Run `dotnet build src/Mezhs.A
 **Verification (isolated Windows worktree at `e5a0332`, runtime command results 9146/9147/9149):** Agent API Release build PASS (0 warnings/0 errors); Rich UI TestApp PASS (103/103); `tests/policy-decoder.ps1` PASS; `tests/agent-protocol-result.ps1` PASS, including live Executor `Get` recovery, timeout override and enforcement, invalid-batch no-side-effects, ordered shells, partial failure and continuation. These checks confirm the current scenarios, not a fresh independent review.
 
 **Next:** New independent Code Review for the corrected branch and this plan entry; then independent Testing, followed by Deploy only after owner approval. No merge to `main`.
+
+### 2026-11-21 — Independent Code Review step 3: malformed paired SH correction
+
+**Outcome:** FAIL / corrected. A fresh independent Code Reviewer must review the corrected implementation; this entry is not a PASS.
+
+**Finding:** When an SH opener contained an unterminated quoted attribute but still had a matching closing SH delimiter, the canonical tokenizer treated the opener as unrecognized text. A preceding valid SH could remain executable, violating the plan's whole-batch malformed-attribute rejection requirement. A minimal parser probe confirmed this at the reviewed revision `ee1608d8ed9db9dc342fc23fcfc963a24be9c180`. Invalid recognized numeric attributes and regex already rejected correctly.
+
+**Correction:** Commit `5f15cfae41ffe98eb5bdf537f38c88cf356b5a23` rejects malformed paired root SH opening syntax as an invalid rich document before command dispatch. Genuinely unmatched openers stay literal; nested SH markup within UI scopes remains inert. Added parser, Rich UI, and isolated Agent no-side-effect regression cases. The existing Executor/regex/recovery implementation was not changed.
+
+**Independent reviewer's verification on isolated Windows worktree `D:\\Projects\\Mezhs-sh-parameters-verify`:** Agent API Release build PASS (0 warnings, 0 errors); Rich UI TestApp PASS (105/105); `tests/policy-decoder.ps1` PASS; `tests/agent-protocol-result.ps1` PASS, including the new malformed-paired-SH no-execution test, regex preview/recovery via Executor `Get`, timeout overrides/enforcement, ordered shells, and error continuation. `codegraph review` compared merge-base `72eac750` against `ee1608d8` and enumerated changed files and API-compatibility leads; its risk score is not an independent PASS.
+
+**Remaining:** Fresh independent Code Review (step 3) at the latest branch revision, then independent Testing (step 4). Deploy/merge into `main` requires owner approval.
