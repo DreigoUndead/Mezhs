@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Mezhs.Browser;
 
 public sealed class BrowserAuthorizationRequiredException(string message)
@@ -22,6 +24,16 @@ public interface IChatBrowserTransport : IAsyncDisposable
         Action<BrowserOperationProgress>? reportProgress,
         CancellationToken cancellationToken = default) =>
         InvokeAsync<TResult>(operation, arguments, cancellationToken);
+
+    // Ordered raw protocol events, delivered while the browser operation is running.
+    // A transport without event support must fail, never silently drop events.
+    Task<TResult> InvokeWithEventsAsync<TResult>(
+        string operation,
+        object? arguments,
+        Action<JsonElement> reportEvent,
+        Action<BrowserOperationProgress>? reportProgress = null,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This browser transport does not support ordered protocol events.");
 
     Task ShowAsync(CancellationToken cancellationToken = default);
 
