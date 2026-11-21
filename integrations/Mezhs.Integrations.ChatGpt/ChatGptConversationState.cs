@@ -107,8 +107,7 @@ internal sealed class ChatGptExecution
             !string.Equals(recipient, "all", StringComparison.OrdinalIgnoreCase))
             AddTool(recipient);
         if (role == "tool") AddTool(ChatGptJson.String(author, "name"));
-        if (!ChatGptJson.Get(metadata, "tool_invoked").Equals(
-                JsonSerializer.SerializeToElement(false)))
+        if (ChatGptJson.Get(metadata, "tool_invoked").ValueKind != JsonValueKind.False)
             AddTool(ChatGptJson.String(metadata, "tool_name"));
         if (role == "assistant")
         {
@@ -179,7 +178,15 @@ internal sealed class ChatGptStreamState(
     public void OnEvent(string data)
     {
         if (string.IsNullOrWhiteSpace(data) || data == "[DONE]") return;
-        using var document = JsonDocument.Parse(data);
+        JsonDocument document;
+        try { document = JsonDocument.Parse(data); }
+        catch (JsonException)
+        {
+            throw new BrowserStreamProtocolException(
+                "ChatGPT stream contained malformed JSON in an ordered event.");
+        }
+        using (document)
+        {
         var value = document.RootElement;
         if (ConversationId is null) ConversationId = FindConversationId(value);
         execution.ObserveStream(value);
@@ -195,6 +202,7 @@ internal sealed class ChatGptStreamState(
                 _responding = true;
                 progress?.Invoke(new("responding", "ChatGPT is generating the visible response."));
                 break;
+        }
         }
     }
 
