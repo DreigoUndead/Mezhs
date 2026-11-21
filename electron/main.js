@@ -28,17 +28,20 @@ const MAX_OPERATION_EVENT_BYTES_SINGLE = 256 * 1024;
 async function queueOperationEvent(state, value) {
   const encoded = JSON.stringify(value);
   if (typeof encoded !== "string")
-    throw new Error("Browser HTTP stream produced an invalid event.");
+    throw Object.assign(new Error("Browser HTTP stream produced an invalid event."),
+      { code: "stream_delivery_failed" });
   const bytes = Buffer.byteLength(encoded, "utf8");
   if (bytes > MAX_OPERATION_EVENT_BYTES_SINGLE)
-    throw new Error("Browser HTTP stream event exceeded the 256 KiB limit.");
+    throw Object.assign(new Error("Browser HTTP stream event exceeded the 256 KiB limit."),
+      { code: "stream_delivery_failed" });
   while (!state.cancelled &&
          (state.events.length >= MAX_OPERATION_EVENTS ||
           state.eventBytes + bytes > MAX_OPERATION_EVENT_BYTES)) {
     await new Promise(resolve => state.eventWaiters.push(resolve));
   }
   if (state.cancelled || state.abortController.signal.aborted)
-    throw new Error("Browser HTTP stream operation was cancelled.");
+    throw Object.assign(new Error("Browser HTTP stream operation was cancelled."),
+      { code: "stream_delivery_failed" });
   state.eventSequence++;
   state.events.push({ sequence: state.eventSequence, value, bytes });
   state.eventBytes += bytes;
@@ -407,8 +410,14 @@ function queueProviderOperation(request) {
       }
     } catch (error) {
       if (!state.cancelled) {
-        state.error = String(error?.stack ?? error);
-        state.code = typeof error?.code === "string" ? error.code : null;
+        // Typed browser HTTP and signed transfers can carry private challenge
+        // material and signed URLs. Do not return arbitrary exception stacks.
+        const safeCode = typeof error?.code === "string" &&
+          /^[a-z0-9_-]{1,80}$/i.test(error.code) ? error.code : null;
+        state.error = request.operation === "typedHttp" || request.operation === "binaryTransfer"
+          ? "Browser transport operation failed (details redacted)."
+          : String(error?.stack ?? error);
+        state.code = safeCode;
         state.status = "failed";
       }
     } finally {
