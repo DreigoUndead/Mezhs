@@ -1,5 +1,4 @@
 const { ORIGIN, API, accessToken, requireToken, apiFetch, webApiHeaders, nativeAccountTurnHeaders } = require('./account-transport.js');
-const { sendAccountMessage } = require('./account-messages.js');
 const { sendPrompt, stopGeneration } = require('./guest.js');
 
 module.exports = {
@@ -60,14 +59,6 @@ module.exports = {
       return { outcome: "attempted" };
     },
 
-
-    newChat(context) {
-      return sendAccountMessage(context, true);
-    },
-
-    send(context) {
-      return sendAccountMessage(context, false);
-    },
 
     sendPrompt
   },
