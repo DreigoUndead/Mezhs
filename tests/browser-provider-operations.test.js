@@ -105,9 +105,14 @@ test("browser-native Sentinel and conduit preparation run once on exact turn", a
 });
 
 test("account native modules do not use DOM composer or debugger submission", () => {
-  for (const name of ["account-transport.js", "entry.js"]) {
-    const source = fs.readFileSync(path.join(root,
-      "integrations/Mezhs.Integrations.ChatGpt/browser/modules", name), "utf8");
-    assert.doesNotMatch(source, /document\.querySelector|sendInputEvent|Network\.requestWillBeSent/);
-  }
+  const directory = path.join(root, "integrations/Mezhs.Integrations.ChatGpt/browser/modules");
+  const transport = fs.readFileSync(path.join(directory, "account-transport.js"), "utf8");
+  assert.doesNotMatch(transport, /document\.querySelector|sendInputEvent|Network\.requestWillBeSent/);
+  const entry = fs.readFileSync(path.join(directory, "entry.js"), "utf8");
+  const guestOnly = entry.indexOf("  pageOperations: {");
+  assert.ok(guestOnly >= 0, "Guest page operations are retained independently");
+  const accountSection = entry.slice(0, guestOnly);
+  assert.doesNotMatch(accountSection, /document\.querySelector|sendInputEvent|Network\.requestWillBeSent/);
+  assert.match(entry.slice(guestOnly), /document\.querySelector/,
+    "Unrelated guest composer must remain present");
 });
