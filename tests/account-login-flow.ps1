@@ -43,7 +43,7 @@ try
     await TestAutomaticLoginAsync(Path.Combine(root, "automatic"));
     await TestExpiredOperationLoginAsync(Path.Combine(root, "expired-operation"));
     await TestExplicitLoginAsync(Path.Combine(root, "explicit"));
-    await TestModelDeduplicationAsync(Path.Combine(root, "models"));
+    await TestModelIdentityPreservationAsync(Path.Combine(root, "models"));
     await TestStaleConversationRecoveryAsync(Path.Combine(root, "stale"));
     Console.WriteLine("PASS: ChatGPT account login, model discovery, served-model propagation, and stale conversation recovery are correct.");
 }
@@ -65,7 +65,7 @@ static async Task TestExpiredOperationLoginAsync(string root)
     await using var integration = new ChatGptAccountIntegration(Connection(), host);
     try
     {
-        await integration.SendMessageAsync(SimpleContext());
+        await Send(integration);
         throw new InvalidOperationException("An expired authorization was replayed or incorrectly accepted.");
     }
     catch (BrowserAuthorizationRequiredException) { }
@@ -73,7 +73,7 @@ static async Task TestExpiredOperationLoginAsync(string root)
     Assert(host.Initializations.Count == 1, "A mid-turn auth failure replaced the shared host.");
 
     // A later explicit user attempt may reauthorize and submit a new turn.
-    var result = await integration.SendMessageAsync(SimpleContext());
+    var result = await Send(integration);
     Assert(result.Text == "ok", "Explicit retry after reauthorization failed.");
     Assert(host.Initializations.Count == 1 && host.PromptCount == 1,
         "Explicit retry should reuse the one host and submit exactly one turn.");
@@ -83,12 +83,7 @@ static async Task TestAutomaticLoginAsync(string root)
 {
     var host = new FakeHost(root, authorized: false);
     await using var integration = new ChatGptAccountIntegration(Connection(), host);
-    var now = DateTimeOffset.UtcNow;
-    var result = await integration.SendMessageAsync(new IntegrationSendContext(
-        new IntegrationChatContext("chat", "account"),
-        new IntegrationMessageContext("message", "user", "hello", false, now, "requested-test"),
-        Array.Empty<IntegrationMessageContext>(),
-        Array.Empty<IntegrationInputFile>()));
+    var result = await Send(integration, model: "requested-test");
 
     Assert(result.Text == "ok", "message did not continue after login");
     Assert(result.Model == "served-test", "integration copied the requested model instead of the provider-served model");
@@ -102,13 +97,13 @@ static async Task TestExplicitLoginAsync(string root)
 {
     var host = new FakeHost(root, authorized: false);
     await using var integration = new ChatGptAccountIntegration(Connection(), host);
-    await integration.Login!.LoginAsync();
+    await integration.LoginAsync();
     Assert(host.Authorized, "Explicit login did not authorize the shared account session.");
     Assert(host.Initializations.Count == 1, "Explicit login created more than one host.");
     Assert(host.ActiveTransports == 1, "Explicit login discarded the warm shared host.");
 }
 
-static async Task TestModelDeduplicationAsync(string root)
+static async Task TestModelIdentityPreservationAsync(string root)
 {
     var host = new FakeHost(root, authorized: true)
     {
@@ -120,11 +115,13 @@ static async Task TestModelDeduplicationAsync(string root)
         ]
     };
     await using var integration = new ChatGptAccountIntegration(Connection(), host);
-    var models = await integration.Models!.GetModelsAsync();
+    var models = await integration.GetModelsAsync();
 
-    Assert(models.Count == 2, $"expected duplicate display names to collapse, got {models.Count} models");
-    Assert(models[0].Id == "gpt-sol-primary", "provider order was not retained for duplicate model names");
-    Assert(models[1].Id == "gpt-thinking", "unique model was removed during deduplication");
+    Assert(models.Count == 4, $"expected one Default plus three distinct native model IDs, got {models.Count} models");
+    Assert(models[0].Id == "default" && models[0].Name == "Default", "direct model discovery must expose exactly one Default.");
+    Assert(models[1].Id == "gpt-sol-primary", "provider order was not retained for duplicate model names");
+    Assert(models[2].Id == "gpt-sol-alias", "distinct model ID with the same display name was removed");
+    Assert(models[3].Id == "gpt-thinking", "provider model order was not retained");
 }
 
 static async Task TestStaleConversationRecoveryAsync(string root)
@@ -132,19 +129,21 @@ static async Task TestStaleConversationRecoveryAsync(string root)
     var host = new FakeHost(root, authorized: true) { UnavailableContinuationOnce = true };
     await using var integration = new ChatGptAccountIntegration(Connection(), host);
     var now = DateTimeOffset.UtcNow;
-    var result = await integration.SendMessageAsync(new IntegrationSendContext(
-        new IntegrationChatContext(
-            "chat",
-            "account",
-            RemoteConversationId: "stale-conversation",
-            RemoteParentMessageId: "old-parent"),
-        new IntegrationMessageContext("current", "user", "new question", false, now),
-        new[]
+    var history = new ChatMessage[]
+    {
+        new("old-user", "account", "user", "old question", true, now.AddMinutes(-2)),
+        new("old-assistant", "account", "assistant", "old answer", true, now.AddMinutes(-1))
+    };
+    var chat = new ChatContext(
+        "chat", "account", "stale-conversation",
+        (_, _, _, token) =>
         {
-            new IntegrationMessageContext("old-user", "user", "old question", true, now.AddMinutes(-2)),
-            new IntegrationMessageContext("old-assistant", "assistant", "old answer", true, now.AddMinutes(-1))
+            token.ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<ChatMessage>>(history);
         },
-        Array.Empty<IntegrationInputFile>()));
+        remoteParentMessageId: "old-parent", restoreConversation: true);
+    var result = await integration.PromptAsync(
+        chat, new PromptRequest(integration.CreateMessageId(), "new question", null, []));
 
     Assert(result.Text == "ok", "stale conversation retry did not complete");
     Assert(host.PromptCount == 2, $"expected unavailable continuation + one new-chat retry, got {host.PromptCount} prompt calls");
@@ -155,11 +154,24 @@ static async Task TestStaleConversationRecoveryAsync(string root)
     Assert(fallback.Contains("new question", StringComparison.Ordinal), "fallback prompt lost current message");
 }
 
-static IntegrationSendContext SimpleContext(string chatId = "chat") => new(
-    new IntegrationChatContext(chatId, "account"),
-    new IntegrationMessageContext("message", "user", "hello", false, DateTimeOffset.UtcNow),
-    Array.Empty<IntegrationMessageContext>(),
-    Array.Empty<IntegrationInputFile>());
+// Test fixture invokes the production typed PromptAsync contract, not a compatibility module.
+static Task<PromptResult> Send(
+    IntegrationBase integration,
+    string chatId = "chat",
+    CancellationToken cancellationToken = default,
+    Action<IntegrationActivity>? reportActivity = null,
+    string? model = null) =>
+    integration.PromptAsync(
+        new ChatContext(
+            chatId, integration.Connection.Id, null,
+            (_, _, _, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                return Task.FromResult<IReadOnlyList<ChatMessage>>([]);
+            },
+            reportActivity: reportActivity),
+        new PromptRequest(integration.CreateMessageId(), "hello", model, []),
+        cancellationToken);
 
 static async Task TestSessionOwnershipAsync(string root)
 {
@@ -167,33 +179,30 @@ static async Task TestSessionOwnershipAsync(string root)
     var integration = new ChatGptAccountIntegration(Connection(), host);
     try
     {
-        var diagnostics = integration.Diagnostics;
-        Assert(diagnostics is not null, "ChatGPT Account diagnostics unavailable");
-        Assert(ReferenceEquals(diagnostics, integration.Diagnostics), "diagnostics instance was not reused");
-        Assert(host.ActiveTransports == 0, "reading diagnostics unexpectedly opened a browser");
+        Assert(host.ActiveTransports == 0, "constructing the integration unexpectedly opened a browser");
         var method = typeof(BrowserIntegrationBase).GetMethod("CreateAccountSession",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
         var first = (BrowserAccountSession)method.Invoke(integration, null)!;
         var second = (BrowserAccountSession)method.Invoke(integration, null)!;
         Assert(ReferenceEquals(first, second), "CreateAccountSession returned different sessions");
 
-        var snapshot = await diagnostics!.InvokeAsync("snapshot", JsonSerializer.SerializeToElement(new { }));
+        var snapshot = await integration.DiagnoseAsync("snapshot", JsonSerializer.SerializeToElement(new { }));
         Assert(snapshot.GetProperty("snapshot").GetBoolean(), "snapshot diagnostics did not execute");
         Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
             "diagnostics did not initialize exactly one authorized browser transport");
 
-        await integration.Login!.OpenBrowserAsync();
+        await integration.OpenBrowserAsync();
         Assert(host.ShowCount == 1 && host.Initializations.Count == 1,
             "opening existing browser unexpectedly created another transport");
         var stages = new List<IntegrationActivity>();
-        var send = await integration.SendMessageAsync(SimpleContext() with { ReportActivity = stages.Add });
+        var send = await Send(integration, reportActivity: stages.Add);
         Assert(send.Text == "ok", "normal sending failed after diagnostics and browser show");
         Assert(stages.Select(stage => stage.Detail).SequenceEqual(
             ["Checking browser session.", "Browser session ready; preparing request."]),
             "authenticated request did not report the expected session preparation stages");
-        await integration.Models!.GetModelsAsync();
+        await integration.GetModelsAsync();
         Assert(host.Invocations.Select(x => x.Operation).SequenceEqual(
-            ["$diagnostics/snapshot", "newChat", "getModels"]),
+            ["$diagnostics/snapshot", "newChat", "typedHttp"]),
             "diagnostics, sending, and model discovery did not use the expected transport");
         Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
             "login, sending, or model discovery created a second transport");
@@ -213,8 +222,8 @@ static async Task TestContextLifetimeAsync(string root)
     var owner = (IConversationContextOwner)integration;
 
     // Ordinary chats retire their own windows even when host idle shutdown is disabled.
-    await integration.SendMessageAsync(SimpleContext("ordinary-a"));
-    await integration.SendMessageAsync(SimpleContext("ordinary-b"));
+    await Send(integration, "ordinary-a");
+    await Send(integration, "ordinary-b");
     Assert(host.ReleasedContexts.SequenceEqual(["ordinary-a", "ordinary-b"]),
         "Ordinary account chats must release each context without stopping the shared host.");
     Assert(host.ActiveTransports == 1 && host.Initializations.Count == 1,
@@ -223,7 +232,7 @@ static async Task TestContextLifetimeAsync(string root)
     // Two overlapping Agent owners must keep one context until both release it.
     await owner.RetainConversationAsync("agent-chat");
     await owner.RetainConversationAsync("agent-chat");
-    await integration.SendMessageAsync(SimpleContext("agent-chat"));
+    await Send(integration, "agent-chat");
     Assert(!host.ReleasedContexts.Contains("agent-chat"),
         "An Agent model turn released a context needed for shell follow-up.");
     await owner.ReleaseConversationAsync("agent-chat");
@@ -237,7 +246,7 @@ static async Task TestContextLifetimeAsync(string root)
     await owner.RetainConversationAsync("cancelled-agent");
     host.HangNextPrompt = true;
     using var cancellation = new CancellationTokenSource();
-    var send = integration.SendMessageAsync(SimpleContext("cancelled-agent"), cancellation.Token);
+    var send = Send(integration, "cancelled-agent", cancellation.Token);
     await host.PromptStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
     cancellation.Cancel();
     try
@@ -260,14 +269,14 @@ static async Task TestConcurrentLoginDoesNotBlockCancellationAsync(string root)
     // wait for that same attempt rather than opening another login dialog.
     host.HangNextPrompt = true;
     using var cancelA = new CancellationTokenSource();
-    var sendA = integration.SendMessageAsync(SimpleContext("active-a"), cancelA.Token);
+    var sendA = Send(integration, "active-a", cancelA.Token);
     await host.PromptStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
     host.Authorized = false;
     host.HangAuthorization = true;
-    var sendB = integration.SendMessageAsync(SimpleContext("login-b"));
+    var sendB = Send(integration, "login-b");
     await host.AuthorizationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-    var sendC = integration.SendMessageAsync(SimpleContext("login-c"));
+    var sendC = Send(integration, "login-c");
 
     cancelA.Cancel();
     try
@@ -309,24 +318,23 @@ static async Task TestAnonymousDiagnosticsAsync(string root)
     await using (var guest = new ChatGptWebIntegration(
         new IntegrationConnection("guest-chatgpt", "ChatGPT Guest", "chatgpt-web", settings), host))
     {
-        await ((IConversationContextOwner)guest).RetainConversationAsync("guest-chat");
+        Assert((object)guest is not IConversationContextOwner && host.ActiveTransports == 0,
+            "Guest integration must not acquire or retain account browser contexts.");
         Assert(host.ActiveTransports == 0,
-            "Retaining a guest turn must not create an authenticated browser session.");
-        Assert(guest.Diagnostics is null && host.ActiveTransports == 0,
             "ChatGPT guest diagnostics opened a persistent account session");
-        var result = await guest.SendMessageAsync(SimpleContext());
+        var result = await Send(guest);
         Assert(result.Text == "guest-ok", "ChatGPT anonymous sending changed");
-        Assert(guest.Diagnostics is null && host.ActiveTransports == 1,
+        Assert((object)guest is not IConversationContextOwner && host.ActiveTransports == 1,
             "ChatGPT guest should reuse its host between isolated ephemeral turns");
     }
     await using (var guest = new GeminiWebIntegration(
         new IntegrationConnection("guest-gemini", "Gemini Guest", "gemini-web", settings), host))
     {
-        Assert(guest.Diagnostics is null && host.ActiveTransports == 0,
+        Assert((object)guest is not IConversationContextOwner && host.ActiveTransports == 0,
             "Gemini guest diagnostics opened a persistent account session");
-        var result = await guest.SendMessageAsync(SimpleContext());
+        var result = await Send(guest);
         Assert(result.Text == "guest-ok", "Gemini anonymous sending changed");
-        Assert(guest.Diagnostics is null && host.ActiveTransports == 1,
+        Assert((object)guest is not IConversationContextOwner && host.ActiveTransports == 1,
             "Gemini guest should reuse its host between isolated ephemeral turns");
     }
     Assert(host.Initializations.Count == 2 && host.Initializations.All(x => x.Guest && !x.RequireAuthorization),
@@ -429,8 +437,16 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         if (operation == "sendPrompt")
             return Result<TResult>(new { ok = true, text = "guest-ok" });
 
-        if (operation == "getModels")
-            return Result<TResult>(host.ModelResults);
+        if (operation == "typedHttp")
+        {
+            var catalog = new
+            {
+                models = host.ModelResults.Select(model =>
+                    new { slug = model.Id, title = model.Name }).ToArray()
+            };
+            return Result<TResult>(new HttpTransportResponse(200,
+                JsonSerializer.Serialize(catalog, JsonOptions), "application/json"));
+        }
         if (operation == "getProjects")
             return Result<TResult>(Array.Empty<object>());
 

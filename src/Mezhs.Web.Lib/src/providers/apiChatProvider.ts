@@ -35,13 +35,12 @@ export class ApiChatProvider implements ChatProvider {
   }
 
   async getModels(): Promise<ConnectionModel[]> {
-    if (!this.connection.supportsModels) return [];
     const response = await apiFetch(
       this.apiBase,
       `/v1/connections/${encodeURIComponent(this.connection.id)}/models`,
     );
     const models = response.status === 401
-      ? [{ id: null, name: "Default" }]
+      ? [{ id: "default", name: "Default" }]
       : await expectJson<ConnectionModel[]>(response);
     const configured = this.connection.defaultModel?.trim();
     return configured && !models.some((model) => model.id === configured)

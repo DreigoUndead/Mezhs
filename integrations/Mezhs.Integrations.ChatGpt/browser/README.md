@@ -11,7 +11,7 @@ Electron uses Node's ordinary `require()` to resolve the sibling files.
 - `entry.js`: public ChatGPT integration descriptor and operations.
 - `guest.js`: anonymous ChatGPT DOM composer and reply collection.
 - `account-transport.js`: authenticated API requests, session tokens, and browser-owned Sentinel requirements.
-- `account-models.js`: model picker mapping and selected model preferences.
+- `account-models.js`: model ID parsing and provider preferences.
 - `account-files.js`: uploaded attachment preparation and downloaded artifacts.
 - `account-messages.js`: semantic new/follow-up submission and completion orchestration.
 - `account-stream.js`: streamed response metadata, progress, and execution metadata.

@@ -90,11 +90,11 @@ try {
     if ($null -ne $plainConnection.integrationName) {
         throw 'Connection metadata still exposes redundant integrationName.'
     }
-    if (-not $plainConnection.supportsModels -or $plainConnection.defaultModel -ne 'mock-fast') {
+    if ($null -ne $plainConnection.supportsModels -or -not $plainConnection.allowFiles -or $plainConnection.defaultModel -ne 'mock-fast') {
         throw 'Connection model metadata was invalid.'
     }
     $models = Invoke-RestMethod -Uri "$baseUrl/v1/connections/test/models"
-    if ($models.Count -ne 3 -or $null -ne $models[0].id -or $models[0].name -ne 'Default') {
+    if ($models.Count -ne 3 -or $models[0].id -ne 'default' -or $models[0].name -ne 'Default') {
         throw 'Model endpoint did not prepend the provider-default option.'
     }
     if ((@($models[1].id, $models[2].id) -join ',') -ne 'mock-fast,mock-deep') {
@@ -234,6 +234,9 @@ try {
         if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'Attachment message polling timed out.' }
         Start-Sleep -Milliseconds 50
     } while ($true)
+    if ($attachmentCompleted.reply.parentMessageId -ne $attachmentCompleted.messageId) {
+        throw 'Typed reply did not expose its persisted parent message ID.'
+    }
     if ($attachmentCompleted.model -ne 'mock-fast' -or $attachmentCompleted.reply.model -ne 'mock-served') {
         throw 'New chat with an omitted requested model did not use the connection defaultModel.'
     }

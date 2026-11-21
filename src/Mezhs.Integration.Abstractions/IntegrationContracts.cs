@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace Mezhs.Integrations;
 
 public sealed class IntegrationLimits
@@ -19,15 +17,7 @@ public sealed record IntegrationConnection(
         Settings.TryGetValue(name, out var value) ? value : null;
 }
 
-public sealed record IntegrationCapabilities(
-    bool FileInput = false,
-    bool ImageInput = false,
-    bool FileOutput = false,
-    bool ImageOutput = false);
-
-public sealed record IntegrationModel(
-    string? Id,
-    string Name);
+public sealed record IntegrationModel(string? Id, string Name);
 
 public sealed class IntegrationAuthorizationRequiredException(string message)
     : InvalidOperationException(message);
@@ -35,28 +25,6 @@ public sealed class IntegrationAuthorizationRequiredException(string message)
 public interface IIntegrationHost
 {
     string GetConnectionRoot(string connectionId);
-}
-
-public interface ILoginModule
-{
-    Task LoginAsync(CancellationToken cancellationToken = default);
-
-    Task OpenBrowserAsync(CancellationToken cancellationToken = default) =>
-        Task.FromException(new NotSupportedException("This connection does not expose an account browser."));
-}
-
-public interface IModelModule
-{
-    Task<IReadOnlyList<IntegrationModel>> GetModelsAsync(
-        CancellationToken cancellationToken = default);
-}
-
-public interface IIntegrationDiagnosticsModule
-{
-    Task<JsonElement> InvokeAsync(
-        string operation,
-        JsonElement arguments,
-        CancellationToken cancellationToken = default);
 }
 
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
@@ -69,80 +37,6 @@ public interface IConversationContextOwner
 {
     Task RetainConversationAsync(string chatId);
     Task ReleaseConversationAsync(string chatId);
-}
-
-public interface IChatIntegration : IAsyncDisposable
-{
-    IntegrationConnection Connection { get; }
-    IntegrationCapabilities Capabilities { get; }
-    ILoginModule? Login { get; }
-    IModelModule? Models { get; }
-    IIntegrationDiagnosticsModule? Diagnostics { get; }
-
-    Task<IntegrationSendResult> SendMessageAsync(
-        IntegrationSendContext context,
-        CancellationToken cancellationToken = default);
-}
-
-public abstract class ChatIntegrationBase(IntegrationConnection connection) : IChatIntegration
-{
-    public IntegrationConnection Connection { get; } = connection;
-    public virtual IntegrationCapabilities Capabilities => new();
-    public virtual ILoginModule? Login => null;
-    public virtual IModelModule? Models => null;
-    public virtual IIntegrationDiagnosticsModule? Diagnostics => null;
-
-    public abstract Task<IntegrationSendResult> SendMessageAsync(
-        IntegrationSendContext context,
-        CancellationToken cancellationToken = default);
-
-    public virtual ValueTask DisposeAsync() => ValueTask.CompletedTask;
-}
-
-public sealed record IntegrationChatContext(
-    string ChatId,
-    string ConnectionId,
-    string? RemoteChatUrl = null,
-    string? RemoteConversationId = null,
-    string? RemoteParentMessageId = null);
-
-public sealed record IntegrationMessageContext(
-    string MessageId,
-    string Role,
-    string Content,
-    bool Completed,
-    DateTimeOffset CreatedAt,
-    string? Model = null);
-
-public sealed record IntegrationSendContext(
-    IntegrationChatContext Chat,
-    IntegrationMessageContext Message,
-    IReadOnlyList<IntegrationMessageContext> History,
-    IReadOnlyList<IntegrationInputFile> Files,
-    bool RestoreConversation = false,
-    Action<IntegrationActivity>? ReportActivity = null,
-    Action<IntegrationAdmissionWaitReason?>? ReportAdmissionWait = null)
-{
-    public string Prompt
-    {
-        get
-        {
-            if (!RestoreConversation)
-                return Message.Content;
-
-            var history = History
-                .Where(message => message.Role == "assistant" || message.Completed)
-                .Select(message =>
-                    $"[{(message.Role == "assistant" ? "Assistant" : "User")}]\n{message.Content}")
-                .ToList();
-            if (history.Count == 0)
-                return Message.Content;
-
-            history.Add($"[User]\n{Message.Content}");
-            return "Continue the conversation below. Reply only to the latest user message.\n\n" +
-                   string.Join("\n\n", history);
-        }
-    }
 }
 
 public sealed record IntegrationInputFile(
@@ -158,18 +52,9 @@ public sealed record IntegrationOutputFile(
     string ContentType,
     bool DeleteAfterImport = true);
 
-// Transient model-send admission only; independent of provider activity.
 public enum IntegrationAdmissionWaitReason { Capacity, Spacing }
 
 public sealed record IntegrationActivity(
     string State,
     string? Detail = null,
     string? Analysis = null);
-
-public sealed record IntegrationSendResult(
-    string Text,
-    string? RemoteChatUrl = null,
-    string? RemoteConversationId = null,
-    string? RemoteParentMessageId = null,
-    IReadOnlyList<IntegrationOutputFile>? Files = null,
-    string? Model = null);

@@ -43,6 +43,16 @@ jobs:
       - name: Build .NET solution
         run: dotnet build Mezhs.sln -c Release --nologo
 
+      - name: V2 typed integration and admission contracts
+        shell: pwsh
+        run: |
+          dotnet run --project tests/Mezhs.Integration.Contracts.Probe/Mezhs.Integration.Contracts.Probe.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh -NoProfile -File tests/browser-admission-wait.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh -NoProfile -File tests/agent-admission-projection.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: SQLite ChatStore migration and failure-injection regression
         shell: pwsh
         run: |
@@ -66,7 +76,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet run --project tests/Mezhs.RichUi.TestApp/Mezhs.RichUi.TestApp.csproj -c Release --no-build --nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --test tests/agent-web-rich-formatting.test.cjs tests/agent-status-unread-browser.test.cjs tests/chat-ui-browser.test.cjs tests/rich-model-ui-rendering.test.cjs tests/rich-model-ui-browser.test.cjs tests/group-delete-browser.test.cjs
+          node --test tests/agent-web-rich-formatting.test.cjs tests/agent-status-unread-browser.test.cjs tests/integration-model-mismatch.test.cjs tests/chat-ui-browser.test.cjs tests/rich-model-ui-rendering.test.cjs tests/rich-model-ui-browser.test.cjs tests/group-delete-browser.test.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Agent command protocol and real Executor smoke

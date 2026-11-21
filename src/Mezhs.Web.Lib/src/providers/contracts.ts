@@ -1,20 +1,12 @@
 import type { RichDocument } from "../RichDocumentView";
-export type IntegrationCapabilities = {
-  fileInput: boolean;
-  imageInput: boolean;
-  fileOutput: boolean;
-  imageOutput: boolean;
-};
-
 export type Connection = {
   id: string;
   name: string;
   integration: string;
   requiresLogin: boolean;
-  supportsModels: boolean;
+  allowFiles: boolean;
   defaultModel?: string | null;
   workspace?: string | null;
-  capabilities: IntegrationCapabilities;
 };
 
 export type ConnectionModel = {
@@ -49,6 +41,7 @@ export type ChatMessage = {
   content: string;
   document?: RichDocument | null;
   model?: string | null;
+  parentMessageId?: string | null;
   files: ApiFile[];
   status: "Queued" | "Running" | "Completed" | "Failed" | "Cancelled";
   createdAt: string;

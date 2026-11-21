@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { randomUUID } = require("node:crypto");
 const { EventEmitter } = require("node:events");
 
 const root = path.resolve(__dirname, "..");
@@ -191,123 +192,6 @@ test("ChatGPT getProjects uses the private API and follows pagination", async ()
   assert.equal(calls.filter(call => call.target.pathname === "/backend-api/gizmos/snorlax/sidebar").length, 2);
 });
 
-test("ChatGPT getModels follows the native picker instead of the raw catalog", async () => {
-  const chatgpt = loadChatGptModule();
-  const session = mockSession(async (url, options = {}) => {
-    const target = new URL(String(url));
-    if (target.pathname === "/api/auth/session")
-      return jsonResponse({ accessToken: "token" });
-    if (target.pathname === "/backend-api/models") {
-      assert.equal(options.headers.Authorization, "Bearer token");
-      assert.equal(target.searchParams.get("history_and_training_disabled"), "false");
-      return jsonResponse({
-        models: [
-          { slug: "gpt-5-6-instant", title: "GPT-5.6 Instant" },
-          { slug: "gpt-5-6-thinking", title: "GPT-5.6 Thinking" },
-          { slug: "gpt-5-5-instant", title: "GPT-5.5 Instant" },
-          { slug: "gpt-5-5-thinking", title: "GPT-5.5 Thinking" },
-          { slug: "o3", title: "o3" },
-          { slug: "gpt-5-3-mini", title: "GPT-5.3 Mini" },
-          { slug: "gpt-5.6-luna-wm", title: "GPT-5.6 Luna" }
-        ],
-        versions: [
-          {
-            id: "5.6",
-            display_text_for_intelligence: "GPT-5.6 Sol",
-            slugs: ["gpt-5-6", "gpt-5-6-instant", "gpt-5-6-thinking"],
-            intelligence_presets: [
-              {
-                title: "Instant",
-                model_slug: "gpt-5-6-instant",
-                lane: "instant",
-                preset_type: "available"
-              },
-              {
-                title: "Medium",
-                model_slug: "gpt-5-6-thinking",
-                lane: "thinking",
-                thinking_effort: "standard",
-                preset_type: "available"
-              },
-              {
-                title: "High",
-                model_slug: "gpt-5-6-thinking",
-                lane: "thinking",
-                thinking_effort: "extended",
-                preset_type: "available"
-              }
-            ],
-            enabled: true
-          },
-          {
-            id: "5.5",
-            display_text_for_intelligence: "GPT-5.5",
-            slugs: ["gpt-5-5-instant", "gpt-5-5-thinking"],
-            intelligence_presets: [
-              {
-                title: "Instant",
-                model_slug: "gpt-5-5-instant",
-                lane: "instant",
-                preset_type: "available"
-              },
-              {
-                title: "Medium",
-                model_slug: "gpt-5-5-thinking",
-                lane: "thinking",
-                thinking_effort: "standard",
-                preset_type: "available"
-              },
-              {
-                title: "High",
-                model_slug: "gpt-5-5-thinking",
-                lane: "thinking",
-                thinking_effort: "extended",
-                preset_type: "available"
-              }
-            ],
-            enabled: true
-          },
-          {
-            id: "o3",
-            display_text_for_intelligence: "o3",
-            slugs: ["o3"],
-            enabled: true
-          },
-          {
-            id: "5.3",
-            display_text_for_intelligence: "GPT-5.3 Mini",
-            slugs: ["gpt-5-3-mini"],
-            enabled: false
-          }
-        ]
-      });
-    }
-    throw new Error(`Unexpected request ${target}`);
-  });
-
-  assert.deepEqual(await chatgpt.operations.getModels({ session }), [
-    { id: "gpt-5-6-instant", name: "GPT-5.6 Sol · Instant" },
-    {
-      id: "gpt-5-6-thinking::thinking-effort=standard",
-      name: "GPT-5.6 Sol · Medium"
-    },
-    {
-      id: "gpt-5-6-thinking::thinking-effort=extended",
-      name: "GPT-5.6 Sol · High"
-    },
-    { id: "gpt-5-5-instant", name: "GPT-5.5 · Instant" },
-    {
-      id: "gpt-5-5-thinking::thinking-effort=standard",
-      name: "GPT-5.5 · Medium"
-    },
-    {
-      id: "gpt-5-5-thinking::thinking-effort=extended",
-      name: "GPT-5.5 · High"
-    },
-    { id: "o3", name: "o3" }
-  ]);
-});
-
 
 function noUiWindow() {
   return {
@@ -379,7 +263,7 @@ test("ChatGPT account sends project turns through semantic HTTP with the request
   const { session, state } = directSession({ projectId: "g-p-test" });
   const result = await chatgpt.operations.newChat({
     window: noUiWindow(), session,
-    args: {
+    args: { messageId: randomUUID(),
       prompt: "test project",
       model: "gpt-5-6-thinking::thinking-effort=extended",
       projectId: "g-p-test",
@@ -401,7 +285,7 @@ test("ChatGPT account continuations target the known conversation without UI nav
   const { session, state } = directSession();
   const result = await chatgpt.operations.send({
     window: noUiWindow(), session,
-    args: {
+    args: { messageId: randomUUID(),
       conversationId: "conv-test",
       parentMessageId: "assistant-previous",
       prompt: "continue",
@@ -422,7 +306,7 @@ test("ChatGPT does not replay a turn when the backend rejects direct submission"
   await assert.rejects(
     chatgpt.operations.send({
       window: noUiWindow(), session,
-      args: { conversationId: "conv-test", parentMessageId: "old", prompt: "once", files: [] },
+      args: { messageId: randomUUID(), conversationId: "conv-test", parentMessageId: "old", prompt: "once", files: [] },
       sleep: async () => {}
     }),
     /HTTP 403/

@@ -73,6 +73,19 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             authorize: false, interactive: false, ephemeral: false,
             chatId: null, cancellationToken);
 
+    // Reuse the current host only. No authorization UI, transport initialization or
+    // context creation is permitted merely to stop an in-flight provider turn.
+    public async Task<BrowserStopOutcome> StopAsync(string chatId, string messageId,
+        CancellationToken cancellationToken = default)
+    {
+        IChatBrowserTransport? transport;
+        await _gate.WaitAsync(cancellationToken);
+        try { transport = _disposed ? null : _transport; }
+        finally { _gate.Release(); }
+        return transport is null ? BrowserStopOutcome.NotActive
+            : await transport.StopTurnAsync(chatId, messageId, cancellationToken);
+    }
+
     public async Task RetainConversationAsync(string chatId)
     {
         await _gate.WaitAsync();

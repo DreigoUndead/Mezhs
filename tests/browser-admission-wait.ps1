@@ -113,13 +113,14 @@ static async Task CheckSpacingCancellationAsync()
     Assert(!trace.AnyBlocked, "Spacing test retained stale admission state.");
 }
 
-static IntegrationSendContext Context(string id, Trace trace) =>
-    new(new IntegrationChatContext("chat-" + id, "probe"),
-        new IntegrationMessageContext(id, "user", "probe", false, DateTimeOffset.UtcNow),
-        [], [], ReportActivity: activity => trace.OnProvider(id, activity),
-        ReportAdmissionWait: reason => trace.OnAdmission(id, reason));
+static (ChatContext Chat, PromptRequest Request) Context(string id, Trace trace) =>
+    (new ChatContext("chat-" + id, "probe", null,
+        (_, _, _, _) => Task.FromResult<IReadOnlyList<ChatMessage>>(Array.Empty<ChatMessage>()),
+        reportActivity: activity => trace.OnProvider(id, activity),
+        reportAdmissionWait: reason => trace.OnAdmission(id, reason)),
+     new PromptRequest(id, "probe", null, []));
 
-static async Task ExpectCancelled(Task<IntegrationSendResult> task)
+static async Task ExpectCancelled(Task<PromptResult> task)
 {
     try { await task; }
     catch (OperationCanceledException) { return; }
@@ -174,23 +175,28 @@ sealed class ProbeIntegration(int maxParallel, int minInterval)
     protected override Assembly BrowserModuleAssembly => typeof(ProbeIntegration).Assembly;
     protected override string BrowserModuleResourceName => "unused";
 
+    public Task<PromptResult> SendMessageAsync((ChatContext Chat, PromptRequest Request) context,
+        CancellationToken cancellationToken = default) =>
+        PromptAsync(context.Chat, context.Request, cancellationToken);
+
     public void Release(string id) =>
         (_holds.TryGetValue(id, out var hold) ? hold :
             throw new InvalidOperationException("Provider turn was not admitted: " + id))
         .TrySetResult(true);
 
-    protected override async Task<IntegrationSendResult> SendCoreAsync(
-        IntegrationSendContext context,
+    protected override async Task<PromptResult> SendCoreAsync(
+        ChatContext chat,
+        PromptRequest request,
         CancellationToken cancellationToken)
     {
-        var id = context.Message.MessageId;
+        var id = request.MessageId;
         var hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!_holds.TryAdd(id, hold)) throw new InvalidOperationException("Duplicate provider send " + id);
         StartTicks[id] = Stopwatch.GetTimestamp();
         Started[id] = true;
-        context.ReportActivity?.Invoke(new IntegrationActivity("waiting"));
+        chat.ReportActivity?.Invoke(new IntegrationActivity("waiting"));
         await hold.Task.WaitAsync(cancellationToken);
-        return new IntegrationSendResult("ok");
+        return new PromptResult("ok", CreateMessageId(), "default");
     }
 }
 

@@ -42,8 +42,7 @@ public sealed class AgentAttachmentStaging(
             if (paths.Length == 0)
                 throw new RequestValidationException("ATTACH needs at least one local file path.");
 
-            var capabilities = integrations.Get(execution.ConnectionId).Capabilities;
-            if (!capabilities.FileInput)
+            if (!integrations.Get(execution.ConnectionId).AllowFiles)
                 throw new RequestValidationException(
                     $"Connection '{execution.ConnectionId}' does not support file input.");
 
@@ -55,10 +54,6 @@ public sealed class AgentAttachmentStaging(
                     throw new FileNotFoundException("Attachment file does not exist.", fullPath);
                 if (!ContentTypes.TryGetContentType(fullPath, out var contentType))
                     contentType = "application/octet-stream";
-                if (contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) &&
-                    !capabilities.ImageInput)
-                    throw new RequestValidationException(
-                        $"Connection '{execution.ConnectionId}' does not support image input.");
                 return (Path: fullPath, ContentType: contentType);
             }).ToArray();
 

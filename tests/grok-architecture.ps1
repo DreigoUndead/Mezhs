@@ -11,11 +11,14 @@ $forbiddenRoots = @(
 )
 $forbiddenFiles = $forbiddenRoots |
     ForEach-Object { Get-ChildItem $_ -Recurse -File -ErrorAction SilentlyContinue } |
-    Where-Object Extension -in '.cs', '.ts', '.tsx', '.js'
-$matches = Select-String -Path $forbiddenFiles.FullName -Pattern 'grok|xai' -CaseSensitive:$false
-if ($matches) {
-    $matches | ForEach-Object {
-        Write-Error "$($_.Path):$($_.LineNumber): $($_.Line.Trim())"
+    Where-Object {
+        $_.Extension -in '.cs', '.ts', '.tsx', '.js' -and
+        $_.FullName -notmatch '[\\/](node_modules|bin|obj|dist|build)[\\/]'
+    }
+$matches = @($forbiddenFiles | Select-String -Pattern 'grok|xai' -CaseSensitive:$false)
+if ($matches.Count -gt 0) {
+    $matches | Select-Object -First 10 | ForEach-Object {
+        Write-Error "$($_.Path):$($_.LineNumber): $($_.Line.Trim().Substring(0, [Math]::Min(180, $_.Line.Trim().Length)))"
     }
     throw 'Grok-specific behavior leaked outside the integration boundary.'
 }
@@ -35,7 +38,8 @@ $grok = Get-Content $grokIntegration -Raw
 if ($grok -notmatch '\[Integration\("grok-web-account"\)\]') {
     throw 'Grok account integration is not registered directly.'
 }
-if ($grok -notmatch 'CreateAccountSession\(' -or $grok -notmatch 'ILoginModule' -or
+if ($grok -notmatch 'GrokAccountIntegration\s*:\s*BrowserAccountIntegrationBase' -or
+    $grok -notmatch 'AccountSession.UseAsync\(' -or
     $grok -match 'private readonly BrowserAccountSession _session') {
     throw 'Grok account integration must reuse the base-owned session and login contract.'
 }
@@ -66,7 +70,8 @@ if ($browserContractSource -notmatch 'interface BrowserPage' -or
 }
 
 $chatGpt = Get-Content (Join-Path $root 'integrations\Mezhs.Integrations.ChatGpt\ChatGptIntegration.cs') -Raw
-if ($chatGpt -notmatch 'CreateAccountSession\(' -or
+if ($chatGpt -notmatch 'ChatGptAccountIntegration\s*:\s*BrowserAccountIntegrationBase' -or
+    $chatGpt -notmatch 'AccountSession.UseAsync\(' -or
     $chatGpt -match 'private readonly BrowserAccountSession _session') {
     throw 'ChatGPT account must reuse the base-owned browser session.'
 }

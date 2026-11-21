@@ -173,7 +173,7 @@ if ($program -notmatch 'AddMezhsApi' -or $program -notmatch 'UseMezhsApi' -or $p
 
 $agentProgram = Get-Content (Join-Path $root "src/Mezhs.Agent.Api/Program.cs") -Raw
 if ($apiComposition -notmatch '/v1/diagnostics/connections/\{connectionId\}/browser/\{operation\}' -or
-    $apiComposition -notmatch 'integration.Diagnostics.InvokeAsync' -or
+    $apiComposition -notmatch 'integration.DiagnoseAsync' -or
     $apiComposition -notmatch 'IPAddress.IsLoopback' -or
     $apiComposition -notmatch 'originUri.IsLoopback' -or
     $agentProgram -match 'MapAgentDiagnostics' -or
@@ -202,11 +202,13 @@ if ($models -notmatch 'ChatConnectionState' -or $models -notmatch 'RemoteStates'
 }
 
 $chatGpt = Get-Content (Join-Path $root "integrations/Mezhs.Integrations.ChatGpt/ChatGptIntegration.cs") -Raw
-if ($chatGpt -notmatch 'ChatGptAccountIntegration\s*:\s*ChatGptWebIntegration') {
-    throw "ChatGPT account integration must extend the common ChatGPT web integration."
+if ($chatGpt -notmatch 'ChatGptAccountIntegration\s*:\s*BrowserAccountIntegrationBase') {
+    throw "ChatGPT Account must use the common account browser base instead of inheriting Guest."
 }
-if ($chatGpt -notmatch 'ILoginModule') {
-    throw "ChatGPT account login is not exposed as a login module."
+$accountBase = Get-Content (Join-Path $root "src/Mezhs.Integration.Browser/BrowserAccountIntegrationBase.cs") -Raw
+if ($accountBase -notmatch 'AccountSession.LoginAsync' -or
+    $accountBase -notmatch 'AccountSession.OpenBrowserAsync') {
+    throw "Account login and browser opening must use the existing shared session owner."
 }
 if ($chatGpt -match 'Task\.Run') {
     throw "ChatGPT idle disposal still wraps its timer in Task.Run."

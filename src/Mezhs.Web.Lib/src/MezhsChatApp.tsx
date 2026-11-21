@@ -1,7 +1,7 @@
 import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Check, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
-import { modelActivityLabel } from "./ChatSurface";
+import { modelActivityLabel, returnedModelMismatch } from "./ChatSurface";
 import { ConversationViewport } from "./ConversationViewport";
 import { useConversationPending } from './useConversationPending';
 import { useConversationDraftStore, useConversationDraftValue, type ConversationDraftStore } from "./useConversationDrafts";
@@ -167,6 +167,7 @@ export default function MezhsChatApp({ apiBaseUrl }: MezhsChatAppProps) {
     () => connections.find((connection) => connection.id === connectionId),
     [connections, connectionId],
   );
+  const supportsFileInput = selectedConnection?.allowFiles ?? false;
   const selectedProvider = providerRegistry.current.tryGet(connectionId);
   const activeChat = chats.find((chat) => chat.chatId === chatId);
   const selectedGroup = categories.find((category) => sameCategoryId(category.categoryId, categoryFilter));
@@ -258,7 +259,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
     let cancelled = false;
     setModels([]);
     setModelId("");
-    if (!selectedConnection?.supportsModels) {
+    if (!selectedConnection) {
       setModelsLoading(false);
       return () => { cancelled = true; };
     }
@@ -268,7 +269,7 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
       .then((available) => {
         if (cancelled) return;
         setModels(available);
-        const configured = selectedConnection.defaultModel || "";
+        const configured = selectedConnection.defaultModel === "default" ? "" : selectedConnection.defaultModel || "";
         setModelId(available.some((model) => (model.id || "") === configured) ? configured : "");
       })
       .catch((error) => {
@@ -730,12 +731,8 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
   }
 
   async function selectFiles(files: FileList | null) {
-    if (!files || !connectionId || !selectedConnection?.capabilities.fileInput) return;
+    if (!files || !connectionId || !supportsFileInput) return;
     for (const file of Array.from(files)) {
-      if (file.type.startsWith("image/") && !selectedConnection.capabilities.imageInput) {
-        setNotice(`${selectedConnection.name} does not support image input.`);
-        continue;
-      }
       const key = `${Date.now()}-${Math.random()}`;
       const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
       setPendingFiles((current) => [...current, { key, file, previewUrl, uploading: true }]);
@@ -1090,10 +1087,14 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                     {message.model && (
                       <span
                         className="message-model"
-                        title={`${message.role === "user" ? "Requested" : "Provider-reported"} model ID: ${message.model}`}
+                        title={message.role === "user" ? `Requested model ID: ${message.model}` :
+                          `Integration-returned model ID: ${message.model} (may be selected rather than provider-confirmed)`}
                       >
-                        {message.role === "user" ? "Requested: " : "Served: "}{messageModelName}
+                        {message.role === "user" ? "Requested: " : "Returned: "}{messageModelName}
                       </span>
+                    )}
+                    {returnedModelMismatch(message, messages) && (
+                      <span className="message-model-warning" role="status">{returnedModelMismatch(message, messages)}</span>
                     )}
                     {message.status !== "Completed" && <span className={`message-status ${message.status.toLowerCase()}`}>{message.status}</span>}
                   </div>
@@ -1171,8 +1172,8 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
               <button
                 type="button"
                 className="attach"
-                disabled={!selectedConnection?.capabilities.fileInput || sending}
-                title={selectedConnection?.capabilities.fileInput ? "Attach files" : "This connection does not support files"}
+                disabled={!supportsFileInput || sending}
+                title={supportsFileInput ? "Attach files" : "This connection does not support files"}
                 onClick={() => fileInputRef.current?.click()}
               >+</button>
               <span>Enter to send / Shift + Enter for a new line</span>

@@ -24,6 +24,10 @@ interface OperationContext {
   page: BrowserPage;
   args: any;
   sleep(ms: number): Promise<void>;
+  // Stop is invoked in the active Electron operation, not a new browser host.
+  signal?: AbortSignal;
+  abort?(): void;
+  ephemeral?: boolean;
 }
 
 interface PageOperationContext {

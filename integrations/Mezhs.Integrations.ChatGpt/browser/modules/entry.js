@@ -1,7 +1,6 @@
 const { ORIGIN, API, accessToken, requireToken, apiFetch, apiJson } = require('./account-transport.js');
-const { nativePickerModels } = require('./account-models.js');
 const { sendAccountMessage } = require('./account-messages.js');
-const { sendPrompt } = require('./guest.js');
+const { sendPrompt, stopGeneration } = require('./guest.js');
 
 module.exports = {
   name: "ChatGPT",
@@ -21,6 +20,91 @@ module.exports = {
   },
 
   operations: {
+    // Aborts the active signed POST/SSE transport. The server may continue
+    // computing; this is an attempted stop, never provider confirmation.
+    async stopGeneration(context) {
+      if (context.ephemeral === true)
+        return stopGeneration(context);
+      // Authenticated POST/SSE transport abort only; no provider confirmation.
+      context.abort();
+      return { outcome: "attempted" };
+    },
+
+
+    // Reusable transport mechanism; provider-specific preparation, credentials and
+    // interpretation remain outside this operation. Never retry an uncertain mutation.
+    async typedHttp({ session, args, signal, reportProgress }) {
+      const method = String(args?.method || "").toUpperCase();
+      const endpoint = args?.path;
+      const body = args?.body;
+      const accept = args?.accept;
+      if (!["GET", "POST", "PATCH"].includes(method) ||
+          typeof endpoint !== "string" ||
+          !endpoint.startsWith("/backend-api/") ||
+          endpoint.startsWith("//") ||
+          endpoint.includes("\\") || endpoint.includes("#") ||
+          /[\r\n]/.test(endpoint))
+        throw new Error("Typed HTTP method or endpoint is not allowed.");
+
+      // Resolve before authentication to prevent origin escape and dot-segment bypass.
+      const url = new URL(endpoint, ORIGIN);
+      if (url.origin !== ORIGIN ||
+          !url.pathname.startsWith("/backend-api/") ||
+          url.pathname + url.search !== endpoint ||
+          (method === "GET" && body != null) ||
+          (method !== "GET" && typeof body !== "string") ||
+          (body != null && Buffer.byteLength(body, "utf8") > 8 * 1024 * 1024) ||
+          (accept != null && (typeof accept !== "string" ||
+            !["application/json", "text/event-stream", "application/x-ndjson", "*/*"].includes(accept))))
+        throw new Error("Typed HTTP endpoint, headers or request body is not allowed.");
+
+      reportProgress?.({ state: "preparing", detail: "Preparing authenticated typed HTTP request." });
+      const token = await requireToken(session);
+      const headers = {
+        ...(body == null ? {} : { "Content-Type": "application/json" }),
+        ...(accept == null ? {} : { "Accept": accept })
+      };
+      // apiFetch continues to own cookies, bearer token and integrity observations.
+      // ChatGPT turn-specific Sentinel/conduit preparation remains provider-specific.
+      const response = await apiFetch(session, token, endpoint, {
+        method, headers, ...(body == null ? {} : { body }), signal
+      });
+      reportProgress?.({ state: "retrieving", detail: "Receiving typed HTTP response." });
+
+      const chunks = [];
+      const decoder = new TextDecoder();
+      let size = 0;
+      if (response.body?.getReader) {
+        const reader = response.body.getReader();
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            size += value.byteLength;
+            if (size > 16 * 1024 * 1024)
+              throw new Error("Typed HTTP response exceeded the 16 MiB limit.");
+            chunks.push(decoder.decode(value, { stream: true }));
+            reportProgress?.({ state: "retrieving", detail: "Received " + size + " bytes." });
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        chunks.push(decoder.decode());
+      } else {
+        const text = await response.text();
+        size = Buffer.byteLength(text, "utf8");
+        if (size > 16 * 1024 * 1024)
+          throw new Error("Typed HTTP response exceeded the 16 MiB limit.");
+        chunks.push(text);
+      }
+
+      return {
+        statusCode: response.status,
+        contentType: response.headers.get("content-type"),
+        body: chunks.join("")
+      };
+    },
+
     async getProjects({ session }) {
       const token = await requireToken(session);
       const projects = [];
@@ -41,11 +125,6 @@ module.exports = {
       return projects;
     },
 
-    async getModels({ session }) {
-      const token = await requireToken(session);
-      const response = await apiJson(session, token, API.models);
-      return nativePickerModels(response);
-    },
 
     newChat(context) {
       return sendAccountMessage(context, true);
@@ -59,6 +138,16 @@ module.exports = {
   },
 
   pageOperations: {
+    // Guest only: click the stop control in the same ephemeral context.
+    stopGeneration() {
+      const button = document.querySelector(
+        'button[data-testid="stop-button"], button[aria-label="Stop streaming"], button[aria-label="Stop generating"]'
+      );
+      if (!button || button.disabled) return { outcome: "unsupported" };
+      button.click();
+      return { outcome: "attempted" };
+    },
+
     async sendPrompt({ args, sleep }) {
       const fail = (errorCode, error, submissionAttempted = false) =>
         ({ ok: false, errorCode, error, submissionAttempted });

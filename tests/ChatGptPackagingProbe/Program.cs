@@ -205,8 +205,8 @@ sealed class VersionProbe(
     protected override string BrowserModuleResourceName => resourceName;
     protected override string? BrowserModuleEntryFileName => singleFile ? null : "entry.js";
 
-    protected override Task<IntegrationSendResult> SendCoreAsync(
-        IntegrationSendContext context, CancellationToken cancellationToken = default) =>
+    protected override Task<PromptResult> SendCoreAsync(
+        ChatContext chat, PromptRequest request, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException();
 }
 sealed class ProbeHost(string root) : IBrowserIntegrationHost

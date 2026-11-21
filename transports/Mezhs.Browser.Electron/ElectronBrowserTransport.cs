@@ -173,7 +173,18 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             if (operationId is not null)
+            {
+                // Stop while the operation still owns its browser context, before
+                // the existing local cancel endpoint destroys that context.
+                try
+                {
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                    await RequestStopAsync($"invoke/{Uri.EscapeDataString(operationId)}/stop",
+                        body: null, timeout.Token);
+                }
+                catch (Exception) { /* A failed provider stop must not block local cancel. */ }
                 await CancelOperationBestEffortAsync(operationId);
+            }
             throw;
         }
     }
@@ -190,6 +201,34 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
         {
             // The local cancellation is final; remote cancellation is best effort.
         }
+    }
+
+    public async Task<BrowserStopOutcome> StopTurnAsync(string chatId, string messageId,
+        CancellationToken cancellationToken = default)
+    {
+        if (_process is null || _process.HasExited || _http.BaseAddress is null)
+            return BrowserStopOutcome.NotActive;
+        ArgumentException.ThrowIfNullOrWhiteSpace(chatId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(3));
+        return await RequestStopAsync("turns/stop", new { contextId = chatId, messageId }, timeout.Token);
+    }
+
+    private async Task<BrowserStopOutcome> RequestStopAsync(
+        string endpoint, object? body, CancellationToken cancellationToken)
+    {
+        using var response = await _http.PostAsJsonAsync(endpoint, body, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<ProviderStopState>(
+            JsonOptions, cancellationToken);
+        return result?.Outcome switch
+        {
+            "notActive" => BrowserStopOutcome.NotActive,
+            "attempted" => BrowserStopOutcome.Attempted,
+            "providerConfirmed" => BrowserStopOutcome.ProviderConfirmed,
+            _ => BrowserStopOutcome.Unsupported
+        };
     }
 
     public IChatBrowserTransport ForContext(string chatId, bool ephemeral = false) =>
@@ -350,6 +389,7 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
             throw new InvalidOperationException("Electron process is not running.");
     }
 
+    private sealed record ProviderStopState(string Outcome);
     private sealed record ProviderOperationStarted(string OperationId);
     private sealed record ProviderOperationState(
         string Status,

@@ -28,6 +28,12 @@ public interface IChatBrowserTransport : IAsyncDisposable
     // The host is shared; this view binds one operation to a local conversation.
     IChatBrowserTransport ForContext(string chatId, bool ephemeral = false) => this;
 
+    // Stop only this chat/request in the already-running host. Never create a session
+    // to stop a turn and never treat a transport abort as remote confirmation.
+    Task<BrowserStopOutcome> StopTurnAsync(string chatId, string messageId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(BrowserStopOutcome.Unsupported);
+
     Task ReleaseContextAsync(string chatId, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     Task EnsureAuthorizedAsync(bool interactive, CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -50,3 +56,5 @@ public sealed record BrowserArtifact(
     string Name,
     string? ContentType = null,
     string? LocalPath = null);
+
+public enum BrowserStopOutcome { NotActive, Unsupported, Attempted, ProviderConfirmed }

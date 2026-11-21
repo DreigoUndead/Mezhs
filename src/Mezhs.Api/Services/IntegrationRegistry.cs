@@ -8,7 +8,7 @@ namespace Mezhs.Services;
 
 public sealed class IntegrationRegistry : IAsyncDisposable
 {
-    private readonly Dictionary<string, IChatIntegration> _integrations;
+    private readonly Dictionary<string, IntegrationBase> _integrations;
 
     public IntegrationRegistry(
         MezhsOptions options,
@@ -21,10 +21,10 @@ public sealed class IntegrationRegistry : IAsyncDisposable
             StringComparer.OrdinalIgnoreCase);
     }
 
-    public bool TryGet(string connectionId, out IChatIntegration integration) =>
+    public bool TryGet(string connectionId, out IntegrationBase integration) =>
         _integrations.TryGetValue(connectionId, out integration!);
 
-    public IChatIntegration Get(string connectionId) =>
+    public IntegrationBase Get(string connectionId) =>
         TryGet(connectionId, out var integration)
             ? integration
             : throw new ResourceNotFoundException($"Connection '{connectionId}' was not found.");
@@ -44,13 +44,23 @@ public sealed class IntegrationRegistry : IAsyncDisposable
         id = integration.Connection.Id,
         name = integration.Connection.Name,
         integration = integration.Connection.Type,
-        requiresLogin = integration.Login is not null,
-        supportsModels = integration.Models is not null,
-        supportsDiagnostics = integration.Diagnostics is not null,
+        requiresLogin = HasDirectOverride(integration, nameof(IntegrationBase.LoginAsync)),
+        supportsDiagnostics = HasDirectOverride(integration, nameof(IntegrationBase.DiagnoseAsync)),
         defaultModel = integration.Connection.GetSetting("defaultModel"),
         workspace = integration.Connection.GetSetting("workspace"),
-        capabilities = integration.Capabilities
+        allowFiles = integration.AllowFiles
     }).Cast<object>().ToArray();
+
+    // A virtual method override expresses supported login/diagnostics. No second
+    // capability interface or mutable feature-flag registry is maintained.
+    public static bool HasLogin(IntegrationBase integration) =>
+        HasDirectOverride(integration, nameof(IntegrationBase.LoginAsync));
+
+    public static bool HasDiagnostics(IntegrationBase integration) =>
+        HasDirectOverride(integration, nameof(IntegrationBase.DiagnoseAsync));
+
+    private static bool HasDirectOverride(IntegrationBase integration, string methodName) =>
+        integration.GetType().GetMethod(methodName)?.DeclaringType != typeof(IntegrationBase);
 
     public async ValueTask DisposeAsync()
     {
@@ -58,7 +68,7 @@ public sealed class IntegrationRegistry : IAsyncDisposable
             await integration.DisposeAsync();
     }
 
-    private static IChatIntegration Create(
+    private static IntegrationBase Create(
         ConnectionOptions configured,
         IIntegrationHost host,
         IReadOnlyDictionary<string, Type> registrations)
@@ -81,12 +91,9 @@ public sealed class IntegrationRegistry : IAsyncDisposable
 
         try
         {
-            var integration = Activator.CreateInstance(integrationType, connection, host) as IChatIntegration
+            var integration = Activator.CreateInstance(integrationType, connection, host) as IntegrationBase
                 ?? throw new InvalidOperationException(
                     $"Integration '{connection.Type}' could not be constructed.");
-            if (configured.DefaultModel is not null && integration.Models is null)
-                throw new InvalidOperationException(
-                    $"defaultModel is not supported by connection '{connection.Id}'.");
             return integration;
         }
         catch (TargetInvocationException ex) when (ex.InnerException is not null)
@@ -103,7 +110,7 @@ public sealed class IntegrationRegistry : IAsyncDisposable
         foreach (var assembly in DiscoverIntegrationAssemblies())
         {
             foreach (var type in GetLoadableTypes(assembly)
-                         .Where(type => !type.IsAbstract && typeof(IChatIntegration).IsAssignableFrom(type)))
+                         .Where(type => !type.IsAbstract && typeof(IntegrationBase).IsAssignableFrom(type)))
             {
                 foreach (var registration in type.GetCustomAttributes<IntegrationAttribute>())
                 {
