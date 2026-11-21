@@ -35,7 +35,7 @@ static async Task TestNewChatMetadataAndCitations()
     var result = await integration.PromptAsync(Chat(activities.Add),
         new PromptRequest(id, "hello typed protocol",
             "requested-model::thinking-effort=extended", []));
-    Verify(result.Id == "assistant-final", "wrong final assistant id");
+    Verify(result.MessageId == "assistant-final", "wrong final assistant id");
     Verify(result.Text.Contains("[Example](https://example.org)"), "known citation not substituted");
     Verify(result.Text.Contains("[citation unavailable]"), "unknown citation was hidden");
     Verify(result.Model == "served-model::thinking-effort=high", "provider-confirmed served model/effort lost");
@@ -102,7 +102,7 @@ static async Task TestKnownConversationStreamInterruptionReconciles()
     var result = await integration.PromptAsync(Chat(), new PromptRequest(
         integration.CreateMessageId(), "recover after id", null, []));
     Verify(host.Posts == 1, "stream interruption replayed the POST");
-    Verify(result.Id == "assistant-final", "conversation was not reconciled");
+    Verify(result.MessageId == "assistant-final", "conversation was not reconciled");
 }
 
 static async Task TestAuthorizationFailureNeverReplays()
@@ -130,7 +130,7 @@ static async Task TestImageUploadAndDownload()
     host.DownloadPath = output;
     try {
         await using var integration = NewIntegration(host);
-        var files = new[] { new IntegrationInputFile(image, "screenshot.png", "image/png") };
+        var files = new[] { new IntegrationInputFile("local-test-file", image, "screenshot.png", "image/png", bytes.Length) };
         var result = await integration.PromptAsync(Chat(), new PromptRequest(
             integration.CreateMessageId(), "analyze screenshot", null, files));
         Verify(host.Transfers.Count == 2, "expected signed upload and output download");
@@ -139,7 +139,7 @@ static async Task TestImageUploadAndDownload()
         Verify(host.Transfers[1].Action == "download", "output was not fetched");
         Verify(host.SubmittedBody!.Contains("image_asset_pointer") &&
             host.SubmittedBody.Contains("file-service://file-1"), "multimodal pointer missing");
-        Verify(result.Files.Count == 1 && result.Files[0].Path == output,
+        Verify(result.Files is { Count: 1 } && result.Files[0].Path == output,
             "download artifact path was not propagated");
     }
     finally { File.Delete(image); File.Delete(output); }
