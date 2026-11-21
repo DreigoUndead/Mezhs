@@ -1,4 +1,4 @@
-const { ORIGIN, API, accessToken, requireToken, apiFetch } = require('./account-transport.js');
+const { ORIGIN, API, accessToken, requireToken, apiFetch, webApiHeaders, nativeAccountTurnHeaders } = require('./account-transport.js');
 const { sendAccountMessage } = require('./account-messages.js');
 const { sendPrompt, stopGeneration } = require('./guest.js');
 
@@ -13,7 +13,16 @@ module.exports = {
     async fetch({ session, endpoint, options }) {
       return apiFetch(session, await requireToken(session), endpoint, options);
     },
-    nativeHooks: {}
+    nativeHooks: {
+      chatgptTurn: nativeAccountTurnHeaders,
+      async chatgptWeb({ session, args, endpoint, signal }) {
+        if (endpoint !== API.conversationInit ||
+            typeof args?.clientSessionId !== "string")
+          throw new Error("Invalid ChatGPT native HTTP preparation.");
+        signal?.throwIfAborted();
+        return webApiHeaders(session, endpoint, args.clientSessionId);
+      }
+    }
   },
 
   async isAuthorized(window) {
