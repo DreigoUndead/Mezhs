@@ -162,6 +162,22 @@ var viaNative = await nativeHttp.PatchAsync<Dto, Dto>(
     "/v1/items", new Dto("via-http-client"));
 if (viaNative.Id != "native")
     throw new Exception("Normal HttpClient adapter failed.");
+
+// Headers-only GET must not buffer a 16 MiB+ body in any typed HTTP adapter.
+var headerFetches = 0;
+using var headerClient = new HttpClient(new FakeHandler(_ =>
+{
+    headerFetches++;
+    return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) {
+        Content = new ByteArrayContent(new byte[IntegrationHttpClient.MaxResponseBytes + 1])
+    });
+})) { BaseAddress = new Uri("https://api.example.test/") };
+var headerProbe = IntegrationHttpClient.ForHttpClient(headerClient);
+var available = await headerProbe.CallAsync(
+    new HttpEndpoint<object, bool>(HttpMethod.Get, "/v1/huge",
+        HttpResultFormat.HeadersOnly, Interpret: _ => true), null);
+if (!available || headerFetches != 1)
+    throw new Exception("Plain HttpClient headers-only probe read a large body or replayed GET.");
 Console.WriteLine("PASS: typed HTTP GET/POST/PATCH, HttpClient/Electron adapters, SSE/NDJSON, no-replay, cancellation and negative model validation.");
 
 var catalog = new ChatGptModelCatalogProbe(
