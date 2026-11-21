@@ -20,7 +20,18 @@ public sealed record HttpTransportRequest(
     bool Stream = false, string? NativeHook = null, object? NativeArgs = null);
 
 public sealed record HttpTransportResponse(
-    int StatusCode, string Body, string? ContentType = null);
+    int StatusCode, string Body, string? ContentType = null,
+    string? ProviderCode = null, int? RetryAfterMs = null);
+
+public sealed class IntegrationHttpException(
+    string method, string path, int statusCode, string? providerCode, int? retryAfterMs)
+    : HttpRequestException($"HTTP {method} {path} failed with status {statusCode}.",
+        null, (HttpStatusCode)statusCode)
+{
+    public string? ProviderCode { get; } = providerCode;
+    public int? RetryAfterMs { get; } = retryAfterMs;
+}
+
 
 public sealed record HttpTransferProgress(string State, string? Detail = null);
 
@@ -74,9 +85,8 @@ public sealed class IntegrationHttpClient(
         var response = await execute(new HttpTransportRequest(method, endpoint.Path, body, endpoint.Accept),
             reportProgress, cancellationToken);
         if (response.StatusCode is < 200 or >= 300)
-            throw new HttpRequestException(
-                $"HTTP {method} {endpoint.Path} failed with status {response.StatusCode}.",
-                null, (HttpStatusCode)response.StatusCode);
+            throw new IntegrationHttpException(method, endpoint.Path, response.StatusCode,
+                response.ProviderCode, response.RetryAfterMs);
         if (Encoding.UTF8.GetByteCount(response.Body) > MaxResponseBytes)
             throw new InvalidOperationException("HTTP response exceeded the 16 MiB limit.");
 
@@ -127,9 +137,8 @@ public sealed class IntegrationHttpClient(
                 Stream: true, NativeHook: nativeHook, NativeArgs: nativeArgs),
             onEvent, reportProgress, cancellationToken);
         if (result.StatusCode is < 200 or >= 300)
-            throw new HttpRequestException(
-                $"HTTP {method} {endpoint.Path} failed with status {result.StatusCode}.",
-                null, (HttpStatusCode)result.StatusCode);
+            throw new IntegrationHttpException(method, endpoint.Path, result.StatusCode,
+                result.ProviderCode, result.RetryAfterMs);
         return result;
     }
 
