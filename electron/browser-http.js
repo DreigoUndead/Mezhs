@@ -131,13 +131,27 @@ async function executeBrowserHttp({ window, session, args, signal, reportProgres
     ...nativeHeaders
   };
   signal?.throwIfAborted();
-  const response = await policy.fetch({
-    session, endpoint: request.endpoint, options: {
-      method: request.method, headers,
-      ...(request.body == null ? {} : { body: request.body }),
-      signal
-    }
-  });
+  let response;
+  try {
+    response = await policy.fetch({
+      session, endpoint: request.endpoint, options: {
+        method: request.method, headers,
+        ...(request.body == null ? {} : { body: request.body }),
+        signal
+      }
+    });
+  } catch (error) {
+    // Preserve only whitelisted status/retry metadata, never a private response,
+    // URL, signed query, bearer token, challenge or arbitrary provider exception.
+    if (!Number.isInteger(error?.status) || error.status < 400 || error.status > 599)
+      throw error;
+    const safeCode = typeof error.providerCode === "string" &&
+      /^[a-z0-9_-]{1,80}$/i.test(error.providerCode) ? error.providerCode : null;
+    const retryAfterMs = Number.isSafeInteger(error.retryAfterMs) &&
+      error.retryAfterMs >= 0 ? error.retryAfterMs : null;
+    return { statusCode: error.status, contentType: null, body: "",
+      providerCode: safeCode, retryAfterMs };
+  }
   reportProgress?.({ state: "retrieving", detail: "Receiving browser HTTP response." });
 
   if (request.stream) {
