@@ -276,7 +276,9 @@ public sealed class RichDocumentParser
             }
             // Commands use the same tokenizer and structural traversal as UI;
             // they produce host-only spans, not display nodes.
-            if (definition.Role is RichTagRole.Command or RichTagRole.Marker)
+            // Escape literal scopes admit only registered root-only command tags.
+            if ((definition.Role is RichTagRole.Command or RichTagRole.Marker) &&
+                (!literalScope || !definition.AllowAsChild))
             {
                 if (tag.SelfClosing)
                 {
