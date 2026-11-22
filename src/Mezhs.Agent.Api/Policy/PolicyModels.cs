@@ -42,13 +42,9 @@ public sealed class PolicyCompletionDefinition
 
 public sealed class PolicyLimitsDefinition
 {
-    [Range(1, int.MaxValue)]
     public int CommandTimeoutSeconds { get; set; } = 60;
-    [Range(0, int.MaxValue)]
     public int? Limit { get; set; }
-    [Range(0, int.MaxValue)]
     public int? LimitStart { get; set; }
-    [Range(0, int.MaxValue)]
     public int? LimitEnd { get; set; }
     public string? Regex { get; set; }
 }
