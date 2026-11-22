@@ -283,3 +283,15 @@ Run Windows Agent API Release build, Rich UI TestApp, `tests/policy-decoder.ps1`
 **Correction:** Commit 733c48129b4e87c40e623bb699ca862c2cd94335 gives the explicit override smoke a 15-second timeout instead of six seconds while retaining its three-second delay beyond the two-second policy default, and emits actual shell evidence if it fails again. This changes a test fixture only and is not evidence that the original failing run was caused by insufficient startup margin.
 
 **Next:** Verify the updated branch CI and repeat independent Code Review step 3 on the complete corrected revision. Subsequent independent Testing and owner-authorized Deploy remain pending. No main merge.
+
+### 2026-11-22 — Independent Code Review step 3: architecture regression assertion correction
+
+**Outcome:** FAIL / corrected at implementation-and-test revision `2afb5f088536f6f8affbf42f9c1892e2b7579b0b`. The correcting reviewer cannot issue an independent PASS; start a fresh Code Reviewer before independent Testing.
+
+**Finding:** Windows MEŽS Core CI run 45028230724 at `3fb661ef44eed339a700182b24c645140e87660f` passed the SH protocol and real Executor smoke checks, then failed `tests/agent-architecture.ps1:74` with “Agent shell commands are not routed through Executor with the configured workspace.” That static assertion still required direct `executor.Execute` and `executor.WaitAsync` invocations in Agent `Shell`, which the approved refactor intentionally replaced with `executor.ExecuteShellAsync`. Source inspection confirmed the new Agent Shell forwards the workspace, raw attributes and policy defaults into Executor's single SH entry point; the failure was an obsolete architectural test expectation, not evidence of a broken shell route.
+
+**Correction:** Commit `2afb5f088536f6f8affbf42f9c1892e2b7579b0b` updates the assertion to check forwarding and the Executor-owned `ExecuteShellAsync` → `ExecutorShellOptions.Resolve` → `WaitAsync` contract. No production or Executor logic changed.
+
+**Verification:** Windows CI MEŽS Core run 45028622179 passed the .NET build, rich/Chromium, Agent command protocol and real Executor smoke tests and continued past the previously failing architecture step. Codegraph workflow run 45028617477 completed successfully. The full Core workflow had not yet completed when this evidence was recorded; consult its final conclusion separately. The reviewer also inspected the canonical rich parser, Shell/Interpreter adapter, Executor option resolver/presenter and durable service, Agent prompt safeguard, policy defaults, and relevant focused/live tests. This review did not run a separate isolated local Windows test host.
+
+**Next:** Fresh independent Code Review at current feature HEAD, followed by independent Testing and then owner-authorized Deploy. Do not merge to `main` without explicit approval.
