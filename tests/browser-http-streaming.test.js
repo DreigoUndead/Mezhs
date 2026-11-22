@@ -183,7 +183,7 @@ test("non-success HTTP response cannot emit protocol events and releases the bod
   const events = [];
   const response = new Response(new ReadableStream({
     start(controller) {
-      controller.enqueue(new TextEncoder().encode('data: {"type":"message_marker"}\\n\\n'));
+      controller.enqueue(new TextEncoder().encode('data: {"type":"message_marker"}\n\n'));
     },
     cancel() { cancelled = true; }
   }), { status: 429, headers: { "content-type": "text/event-stream" } });
