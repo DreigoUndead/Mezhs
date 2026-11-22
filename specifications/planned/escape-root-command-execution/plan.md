@@ -20,13 +20,13 @@ The November 19 owner correction in `specifications/implemented/uniform-rich-tag
 
 ## Acceptance criteria
 
-- [ ] `escape` containing ordinary prose, Markdown, presentation tags and malformed visual markup displays those bytes as muted literal text, not rendered UI.
-- [ ] A complete, direct `SH` or `ATTACH` inside `escape` is discovered once, follows original order with independent root commands, and omits only its exact source span from displayed literal text.
-- [ ] A direct `DONE` inside `escape` is recognized as the completion command and retains existing final-command and duplicate constraints.
-- [ ] Commands in nested non-command containers inside `escape` remain inert text; commands inside all other UI/Unknown/SVG/raw wrappers remain inert as before.
-- [ ] Missing command closers remain literal; malformed/unauthorized matched commands fail closed before any batch side effects; no UI or browser code gains execution ability.
-- [ ] Source spans, exact shell body (including whitespace/newlines), output projection and resource budgets remain correct; examples inside escape become potentially executable by design and are documented.
-- [ ] Agent policy, authoritative Agent Registry, Executor lifetime, and host-only execution authority remain unchanged.
+- [x] `escape` containing ordinary prose, Markdown, presentation tags and malformed visual markup displays those bytes as muted literal text, not rendered UI.
+- [x] A complete, direct `SH` or `ATTACH` inside `escape` is discovered once, follows original order with independent root commands, and omits only its exact source span from displayed literal text.
+- [x] A direct `DONE` inside `escape` is recognized as the completion command and retains existing final-command and duplicate constraints.
+- [x] Commands in nested non-command containers inside `escape` remain inert text; commands inside all other UI/Unknown/SVG/raw wrappers remain inert as before.
+- [x] Missing command closers remain literal; malformed/unauthorized matched commands fail closed before any batch side effects; no UI or browser code gains execution ability.
+- [x] Source spans, exact shell body (including whitespace/newlines), output projection and resource budgets remain correct; examples inside escape become potentially executable by design and are documented.
+- [x] Agent policy, authoritative Agent Registry, Executor lifetime, and host-only execution authority remain unchanged.
 
 ## How
 
@@ -60,3 +60,20 @@ Run targeted `tests/agent-protocol-result.ps1`, parser and renderer regressions 
 **Reason:** This is a localized `escape` parsing/presentation rule change; it does not add command capabilities or change authorization, shell execution or Executor ownership. The original classification over-weighted the affected subsystem rather than the change itself.
 **Authority:** Owner correction in MEŽS execution `exec_566ad1e75a124f81a17a7f58adcafaf8`.
 **Supersedes:** Initial High-risk classification and associated role gates in this plan.
+
+### 2026-11-22 — Development verification
+
+**Implementation:** `RichDocumentParser` recognizes direct executable root-only tags within `escape`, strips only their exact spans from the muted literal display text, and retains existing command validator/Agent Registry behavior. `RichDocumentView` and shared CSS display escaped literal segments as muted text. Runtime instructions and current specification updated.
+
+**Tested revision:** `de2ba40fbc9562bc9694dece49d7c5799200161b`.
+
+**Observed checks:**
+- `dotnet run --project tests/Mezhs.RichUi.TestApp/Mezhs.RichUi.TestApp.csproj -c Release --nologo`: **130/130 PASS**. Includes direct `SH`/`ATTACH`/`DONE`, nested inert text, body bytes and source spans, invalid batches, and parser resource limits.
+- `node --test tests/rich-model-ui-rendering.test.cjs`: **44/44 PASS**, including escaped-source HTML escaping and muted CSS.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File tests/agent-protocol-result.ps1`: **PASS**, including isolated live Agent/Executor proof that a direct `SH` nested in `escape` executes once with durable shell evidence, and invalid escaped commands reject without shell side effects.
+- `dotnet build Mezhs.sln -c Release --nologo -v minimal`: **PASS, 0 errors, 1 warning** (CS0114 in unrelated `Mezhs.WhatsApp` test class).
+- `git diff --check main...HEAD`: **PASS**. Worktree was clean at tested revision.
+
+**Scope/limits:** Frontend checks used Node SSR; a separate Chromium live visual run was not performed. The reported original execution was not rerun retroactively; corrected behavior was established with isolated fixtures. No release documentation or merge was performed during Development.
+
+**Outcome:** Development and required focused verification complete. Await owner approval for Deploy/merge; `main` is release-only.
