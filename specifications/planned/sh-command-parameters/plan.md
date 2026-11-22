@@ -263,3 +263,15 @@ Run Windows Agent API Release build, Rich UI TestApp, `tests/policy-decoder.ps1`
 **Prior failures and scope:** MEŽS execution 9491 found a single C# overload ambiguity, corrected by `110fb42`; 9493 found an erroneous long-line regression expectation (one line did not exceed `limit=1`), corrected by `209e7ce`. Neither is evidence of a runtime regression after the respective fixes. No production-instance test or independent forced pathological-regex timeout case was performed. This Developer verification is not Code Review or Testing PASS.
 
 **Next:** Fresh independent Code Review (step 3) against the pushed branch revision, then independent Testing (step 4), then Deploy review/owner approval only. No merge to `main`.
+
+### 2026-11-22 — Independent Code Review 3: escaped quoted SH attribute correction
+
+**Outcome:** FAIL / corrected on the feature branch. Because this reviewer changed implementation and tests, a fresh independent Code Reviewer must assess the new revision. This is not a review PASS.
+
+**Finding:** The canonical tag tokenizer treated a backslash-escaped quote inside an SH attribute as part of the quoted value, but the command attribute reader used a plain first-quote search. A syntactically paired root SH regex containing an escaped delimiter could therefore be split into extra tokens or rejected as malformed markup before Executor received the raw attributes.
+
+**Correction:** Commit c2339cc628e0cd6179c4f08430471a15f62b0fc0 makes SH quoted-attribute scanning use the same escaped-delimiter boundary as the tokenizer, forwarding the unchanged lexical value to Executor. Commits 3f129b19909b5801fecce97aa1ed4aed18e88880 and 2a01c05f977e1378a506fb2346ae988ee82a62dc add Rich UI and Agent parser regression assertions respectively. No Executor semantics, policy defaults, shell invocation or unrelated UI parsing were changed.
+
+**Verification:** Source was re-fetched and inspected at the corrected commits. GitHub MEŽS Core CI for implementation/test commit 2a01c05 was in progress when first checked; no completed Windows test or independent Testing PASS is claimed here. This reviewer had no local Windows/.NET execution environment. Earlier developer tests predate the correction and do not verify it.
+
+**Next:** Complete Windows verification of the corrected head, then obtain a fresh independent Code Review (step 3) followed by independent Testing (step 4). Do not merge into main without explicit owner approval.
