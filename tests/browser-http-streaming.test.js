@@ -176,3 +176,23 @@ test('SSE empty data lines count toward event size', async () => {
   await assert.rejects(f.write(('data:' + String.fromCharCode(10)).repeat(256 * 1024 + 2)), /256 KiB/);
   assert.equal(events.length, 0);
 });
+
+
+test("non-success HTTP response cannot emit protocol events and releases the body", async () => {
+  let cancelled = false;
+  const events = [];
+  const response = new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('data: {"type":"message_marker"}\\n\\n'));
+    },
+    cancel() { cancelled = true; }
+  }), { status: 429, headers: { "content-type": "text/event-stream" } });
+  const result = await executeBrowserHttp({
+    args: { method: "POST", path: "/backend-api/f/conversation",
+      body: "{}", accept: "text/event-stream", stream: true },
+    reportEvent: value => events.push(value)
+  }, policy(async () => response));
+  assert.equal(result.statusCode, 429);
+  assert.deepEqual(events, []);
+  assert.equal(cancelled, true);
+});
