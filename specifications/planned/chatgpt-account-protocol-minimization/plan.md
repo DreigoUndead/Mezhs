@@ -78,6 +78,14 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-22 - Step 4 default credential source identified
+
+**Discovery:** The main checkout contains a git-ignored `chatgpt-auth.json` saved ChatGPT account session export. A git-ignored shortcut to the file was created under the task worktree `profiles/` without copying or publishing its contents. The prior shortcut to the active owner browser profile remains reference-only. The main checkout credential source was found locally rather than supplied by the owner.
+
+**Expiry and evidence:** The export was made on 2026-07-31; its recorded access token expired on 2026-08-04 and browser session on 2026-10-29, both before the 2026-11-22 test. No later account export or dedicated inactive ChatGPT test profile was found in the inspected local MEZS locations. Expiry metadata does not prove all individual cookies are unusable, but authenticated operation has not been established. No test credentials or cookie values were exposed.
+
+**Workflow correction and outcome:** Testing guidance now directs agents to locate and inspect the git-ignored local default session export before requesting credential paths. Automated checks remain PASS, but real authenticated prompts, overlapping served-model/effort behavior and signed file transfers remain unverified. Step 4 therefore remains **BLOCKED**, not PASS; no Deploy/merge approval follows. The owner browser was not reused.
+
 ### 2026-11-22 - Step 4 isolated authenticated-test attempt
 
 **Environment:** Disposable worktree at `4ee98358`, separately installed Electron, explicit config, API `127.0.0.1:5368`, dedicated storage and Chromium profile under the Windows temporary directory. The isolated API built with zero warnings/errors, returned healthy, and advertised the ChatGPT Account login connection. The owner application and its profile were not modified or reused.

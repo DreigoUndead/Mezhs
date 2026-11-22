@@ -38,7 +38,8 @@ changes in the task plan and commit and push them.
 
 ## Credential access for isolated live testing
 
-- When authenticated testing is required but no dedicated inactive test profile is available, ask the owner for the default test login or the path to its credential source before declaring testing unavailable. Never ask for passwords in agent transcripts.
+- Before requesting a credential path, inspect the git-ignored `chatgpt-auth.json` at the main MEZS checkout root (default Windows checkout: `D:/Projects/Mezhs/chatgpt-auth.json`). It is a saved account-session export, not an inactive Chromium profile. Check its recorded expiration metadata without displaying tokens or cookies; the presence of an export does not prove current authorization.
+- If no valid dedicated inactive test profile or usable credential export is available, request separate interactive authentication from the owner; never ask for passwords in agent transcripts.
 - Create a git-ignored local shortcut in the task worktree (for example under `profiles/`) to the owner-provided credential source. A shortcut does not grant permission to open an active browser profile. Never copy, log, commit, or attach credentials or cookies.
 - Sign in through the separate test browser. Request owner interaction only for actions that cannot be performed safely by the agent, such as entering credentials or completing MFA. Verify real provider message delivery after signing in.
 - An active owner Chromium profile is not a reusable test profile, even if its path is known. Do not point the isolated test instance at it.
