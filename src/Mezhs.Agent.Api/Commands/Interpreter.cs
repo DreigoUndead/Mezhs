@@ -1,15 +1,14 @@
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Policy;
-using System.Text.RegularExpressions;
 
 namespace Mezhs.Agent.Commands;
 
 public sealed record ExecutionContext(
     ExecutionRecord ParentExecution,
-    TimeSpan Timeout,
     string TriggerMessageId,
     int CommandIndex,
-    ShellOutputOptions? OutputOptions = null);
+    IReadOnlyDictionary<string, string>? Attributes = null,
+    PolicyLimitsSettings? PolicyDefaults = null);
 
 public sealed record Result(
     string Name,
@@ -18,50 +17,8 @@ public sealed record Result(
     int? ExitCode,
     string? Output,
     string? Error,
-    ShellOutputOptions? OutputOptions = null);
-
-public sealed record ShellOutputOptions(int Limit, int LimitStart, int LimitEnd, string? Regex)
-{
-    public static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(100);
-
-    public static void ValidateRegex(string pattern)
-    {
-        try { _ = new Regex(pattern, RegexOptions.CultureInvariant, MatchTimeout); }
-        catch (ArgumentException ex)
-        {
-            throw new CommandParseException($"Invalid SH regex: {ex.Message}");
-        }
-    }
-
-    public static ShellOutputOptions Resolve(Command command, PolicyLimitsSettings defaults)
-    {
-        var limit = command.OutputLimit ?? defaults.Limit ?? 0;
-        var start = command.OutputLimitStart ?? defaults.LimitStart ?? 10;
-        var end = command.OutputLimitEnd ?? defaults.LimitEnd ?? 10;
-        var explicitStart = command.OutputLimitStart.HasValue || defaults.LimitStart.HasValue;
-        var explicitEnd = command.OutputLimitEnd.HasValue || defaults.LimitEnd.HasValue;
-        if (limit > 0)
-        {
-            if (explicitStart && start > limit || explicitEnd && end > limit ||
-                explicitStart && explicitEnd && (long)start + end > limit)
-                throw new CommandParseException(
-                    "Explicit SH limitStart/limitEnd values exceed the effective SH limit.");
-            if (explicitStart && !explicitEnd)
-                end = Math.Min(end, limit - start);
-            else if (explicitEnd && !explicitStart)
-                start = Math.Min(start, limit - end);
-            else if (!explicitStart && !explicitEnd)
-            {
-                start = Math.Min(start, limit / 2 + limit % 2);
-                end = Math.Min(end, limit - start);
-            }
-        }
-        var regex = command.OutputRegex ?? defaults.Regex;
-        if (regex is not null)
-            ValidateRegex(regex);
-        return new ShellOutputOptions(limit, start, end, regex);
-    }
-}
+    string? RecoveryCommand = null,
+    string? RecoveryNote = null);
 
 public sealed record Interpretation(
     bool CompletionClaimed,
@@ -91,8 +48,7 @@ public sealed class Interpreter(
             return new Interpretation(false, [], ex.Message);
         }
 
-        var executable = new List<(CommandDefinition Definition, string Body,
-            int TimeoutSeconds, ShellOutputOptions? OutputOptions)>();
+        var executable = new List<(CommandDefinition Definition, string Body, Command Command)>();
         var completionClaimed = false;
 
         for (var i = 0; i < batch.Commands.Count; i++)
@@ -130,27 +86,16 @@ public sealed class Interpreter(
 
             if (definition.Behavior is not (CommandBehavior.Shell or CommandBehavior.Attach))
                 return new Interpretation(completionClaimed, [], $"Agent command <{definition.Name}> has no executable behavior.");
-            ShellOutputOptions? outputOptions = null;
-            if (definition.Behavior == CommandBehavior.Shell)
-            {
-                try { outputOptions = ShellOutputOptions.Resolve(command, policy.Settings.Limits); }
-                catch (CommandParseException ex)
-                {
-                    return new Interpretation(completionClaimed, [], ex.Message);
-                }
-            }
-            executable.Add((definition, body,
-                command.TimeoutSeconds ?? policy.Settings.Limits.CommandTimeoutSeconds,
-                outputOptions));
+            executable.Add((definition, body, command));
         }
 
         var results = new List<Result>();
         var executableIndex = 0;
-        foreach (var (definition, body, commandTimeout, outputOptions) in executable)
+        foreach (var (definition, body, command) in executable)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var context = new ExecutionContext(execution, TimeSpan.FromSeconds(commandTimeout),
-                assistantMessageId, executableIndex, outputOptions);
+            var context = new ExecutionContext(execution,
+                assistantMessageId, executableIndex, command.Attributes, policy.Settings.Limits);
             try
             {
                 results.Add(definition.Behavior == CommandBehavior.Shell
