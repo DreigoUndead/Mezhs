@@ -47,11 +47,35 @@ When a role is complete, hand off to the next required role using
 when independence is required. One chat may perform multiple roles
 only when the plan permits it and independent judgment is not required.
 
-Each role's instructions define its correction loop and PASS, FAIL
-or BLOCKED outcome.
+Each role follows the repeated-step rules below and its own
+PASS, FAIL or BLOCKED requirements.
 
 Do not return to an earlier stage unless the scope or plan changes
 significantly and the owner approves that transition.
+
+## Repeated steps
+
+When Plan Review, Code Review or Testing repeats after FAIL:
+
+- Read the prior iteration's findings and corrections in the task
+  plan. Independently verify the latest corrections and possible
+  regressions first, then complete the role's normal scope.
+- For each defect, examine its underlying cause and related
+  occurrences before correcting it. Fix related defects together;
+  do not expand into speculative improvements.
+- A correction materially affecting requirements, architecture,
+  behavior, security or the validity of required verification needs
+  a fresh independent iteration before PASS. Nonmaterial editorial
+  or test-harness cleanup can be verified in the current iteration.
+  The impact, not the file type, determines this distinction.
+- PASS requires completed mandatory verification and no unresolved
+  blocking findings. Record nonblocking observations without
+  automatically repeating the step.
+- Check whether repeated iterations are resolving findings. If the
+  same underlying problem recurs or progress stalls, reassess the
+  approach before another handoff; consult the owner when a
+  consequential decision is needed. Never turn a failed or blocked
+  requirement into PASS merely to stop the loop.
 
 ## Escalation
 
