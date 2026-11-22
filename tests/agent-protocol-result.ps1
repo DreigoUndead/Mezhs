@@ -147,8 +147,10 @@ Check(writingBeforeShell.Commands.SequenceEqual([new Command("SH", "echo OK")]) 
       "Inline WritingBlock prevented a following root command.");
 var sameLineEscape = new RichDocumentParser().Parse(
     "before <escape>raw <SH>INERT</SH></escape> after");
-Check(sameLineEscape.Document.Valid && sameLineEscape.Commands.Count == 0,
-      "Inline escape must be opaque to nested Agent commands.");
+Check(sameLineEscape.Document.Valid &&
+      sameLineEscape.Commands.Select(c => c.Body).SequenceEqual(["INERT"]) &&
+      sameLineEscape.Document.Nodes.Any(n => n.Kind == "literal" && n.Name == "escape" && n.Text == "raw "),
+      "Inline escape must recognize its direct shell and preserve other literal text.");
 
 var multiline = parser.Parse("before\n<SH>\r\necho first\r\n</SH>\n<DONE>\nafter");
 Check(multiline.Commands.SequenceEqual([
@@ -183,10 +185,23 @@ var acrossContexts = parser.Parse(
     "`<SH>inline-code</SH>`" +
     "<!-- <SH>comment</SH> -->");
 Check(acrossContexts.Commands.Select(c => c.Body).SequenceEqual([
-      "inline-code", "comment"]) &&
-      acrossContexts.VisibleContent.Contains("<SH>escape</SH>", StringComparison.Ordinal) &&
+      "escape", "inline-code", "comment"]) &&
+      !acrossContexts.VisibleContent.Contains("<SH>escape</SH>", StringComparison.Ordinal) &&
       acrossContexts.VisibleContent.Contains("<SH>raw</SH>", StringComparison.Ordinal),
-      "Registered rich elements must keep nested SH inert while root Markdown commands execute.");
+      "Only escape-level commands may execute inside literal escape; other wrappers stay inert.");
+
+var escapedCommands = parser.Parse(
+    "<SH>FIRST</SH><escape>keep <box><SH>NO</SH></box><ATTACH>file.txt</ATTACH><DONE></escape>");
+Check(escapedCommands.Commands.SequenceEqual([
+    new Command("SH", "FIRST"), new Command("ATTACH", "file.txt"),
+    new Command("DONE", null)]) &&
+    escapedCommands.VisibleContent.Contains("<box><SH>NO</SH></box>", StringComparison.Ordinal) &&
+    !escapedCommands.VisibleContent.Contains("<ATTACH>file.txt</ATTACH>", StringComparison.Ordinal),
+    "Escape must interleave direct commands and leave nested noncommand markup literal.");
+var badEscaped = new RichDocumentParser().Parse(
+    "<SH>FIRST</SH><escape><SH invalid=\"bad\">NO</SH></escape>");
+Check(!badEscaped.Document.Valid && badEscaped.Commands.Count == 0,
+    "Invalid nested escape command must reject the entire batch before effects.");
 
 var original = "<SH> cd /d D:\\Projects\\eflex-framework && git status --short --branch && git branch --show-current && type specifications\\planned\\debug-log-files\\plan.md && if exist AGENTS.md type AGENTS.md </SH>";
 Check(parser.Parse(original).Commands.Single() ==
@@ -255,6 +270,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     }
 
     Assert-RejectedBatch 'invalid-command' '<SH bad="evil">echo NEVER</SH>'
+    Assert-RejectedBatch 'invalid-escape-command' '<escape><SH bad="evil">echo NEVER</SH></escape>'
     Assert-RejectedBatch 'empty-shell' "<SH>`n `n</SH>"
     Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"
     Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"
@@ -276,6 +292,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     }
     Assert-InlineExecuted 'prose' 'before ' ' after '
     Assert-InlineExecuted 'markdown-fence' ('```text' + "`n") ("`n" + '```')
+    Assert-InlineExecuted 'escape' '<escape>before ' ' after</escape>'
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"

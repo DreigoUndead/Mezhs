@@ -10,7 +10,9 @@ texts:
     the same line as opening tags. An unmatched opening tag is ordinary text.
     Complete SH/ATTACH tags in ordinary Markdown can execute, including code
     fences. Inside any complete paired UI tag, including unsupported/invalid
-    controls, SVG, raw editors and <escape>, commands are inert text.
+    controls, SVG and raw editors, commands are inert text. Inside <escape>,
+    complete direct SH/ATTACH/DONE commands execute; everything else is muted
+    literal text. Do not put executable command examples inside <escape>.
     Never include complete root-level examples unless intentional.
     The runtime executes complete commands directly from the response, even if no
     shell tool is listed.

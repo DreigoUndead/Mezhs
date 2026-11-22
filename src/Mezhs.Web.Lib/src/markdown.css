@@ -16,6 +16,9 @@
 .markdown-content :not(pre) > code { padding: .12em .35em; border-radius: 5px; background: #ece9e2; font-size: .92em; }
 .markdown-content a { color: #55672c; text-decoration: underline; text-underline-offset: 2px; }
 
+/* Escaped source stays literal and visibly muted, including after command omission. */
+.markdown-content .rich-escape { color: #858585; white-space: pre-wrap; overflow-wrap: anywhere; }
+
 /* Unknown controls are visible diagnostics, never model-provided HTML elements. */
 .markdown-content .rich-unknown { display: inline-block; vertical-align: baseline; max-width: 100%; border: 2px solid #b13e35; border-radius: 7px; padding: 6px 9px; margin: 3px 0; background: #fff6f5; color: inherit; overflow-wrap: anywhere; }
 .markdown-content .rich-unknown-heading { display: block; font-size: .82em; font-weight: 700; color: #b13e35; }

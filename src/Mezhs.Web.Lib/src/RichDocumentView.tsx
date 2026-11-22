@@ -70,6 +70,7 @@ function renderNode(node: RichNode, depth: number, svgScope: boolean): ReactNode
   const attrs = node.attributes || {};
   const content = () => node.children?.map(child =>
     <Fragment key={child.id}>{renderNode(child, depth + 1, svgScope)}</Fragment>);
+  if (node.kind === "literal" && node.name === "escape") return <span key={key} className="rich-escape">{node.text || ""}</span>;
   if (node.kind === "literal" || node.kind === "text") return node.text || "";
   if (node.kind === "unknown") return <span key={key} className="rich-unknown" role="note">
     <span className="rich-unknown-heading">Unsupported control: {node.name || "unknown"}</span>

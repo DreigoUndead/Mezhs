@@ -170,8 +170,11 @@ public sealed class RichDocumentParser
         node.Span.Start < source.Length &&
         source.AsSpan(node.Span.Start).StartsWith("<!--", StringComparison.Ordinal);
 
+    // Literal scopes reuse this traversal: direct commands are collected while every
+    // other complete tag remains part of the displayed source.
     private IReadOnlyList<RichNode> ReadChildren(int start, int end, string? expected,
-        int depth, out int position, bool svgScope = false, bool inlineScope = false)
+        int depth, out int position, bool svgScope = false, bool inlineScope = false,
+        bool literalScope = false)
     {
         if (depth > MaxDepth)
         {
@@ -185,6 +188,12 @@ public sealed class RichDocumentParser
         var inline = new List<RichNode>();
         bool Flush(int until)
         {
+            if (literalScope)
+            {
+                inline.Clear();
+                plainFrom = until;
+                return true;
+            }
             if (until > plainFrom || inline.Count > 0)
                 AppendMarkdown(result, plainFrom, until, svgScope, inlineScope, inline,
                     insideRichContainer: expected is not null);
@@ -196,7 +205,7 @@ public sealed class RichDocumentParser
         while (cursor < end)
         {
             if (_failure is not null) { position = cursor; return []; }
-            if (!svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
+            if (!literalScope && !svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
                 RichQuestionGrammar.TryParse(_source, cursor, end,
                     _radioLiteral, out var question, out var questionEnd))
             {
@@ -234,6 +243,14 @@ public sealed class RichDocumentParser
                     position = cursor;
                     return [];
                 }
+                if (literalScope)
+                {
+                    var literalClose = tag.SelfClosing ? tag.End :
+                        FindContainerClose(tag.Name, tag.End, end);
+                    cursor = literalClose < 0 ? tag.End :
+                        literalClose + tag.Name.Length + 3;
+                    continue;
+                }
                 var unknownEnd = tag.SelfClosing ? tag.End :
                     FindContainerClose(tag.Name, tag.End, end);
                 if (unknownEnd < 0) { cursor = tag.End; continue; }
@@ -259,7 +276,9 @@ public sealed class RichDocumentParser
             }
             // Commands use the same tokenizer and structural traversal as UI;
             // they produce host-only spans, not display nodes.
-            if (definition.Role is RichTagRole.Command or RichTagRole.Marker)
+            // Escape literal scopes admit only registered root-only command tags.
+            if ((definition.Role is RichTagRole.Command or RichTagRole.Marker) &&
+                (!literalScope || !definition.AllowAsChild))
             {
                 if (tag.SelfClosing)
                 {
@@ -291,6 +310,20 @@ public sealed class RichDocumentParser
                 _commands.Add(new RichCommandCandidate(tag.Name, body,
                     new RichSourceSpan(cursor, after)));
                 cursor = after;
+                continue;
+            }
+            if (literalScope)
+            {
+                if (tag.SelfClosing)
+                {
+                    cursor = tag.End;
+                    continue;
+                }
+                var literalClose = definition.SearchChildren
+                    ? FindContainerClose(tag.Name, tag.End, end)
+                    : FindOpaqueClosing(tag.Name, tag.End, end);
+                cursor = literalClose < 0 ? tag.End :
+                    literalClose + tag.Name.Length + 3;
                 continue;
             }
 
@@ -374,9 +407,30 @@ public sealed class RichDocumentParser
                     return [];
                 }
                 var after = closer + tag.Name.Length + 3;
+                var text = _source[tag.End..closer];
+                if (tag.Name == "escape")
+                {
+                    var commandStart = _commands.Count;
+                    _ = ReadChildren(tag.End, closer, null, depth, out _,
+                        literalScope: true);
+                    if (_failure is not null) { position = cursor; return []; }
+                    if (_commands.Count > commandStart)
+                    {
+                        var visible = new StringBuilder();
+                        var visibleFrom = tag.End;
+                        for (var i = commandStart; i < _commands.Count; i++)
+                        {
+                            var span = _commands[i].SourceSpan;
+                            visible.Append(_source, visibleFrom, span.Start - visibleFrom);
+                            visibleFrom = span.End;
+                        }
+                        visible.Append(_source, visibleFrom, closer - visibleFrom);
+                        text = visible.ToString();
+                    }
+                }
                 Add(result, new RichNode(definition.Role == RichTagRole.OpaqueLiteral ? "literal" : "raw",
                     $"{from}:raw", new RichSourceSpan(from, after),
-                    Text: _source[tag.End..closer], Name: tag.Name, Attributes: attributes));
+                    Text: text, Name: tag.Name, Attributes: attributes));
                 cursor = after;
             }
             else if (definition.Role == RichTagRole.Leaf || tag.SelfClosing)

@@ -52,10 +52,20 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Same-line CodeBlock before SH remains valid", "<CodeBlock language=\"text\">raw</CodeBlock><SH>echo OK</SH>", true, ["SH"]),
     ("Same-line WritingBlock remains opaque", "Before <WritingBlock variant=\"document\">raw <SH>INERT</SH></WritingBlock> after", true, []),
     ("Same-line WritingBlock before root SH", "<WritingBlock variant=\"document\">raw</WritingBlock><SH>echo OK</SH>", true, ["SH"]),
-    ("Same-line escape remains opaque", "Before <escape>raw <SH>INERT</SH></escape> after", true, []),
+    ("Same-line escape recognizes its direct shell", "Before <escape>raw <SH>RUN</SH></escape> after", true, ["SH"]),
     ("Same-line registered containers match", "Before <box><text>inside</text></box> after", true, []),
     ("Same-line registered inline element matches", "Before <text strong>inside</text> after", true, []),
-    ("Command inside escape is inert", "<escape><SH>echo YES</SH></escape>", true, []),
+    ("Direct command inside escape executes", "<escape><SH>echo YES</SH></escape>", true, ["SH"]),
+    ("Escape recognizes shell attach and final DONE", "<escape><SH>echo YES</SH><ATTACH>file.txt</ATTACH><DONE></escape>", true, ["SH","ATTACH","DONE"]),
+    ("Escape commands interleave with root commands", "<SH>before</SH><escape><ATTACH>a.txt</ATTACH></escape><SH>after</SH>", true, ["SH","ATTACH","SH"]),
+    ("Escape literal UI remains inert", "<escape>before <text strong>literal</text> after</escape>", true, []),
+    ("Escape nested known UI commands are inert", "<escape><box>raw <SH>NO</SH></box><SH>YES</SH></escape>", true, ["SH"]),
+    ("Escape nested unknown UI commands are inert", "<escape><Widget><SH>NO</SH></Widget><SH>YES</SH></escape>", true, ["SH"]),
+    ("Escape nested editor commands are inert", "<escape><CodeBlock><SH>NO</SH></CodeBlock><SH>YES</SH></escape>", true, ["SH"]),
+    ("Escape malformed nested UI and SVG keep commands inert", "<escape><box onClick=\"bad\"><SH>NO</SH></box><svg><SH>NO2</SH></svg><Widget><SH>NO3</SH></Widget><SH>YES</SH></escape>", true, ["SH"]),
+    ("Escape incomplete SH is literal", "<escape>pre <SH>unclosed</escape>", true, []),
+    ("Escape invalid shell attributes reject batch", "<escape><SH bad=\"value\">NO</SH></escape><SH>AFTER</SH>", false, []),
+    ("Escape DONE before following command rejects batch", "<escape><DONE></escape><SH>AFTER</SH>", false, []),
     ("Command inside Markdown fence", "~~~\n<SH>echo YES</SH>\n~~~", true, ["SH"]),
     ("Command inside inline code", "`<SH>echo YES</SH>`", true, ["SH"]),
     ("Command inside Markdown comment", "<!-- <SH>echo YES</SH> -->", true, ["SH"]),
@@ -107,6 +117,19 @@ foreach (var (name, source, valid, commands) in checks)
     Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; commands={string.Join(",", names)}; diagnostics={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
     if (!pass) failures++;
 }
+// Escape commands retain original source ranges while non-commands stay literal.
+var escapeSource = "pre <escape>alpha <text>literal</text> <SH>\r\necho ONE\r\n</SH> beta <ATTACH>file.txt</ATTACH><DONE></escape> post";
+var escapeParsed = new RichDocumentParser().Parse(escapeSource);
+var escapeLiteral = escapeParsed.Document.Nodes.SelectMany(Walk)
+    .SingleOrDefault(n => n.Kind == "literal" && n.Name == "escape");
+var escapePass = escapeParsed.Document.Valid &&
+    escapeParsed.Commands.Select(n => n.Name).SequenceEqual(["SH", "ATTACH", "DONE"]) &&
+    escapeParsed.Commands[0].Body == "\r\necho ONE\r\n" &&
+    escapeParsed.Commands.All(n => escapeSource[n.SourceSpan.Start..n.SourceSpan.End].StartsWith("<" + n.Name, StringComparison.Ordinal)) &&
+    escapeLiteral?.Text == "alpha <text>literal</text>  beta ";
+Console.WriteLine($"{(escapePass ? "PASS" : "FAIL")}: Escape literal projection, exact command spans and preserved command bodies");
+if (!escapePass) failures++;
+
 // Regression: the rendered tree, not only VisibleContent, must keep Markdown flow.
 var shellOpen = string.Concat((char)60, "SH", (char)62);
 var shellClose = string.Concat((char)60, "/SH", (char)62);
