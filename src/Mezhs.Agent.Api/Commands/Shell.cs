@@ -31,25 +31,23 @@ public sealed class Shell(
         if (!string.IsNullOrWhiteSpace(context.ParentExecution.ChatId))
             environment[ExecutorEnvironment.ChatIdVariable] = context.ParentExecution.ChatId;
 
-        var timeoutSeconds = Math.Max(1, checked((int)Math.Ceiling(context.Timeout.TotalSeconds)));
-        int id;
+        var limits = context.PolicyDefaults;
+        var defaults = limits is null ? new ExecutorShellDefaults() : new ExecutorShellDefaults(
+            limits.CommandTimeoutSeconds, limits.Limit, limits.LimitStart, limits.LimitEnd, limits.Regex);
         try
         {
-            id = executor.Execute(commandText, options.Workspace, timeoutSeconds, environment);
+            var result = await executor.ExecuteShellAsync(
+                commandText, options.Workspace, context.Attributes, defaults,
+                environment, cancellationToken);
+            return new Result(definition.Name, result.ExecutionId, result.Succeeded,
+                result.ExitCode, result.Output, result.Error,
+                result.RecoveryCommand, result.RecoveryNote);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            return new Result(definition.Name, null, false, null, null, ex.Message);
+            // The command could have started; let Interpreter mark its outcome uncertain.
+            throw new InvalidOperationException(
+                $"Executor shell result is unavailable: {ex.Message}", ex);
         }
-
-        var execution = await executor.WaitAsync(id, cancellationToken);
-        return new Result(
-            definition.Name,
-            execution.Id.ToString(CultureInfo.InvariantCulture),
-            execution.Status == ExecutionStatus.Completed,
-            execution.ExitCode,
-            execution.Result,
-            execution.Error,
-            context.OutputOptions);
     }
 }
