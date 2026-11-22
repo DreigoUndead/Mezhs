@@ -144,6 +144,11 @@ foreach (var input in new[] {
 }
 Check(parser.Parse("<SH limit=0>echo YES</SH>").Commands.Single().Attributes?["limit"] == "0",
       "limit=0 was not forwarded.");
+var escaped = parser.Parse("<SH regex=\"a\\\"b\">echo QUOTE</SH>");
+Check(escaped.Commands.Count == 1 &&
+      escaped.Commands[0].Attributes?["regex"] == "\"a\\\"b\"" &&
+      escaped.Commands[0].Body == "echo QUOTE",
+      "Escaped regex delimiter changed a raw attribute or rejected the command.");
 Reject(parser, "<SH timeout=1 timeout=2>echo NO</SH>", "Duplicate syntax accepted.");
 Reject(parser, "<SH>echo EARLIER</SH><SH regex=\"unfinished>echo NEVER</SH>",
        "Malformed paired SH opener left an earlier command executable.");
