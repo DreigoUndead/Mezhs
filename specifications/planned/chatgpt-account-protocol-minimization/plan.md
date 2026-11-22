@@ -78,6 +78,19 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-22 - Independent Step 4 re-verification at 035d95c6
+
+**Revision:** Fetched task branch at 035d95c657f4e6ddeaa7533e86302e9076a62145. Compared with the previously verified 5e9eaa63 revision, only .agents/testing.md and this plan changed; no production implementation changed. Testing followed the task-branch workflow and Testing role.
+
+**Automated results:** Release solution build PASS (zero errors, one existing unrelated WhatsApp CS0114 warning); Agent Web TypeScript/Vite production build PASS; 75/75 focused account/HTTP/streaming/transfer/context Node tests PASS; 44/44 guest/Grok/diagnostics/identity tests PASS; 64/64 rich-UI tests PASS after explicit canonical .NET rich-UI build, including real Chromium. Total 183/183 Node tests PASS. Typed C# ChatGPT protocol, account login/model/project/recovery harness, Integration Contracts Probe, architecture, provider lifetime, eight-integration cancellation contract, embedded resources, ChatGPT packaging and concurrent extraction all PASS. Electron provider operations 6/6 PASS; disposable-profile browser identity, diagnostics, interactive login visibility and hidden authorization checks PASS. Two initial harness invocations lacked a required probe directory and RUNNER_TEMP respectively; corrected reruns passed.
+
+**Independent physical-line inventory:** Baseline b8f25cff: six account JS modules total 1435 lines versus 405 on this revision, with five deleted modules accounting for 1159 removed lines; mixed entry.js totals 256 versus 187 lines. Using the previously documented approximate account attribution in entry.js of 139 versus 65 lines gives account JS approximately 1574 versus 470, or 70.1 fewer. Shared infrastructure is excluded, and this is not a claim of an equivalent shared-code reduction.
+
+**Live limitation:** No dedicated inactive, authorized ChatGPT Account test profile was established. The saved local chatgpt-auth.json export is from 2026-07-31 and its recorded authentication expirations precede the testing date. The active owner Electron/profile was not reused. Thus no branch-revision authenticated provider prompt, live Sentinel compatibility, actual project/continuation, overlapping distinct served model/effort comparison, or live signed file transfer was verified. Simulated tests and browser smoke tests cannot prove these outcomes. No production defect was confirmed by the checks performed.
+
+**Outcome: BLOCKED.** Automated verification passed, but required authenticated live testing remains unavailable and no owner acceptance of that limitation is established. Do not enter Deploy or merge. Resume with separately authenticated isolated test browser or owner decision. Every subsequent agent must first fetch latest chatgpt-account-protocol-minimization and use its .agents/workflow.md and role instructions, not main or integration-architecture-v2, and pass this exact requirement onward. The authorized merge destination remains integration-architecture-v2 after explicit owner approval.
+
+
 ### 2026-11-22 - Step 4 live-session and inactive-profile verification
 
 **Observed active authorization:** The currently running owner MEZS Agent API on `127.0.0.1:5060` successfully returned seven ChatGPT Account models for connection `chatgpt-sub`. The current Agent execution uses policy `high` and that same connection. This establishes working authorization for the running owner implementation; the old `chatgpt-auth.json` export expiry is not proof that the active session is unusable.
