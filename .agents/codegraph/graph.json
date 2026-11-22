@@ -1198,6 +1198,14 @@
       "raw": "../agent-policy-foundation/plan.md"
     },
     {
+      "from": 92,
+      "to": {
+        "type": "external",
+        "name": "https://github.com/DreigoUndead/Mezhs/actions/runs/45029023595"
+      },
+      "raw": "https://github.com/DreigoUndead/Mezhs/actions/runs/45029023595"
+    },
+    {
       "from": 93,
       "to": {
         "type": "external",
