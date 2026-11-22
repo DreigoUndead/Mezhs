@@ -420,19 +420,19 @@ Assert(limitedPrompt.Contains("LINE_1", StringComparison.Ordinal) &&
     "Executor preview omitted metadata, duplicated lines or lost CLI recovery.");
 var regexPrompt = promptBuilder.BuildCommandResults(
     new[] { Presented(4, "info A\nerror B\ninfo C\nwarning D\nerror E",
-        Attrs("limit=2", "limitStart=1", "limitEnd=1", "regex=\\\"error|warning\\\""),
+        Attrs("limit=2", "limitStart=1", "limitEnd=1", "regex=\"error|warning\""),
         exitCode: 9, error: "failed") }, normal).Content;
 Assert(regexPrompt.Contains("error B", StringComparison.Ordinal) &&
        regexPrompt.Contains("error E", StringComparison.Ordinal) &&
        !regexPrompt.Contains("warning D", StringComparison.Ordinal) &&
        !regexPrompt.Contains("info A", StringComparison.Ordinal) &&
        regexPrompt.Contains("1 omitted", StringComparison.Ordinal) &&
-       regexPrompt.Contains("\\\"exitCode\\\": 9", StringComparison.Ordinal) &&
-       regexPrompt.Contains("\\\"error\\\": \\\"failed\\\"", StringComparison.Ordinal),
+       regexPrompt.Contains("\"exitCode\": 9", StringComparison.Ordinal) &&
+       regexPrompt.Contains("\"error\": \"failed\"", StringComparison.Ordinal),
     "Executor regex-before-limit presentation lost durable status/error evidence.");
 var noMatchesPrompt = promptBuilder.BuildCommandResults(
     new[] { Presented(8, "info A\ninfo B", Attrs("limit=1", "limitStart=1",
-        "limitEnd=0", "regex=\\\"error\\\"")) }, normal).Content;
+        "limitEnd=0", "regex=\"error\"")) }, normal).Content;
 Assert(noMatchesPrompt.Contains("0/2 original lines matched", StringComparison.Ordinal) &&
        !noMatchesPrompt.Contains("info A", StringComparison.Ordinal) &&
        !noMatchesPrompt.Contains("info B", StringComparison.Ordinal) &&
@@ -440,7 +440,7 @@ Assert(noMatchesPrompt.Contains("0/2 original lines matched", StringComparison.O
     "Executor zero-match regex lost recovery.");
 var oneMatchPrompt = promptBuilder.BuildCommandResults(
     new[] { Presented(9, "info A\nerror B\ninfo C", Attrs("limit=1",
-        "limitStart=1", "limitEnd=0", "regex=\\\"error\\\"")) }, normal).Content;
+        "limitStart=1", "limitEnd=0", "regex=\"error\"")) }, normal).Content;
 Assert(oneMatchPrompt.Contains("error B", StringComparison.Ordinal) &&
        !oneMatchPrompt.Contains("info A", StringComparison.Ordinal) &&
        !oneMatchPrompt.Contains("info C", StringComparison.Ordinal) &&
@@ -478,14 +478,14 @@ var inherited = ExecutorShellOptions.Resolve(null, policyDefaults);
 Assert(inherited.TimeoutSeconds == 2 && inherited.Limit == 4 &&
        inherited.Regex == "error", "Executor policy defaults not applied.");
 var clearedRegex = ExecutorShellOptions.Resolve(
-    Attrs("limit=0", "regex=\\\"\\\""), policyDefaults);
+    Attrs("limit=0", "regex=\"\""), policyDefaults);
 Assert(clearedRegex.Limit == 0 && clearedRegex.Regex == string.Empty,
     "Explicit empty regex did not override inherited filter.");
 var shortLimit = ExecutorShellOptions.Resolve(Attrs("limit=3"));
 Assert(shortLimit.LimitStart == 2 && shortLimit.LimitEnd == 1,
     "Implicit preview did not fit smaller limit.");
 var overrideOutput = ExecutorShellOptions.Resolve(
-    Attrs("timeout=6", "limit=4", "limitStart=1", "regex=\\\"warn\\\""),
+    Attrs("timeout=6", "limit=4", "limitStart=1", "regex=\"warn\""),
     new ExecutorShellDefaults(2, 7, null, null, "error"));
 Assert(overrideOutput.TimeoutSeconds == 6 && overrideOutput.Limit == 4 &&
        overrideOutput.LimitStart == 1 && overrideOutput.LimitEnd == 3 &&
@@ -505,7 +505,7 @@ Invalid(Attrs("timeout=9999999999999999999"), "positive");
 Invalid(Attrs("limit=-1"), "non-negative");
 Invalid(Attrs("limitStart=abc"), "non-negative");
 Invalid(Attrs("limit=2", "limitStart=2", "limitEnd=1"), "exceed");
-Invalid(Attrs("regex=\\"[\\""), "regex");
+Invalid(Attrs("regex=\"[\""), "regex");
 Invalid(Attrs("regex=true"), "quoted");
 Invalid(Attrs("regex={true}"), "quoted");
 Invalid(Attrs("regex="), "quoted");
