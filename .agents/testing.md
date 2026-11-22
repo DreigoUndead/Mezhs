@@ -36,6 +36,13 @@ changes in the task plan and commit and push them.
 - **BLOCKED:** Report unavailable verification, unresolved
   obstacles or required owner decisions.
 
+## Credential access for isolated live testing
+
+- When authenticated testing is required but no dedicated inactive test profile is available, ask the owner for the default test login or the path to its credential source before declaring testing unavailable. Never ask for passwords in agent transcripts.
+- Create a git-ignored local shortcut in the task worktree (for example under `profiles/`) to the owner-provided credential source. A shortcut does not grant permission to open an active browser profile. Never copy, log, commit, or attach credentials or cookies.
+- Sign in through the separate test browser. Request owner interaction only for actions that cannot be performed safely by the agent, such as entering credentials or completing MFA. Verify real provider message delivery after signing in.
+- An active owner Chromium profile is not a reusable test profile, even if its path is known. Do not point the isolated test instance at it.
+
 ## Reusing an inactive browser profile with a Windows junction
 
 An isolated Windows MEZS test may link to a dedicated persistent, **inactive** test-account Chromium profile rather than copy cookies or sign in on every worktree. This is a shared directory, **not** an isolated copy: the test browser can modify the target profile. Never open the same profile in two Electron/Chromium processes. An idle owner application may still have its profile open.

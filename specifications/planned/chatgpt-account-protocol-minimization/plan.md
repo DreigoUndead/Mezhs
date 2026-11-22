@@ -78,6 +78,16 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-22 - Step 4 isolated authenticated-test attempt
+
+**Environment:** Disposable worktree at `4ee98358`, separately installed Electron, explicit config, API `127.0.0.1:5368`, dedicated storage and Chromium profile under the Windows temporary directory. The isolated API built with zero warnings/errors, returned healthy, and advertised the ChatGPT Account login connection. The owner application and its profile were not modified or reused.
+
+**Observed live behavior:** Models returned HTTP 401 before sign-in. The interactive login endpoint returned HTTP 500; API logs identify `BrowserAuthorizationRequiredException: Browser login was closed before authorization completed`. Retrying produced the same HTTP 500. The tests establish that the browser-side login flow was dismissed, but not why; they do not establish a ChatGPT protocol defect. No authenticated provider message was sent.
+
+**Credential handling:** The default owner ChatGPT account profile exists at `D:/Projects/Mezhs/data/connections/chatgpt-sub/profile`, but owner Electron processes were active. Only a git-ignored `.lnk` reference in the task worktree was made, not a junction and not an authenticated test profile. The default credential source was requested from the owner. The isolated test API and Electron processes were stopped; isolated test files remain for safe resumption.
+
+**Outcome:** Step 4 remains **BLOCKED** for authenticated provider verification, pending a separate default login/credential source or an inactive dedicated test profile. Automated PASS evidence in the prior entry remains unchanged. The Testing workflow now explicitly describes credential-source inquiry, local shortcut hygiene, and isolated sign-in. No merge or Deploy authorization is implied.
+
 ### 2026-11-22 - Independent Step 4 Testing BLOCKED at `5e9eaa63`
 
 **Revision and environment:** Fetched the latest remote task branch and fast-forwarded its existing worktree. Tested `5e9eaa63aef132514dd7e9679bb253c38107a853` following this branch workflow, Testing role and task plan. Used separate temporary browser profiles for Electron tests; did not access the active owner profile. No implementation corrections were made.
