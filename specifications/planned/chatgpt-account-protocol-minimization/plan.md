@@ -300,3 +300,17 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 **Outcome: FAIL.** Because the review corrected a regression test, a fresh independent Step 3 Code Review is required before independent Testing. The eventual merge target is integration-architecture-v2, never main.
 
 **Authority:** Independent High-risk Step 3 Code Reviewer.
+
+### 2026-11-22 — Independent Step 3 Code Review: release unread authorization probe bodies (FAIL)
+
+**Reviewed:** Full account protocol, native browser security hooks, bounded HTTP/transfer bridge, ordered events, conversation recovery, cancellation, dependencies and focused regression coverage at `974be2520e467f470209763e549546eb20fc22c0`, relative to the approved `integration-architecture-v2` baseline `b8f25cff351aed34b3de2f7ef1483a01183a9049`. Later parent reconciliation remains pending.
+
+**Finding (low; reproduced):** Repeated ChatGPT authorization checks returned without consuming or cancelling two unneeded response bodies: failed `/api/auth/session` responses in `accessToken`, and successful `/backend-api/models` responses in `isAuthorized`. An isolated streamed-response regression first failed with `cancelled=0` for the auth error path. The success path also visibly lacked a body read/cancel. This establishes unreleased unread response streams in the code; it does not establish an observed live resource leak, outage, or transport failure.
+
+**Correction:** Cancel unread rejected authentication response bodies before returning unauthenticated, and cancel the unused successful model-probe body after checking HTTP status. Cancellation failures are best-effort and do not overwrite the already-determined authorization outcome. Added a Node regression covering both paths. Three commits on this branch: `f29accb` (reproducing regression), `80b8cbb` (auth error cleanup), `1b361a0` (model-probe cleanup).
+
+**Verification:** At corrected `1b361a0028965f2da675148b7beb26a11f8a0b62`, 66/66 focused Node browser/account/transport/context tests PASS; typed C# account protocol flow PASS; integration contracts PASS; cancellation contract for eight integrations PASS; account login/model/recovery checks PASS; architecture PASS; Release solution build PASS with 0 errors and one unrelated pre-existing WhatsApp CS0114 warning; `git diff --check` PASS and task worktree clean. No isolated authenticated live ChatGPT/Chromium test, real signed provider transfer, or overlapping distinct served-model/effort test was performed here; previously documented limitations remain.
+
+**Outcome: FAIL** under `.agents/code-review.md` because this review corrected implementation and regression tests. Fresh independent Step 3 Code Review is required before Step 4 Testing. No merge approval is implied. Authorized eventual merge destination is `integration-architecture-v2` only; never `main`.
+
+**Authority:** Independent High-risk Step 3 Code Reviewer.
