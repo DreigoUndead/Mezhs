@@ -216,3 +216,20 @@ Use Windows PowerShell 5.1 where `pwsh` is absent. Run `dotnet build src/Mezhs.A
 **Limitations:** No independent forced pathological-regex timeout or production-instance test was performed. The accepted separate 16000-character model-prompt safeguard remains in effect for retrieved records. This Code Review does not replace independent Testing.
 
 **Next:** Independent Testing (plan step 4) at the reviewed implementation SHA, followed by Deploy only with explicit owner merge approval. No merge into `main` was performed.
+
+### 2026-11-22 - Independent Testing (step 4): PASS at 0322150
+
+**Outcome:** PASS for branch revision 032215041cb996c7538e146bcb930b61683b6e55. No implementation changes or confirmed defects.
+
+**Environment:** Isolated Windows feature worktree D:\Projects\Mezhs-sh-parameters-verify; Windows PowerShell 5.1.19041.6456; .NET SDK 10.0.401. Local and remote HEAD matched before testing; the worktree was clean.
+
+**Independent verification:**
+- MEZS execution 9455: Agent API Release build PASS, zero warnings and errors; git diff --check PASS.
+- MEZS execution 9456: Rich UI regression suite PASS, 108/108; includes five SH parameters, malformed and duplicate attributes, regex validation, source spans and inert UI scopes.
+- MEZS execution 9457: policy-decoder.ps1 PASS; policy resolution, shell and Executor evidence, Unicode and timeout regressions.
+- MEZS execution 9458: isolated agent-protocol-result.ps1 PASS; invalid batches had no execution or filesystem side effects; inline commands ran once; regex/line previews retained durable output; generated Get command retrieved the original record; timeout overrides and enforcement, ordered commands, partial failures and continuation passed.
+- MEZS execution 9459: Executor Help Get PASS, confirming Get requires one Int32 ID; clean worktree and matching local/remote feature revision confirmed.
+
+**Limits:** No production-instance test or independently forced pathological-regex timeout. The separate 16000-character prompt safeguard remains. The currently running MEZS runtime rejected a root SH timeout attribute in this testing conversation, but this does not establish a feature-branch defect or the cause of the runtime difference.
+
+**Next:** Deploy may seek explicit owner approval; do not merge into main without approval.
