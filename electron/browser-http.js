@@ -174,6 +174,15 @@ async function executeBrowserHttp({ window, session, args, signal, reportProgres
     return { statusCode: error.status, contentType: null, body: "",
       providerCode: safeCode, retryAfterMs };
   }
+  // Do not interpret an HTTP error body as provider protocol events. A provider
+  // may return raw fetch responses instead of raising for non-success statuses.
+  // Preserve the status for the typed C# caller and release the unread body.
+  if (response.status < 200 || response.status >= 300) {
+    try { await response.body?.cancel?.(); }
+    catch { /* Keep the HTTP status authoritative on cleanup failure. */ }
+    return { statusCode: response.status,
+      contentType: response.headers.get("content-type"), body: "" };
+  }
   reportProgress?.({ state: "retrieving", detail: "Receiving browser HTTP response." });
 
   // A continuation accessibility probe must not read a potentially unbounded
