@@ -543,6 +543,38 @@ test("citation references are inert display nodes with no arbitrary URL authorit
   assert.doesNotMatch(html(input,{document:doc}),/href="javascript:/);
 });
 
+test("Cite accepts bounded literal reference arrays without source authority", () => {
+  const input = 'Before <Cite refs={["turn0search0","turn0search2"]}/> after';
+  const doc = canonicalDocument(input);
+  assert.equal(doc.valid, true);
+  assert.equal(kinds(doc.nodes, "unknown").length, 0);
+  const citation = kinds(doc.nodes, "element").find(node => node.name === "Cite");
+  assert.ok(citation);
+  assert.ok(citation.attributes.refs.startsWith("json:"));
+  assert.deepEqual(JSON.parse(decodeURIComponent(citation.attributes.refs.slice(5))),
+    ["turn0search0", "turn0search2"]);
+  const output = html(input, { document: doc });
+  assert.match(output, /Before [\s\S]*source unavailable[\s\S]* after/);
+  assert.doesNotMatch(output, /rich-unknown|<a\b|href=/);
+});
+
+test("Cite dynamic and non-string refs remain inert, as do arrays on unrelated controls", () => {
+  for (const input of [
+    '<Cite refs={[window.location]}/>',
+    '<Cite refs={["turn0search0", fn()]}/>',
+    '<Cite refs={["turn0search0", 7]}/>',
+    '<Cite refs={[{"url":"https://example.com"}]}/>',
+    '<text color={["danger"]}>No</text>',
+  ]) {
+    const doc = canonicalDocument(input);
+    assert.equal(doc.valid, true, input);
+    assert.equal(kinds(doc.nodes, "element").filter(node => node.name === "Cite").length, 0);
+    const output = html(input, { document: doc });
+    assert.match(output, /rich-unknown/);
+    assert.doesNotMatch(output, /<a\b|href="https?:/);
+  }
+});
+
 test("editor bodies may contain HTML, shell delimiters and JSX without activation", () => {
   const input='<CodeBlock language="tsx">\n<div onClick={() => alert(1)}><SH>raw</SH></div>\n</CodeBlock>';
   const doc=canonicalDocument(input);

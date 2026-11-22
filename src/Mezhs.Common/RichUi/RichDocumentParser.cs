@@ -685,7 +685,10 @@ public sealed class RichDocumentParser
                         // Literal validation is data-only; malformed syntax is
                         // an ordinary status result, not a thrown exception.
                         if (!new SafeLiteralReader(expression).TryRead(out var literal) ||
-                            literal is not Dictionary<string, object?>)
+                            literal is not Dictionary<string, object?> &&
+                            !(tag.Name == "Cite" && name == "refs" &&
+                              literal is List<object?> references &&
+                              references.All(reference => reference is string)))
                         {
                             reason = "Unsupported non-literal attribute expression.";
                             return false;
