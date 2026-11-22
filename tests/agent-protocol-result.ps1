@@ -121,43 +121,50 @@ Check(inline.Commands.SequenceEqual([new Command("SH", "echo INLINE")]) &&
       "Inline SH was not extracted without losing surrounding prose.");
 
 var bounded = parser.Parse("before <SH timeout=60 limit=500>echo BOUNDED</SH> after");
-Check(bounded.Commands.SequenceEqual([new Command("SH", "echo BOUNDED", 60, 500)]) &&
-      bounded.VisibleContent == "before  after",
-      "SH parameters or source span extraction changed.");
-var individuallyOptional = parser.Parse(
-    "<SH limit=5>echo A</SH><SH timeout=\"12\">echo B</SH>");
-Check(individuallyOptional.Commands.SequenceEqual([
-      new Command("SH", "echo A", null, 5),
-      new Command("SH", "echo B", 12)]),
-      "Independent SH parameters did not parse.");
-Reject(parser, "<SH timeout=0>echo NO</SH>", "Zero timeout was accepted.");
-Check(parser.Parse("<SH limit=0>echo YES</SH>").Commands.Single().OutputLimit == 0,
-      "limit=0 must disable line abbreviation.");
-Reject(parser, "<SH timeout=-1>echo NO</SH>", "Negative timeout was accepted.");
-Reject(parser, "<SH timeout=1.5>echo NO</SH>", "Fractional timeout was accepted.");
-Reject(parser, "<SH timeout=abc>echo NO</SH>", "Non-numeric timeout was accepted.");
-Reject(parser, "<SH timeout=9999999999999>echo NO</SH>", "Overflow timeout was accepted.");
-Reject(parser, "<SH timeout=1 timeout=2>echo NO</SH>", "Duplicate timeout was accepted.");
-Reject(parser, "<SH regex=\"[\">echo NO</SH>", "Invalid regex syntax was accepted.");
+Check(bounded.Commands.Count == 1 && bounded.Commands[0].Body == "echo BOUNDED" &&
+      bounded.Commands[0].Attributes?["timeout"] == "60" &&
+      bounded.Commands[0].Attributes?["limit"] == "500" &&
+      bounded.VisibleContent == "before  after", "Generic attribute extraction failed.");
+var individual = parser.Parse("<SH limit=5>echo A</SH><SH timeout=\"12\">echo B</SH>");
+Check(individual.Commands.Count == 2 &&
+      individual.Commands[0].Attributes?["limit"] == "5" &&
+      individual.Commands[1].Attributes?["timeout"] == "\"12\"",
+      "Raw SH attributes were not forwarded independently.");
+foreach (var input in new[] {
+    "<SH timeout=0>echo NO</SH>", "<SH timeout=-1>echo NO</SH>",
+    "<SH timeout=1.5>echo NO</SH>", "<SH timeout=abc>echo NO</SH>",
+    "<SH timeout=9999999999999>echo NO</SH>",
+    "<SH regex=\"[\">echo NO</SH>", "<SH limitStart=-1>echo NO</SH>",
+    "<SH limitEnd=xyz>echo NO</SH>", "<SH unexpected=1>echo NO</SH>",
+    "<SH regex>echo NO</SH>", "<SH regex={true}>echo NO</SH>"
+}) {
+    var forwarded = parser.Parse(input);
+    Check(forwarded.Commands.Count == 1 && forwarded.Commands[0].Attributes?.Count == 1,
+        "An SH parameter was rejected outside Executor: " + input);
+}
+Check(parser.Parse("<SH limit=0>echo YES</SH>").Commands.Single().Attributes?["limit"] == "0",
+      "limit=0 was not forwarded.");
+Reject(parser, "<SH timeout=1 timeout=2>echo NO</SH>", "Duplicate syntax accepted.");
 Reject(parser, "<SH>echo EARLIER</SH><SH regex=\"unfinished>echo NEVER</SH>",
        "Malformed paired SH opener left an earlier command executable.");
 Check(parser.Parse("before <SH regex=\"unfinished").Commands.Count == 0,
       "An unmatched malformed opener stopped being ordinary text.");
 Check(parser.Parse("<box><SH regex=\"unfinished>INERT</SH></box><SH>echo ROOT</SH>")
           .Commands.SequenceEqual([new Command("SH", "echo ROOT")]),
-      "Malformed SH inside a UI container gained command authority.");
-Reject(parser, "<SH limitStart=-1>echo NO</SH>", "Negative preview start was accepted.");
-Reject(parser, "<SH limitEnd=xyz>echo NO</SH>", "Non-numeric preview end was accepted.");
-Reject(parser, "<SH regex=\"a\" regex=\"b\">echo NO</SH>", "Duplicate regex was accepted.");
-var allParameters = parser.Parse("before <SH timeout=4 limit=3 limitStart=2 limitEnd=1 regex=\"error|warning\">echo HI</SH> after");
-Check(allParameters.Commands.SequenceEqual([new Command("SH", "echo HI", 4, 3, 2, 1, "error|warning")]) &&
-      allParameters.VisibleContent == "before  after",
-      "Five SH parameters or source-span handling failed.");
-Reject(parser, "<SH unexpected=1>echo NO</SH>", "Unknown SH parameter was accepted.");
-Reject(parser, "<ATTACH limit=1>file</ATTACH>", "ATTACH gained SH parameters.");
+      "Malformed nested SH gained root authority.");
+Reject(parser, "<SH regex=\"a\" regex=\"b\">echo NO</SH>", "Duplicate attribute accepted.");
+var allParameters = parser.Parse(
+    "before <SH timeout=4 limit=3 limitStart=2 limitEnd=1 regex=\"error|warning\">echo HI</SH> after");
+var attrs = allParameters.Commands.Single().Attributes!;
+Check(allParameters.VisibleContent == "before  after" &&
+      allParameters.Commands.Single().Body == "echo HI" &&
+      attrs["timeout"] == "4" && attrs["limit"] == "3" &&
+      attrs["limitStart"] == "2" && attrs["limitEnd"] == "1" &&
+      attrs["regex"] == "\"error|warning\"", "Five raw SH attributes or spans changed.");
+Reject(parser, "<ATTACH limit=1>file</ATTACH>", "ATTACH gained attributes.");
 Check(parser.Parse("<box><SH timeout=1>INERT</SH></box><SH limit=5>ROOT</SH>")
-          .Commands.SequenceEqual([new Command("SH", "ROOT", null, 5)]),
-      "Nested SH with attributes was given command authority.");
+          .Commands.Single().Attributes?["limit"] == "5",
+      "Nested SH gained command authority.");
 
 // Rich raw editors also use paired-tag matching independent of line position.
 // Their nested command-looking text must stay opaque.
@@ -235,8 +242,9 @@ Check(parser.Parse(original).Commands.Single() ==
 Reject(parser, "<DONE><SH>echo NEVER</SH>",
       "DONE may not precede another command.");
 Reject(parser, "<DONE><DONE>", "Duplicate DONE must be rejected.");
-Reject(parser, "<SH extra=\"true\">echo NEVER</SH>",
-      "Invalid complete SH attributes must be rejected.");
+Check(parser.Parse("<SH extra=\"true\">echo NEVER</SH>").Commands.Single()
+          .Attributes?["extra"] == "\"true\"",
+      "Unknown SH parameter should reach Executor.");
 Reject(parser, "<DONE/>", "Self-closing DONE must be rejected.");
 var unknownMarkup = parser.Parse("<widget>pre <SH>echo OK</SH> post</widget>");
 Check(unknownMarkup.Commands.Count == 0 &&
