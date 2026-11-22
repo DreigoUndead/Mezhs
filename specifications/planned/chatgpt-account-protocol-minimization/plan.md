@@ -78,6 +78,16 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-22 - Step 4 live-session and inactive-profile verification
+
+**Observed active authorization:** The currently running owner MEZS Agent API on `127.0.0.1:5060` successfully returned seven ChatGPT Account models for connection `chatgpt-sub`. The current Agent execution uses policy `high` and that same connection. This establishes working authorization for the running owner implementation; the old `chatgpt-auth.json` export expiry is not proof that the active session is unusable.
+
+**Revision boundary:** The active main checkout was `cce2d823`; the task branch was `2022b60c`. Relevant ChatGPT account protocol, browser HTTP/transfer, and Electron transport sources differ. The running API uses its own integration registry and Electron session, with no established supported mechanism to attach the new task-branch implementation to that active transport. Active-session success cannot be presented as a test of the revised task-branch protocol.
+
+**Isolated attempts:** A disposable worktree at `2022b60c`, separate installed Electron, API `127.0.0.1:5370`, separate storage and copied older profiles were used. The task-branch API compiled with zero warnings/errors and passed its health check. Copies of owner-unconfigured `chatgpt-account` (295 files) and `chatgpt-free` (785 files) profiles each returned HTTP 401 for `/v1/connections/chatgpt-inactive/models`; no live prompt was sent. An initial empty profile-copy operation and a malformed test YAML config were corrected before these authorization checks, so neither setup failure is evidence of a provider defect. The original owner profiles were not written by these tests.
+
+**Cleanup and outcome:** Both isolated Electron sets, the isolated API, copied temporary profile directories, and the disposable Git worktree were removed. Six owner Electron processes remained running. No authenticated account prompt, live signed transfer, project/continuation or distinct served model/effort overlap was verified on the task-branch code. **Step 4 remains BLOCKED**, not PASS. Further verification needs a separate authorized test browser session or an owner-accepted limitation; do not deploy or merge.
+
 ### 2026-11-22 - Step 4 default credential source identified
 
 **Discovery:** The main checkout contains a git-ignored `chatgpt-auth.json` saved ChatGPT account session export. A git-ignored shortcut to the file was created under the task worktree `profiles/` without copying or publishing its contents. The prior shortcut to the active owner browser profile remains reference-only. The main checkout credential source was found locally rather than supplied by the owner.
