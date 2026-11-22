@@ -248,3 +248,18 @@ Run Windows Agent API Release build, Rich UI TestApp, `tests/policy-decoder.ps1`
 **Supersedes:** Earlier requirements and acceptance criteria placing SH numeric/regex validation or output formatting in Agent and rejecting a whole command batch for any invalid parameter value. Historical review and testing PASS remain evidence for their earlier implementation SHAs, not for this rework.
 
 **Next:** Revised Development, then fresh independent Code Review and Testing; no merge to `main` without explicit owner approval.
+
+
+### 2026-11-22 — Revised Executor ownership, Development step 2 verification
+
+**Change:** Refactored the current feature branch to make Executor the only functional owner of SH option names, numeric/regex checks, default precedence, timeout, selected-line previews and durable recovery guidance. The shared rich parser captures generic command attributes with structural limits; Agent supplies policy defaults, orchestration and its independent 16000-character model prompt safeguard. An invalid SH parameter yields a failed Executor result without launching that command, leaving earlier successful shell results evidenced. The previous Executor CLI is unchanged. Added an Executor-owned API and focused parameter/presentation regressions; updated live protocol cases to distinguish structural batch rejection from Executor per-command errors. Corrected a compile-time ambiguous LINQ predicate and a regression fixture that originally contained only one line despite expecting an omission.
+
+**Development verification at implementation SHA:** `209e7ce84a900b04b3464f3a40b33c5b7b7e96ef`, isolated Windows worktree `D:\\Projects\\Mezhs-sh-parameters-verify`.
+- MEŽS execution 9492: Agent API Release build **PASS**, 0 warnings/errors; Rich UI TestApp **PASS, 132/132**.
+- MEŽS execution 9494: `tests/policy-decoder.ps1` **PASS**, including Executor defaults, regex-before-line-limit output, zero/exact thresholds, recovery metadata, invalid values, policy wiring and Unicode.
+- MEŽS execution 9494: isolated `tests/agent-protocol-result.ps1` **PASS**, including invalid key/regex/timeout/preview options returning Executor failures while preserving earlier executed shell evidence, structural rejection without side effects, timeout override/enforcement, regex-selected previews with full durable output, generated CLI `Get <id>` retrieval, shell ordering and partial failure.
+- Generated Codegraph `.agents/codegraph/graph.json` is present on the feature branch (native backend, zero native fallbacks, ExecutorShellCommands indexed). Diff and implementation still require fresh independent scrutiny.
+
+**Prior failures and scope:** MEŽS execution 9491 found a single C# overload ambiguity, corrected by `110fb42`; 9493 found an erroneous long-line regression expectation (one line did not exceed `limit=1`), corrected by `209e7ce`. Neither is evidence of a runtime regression after the respective fixes. No production-instance test or independent forced pathological-regex timeout case was performed. This Developer verification is not Code Review or Testing PASS.
+
+**Next:** Fresh independent Code Review (step 3) against the pushed branch revision, then independent Testing (step 4), then Deploy review/owner approval only. No merge to `main`.
