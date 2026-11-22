@@ -27,10 +27,12 @@ changes in the task plan and commit and push them.
 
 ## Outcome
 
-- **FAIL:** After correcting issues, hand off to a fresh
-  Tester. Repeat until PASS.
-- **PASS:** Continue to Deploy or the next required role
-  defined by the plan.
+- **FAIL:** Material corrections require a fresh independent
+  Tester to verify the corrected revision. Repeat until PASS.
+- **PASS:** All required verification passed on the relevant
+  revision, with no unresolved blocking failures. Nonmaterial
+  corrections were verified. Continue to Deploy or the next
+  required role defined by the plan.
 - **BLOCKED:** Report unavailable verification, unresolved
   obstacles or required owner decisions.
 
