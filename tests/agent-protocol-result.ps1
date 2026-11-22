@@ -301,13 +301,37 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
         Write-Host "PASS: Rejected $label batch produced no shell execution or filesystem side effect."
     }
 
-    Assert-RejectedBatch 'invalid-command' '<SH bad="evil">echo NEVER</SH>'
-    Assert-RejectedBatch 'invalid-regex' '<SH regex="[">echo NEVER</SH>'
+    # Only structural/policy errors cancel the whole command batch.
     Assert-RejectedBatch 'unterminated-quoted-sh' '<SH regex="unfinished>echo NEVER</SH>'
-    Assert-RejectedBatch 'explicit-preview-over-limit' '<SH limit=2 limitStart=2 limitEnd=1>echo NEVER</SH>'
     Assert-RejectedBatch 'empty-shell' "<SH>`n `n</SH>"
     Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"
     Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"
+
+    function Assert-ExecutorError([string]$label, [string]$invalid) {
+        $marker = Join-Path $temp "executor-error-$label.txt"
+        $first = 'echo EARLIER>>"' + $marker + '"'
+        $taskText = '<SH>' + $first + '</SH>' + $invalid
+        $run = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $taskText })
+        $outcome = Wait-Execution $run.executionId 20
+        $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/executions")
+        $shells = @($history | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+        $messages = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/messages")
+        $prompts = @($messages | ForEach-Object { $_ } | Where-Object {
+            $_.role -eq 'user' -and $_.content -match 'Command results JSON:'
+        })
+        if ($outcome.status -ne 'Completed' -or -not (Test-Path -LiteralPath $marker) -or
+            $shells.Count -ne 1 -or $shells[0].status -ne 'Completed' -or
+            $prompts.Count -ne 1 -or -not $prompts[0].content.Contains('"succeeded": false')) {
+            throw "Executor $label error failed per-command isolation: status=$($outcome.status) shells=$($shells.Count), prompts=$($prompts.Count)"
+        }
+        Write-Host "PASS: Executor $label error did not launch invalid SH or undo earlier valid SH."
+    }
+    Assert-ExecutorError 'unknown-key' '<SH bad="evil">echo NEVER</SH>'
+    Assert-ExecutorError 'invalid-regex' '<SH regex="[">echo NEVER</SH>'
+    Assert-ExecutorError 'incompatible-previews' '<SH limit=2 limitStart=2 limitEnd=1>echo NEVER</SH>'
+    Assert-ExecutorError 'invalid-timeout' '<SH timeout=0>echo NEVER</SH>'
+    Assert-ExecutorError 'bare-regex' '<SH regex>echo NEVER</SH>'
+    Assert-ExecutorError 'expression-regex' '<SH regex={true}>echo NEVER</SH>'
 
     # Real Executor proof: root-level matched pairs execute regardless of line placement.
     function Assert-InlineExecuted([string]$label, [string]$prefix, [string]$suffix) {
