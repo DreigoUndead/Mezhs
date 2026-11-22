@@ -71,7 +71,13 @@ Assert ($models -match 'string\? ConnectionId' -and
 Assert ($models -match 'CancelRequested' -and $store -match 'RequestCancel' -and $store -match 'CompleteCancellation') "Cancellation acknowledgement state is not represented durably."
 Assert ($worker -match 'Only root Agent executions can be cancelled directly' -and $worker -match '_executor\.Kill') "Root Agent cancellation does not own cancellation of its active Executor children."
 
-Assert ($shell -match 'executor\.Execute' -and $shell -match 'executor\.WaitAsync' -and $shell -match 'options\.Workspace') "Agent shell commands are not routed through Executor with the configured workspace."
+Assert ($shell -match 'executor\.ExecuteShellAsync\(' -and
+        $shell -match 'options\.Workspace' -and
+        $shell -match 'context\.Attributes' -and
+        $shell -match 'context\.PolicyDefaults' -and
+        $executorService -match 'public async Task<ExecutorShellResult> ExecuteShellAsync\(' -and
+        $executorService -match 'ExecutorShellOptions\.Resolve' -and
+        $executorService -match 'WaitAsync\(id, cancellationToken\)') "Agent shell commands must forward raw parameters and policy defaults through the Executor-owned shell entry point."
 Assert ($shell -notmatch 'ProcessStartInfo|Process\.Start|Kill\(|CancelAfter|GetTempPath|\.cmd"|TryDelete|ShellTerminationException') "Agent shell layer still owns direct process lifecycle mechanics."
 Assert ($executorRunner -match 'ProcessStartInfo' -and $executorRunner -match 'platform\.PrepareShell\(execution\.Command\)' -and $executorRunner -match 'RedirectStandardInput = shell\.StandardInput is not null' -and $executorPlatform -match 'PrepareShell\(string command\)') "Executor does not own host shell process creation and platform-specific command delivery."
 Assert ($executorRunner -match 'Kill\(entireProcessTree: true\)' -and $executorRunner -match 'TimeoutSeconds') "Executor does not own process-tree termination and timeout."
