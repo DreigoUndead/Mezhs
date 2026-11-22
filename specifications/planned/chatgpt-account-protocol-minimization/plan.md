@@ -78,6 +78,21 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-22 — Independent Step 3 Code Review PASS at `e343804`
+
+**Reviewed:** Task branch revision `e343804a870e01297bc1eb33fab4a1aca6daf85d` against the authorized `integration-architecture-v2` baseline and the task's acceptance criteria. Inspected the C# account protocol and conversation state, native ChatGPT security hooks, reusable typed/browser HTTP framing and ordered events, bounded signed transfers, authentication, cancellation, context isolation, tests and prior review corrections. Remote branch matched the reviewed revision; worktree and Git diff checks were clean.
+
+**Findings:** No unresolved blocking defect was confirmed. Earlier material transport/security and regression corrections were rechecked through targeted coverage. The documented majority-removal of account-owned JavaScript remains achieved (approximately 75.9%, with mixed-file ownership explicitly approximate); no parallel legacy account send/receive stack was restored. No production correction was made during this iteration.
+
+**Verification:** 67/67 focused Node browser/account/streaming/transfer/context/ordered-event tests PASS; typed C# ChatGPT account-protocol flow PASS (metadata, citations, restoration, no-replay, stream interruption, authentication, files and SSE processing); architecture PASS; account login/model discovery/recovery PASS; Agent/provider lifetime PASS; cancellation contract PASS for eight integration registrations; ChatGPT/Grok/Gemini resource packaging PASS; Integration Contracts Probe PASS (typed HTTP, adapters, SSE/NDJSON, cancellation, no-replay, model validation and catalog). NuGet restore succeeded in the fresh isolated worktree, after which full `dotnet build Mezhs.sln -c Release --no-restore -v quiet` PASS with zero errors and the existing unrelated WhatsApp CS0114 warning. An initial build and standalone contracts probe failed only for missing fresh-worktree NuGet assets; both succeeded after appropriate restore. `git diff --check` PASS. Branch HEAD was identical to remote at verification.
+
+**Limitations:** Isolated live authenticated ChatGPT/Chromium, real provider signed uploads/downloads and overlapping conversations with distinct served models/thinking efforts have not been demonstrated by this review; those remain Step 4 Testing obligations/explicit limitations. The documented unrelated unfiltered Chromium group-focus issue was not reverified here. The parent `integration-architecture-v2` may need reconciliation before Deploy, with subsequent re-verification. PASS does not authorize a merge or release.
+
+**Outcome: PASS.** Step 3 independent Code Review is complete; hand off to a fresh independent Step 4 Testing agent. Every handoff MUST instruct the next agent to fetch latest `chatgpt-account-protocol-minimization` and follow its `.agents/workflow.md` and role instructions, rather than `main` or `integration-architecture-v2`, and to pass the same instruction onward. Merge destination remains `integration-architecture-v2` only, subject to explicit owner approval.
+
+**Authority:** Independent Step 3 Code Review and verified MEŽS command results for executions 9504–9517.
+
+
 ### 2026-11-22 — Independent Step 3 Code Review: bounded page-native Sentinel preparation (FAIL)
 
 **Reviewed:** Task branch at `80e4ad078138f5124e452f539ab38d9021a3f34c`, compared with approved `integration-architecture-v2` baseline `b8f25cff351aed34b3de2f7ef1483a01183a9049`. Inspected the injected Sentinel page hook, browser HTTP/transfer boundaries, account C# protocol and regression coverage. Remote parent later advanced to `52d1c88`; no parent reconciliation occurred.
