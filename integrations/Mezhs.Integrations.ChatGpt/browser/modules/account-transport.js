@@ -212,6 +212,10 @@ async function accessToken(session) {
   });
   if (!response.ok) {
     accountIds.delete(session);
+    // Authentication responses are probed repeatedly. Do not retain an unread
+    // error body just because the status alone answers the authorization check.
+    try { await response.body?.cancel?.(); }
+    catch { /* Status remains authoritative; do not expose private auth data. */ }
     return null;
   }
 
