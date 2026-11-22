@@ -44,6 +44,7 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("SH bare regex forwarded to Executor", "<SH>echo FIRST</SH><SH regex>echo NO</SH>", true, ["SH", "SH"]),
     ("SH regex expression forwarded to Executor", "<SH regex={true}>echo NO</SH>", true, ["SH"]),
     ("SH empty quoted regex accepted", "<SH regex=\"\">echo one</SH>", true, ["SH"]),
+    ("SH escaped quote kept intact", "<SH regex=\"a\\\"b\">echo one</SH>", true, ["SH"]),
     ("Malformed paired root SH rejects batch", "<SH>echo FIRST</SH><SH regex=\"unfinished>echo NO</SH>", false, []),
     ("Malformed nested SH stays inert", "<box><SH regex=\"unfinished>INERT</SH></box><SH>echo ROOT</SH>", true, ["SH"]),
     ("Inert nested bounded SH", "<box><SH timeout=60>INERT</SH></box>", true, []),
@@ -108,6 +109,8 @@ foreach (var (name, source, valid, commands) in checks)
     var result = new RichDocumentParser().Parse(source);
     var names = result.Commands.Select(c => c.Name).ToArray();
     var pass = result.Document.Valid == valid && names.SequenceEqual(commands);
+    if (name == "SH escaped quote kept intact")
+        pass &= result.Commands.Single().Attributes?["regex"] == "\"a\\\"b\"";
     if (name == "Multiline SH preserves body bytes")
         pass &= result.Commands.FirstOrDefault()?.Body == "\r\necho first\r\n<DONE>\r\n";
     if (name == "Nested box and text")
