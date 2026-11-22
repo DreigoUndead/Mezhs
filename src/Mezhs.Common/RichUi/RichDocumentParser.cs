@@ -678,14 +678,27 @@ public sealed class RichDocumentParser
                         value = "";
                     else if (source[0] is '\'' or '"')
                     {
-                        var stop = source[1..].IndexOf(source[0]);
-                        if (stop < 0)
+                        // Use the same backslash-aware quote boundary as TryTag.
+                        // Keep the complete token intact for Executor to interpret.
+                        var quote = source[0];
+                        var stop = 1;
+                        while (stop < source.Length)
+                        {
+                            if (source[stop] == '\\' && stop + 1 < source.Length)
+                            {
+                                stop += 2;
+                                continue;
+                            }
+                            if (source[stop] == quote) break;
+                            stop++;
+                        }
+                        if (stop >= source.Length)
                         {
                             reason = "Unclosed quoted attribute.";
                             return false;
                         }
-                        value = source[..(stop + 2)].ToString();
-                        source = source[(stop + 2)..];
+                        value = source[..(stop + 1)].ToString();
+                        source = source[(stop + 1)..];
                     }
                     else if (source[0] == '{')
                     {
