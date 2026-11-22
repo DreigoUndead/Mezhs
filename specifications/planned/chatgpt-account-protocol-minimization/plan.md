@@ -38,7 +38,7 @@ Measured baseline on the parent at `b8f25cf` (physical lines, including blanks/c
 - [ ] No prompt replay after an uncertain mutation; correct chat/message ancestry and final reply selection; stop/cancellation release local permits and do not imply provider-side cancellation. Shared authenticated connection can serve independent chats under existing limits. Same-ChatId ordering remains centrally owned.
 - [ ] ChatGPT Guest and the other providers still work; no unrelated provider migration is required. Public Core, Agent and UI contracts remain compatible unless the owner explicitly approves a necessary change.
 - [ ] Relevant automated tests, architecture checks and real Chromium verification pass at the final revision; live-account checks use an isolated profile and report any tests that could not be performed. Record actual evidence and limitations.
-- [ ] Independent Plan Review PASS precedes development; independent Code Review PASS and independent Testing PASS follow development. Any blocking corrections repeat the required independent role.
+- [ ] Independent Plan Review PASS precedes development; independent Code Review PASS and independent Testing PASS follow development. Material corrections or blocking failures require a fresh independent verification of the affected role.
 - [ ] Final work is committed/pushed only on `chatgpt-account-protocol-minimization`, reviewed against `integration-architecture-v2`, and **merged into `integration-architecture-v2` only after the owner's explicit approval**. Do not merge into `main`.
 
 ## How
@@ -52,11 +52,11 @@ Measured baseline on the parent at `b8f25cf` (physical lines, including blanks/c
 
 ## Steps
 
-1. **Plan Review** — fresh independent agent re-examines the revised objective and proposed reusable browser HTTP/streaming/transfer design, ownership, quantitative accounting, merge destination and security/verification completeness. Correct the plan and repeat independent review until PASS or owner decision; the earlier PASS applies only to the superseded goal.
+1. **Plan Review** — fresh independent agent re-examines the revised objective and proposed reusable browser HTTP/streaming/transfer design, ownership, quantitative accounting, merge destination and security/verification completeness. Correct the plan; repeat independent review after material corrections until PASS or owner decision; the earlier PASS applies only to the superseded goal.
    - Done when fresh Plan Review PASS for the revised architecture is recorded on this task branch.
 2. **Development** — following fresh review of the owner's clarified design, implement reusable browser HTTP/streaming/transfer primitives and migrate the majority of ChatGPT Account protocol out of JavaScript into typed C# endpoint mappings/interpretation. Remove superseded JS, update tests and measure before/after JS and total code.
    - Done when **more than 50% account JS is removed**, the standardized shared browser integration mechanism works and legacy duplicate protocol paths are gone, all developer checks pass, and the task branch and plan are committed/pushed.
-3. **Code Review** — fresh independent reviewer examines actual code ownership, total code cost, security, cancellation/replay, concurrency, protocol edge cases and test coverage; correct findings, repeat until PASS.
+3. **Code Review** — fresh independent reviewer examines actual code ownership, total code cost, security, cancellation/replay, concurrency, protocol edge cases and test coverage; correct findings; repeat independent review after material corrections until PASS.
    - Done when an independent Code Review PASS is recorded against the current revision.
 4. **Testing** — fresh independent tester validates automated suites and real Chromium/provider behavior where safely available, including failure cases; correct failures and repeat independent review/testing as workflow requires.
    - Done when independent Testing PASS, revision and limitations are documented.
@@ -329,3 +329,13 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 **Outcome: FAIL** under `.agents/code-review.md` because code and a regression test were corrected. A fresh independent Step 3 Code Reviewer must inspect and run relevant checks on the resulting branch revision before Step 4 Testing. Owner-approved merge remains limited to `integration-architecture-v2`, never `main`; parent reconciliation is still pending and no approval or deploy is implied.
 
 **Authority:** Independent High-risk Step 3 Code Reviewer.
+
+### 2026-11-22 — Owner-approved repeated-step workflow and branch-scoped handoff
+
+**Change:** Updated `.agents/workflow.md`, `.agents/plan-review.md`, `.agents/code-review.md` and `.agents/testing.md` on this task branch. Repeated iterations prioritize independently verifying the previous corrections, checking related occurrences of the same defect, and completing the normal role scope. Material corrections require a fresh independent iteration; nonmaterial cleanup alone does not. Required independent stages, role-owned fixes, live-testing obligations and explicit owner merge approval remain unchanged.
+
+**Reason:** Twelve Step 3 reviews repeatedly found variants of response-bounds and cleanup problems. The old rule treated any correction, including nonmaterial documentation or test-harness cleanup, as automatic FAIL, without checking convergence.
+
+**Authority:** Owner direction in MEŽS execution `exec_b24327385f524adebb1db982056a599b`.
+
+**Handoff override:** For this task, the next agent MUST follow the workflow and role instructions from branch `chatgpt-account-protocol-minimization`, not the parent or `main`. Each subsequent handoff MUST explicitly instruct the next agent to use that same branch's workflow and to pass this instruction to later agents. This owner-directed instruction is the only addition to the neutral next-role prompt. Continue Step 3 independent Code Review at the latest branch revision; do not bypass required Step 4 Testing or merge approval.
