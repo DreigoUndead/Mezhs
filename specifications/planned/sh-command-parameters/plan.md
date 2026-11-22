@@ -6,66 +6,62 @@ Level: Standard
 
 ## What
 
-Support five optional attributes on root SH blocks: `timeout`, `limit`, `limitStart`, `limitEnd`, and `regex`. For example, `<SH timeout=60 limit=500 limitStart=10 limitEnd=10 regex="error|warning">command</SH>`. Existing plain `<SH>` works unchanged.
+Support five optional root-SH attributes: `timeout`, `limit`, `limitStart`, `limitEnd`, and `regex`. Plain `<SH>` remains compatible. A canonical rich-tag parser discovers root-only SH candidates and captures **all attributes as a generic name/value map**, preserving original command text and source spans; SH inside UI/unknown/escape/raw scopes remains inert. The rich UI layer owns syntactic and structural safety, not SH parameter semantics.
 
-Each SH block has one effective execution timeout (seconds): explicit `timeout` → policy value → built-in 60 seconds. The policy timeout is a **default**, not a second maximum or a separate timeout. `timeout` must be positive.
+**Executor is the sole functional source of truth** for accepted SH attribute names, numeric and regex validation, default resolution, command timeout, output selection, previews, and recovery information. Agent does not implement or duplicate any SH-parameter-specific validation or output formatting. It passes raw attributes, policy defaults and the command body to an Executor-owned entry point. The Executor validates and computes effective options before launching that particular command. A bad parameter uses the normal Executor error-result path, without spawning a shell; it does not become an Agent-level command-batch syntax error. Earlier successful commands in the same reply are not rolled back. Malformed tag structure or forbidden nested commands still fail closed in the canonical parser.
 
-Result presentation is separate from execution. All shell output and exit/status evidence remain intact in durable Executor history. Apply optional regex matching to output lines first, then count the selected lines against `limit`. Effective values use SH attribute → optional policy setting → built-in default:
+Effective settings remain `SH attribute → policy default → Executor built-in`:
 
-| Attribute | Default | Semantics |
+| Attribute | Built-in default | Effect |
 | --- | --- | --- |
-| `timeout` | 60 | Seconds for this SH execution |
-| `limit` | 0 | Maximum selected output lines before abbreviation; 0 disables line-based abbreviation |
-| `limitStart` | 10 | Beginning lines in the abbreviated result |
-| `limitEnd` | 10 | Ending lines in the abbreviated result |
-| `regex` | null | Return only lines matching the regex; null leaves lines unfiltered |
+| `timeout` | 60 | Positive execution timeout in seconds |
+| `limit` | 0 | Maximum selected output lines before abbreviation; 0 disables line preview |
+| `limitStart` | 10 | Beginning lines of abbreviated output |
+| `limitEnd` | 10 | Ending lines of abbreviated output |
+| `regex` | null | Filter output lines before applying line limits |
 
-All five values may be specified per SH block; policy fields are optional. Preserve the existing policy timeout field (`commandTimeoutSeconds`) as the **single** policy timeout setting, now with a 60-second fallback when absent. Do not add a second default/maximum timeout field. Add optional policy settings for the other four parameters, with names corresponding to the SH attributes.
+Preserve compatibility with the existing `policy.limits.commandTimeoutSeconds` default (no separate maximum), and with optional policy defaults for output attributes. Policy supplies defaults but does not reimplement Executor parameter rules. An explicit empty regex clears an inherited regex. A regex evaluation timeout is bounded by Executor.
 
-If `limit > 0` and the selected line count exceeds `limit`, show first `limitStart` and last `limitEnd` selected lines, an omitted-line count, and identification of the stored Executor result. Show all selected lines when their count is at most `limit`; `limit=0` leaves them unrestricted by line count. Avoid duplicated lines in overlapping previews. For `limit` smaller than the implicit 10+10 preview, fit the defaults within the limit. Reject *explicit* incompatible preview sizes instead of silently exceeding the requested line limit. A zero preview count is allowed.
-
-A separate existing model-prompt character safeguard may still abbreviate very large results, including `limit=0` or unusually long lines. Its activation and recovery guidance must be explicit; do not mislabel this as the line limit.
-
-For any abbreviated result, MEŽS should supply a **fully formed executable SH retrieval command**, not merely tell the agent to discover the CLI. Include the actual integer Executor execution ID, the executable/assembly path valid for the running installation, and appropriate parameters (such as `limit=0`) so a repeated line-based abbreviation is not the default. The existing Executor CLI command is `Get <id>`; it returns the durable execution record, not a new shell execution of the original command. The record's `Result` property is serialized as an escaped string; distinguish full durable retrieval from the separate Agent prompt-size safeguard. Do not invent unsupported Executor CLI flags, add an Executor retrieval API, or promise an unbounded model prompt.
+Executor retains **complete durable stdout/stderr/result/status/error evidence**, independently of returned previews. If selected lines exceed a nonzero `limit`, the Executor response identifies omitted lines and supplies first/last lines without overlap. Explicit incompatible preview sizes are errors; implicit defaults fit within a smaller limit; zero previews are valid. Executor supplies an executable recovery SH command for its stored `Get <id>` record, using the installed assembly and storage path; retrieving never reruns the original command. The separate Agent-wide 16,000-character model-prompt safeguard may still abbreviate any follow-up, and must identify that fact without pretending to bypass it.
 
 ## Why
 
-Give agents predictable per-block timeouts, succinct previews for long output, and optional regex filtering while preserving the complete Executor evidence and providing an immediate copyable recovery command.
+Remove duplicated SH-specific semantics across Rich UI, Agent parser, Interpreter, and prompt builder. Keep one functional owner—Executor—for command execution **and** returned execution data, while Agent retains policy authorization, message orchestration and general prompt-budget protection.
 
 ## Acceptance criteria
 
-- [ ] The canonical root-SH parser accepts the five attributes, including quoted regex values, while keeping command bodies/source spans and inert UI scopes unchanged.
-- [ ] Duplicate, unsupported, malformed or invalid numeric attributes and invalid regex reject the whole command batch before executing any shell command. A regex evaluation timeout prevents unbounded pattern evaluation.
-- [ ] One effective timeout uses SH → policy → 60 seconds; `timeout=0` is invalid. An explicit timeout does not encounter a *second* policy maximum. Existing policy/local config semantics are migrated compatibly.
-- [ ] Policy output defaults are optional; `limit=0` means no line-based truncation. `limitStart` and `limitEnd` may be zero; implicit previews fit within small limits and explicit incompatible values are rejected.
-- [ ] Apply regex line matching before counting lines. For selected count at or below `limit`, return all selected lines; for count above `limit`, show selected first/last lines, counts and truncation metadata without duplicates.
-- [ ] Preserve complete stdout/stderr, exit code, errors, durable Executor records and restart/recovery command identity independent of follow-up presentation.
-- [ ] On abbreviation provide an accurate ready-to-execute SH command using the installed Executor CLI `Get <id>`; verify its exact invocation against the CLI, avoid rerunning the original command, and disclose the separate prompt-character safeguard.
-- [ ] Update relevant guidance, built-in example/default policy configuration, canonical parser and Agent regression tests. Do not change unrelated Low/Mid/High policy instruction content.
-- [ ] The owner-approved separate MEŽS Development policy already present on this branch continues to compose both instruction blocks and passes its focused tests.
+- [ ] Canonical parsing extracts generic SH attribute name/value pairs, body and spans without consulting a functional list of SH parameter names. Root-only/inert UI boundaries and safe malformed-markup handling remain unchanged.
+- [ ] Agent command types and adapter forward the same raw SH attributes and policy-provided defaults; no SH attribute name/type/regex/preview validation is duplicated outside Executor.
+- [ ] Executor alone recognizes and validates the five keys, applies SH → policy → built-in defaults, and handles explicit timeout overrides, small limits, regex filtering, and bounded regex evaluation.
+- [ ] Unsupported, malformed or incompatible **parameter values** return the Executor's normal error result before launching that command, not Agent parser/batch-correction errors. Structural syntax and policy violations remain Agent/renderer concerns. Preserve command ordering and never accidentally replay an earlier command.
+- [ ] Executor owns presentation of completed results (including regex-before-limit filtering, omitted counts, nonoverlapping previews and durable `Get <id>` recovery), while maintaining complete durable evidence and exit/status information. No duplicate output formatter in Agent.
+- [ ] The old Executor CLI remains compatible, including raw `Get <id>`; avoid introducing a second parser, separate storage/copy or database migration without demonstrated need.
+- [ ] Agent retains only the separate, explicitly disclosed model-prompt character safeguard and forwards Executor-produced result/error/recovery fields without recomputing SH-specific previews.
+- [ ] Adjust instructions and regression tests to reflect the single owner. Preserve the owner-approved Development policy and unrelated Low/Mid/High instructions. New architecture change invalidates prior review/test PASS as final verification of this revision.
+- [ ] Verify all changed paths on Windows in an isolated worktree, then obtain fresh independent Code Review and Testing before Deploy. Do not merge to `main` without explicit owner approval.
 
 ## How
 
-Keep the existing canonical rich-tag parser → Agent command Interpreter → Shell → Executor execution path. Revise prior character-based `limit` behavior to line-based filtering and preview formatting in the Agent result follow-up path only. Prevalidate attributes/regex before dispatch; avoid re-running commands to obtain previews. Resolve the existing CLI path and execution ID from runtime context when constructing recovery guidance. Reuse the Executor durable `Get` command and existing storage; do not introduce a second parser, persistent output copy, separate retrieval API or database migration.
+Continue using the existing canonical rich-tag traversal and host-side command candidates; do **not** execute commands from the UI renderer. Make the SH candidate's attribute bag generic. Keep structural/authorization validation in Rich UI and Agent, but relocate the SH option contract and result formatting to `Mezhs.Executor`. Its API must accept raw command attributes plus policy defaults, resolve/validate them once, run through existing durable execution ownership, and return a display-oriented result alongside or derived from the durable record. Keep existing Executor service/CLI clients compatible. `Shell` acts as the narrow adapter for execution environment, identity, policy defaults and forwarding of Executor outcomes. `AgentPromptBuilder` serializes those outcomes and imposes only its independent global prompt-size safety bound.
 
-The current branch contains an earlier, superseded character-limit implementation and a subsequent owner-approved MEŽS Development policy. Development must reconcile existing code and tests with this **current** specification rather than treating the prior independent review PASS as approval of the revised behavior.
+Do not move shell authority into the browser, invent a new UI-to-Executor mechanism, or store a second copy of command output. Do not convert invalid parameter values into an Agent parser rejection; structural malformed markup and policies still guard execution. Use the Executor's own error path to surface validation failures. Keep generated Codegraph updated using the repository generator.
 
 ## Steps
 
-1. **Plan** — Revise the authoritative plan and preserve prior implementation/review history in Changes.
-   - Done when: scope, policy fallback, preview/regex semantics and recovery behavior are documented.
-2. **Development** — Correct the implementation and tests against this plan, verify the real Executor CLI invocation, update branch-only guidance, and commit/push.
-   - Done when: relevant build/parser/Agent integration tests pass and revised behavior is evidenced.
-3. **Code Review (independent)** — Review the complete current feature branch, including the policy addition and revised SH behavior.
-   - Done when: independent PASS at an exact branch revision, or resolved FAIL/BLOCKED.
-4. **Testing (independent)** — Verify CLI retrieval, timeout and output scenarios on Windows and test regressions without disturbing the owner's running environment.
-   - Done when: independent results are recorded against the implementation SHA.
-5. **Deploy** — Present verification and obtain owner approval before any merge to `main`.
-   - Done when: owner authorizes release and deploy obligations are fulfilled.
+1. **Plan (owner-directed rework)** — Record the new Executor ownership and superseded Agent validation assumptions.
+   - Done when: the plan clearly defines validation, defaults, output ownership, error behavior and boundaries.
+2. **Development** — Refactor the existing implementation, tests, documentation and branch configuration according to the revised plan; build and verify on Windows.
+   - Done when: Executor is the only functional SH parameter implementation and developer checks are recorded on a pushed feature revision.
+3. **Code Review (independent)** — Independently review the revised complete feature branch and ownership boundaries.
+   - Done when: PASS at exact revision, or confirmed findings corrected with a fresh independent review.
+4. **Testing (independent)** — Test Executor parameter validation/presentation and isolated live Agent round trips, including malformed syntax, Executor errors and recovery.
+   - Done when: exact-SHA independent results recorded.
+5. **Deploy** — Merge latest `main` into feature branch and verify integration **before** requesting explicit owner approval for release; do not modify `main` before approval.
+   - Done when: owner authorizes release and obligations are completed.
 
 ## Verification
 
-Use Windows PowerShell 5.1 where `pwsh` is absent. Run `dotnet build src/Mezhs.Agent.Api/Mezhs.Agent.Api.csproj -c Release`, `dotnet run --project tests/Mezhs.RichUi.TestApp -c Release`, `powershell -NoProfile -ExecutionPolicy Bypass -File tests/policy-decoder.ps1`, and `powershell -NoProfile -ExecutionPolicy Bypass -File tests/agent-protocol-result.ps1`. Also verify the actual `Mezhs.Executor` CLI `Get` syntax and the emitted recovery command in an isolated environment. Include tests for missing defaults, override precedence, `limit=0`, exact threshold, exceeded threshold, small preview limits, regex zero/some/many matches, invalid regex, long lines, prompt safeguard, preserved durable output and exit codes. Record actual tests and evidence; do not infer end-to-end success from compilation.
+Run Windows Agent API Release build, Rich UI TestApp, `tests/policy-decoder.ps1`, and `tests/agent-protocol-result.ps1` in an isolated worktree. Add focused Executor tests for unknown keys, invalid numeric/regex values, timeout overrides, default precedence, `limit=0`, exact/exceeded thresholds, zero/small preview limits, filtering zero/some/many lines, long lines, bounded regex timeout, and preservation of durable output/exit/error evidence. Confirm an invalid parameter fails via Executor without shell side effects while earlier completed commands remain properly evidenced. Exercise actual Executor CLI `Get <id>` and generated recovery. Check preexisting structural root-only boundaries and Developer policy. Run Codegraph generation and diff checks. Record tests actually run, not assumed.
 
 ## Changes
 
@@ -240,3 +236,15 @@ Use Windows PowerShell 5.1 where `pwsh` is absent. Run `dotnet build src/Mezhs.A
 **Change:** Integrated main revision cce2d8236d63254f726f325ff566d7bf1b98331b into the feature branch before seeking owner approval, resolving Rich UI parser and generated Codegraph conflicts. Updated .agents/deploy.md to require main synchronization, conflict resolution and integrated verification before the owner approval request.
 
 **Verification:** Isolated Windows Agent API Release build PASS (0 warnings/errors); merged Rich UI regressions PASS 132/132; policy-decoder.ps1 PASS; isolated live agent-protocol-result.ps1 PASS; generated Codegraph native backend with zero fallbacks; staged diff validation PASS. These are integration checks, not a new independent review. Owner merge approval remains pending.
+
+### 2026-11-22 — Owner-directed Executor-only SH parameter ownership
+
+**Change:** Executor becomes the sole functional authority for all five SH parameters, including validation, defaults, execution timeout, regex filtering, line previews and recovery output. Rich UI and Agent only transport a generic attributes map and preserve structural and policy authorization boundaries. Invalid parameter values use the normal Executor error-result path, not Agent command-batch prevalidation. The separate Agent model-prompt character safeguard remains. Earlier valid commands are not retroactively rolled back.
+
+**Reason:** The owner rejected splitting SH parameter responsibilities between Executor and Agent and rejected multiple functional definitions/validators of the same parameters. UI syntax remains an unavoidable structural overlap, not a second functional parameter registry.
+
+**Authority:** Explicit owner direction in Deploy follow-up on 2026-11-22.
+
+**Supersedes:** Earlier requirements and acceptance criteria placing SH numeric/regex validation or output formatting in Agent and rejecting a whole command batch for any invalid parameter value. Historical review and testing PASS remain evidence for their earlier implementation SHAs, not for this rework.
+
+**Next:** Revised Development, then fresh independent Code Review and Testing; no merge to `main` without explicit owner approval.
