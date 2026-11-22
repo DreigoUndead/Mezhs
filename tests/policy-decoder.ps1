@@ -512,8 +512,8 @@ Invalid(Attrs("regex="), "quoted");
 var longLine = new string('X', 20000);
 Assert(ExecutorShellOptions.Resolve(Attrs("limit=1", "limitStart=0",
         "limitEnd=0")).Present(new Execution {
-            Id = 11, Status = ExecutionStatus.Completed, Result = longLine,
-            ExitCode = 0 }, presentationExecutor.StoragePath).Output?.Contains("1 omitted") == true,
+            Id = 11, Status = ExecutionStatus.Completed, Result = longLine + "\n" + longLine,
+            ExitCode = 0 }, presentationExecutor.StoragePath).Output?.Contains("2 omitted") == true,
     "Executor long-line preview lost omission metadata.");
 var defaultPrompt = promptBuilder.BuildCommandResults(
     new[] { Presented(3, "123456789") }, normal).Content;
