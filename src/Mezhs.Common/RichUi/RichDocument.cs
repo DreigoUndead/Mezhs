@@ -110,7 +110,7 @@ public static class RichTagRegistry
             Tag("escape", RichTagRole.OpaqueLiteral, "char"),
             // Agent commands are root-only and opaque, using the same
             // traversal policy as all other registered tags.
-            WithDiscovery(Tag("SH", RichTagRole.Command, "timeout", "limit", "limitStart", "limitEnd", "regex"), searchChildren: false, allowAsChild: false),
+            WithDiscovery(Tag("SH", RichTagRole.Command) with { AllowedAttributes = null }, searchChildren: false, allowAsChild: false),
             WithDiscovery(Tag("ATTACH", RichTagRole.Command), searchChildren: false, allowAsChild: false),
             WithDiscovery(Tag("DONE", RichTagRole.Marker), searchChildren: false, allowAsChild: false)
         }.ToDictionary(tag => tag.Name, StringComparer.Ordinal);
