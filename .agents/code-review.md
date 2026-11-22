@@ -35,10 +35,12 @@ existing task branch.
 
 ## Outcome
 
-- **FAIL:** After correcting the issues, hand off to a fresh
-  independent Code Reviewer. Repeat until PASS.
-- **PASS:** Continue to Testing or the next required role
-  defined by the plan.
+- **FAIL:** Material corrections require a fresh independent
+  Code Reviewer to verify the revised implementation. Repeat
+  until PASS.
+- **PASS:** Required review complete with no unresolved blocking
+  findings; any nonmaterial corrections were verified. Continue
+  to Testing or the next required role defined by the plan.
 - **BLOCKED:** Report the unresolved obstacle or decision
   to the owner.
 
