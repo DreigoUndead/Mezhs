@@ -170,8 +170,11 @@ public sealed class RichDocumentParser
         node.Span.Start < source.Length &&
         source.AsSpan(node.Span.Start).StartsWith("<!--", StringComparison.Ordinal);
 
+    // Literal scopes reuse this traversal: direct commands are collected while every
+    // other complete tag remains part of the displayed source.
     private IReadOnlyList<RichNode> ReadChildren(int start, int end, string? expected,
-        int depth, out int position, bool svgScope = false, bool inlineScope = false)
+        int depth, out int position, bool svgScope = false, bool inlineScope = false,
+        bool literalScope = false)
     {
         if (depth > MaxDepth)
         {
@@ -185,6 +188,12 @@ public sealed class RichDocumentParser
         var inline = new List<RichNode>();
         bool Flush(int until)
         {
+            if (literalScope)
+            {
+                inline.Clear();
+                plainFrom = until;
+                return true;
+            }
             if (until > plainFrom || inline.Count > 0)
                 AppendMarkdown(result, plainFrom, until, svgScope, inlineScope, inline,
                     insideRichContainer: expected is not null);
@@ -196,7 +205,7 @@ public sealed class RichDocumentParser
         while (cursor < end)
         {
             if (_failure is not null) { position = cursor; return []; }
-            if (!svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
+            if (!literalScope && !svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
                 RichQuestionGrammar.TryParse(_source, cursor, end,
                     _radioLiteral, out var question, out var questionEnd))
             {
@@ -233,6 +242,14 @@ public sealed class RichDocumentParser
                     _failure = new ParseFailure($"Unsupported SVG child: {tag.Name}.");
                     position = cursor;
                     return [];
+                }
+                if (literalScope)
+                {
+                    var literalClose = tag.SelfClosing ? tag.End :
+                        FindContainerClose(tag.Name, tag.End, end);
+                    cursor = literalClose < 0 ? tag.End :
+                        literalClose + tag.Name.Length + 3;
+                    continue;
                 }
                 var unknownEnd = tag.SelfClosing ? tag.End :
                     FindContainerClose(tag.Name, tag.End, end);
@@ -291,6 +308,20 @@ public sealed class RichDocumentParser
                 _commands.Add(new RichCommandCandidate(tag.Name, body,
                     new RichSourceSpan(cursor, after)));
                 cursor = after;
+                continue;
+            }
+            if (literalScope)
+            {
+                if (tag.SelfClosing)
+                {
+                    cursor = tag.End;
+                    continue;
+                }
+                var literalClose = definition.SearchChildren
+                    ? FindContainerClose(tag.Name, tag.End, end)
+                    : FindOpaqueClosing(tag.Name, tag.End, end);
+                cursor = literalClose < 0 ? tag.End :
+                    literalClose + tag.Name.Length + 3;
                 continue;
             }
 
@@ -374,10 +405,27 @@ public sealed class RichDocumentParser
                     return [];
                 }
                 var after = closer + tag.Name.Length + 3;
-                var text = tag.Name == "escape"
-                    ? ReadEscapeLiteral(tag.End, closer)
-                    : _source[tag.End..closer];
-                if (_failure is not null) { position = cursor; return []; }
+                var text = _source[tag.End..closer];
+                if (tag.Name == "escape")
+                {
+                    var commandStart = _commands.Count;
+                    _ = ReadChildren(tag.End, closer, null, depth, out _,
+                        literalScope: true);
+                    if (_failure is not null) { position = cursor; return []; }
+                    if (_commands.Count > commandStart)
+                    {
+                        var visible = new StringBuilder();
+                        var visibleFrom = tag.End;
+                        for (var i = commandStart; i < _commands.Count; i++)
+                        {
+                            var span = _commands[i].SourceSpan;
+                            visible.Append(_source, visibleFrom, span.Start - visibleFrom);
+                            visibleFrom = span.End;
+                        }
+                        visible.Append(_source, visibleFrom, closer - visibleFrom);
+                        text = visible.ToString();
+                    }
+                }
                 Add(result, new RichNode(definition.Role == RichTagRole.OpaqueLiteral ? "literal" : "raw",
                     $"{from}:raw", new RichSourceSpan(from, after),
                     Text: text, Name: tag.Name, Attributes: attributes));
@@ -436,69 +484,6 @@ public sealed class RichDocumentParser
         if (!Flush(end)) { position = end; return []; }
         position = end;
         return result;
-    }
-
-    // escape is literal presentation, except for directly contained root-only
-    // host commands. No other rich container gains command authority.
-    private string ReadEscapeLiteral(int start, int end)
-    {
-        var visible = new StringBuilder();
-        var visibleFrom = start;
-        for (var at = start; at < end;)
-        {
-            if (_source[at] != '<' || !TryTag(at, end, out var tag))
-            {
-                at++;
-                continue;
-            }
-            if (tag.Closing) { at = tag.End; continue; }
-
-            var registered = RichTagRegistry.TryGet(tag.Name, out var definition);
-            if (!registered || definition.AllowAsChild ||
-                definition.Role is not (RichTagRole.Command or RichTagRole.Marker))
-            {
-                // Complete nested UI/raw/unknown markup remains literal as a whole:
-                // a command inside one of these tags is not an escape-level root.
-                if (tag.SelfClosing) { at = tag.End; continue; }
-                var nestedClose = !registered || definition.SearchChildren
-                    ? FindContainerClose(tag.Name, tag.End, end)
-                    : FindOpaqueClosing(tag.Name, tag.End, end);
-                at = nestedClose < 0 ? tag.End : nestedClose + tag.Name.Length + 3;
-                continue;
-            }
-
-            if (tag.SelfClosing)
-            {
-                _failure = new ParseFailure($"{tag.Name} cannot be self-closing.");
-                return "";
-            }
-            var after = tag.End;
-            string? body = null;
-            if (definition.Role == RichTagRole.Command)
-            {
-                var close = FindOpaqueClosing(tag.Name, tag.End, end);
-                if (close < 0) { at = tag.End; continue; }
-                body = _source[tag.End..close];
-                after = close + tag.Name.Length + 3;
-            }
-            if (!TryParseAttributes(tag, definition, out _, out var error))
-            {
-                _failure = new ParseFailure(error);
-                return "";
-            }
-            if (_commands.Count >= MaxNodes)
-            {
-                _failure = new ParseFailure("Command count exceeds limit.", Limit: true);
-                return "";
-            }
-            visible.Append(_source, visibleFrom, at - visibleFrom);
-            _commands.Add(new RichCommandCandidate(tag.Name, body,
-                new RichSourceSpan(at, after)));
-            visibleFrom = after;
-            at = after;
-        }
-        visible.Append(_source, visibleFrom, end - visibleFrom);
-        return visible.ToString();
     }
 
     private void AddUnknown(List<RichNode> nodes, Tag tag, int end, string reason,
