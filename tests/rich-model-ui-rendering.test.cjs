@@ -172,7 +172,7 @@ test("same-line CodeBlock is a raw editor, never a malformed command", () => {
   assert.match(html(source, { document: doc }), /rich-code-block/);
 });
 
-test("same-line WritingBlock and escape preserve opaque nested source", () => {
+test("same-line WritingBlock stays opaque while escape runs direct commands", () => {
   const writingSource = 'Before <WritingBlock variant="document">raw <SH>INERT</SH></WritingBlock> after';
   const writingDoc = canonicalDocument(writingSource);
   assert.equal(writingDoc.valid, true);
@@ -185,7 +185,25 @@ test("same-line WritingBlock and escape preserve opaque nested source", () => {
   const escapeSource = 'Before <escape>raw <SH>INERT</SH></escape> after';
   const escapeDoc = canonicalDocument(escapeSource);
   assert.equal(escapeDoc.valid, true);
-  assert.equal(kinds(escapeDoc.nodes, "literal").length, 1);
+  const escaped = kinds(escapeDoc.nodes, "literal");
+  assert.equal(escaped.length, 1);
+  assert.equal(escaped[0].name, "escape");
+  assert.equal(escaped[0].text, "raw ");
+  const escapedHtml = html(escapeSource, { document: escapeDoc });
+  assert.match(escapedHtml, /class="rich-escape">raw <\\/span>/);
+  assert.doesNotMatch(escapedHtml, /INERT/);
+
+  const inertNested = '<escape>before <box><SH>INERT</SH></box> <text strong>literal</text> after</escape>';
+  const nestedDoc = canonicalDocument(inertNested);
+  assert.equal(nestedDoc.valid, true);
+  assert.equal(kinds(nestedDoc.nodes, "literal").find(n => n.name === "escape")?.text,
+    'before <box><SH>INERT</SH></box> <text strong>literal</text> after');
+  const nestedHtml = html(inertNested, { document: nestedDoc });
+  assert.match(nestedHtml, /class="rich-escape"/);
+  assert.match(nestedHtml, /&lt;box&gt;&lt;SH&gt;INERT&lt;\\/SH&gt;&lt;\\/box&gt;/);
+  assert.doesNotMatch(nestedHtml, /rich-box|<strong>/);
+  const css = fs.readFileSync(path.join(root, "src/Mezhs.Web.Lib/src/markdown.css"), "utf8");
+  assert.match(css, /\\.rich-escape\\s*\\{[^}]*color:[^;}]*#[0-9a-f]+/i);
 });
 
 test("inline rich tags remain visible when embedded in Markdown code", () => {
