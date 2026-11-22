@@ -1,13 +1,10 @@
-using System.Globalization;
 using System.Text;
 using Mezhs.Common.RichUi;
 
 namespace Mezhs.Agent.Commands;
 
 public sealed record Command(string Name, string? Body,
-    int? TimeoutSeconds = null, int? OutputLimit = null,
-    int? OutputLimitStart = null, int? OutputLimitEnd = null,
-    string? OutputRegex = null);
+    IReadOnlyDictionary<string, string>? Attributes = null);
 
 public sealed record CommandBatch(
     IReadOnlyList<Command> Commands,
@@ -41,33 +38,11 @@ public sealed class Parser
                 throw new CommandParseException("Invalid command source range.");
             visible.Append(content, cursor, start - cursor);
             cursor = end;
-            if (candidate.Name == "SH")
-            {
-                var timeout = NumberAttribute(candidate.Attributes, "timeout", positive: true);
-                var limit = NumberAttribute(candidate.Attributes, "limit");
-                var limitStart = NumberAttribute(candidate.Attributes, "limitStart");
-                var limitEnd = NumberAttribute(candidate.Attributes, "limitEnd");
-                var regex = candidate.Attributes?.GetValueOrDefault("regex");
-                if (regex is not null)
-                    ShellOutputOptions.ValidateRegex(regex);
-                commands.Add(new Command(candidate.Name, candidate.Body,
-                    timeout, limit, limitStart, limitEnd, regex));
-            }
-            else commands.Add(new Command(candidate.Name, candidate.Body));
+            commands.Add(new Command(candidate.Name, candidate.Body,
+                candidate.Attributes is { Count: > 0 } attributes ? attributes : null));
         }
         visible.Append(content, cursor, content.Length - cursor);
         return new CommandBatch(commands, visible.ToString());
     }
 
-    private static int? NumberAttribute(
-        IReadOnlyDictionary<string, string>? attributes, string name, bool positive = false)
-    {
-        if (attributes is null || !attributes.TryGetValue(name, out var raw))
-            return null;
-        if (!int.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var value) ||
-            value < (positive ? 1 : 0))
-            throw new CommandParseException(
-                $"SH {name} must be a {(positive ? "positive" : "non-negative")} integer.");
-        return value;
-    }
 }
