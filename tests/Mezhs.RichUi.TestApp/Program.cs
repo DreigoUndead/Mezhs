@@ -62,6 +62,7 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Escape nested known UI commands are inert", "<escape><box>raw <SH>NO</SH></box><SH>YES</SH></escape>", true, ["SH"]),
     ("Escape nested unknown UI commands are inert", "<escape><Widget><SH>NO</SH></Widget><SH>YES</SH></escape>", true, ["SH"]),
     ("Escape nested editor commands are inert", "<escape><CodeBlock><SH>NO</SH></CodeBlock><SH>YES</SH></escape>", true, ["SH"]),
+    ("Escape malformed nested UI and SVG keep commands inert", "<escape><box onClick=\"bad\"><SH>NO</SH></box><svg><SH>NO2</SH></svg><Widget><SH>NO3</SH></Widget><SH>YES</SH></escape>", true, ["SH"]),
     ("Escape incomplete SH is literal", "<escape>pre <SH>unclosed</escape>", true, []),
     ("Escape invalid shell attributes reject batch", "<escape><SH bad=\"value\">NO</SH></escape><SH>AFTER</SH>", false, []),
     ("Escape DONE before following command rejects batch", "<escape><DONE></escape><SH>AFTER</SH>", false, []),
