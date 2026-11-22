@@ -1,17 +1,15 @@
 using System.Globalization;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Mezhs.Agent.Commands;
 using Mezhs.Agent.Configuration;
 using Mezhs.Agent.Models;
 using Mezhs.Agent.Policy;
-using Mezhs.Executor;
 
 namespace Mezhs.Agent.Services;
 
 public sealed record AgentPrompt(string Content, string Origin);
 
-public sealed class AgentPromptBuilder(AgentOptions options, ExecutorService executor)
+public sealed class AgentPromptBuilder(AgentOptions options)
 {
     private const int MaxCommandResultCharacters = 16_000;
 
@@ -44,113 +42,34 @@ public sealed class AgentPromptBuilder(AgentOptions options, ExecutorService exe
         IReadOnlyList<Result> results,
         PolicyContext policy)
     {
+        // Executor already chose line/regex previews and recovery. Agent only
+        // protects the model prompt independently against excessive characters.
         var payload = results.Select(result =>
         {
-            var displayed = DisplayOutput(result);
+            var output = result.Output;
+            var safeguardApplied = output is not null && output.Length > MaxCommandResultCharacters;
+            if (safeguardApplied)
+                output = output![..MaxCommandResultCharacters] +
+                    "\n[Separate model-prompt character safeguard activated (16000 characters).]";
             return new
             {
                 command = result.Name,
                 executionId = result.ExecutionId,
                 succeeded = result.Succeeded,
                 exitCode = result.ExitCode,
-                output = displayed.Output,
+                output,
                 error = string.IsNullOrWhiteSpace(result.Error) ? null : result.Error,
-                recoveryCommand = displayed.RecoveryCommand,
-                recoveryNote = displayed.RecoveryNote
+                recoveryCommand = result.RecoveryCommand,
+                recoveryNote = safeguardApplied
+                    ? (result.RecoveryNote ?? "Executor recovery information is unavailable.") +
+                      " The independent model-prompt character safeguard was applied."
+                    : result.RecoveryNote
             };
         });
         var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
         return new AgentPrompt(
             WithCompletionGuidance(Format(options.Messages.CommandResults!, "json", json), policy),
             "command-result");
-    }
-
-    private sealed record DisplayedOutput(
-        string? Output, string? RecoveryCommand = null, string? RecoveryNote = null);
-
-    private DisplayedOutput DisplayOutput(Result result)
-    {
-        if (string.IsNullOrEmpty(result.Output))
-            return new DisplayedOutput(null);
-        var text = result.Output;
-        var abbreviated = false;
-        var settings = result.OutputOptions;
-        if (settings is not null && (settings.Limit > 0 || settings.Regex is not null))
-        {
-            var lines = new List<string>();
-            using (var reader = new StringReader(text))
-            {
-                string? line;
-                while ((line = reader.ReadLine()) is not null)
-                    lines.Add(line);
-            }
-            var selected = lines;
-            if (settings.Regex is { } pattern)
-            {
-                try
-                {
-                    var matcher = new Regex(pattern, RegexOptions.CultureInvariant,
-                        ShellOutputOptions.MatchTimeout);
-                    selected = lines.Where(line => matcher.IsMatch(line)).ToList();
-                }
-                catch (RegexMatchTimeoutException)
-                {
-                    return RecoveryOutput(result,
-                        "[SH regex evaluation timed out; full output remains in the durable Executor record.]");
-                }
-                abbreviated = selected.Count != lines.Count;
-            }
-
-            if (settings.Limit > 0 && selected.Count > settings.Limit)
-            {
-                var first = selected.Take(settings.LimitStart);
-                var last = settings.LimitEnd == 0 ? Enumerable.Empty<string>()
-                    : selected.Skip(selected.Count - settings.LimitEnd);
-                var shown = first.Concat(last).ToArray();
-                var omitted = selected.Count - shown.Length;
-                text = string.Join("\n", shown) +
-                    $"\n[SH line preview: {shown.Length}/{selected.Count} selected lines shown; {omitted} omitted.]";
-                abbreviated = true;
-            }
-            else text = string.Join("\n", selected);
-
-            if (settings.Regex is not null)
-                text += $"\n[SH regex filter: {selected.Count}/{lines.Count} original lines matched.]";
-        }
-
-        if (text.Length > MaxCommandResultCharacters)
-        {
-            text = text[..MaxCommandResultCharacters] +
-                "\n[Separate model-prompt character safeguard activated (16000 characters).]";
-            abbreviated = true;
-        }
-        return abbreviated ? RecoveryOutput(result, text) : new DisplayedOutput(text);
-    }
-
-    private DisplayedOutput RecoveryOutput(Result result, string preview)
-    {
-        var command = RecoveryCommand(result.ExecutionId);
-        return new DisplayedOutput(preview, command,
-            command is null
-                ? "Full output is retained in Executor history; a CLI recovery command could not be resolved."
-                : "Run recoveryCommand as an SH block to fetch the stored Executor record without rerunning " +
-                  "the original shell command. The record's Result is JSON-escaped. " +
-                  "limit=0 disables line abbreviation; regex=\"\" overrides policy regex filtering. " +
-                  "The separate 16000-character model-prompt safeguard still applies.");
-    }
-
-    private string? RecoveryCommand(string? executionId)
-    {
-        if (!int.TryParse(executionId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) ||
-            id < 1)
-            return null;
-        var assembly = typeof(ExecutorApplication).Assembly.Location;
-        if (string.IsNullOrWhiteSpace(assembly) || !File.Exists(assembly))
-            return null;
-        if (OperatingSystem.IsWindows())
-            return $"<SH limit=0 regex=\"\">set \"{ExecutorEnvironment.StorageVariable}={executor.StoragePath}\" && dotnet \"{assembly}\" Get {id}</SH>";
-        static string Quote(string value) => "'" + value.Replace("'", "'\\''", StringComparison.Ordinal) + "'";
-        return $"<SH limit=0 regex=\"\">{ExecutorEnvironment.StorageVariable}={Quote(executor.StoragePath)} dotnet {Quote(assembly)} Get {id}</SH>";
     }
 
     private string BuildBootstrap(PolicyContext policy)
