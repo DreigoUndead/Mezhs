@@ -314,3 +314,18 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 **Outcome: FAIL** under `.agents/code-review.md` because this review corrected implementation and regression tests. Fresh independent Step 3 Code Review is required before Step 4 Testing. No merge approval is implied. Authorized eventual merge destination is `integration-architecture-v2` only; never `main`.
 
 **Authority:** Independent High-risk Step 3 Code Reviewer.
+
+
+### 2026-11-22 — Independent Step 3 Code Review: validate HTTP errors before streaming (FAIL)
+
+**Reviewed:** Task branch after the prior `1b361a0` authorization-response cleanup, against the approved `integration-architecture-v2` base `b8f25cff`; current remote parent `52d1c88` remains one commit ahead. Inspected the account C# protocol, reply ancestry, artifact and upload mapping, browser-native Sentinel/auth, generic bounded HTTP, ordered Electron event queue, signed transfers, session/cancellation and focused regressions.
+
+**Finding (medium, source-confirmed):** `electron/browser-http.js` forwarded streamed response data to the ordered provider-event consumer without validating a raw fetch response's HTTP status. A generic provider policy returning an ordinary 429 response containing SSE-like data would emit protocol events before returning 429; a non-streamed large error body could instead exceed the JSON limit before conveying its HTTP status. ChatGPT's current policy `apiFetch` already throws on unsuccessful statuses, so no ChatGPT provider incident is claimed. The shared reusable transport contract is affected independently of that wrapper.
+
+**Correction:** Before any stream framing or bounded success-body read, return non-2xx HTTP status to the typed caller and cancel the unread response body, without forwarding error-body protocol events. Added a regression using a raw 429 SSE response asserting no events, preserved status and cancellation. Committed test `0b6a5d3`, test literal correction `1cc7d71`, and transport fix `9a76d8a` on this task branch. No second session/client, prompt replay, or provider-specific state was added.
+
+**Verification:** Re-fetched the corrected `browser-http.js` source and executed an isolated V8 smoke harness with shims for the unavailable Node/WHATWG globals: PASS for raw 429 status, unread body cancellation, zero error events, ordered normal 200 SSE frames, and reader release. Confirmed GitHub accepted the branch commits. This is **not** a complete Node test execution; Windows host shell, full Node/.NET suites, package checks, real Chromium, live ChatGPT, signed provider transfers and simultaneous distinct model/effort behavior were not run in this review environment and remain unverified here.
+
+**Outcome: FAIL** under `.agents/code-review.md` because code and a regression test were corrected. A fresh independent Step 3 Code Reviewer must inspect and run relevant checks on the resulting branch revision before Step 4 Testing. Owner-approved merge remains limited to `integration-architecture-v2`, never `main`; parent reconciliation is still pending and no approval or deploy is implied.
+
+**Authority:** Independent High-risk Step 3 Code Reviewer.
