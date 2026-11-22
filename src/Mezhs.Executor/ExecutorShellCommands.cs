@@ -118,7 +118,7 @@ public sealed record ExecutorShellOptions(
                 try
                 {
                     var matcher = new Regex(pattern, RegexOptions.CultureInvariant, RegexMatchTimeout);
-                    selected = lines.Where(matcher.IsMatch).ToList();
+                    selected = lines.Where(line => matcher.IsMatch(line)).ToList();
                 }
                 catch (RegexMatchTimeoutException)
                 {
