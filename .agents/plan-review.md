@@ -39,10 +39,12 @@ Commit corrections to the existing task branch.
 
 ## Outcome
 
-- **FAIL:** After correcting the plan, hand off to a fresh
-  independent Plan Reviewer. Repeat until PASS.
-- **PASS:** Hand off to Development.
-- **BLOCKED:** Report the unresolved decision or obstacle
+- **FAIL:** Material plan corrections require a fresh independent
+  Plan Reviewer to verify the revised plan. Repeat until PASS.
+- **PASS:** No unresolved blocking findings; required review complete.
+  Nonmaterial corrections were verified within this review.
+  Hand off to Development.
+- **BLOCKED:** Report an unresolved decision or obstacle
   to the owner.
 
 Use [Next Role Prompt](next-role-prompt.md) for handoffs,
