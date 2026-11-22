@@ -47,6 +47,31 @@ test("authorization rejects stale backend tokens rather than trusting session co
   assert.equal(await chatgpt.isAuthorized({ webContents: { session } }), true);
 });
 
+test("authorization probes release ignored success and failed auth response bodies", async () => {
+  let cancellations = 0;
+  const unreadBody = () => new ReadableStream({
+    start(controller) { controller.enqueue(new TextEncoder().encode("{}")); },
+    cancel() { cancellations++; }
+  });
+  const rejected = mockSession(async url => {
+    assert.equal(new URL(String(url)).pathname, "/api/auth/session");
+    return new Response(unreadBody(), { status: 401 });
+  });
+  assert.equal(await chatgpt.isAuthorized({ webContents: { session: rejected } }), false);
+  assert.equal(cancellations, 1, "failed auth response must release its unread body");
+
+  const authorized = mockSession(async url => {
+    const endpoint = new URL(String(url)).pathname;
+    if (endpoint === "/api/auth/session")
+      return jsonResponse({ accessToken: "valid-token" });
+    if (endpoint === "/backend-api/models")
+      return new Response(unreadBody(), { status: 200 });
+    throw new Error("Unexpected URL");
+  });
+  assert.equal(await chatgpt.isAuthorized({ webContents: { session: authorized } }), true);
+  assert.equal(cancellations, 2, "successful model probe must release its unread body");
+});
+
 test("ChatGPT account JavaScript contains only native hook and browser session policy", () => {
   assert.equal(chatgpt.operations.newChat, undefined);
   assert.equal(chatgpt.operations.send, undefined);
