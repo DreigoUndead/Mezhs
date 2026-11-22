@@ -40,7 +40,12 @@ module.exports = {
     const token = await accessToken(session).catch(() => null);
     if (!token) return false;
     try {
-      await apiFetch(session, token, API.models);
+      const response = await apiFetch(session, token, API.models);
+      // Authorization only needs a successful status; the model catalog is
+      // fetched and parsed separately through the bounded typed HTTP reader.
+      // Cancel the unused body instead of holding its connection open.
+      try { await response.body?.cancel?.(); }
+      catch { /* Do not turn a successful authorization probe into failure. */ }
       return true;
     } catch (error) {
       if (error?.status === 401) return false;
