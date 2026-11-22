@@ -657,19 +657,59 @@ public sealed class RichDocumentParser
             var name = source[..i].ToString();
             if (result.ContainsKey(name) ||
                 definition.AllowedAttributes is { } allowed && !allowed.Contains(name) ||
-                definition.AllowedAttributes is null && UnsafePresentationAttribute(name))
+                definition.AllowedAttributes is null &&
+                    definition.Role != RichTagRole.Command && UnsafePresentationAttribute(name))
             {
                 reason = $"Unsupported or duplicate {tag.Name} attribute: {name}.";
                 return false;
             }
             source = source[i..].TrimStart();
-            if (tag.Name == "SH" && name == "regex" &&
-                (source.Length == 0 || source[0] != '='))
-            {
-                reason = "SH regex must be a quoted string.";
-                return false;
-            }
             string value;
+            if (definition.Role == RichTagRole.Command)
+            {
+                // Commands carry generic lexical values unchanged to the host.
+                // This parser enforces quoting/braces and boundaries, not which
+                // command option names or values have functional meaning.
+                if (source.Length == 0 || source[0] != '=') value = "";
+                else
+                {
+                    source = source[1..].TrimStart();
+                    if (source.Length == 0)
+                        value = "";
+                    else if (source[0] is '\'' or '"')
+                    {
+                        var stop = source[1..].IndexOf(source[0]);
+                        if (stop < 0)
+                        {
+                            reason = "Unclosed quoted attribute.";
+                            return false;
+                        }
+                        value = source[..(stop + 2)].ToString();
+                        source = source[(stop + 2)..];
+                    }
+                    else if (source[0] == '{')
+                    {
+                        var stop = FindExpressionEnd(source);
+                        if (stop < 0)
+                        {
+                            reason = "Unclosed attribute expression.";
+                            return false;
+                        }
+                        value = source[..(stop + 1)].ToString();
+                        source = source[(stop + 1)..];
+                    }
+                    else
+                    {
+                        var stop = 0;
+                        while (stop < source.Length && !char.IsWhiteSpace(source[stop])) stop++;
+                        value = source[..stop].ToString();
+                        source = source[stop..];
+                    }
+                }
+                result.Add(name, value);
+                source = source.TrimStart();
+                continue;
+            }
             if (source.Length == 0 || source[0] != '=') value = "true";
             else
             {
@@ -677,12 +717,6 @@ public sealed class RichDocumentParser
                 if (source.Length == 0)
                 {
                     reason = "Empty attribute value.";
-                    return false;
-                }
-                if (tag.Name == "SH" && name == "regex" &&
-                    source[0] != '\'' && source[0] != '"')
-                {
-                    reason = "SH regex must be a quoted string.";
                     return false;
                 }
                 if (source[0] is '\'' or '"')
@@ -724,21 +758,6 @@ public sealed class RichDocumentParser
                         value = "json:" + Uri.EscapeDataString(JsonSerializer.Serialize(literal));
                     }
                     source = source[(stop + 1)..];
-                }
-                else if (tag.Name == "SH" && (name is "timeout" or "limit" or "limitStart" or "limitEnd") &&
-                         char.IsAsciiDigit(source[0]))
-                {
-                    // Shell options allow compact timeout=60 limit=500 syntax
-                    // without relaxing numeric syntax for presentation tags.
-                    var stop = 0;
-                    while (stop < source.Length && char.IsAsciiDigit(source[stop])) stop++;
-                    if (stop < source.Length && !char.IsWhiteSpace(source[stop]))
-                    {
-                        reason = "Invalid SH numeric attribute.";
-                        return false;
-                    }
-                    value = source[..stop].ToString();
-                    source = source[stop..];
                 }
                 else
                 {
