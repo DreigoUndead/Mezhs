@@ -2,7 +2,7 @@
 
 ID: escape-root-command-execution
 Branch: `escape-root-command-execution`
-Level: **High-risk** — changes host command discovery and security boundaries.
+Level: **Small (owner override, 2026-11-22)** — narrowly scoped change to existing `escape` command recognition; command authority, policy validation and Executor semantics remain unchanged.
 
 ## What
 
@@ -36,15 +36,13 @@ Represent `escape` display content distinctly enough for `RichDocumentView` and 
 
 ## Steps
 
-1. **Plan Review:** independently check command capability semantics, safe scope boundaries, and test coverage before implementation.
-2. **Development:** implement the minimal parser/renderer delta on this branch; update protocol instruction text, focused tests, current specification and plan evidence.
-3. **Code Review:** independently inspect host execution authority, exact-span removal, malformed/nested cases, and front-end literal rendering.
-4. **Testing:** independently execute focused C#/Agent shell integration and Node/Chromium regressions, including an isolated live Agent test when practical; record tested SHA and actual results.
-5. **Deploy:** request separate owner approval before merging; update release reference docs at deploy, not during development.
+1. **Development:** implement the minimal parser and muted-literal rendering delta on this branch, with targeted regressions and any necessary instruction updates.
+2. **Verification:** run focused parser and Agent command tests plus the relevant renderer checks; record observed results. Separate reviewers/testers are not required for this Small owner-overridden task.
+3. **Deploy:** request owner approval before merging; update release reference docs if behavior changes require it.
 
 ## Verification
 
-Target `tests/agent-protocol-result.ps1`, canonical rich-document C# parser tests, Node/Chromium rich formatting/rendering checks, and relevant .NET build/CI. Include positive direct-command and negative nested-command fixtures, adjacent root commands, failed batch atomicity and literal styling. Do not use the owner's active Agent storage or browser profile for tests.
+Run targeted `tests/agent-protocol-result.ps1`, parser and renderer regressions covering direct versus nested commands, exact-span removal, invalid-batch rejection and muted literal presentation. Run the relevant build as needed. No independent verification gate is mandated. Do not use the owner's active Agent storage or browser profile for tests.
 
 ## Changes
 
@@ -55,3 +53,10 @@ Target `tests/agent-protocol-result.ps1`, canonical rich-document C# parser test
 **Authority:** Owner task for MEŽS execution `exec_3a00398ec9034e2894259baa0dc49fc9`.
 **Trade-off:** Complete command syntax shown as an example directly inside `escape` is actionable subject to Agent policy. Authors must avoid accidental complete callable command tags.
 **Supersedes:** The November 19 blanket prohibition on commands nested within `escape` only; other containers retain it.
+
+### 2026-11-22 — Owner risk classification override
+
+**Change:** Reclassify the task from High-risk to Small and use a proportionate workflow without mandatory independent Plan Review, Code Review or Testing.
+**Reason:** This is a localized `escape` parsing/presentation rule change; it does not add command capabilities or change authorization, shell execution or Executor ownership. The original classification over-weighted the affected subsystem rather than the change itself.
+**Authority:** Owner correction in MEŽS execution `exec_566ad1e75a124f81a17a7f58adcafaf8`.
+**Supersedes:** Initial High-risk classification and associated role gates in this plan.
