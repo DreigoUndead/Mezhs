@@ -5,9 +5,10 @@ namespace Mezhs.Agent.Commands;
 
 public sealed record ExecutionContext(
     ExecutionRecord ParentExecution,
-    TimeSpan Timeout,
     string TriggerMessageId,
-    int CommandIndex);
+    int CommandIndex,
+    IReadOnlyDictionary<string, string>? Attributes = null,
+    PolicyLimitsSettings? PolicyDefaults = null);
 
 public sealed record Result(
     string Name,
@@ -15,7 +16,9 @@ public sealed record Result(
     bool Succeeded,
     int? ExitCode,
     string? Output,
-    string? Error);
+    string? Error,
+    string? RecoveryCommand = null,
+    string? RecoveryNote = null);
 
 public sealed record Interpretation(
     bool CompletionClaimed,
@@ -45,7 +48,7 @@ public sealed class Interpreter(
             return new Interpretation(false, [], ex.Message);
         }
 
-        var executable = new List<(CommandDefinition Definition, string Body)>();
+        var executable = new List<(CommandDefinition Definition, string Body, Command Command)>();
         var completionClaimed = false;
 
         for (var i = 0; i < batch.Commands.Count; i++)
@@ -83,16 +86,16 @@ public sealed class Interpreter(
 
             if (definition.Behavior is not (CommandBehavior.Shell or CommandBehavior.Attach))
                 return new Interpretation(completionClaimed, [], $"Agent command <{definition.Name}> has no executable behavior.");
-            executable.Add((definition, body));
+            executable.Add((definition, body, command));
         }
 
         var results = new List<Result>();
-        var timeout = TimeSpan.FromSeconds(policy.Settings.Limits.CommandTimeoutSeconds);
         var executableIndex = 0;
-        foreach (var (definition, body) in executable)
+        foreach (var (definition, body, command) in executable)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var context = new ExecutionContext(execution, timeout, assistantMessageId, executableIndex);
+            var context = new ExecutionContext(execution,
+                assistantMessageId, executableIndex, command.Attributes, policy.Settings.Limits);
             try
             {
                 results.Add(definition.Behavior == CommandBehavior.Shell

@@ -93,6 +93,36 @@ foreach (var name in new[] { "low", "mid", "high" })
     Assert(policy.ModelInstructions.Contains("<SH>shell text</SH>", StringComparison.Ordinal),
         $"Default {name} instructions lost inline matched shell syntax.");
 }
+var developmentPolicy = defaultAgentOptions.Policies["development"];
+var highPolicy = defaultAgentOptions.Policies["high"];
+Assert(developmentPolicy.Settings.Instructions.StartsWith(highPolicy.Settings.Instructions, StringComparison.Ordinal),
+    "Development policy did not preserve the full existing startup instructions first.");
+Assert(developmentPolicy.Settings.Instructions.Contains("Before performing any repository changes", StringComparison.Ordinal) &&
+       developmentPolicy.Settings.Instructions.Contains("Never treat your own assumptions as approved requirements", StringComparison.Ordinal),
+    "Development policy lost read-first or ambiguity escalation guidance.");
+Assert(developmentPolicy.Settings.Instructions.Split("You are a MEŽS agent operating", StringSplitOptions.None).Length == 2 &&
+       !developmentPolicy.ModelInstructions.Contains("{mezhs_development}", StringComparison.Ordinal),
+    "Development policy duplicated or failed to expand shared startup instructions.");
+Assert(developmentPolicy.Settings.ConnectionId == highPolicy.Settings.ConnectionId &&
+       developmentPolicy.Settings.DefaultModel == highPolicy.Settings.DefaultModel &&
+       developmentPolicy.Settings.Commands.Allow.SequenceEqual(highPolicy.Settings.Commands.Allow) &&
+       developmentPolicy.Settings.Limits.CommandTimeoutSeconds == highPolicy.Settings.Limits.CommandTimeoutSeconds,
+    "Development policy unexpectedly changed the High connection, model, command permissions or timeout.");
+var developmentExecution = new ExecutionRecord
+{
+    ExecutionId = "exec-development-probe", CorrelationId = "exec-development-probe",
+    Kind = AgentExecutionKind.Agent, PolicyId = "development", ConnectionId = "chatgpt-sub",
+    Source = "manual", Status = AgentExecutionStatus.Running, Request = "Feature request",
+    PolicySnapshot = developmentPolicy.Snapshot
+};
+var developmentPrompt = new AgentPromptBuilder(defaultAgentOptions)
+    .BuildInitial(developmentExecution, developmentPolicy, true).Content.Replace("\r\n", "\n", StringComparison.Ordinal);
+Assert(developmentPrompt.IndexOf("You are a MEŽS agent operating", StringComparison.Ordinal) >= 0 &&
+       developmentPrompt.IndexOf("Before performing any repository changes", StringComparison.Ordinal) >
+       developmentPrompt.IndexOf("You are a MEŽS agent operating", StringComparison.Ordinal) &&
+       developmentPrompt.IndexOf("Before performing any repository changes", StringComparison.Ordinal) <
+       developmentPrompt.IndexOf("Task:\nFeature request", StringComparison.Ordinal),
+    "Development startup prompt did not provide ordered workflow instructions before the task.");
 var exampleExecution = new ExecutionRecord
 {
     ExecutionId = "exec-config-probe", CorrelationId = "exec-config-probe",
@@ -351,11 +381,144 @@ Assert(mappedMessage.Commands.Count == 1 &&
 var promptBuilder = new AgentPromptBuilder(options);
 Assert(options.Messages.ProtocolIntro!.Contains("Separate observed facts from hypotheses", StringComparison.Ordinal),
     "Initial Agent protocol lost evidence-calibration guidance.");
+// Test the actual Executor resolver/presenter, not a copy in Agent.
+var presentationExecutor = new ExecutorService();
+Result Presented(int id, string raw,
+    IReadOnlyDictionary<string, string>? attrs = null,
+    ExecutorShellDefaults? defaults = null,
+    int exitCode = 0, string? error = null)
+{
+    var opt = ExecutorShellOptions.Resolve(attrs, defaults);
+    var execution = new Execution
+    {
+        Id = id, Status = exitCode == 0 ? ExecutionStatus.Completed : ExecutionStatus.Failed,
+        ExitCode = exitCode, Result = raw, Error = error
+    };
+    var display = opt.Present(execution, presentationExecutor.StoragePath);
+    return new Result("SH", display.ExecutionId, display.Succeeded, display.ExitCode,
+        display.Output, display.Error, display.RecoveryCommand, display.RecoveryNote);
+}
+IReadOnlyDictionary<string, string> Attrs(params string[] pairs) =>
+    pairs.Select(pair => pair.Split('=', 2)).ToDictionary(
+        parts => parts[0], parts => parts[1], StringComparer.Ordinal);
+
 var commandResultPrompt = promptBuilder.BuildCommandResults(
-    new[] { new Result("SH", "1", true, 0, "stdout: changed", null) },
-    normal).Content;
+    new[] { Presented(1, "stdout: changed") }, normal).Content;
 Assert(commandResultPrompt.Contains("does not by itself prove the original cause", StringComparison.Ordinal),
     "Command-result prompt lost causality-calibration guidance.");
+var lines = string.Join("\n", Enumerable.Range(1, 8).Select(i => $"LINE_{i}"));
+var limitedPrompt = promptBuilder.BuildCommandResults(
+    new[] { Presented(2, lines, Attrs("limit=4", "limitStart=2", "limitEnd=1")) }, normal).Content;
+Assert(limitedPrompt.Contains("LINE_1", StringComparison.Ordinal) &&
+       limitedPrompt.Contains("LINE_2", StringComparison.Ordinal) &&
+       limitedPrompt.Contains("LINE_8", StringComparison.Ordinal) &&
+       !limitedPrompt.Contains("LINE_3", StringComparison.Ordinal) &&
+       !limitedPrompt.Contains("LINE_7", StringComparison.Ordinal) &&
+       limitedPrompt.Contains("5 omitted", StringComparison.Ordinal) &&
+       limitedPrompt.Contains("recoveryCommand", StringComparison.Ordinal) &&
+       limitedPrompt.Contains("Get 2", StringComparison.Ordinal),
+    "Executor preview omitted metadata, duplicated lines or lost CLI recovery.");
+var regexPrompt = promptBuilder.BuildCommandResults(
+    new[] { Presented(4, "info A\nerror B\ninfo C\nwarning D\nerror E",
+        Attrs("limit=2", "limitStart=1", "limitEnd=1", "regex=\"error|warning\""),
+        exitCode: 9, error: "failed") }, normal).Content;
+Assert(regexPrompt.Contains("error B", StringComparison.Ordinal) &&
+       regexPrompt.Contains("error E", StringComparison.Ordinal) &&
+       !regexPrompt.Contains("warning D", StringComparison.Ordinal) &&
+       !regexPrompt.Contains("info A", StringComparison.Ordinal) &&
+       regexPrompt.Contains("1 omitted", StringComparison.Ordinal) &&
+       regexPrompt.Contains("\"exitCode\": 9", StringComparison.Ordinal) &&
+       regexPrompt.Contains("\"error\": \"failed\"", StringComparison.Ordinal),
+    "Executor regex-before-limit presentation lost durable status/error evidence.");
+var noMatchesPrompt = promptBuilder.BuildCommandResults(
+    new[] { Presented(8, "info A\ninfo B", Attrs("limit=1", "limitStart=1",
+        "limitEnd=0", "regex=\"error\"")) }, normal).Content;
+Assert(noMatchesPrompt.Contains("0/2 original lines matched", StringComparison.Ordinal) &&
+       !noMatchesPrompt.Contains("info A", StringComparison.Ordinal) &&
+       !noMatchesPrompt.Contains("info B", StringComparison.Ordinal) &&
+       noMatchesPrompt.Contains("Get 8", StringComparison.Ordinal),
+    "Executor zero-match regex lost recovery.");
+var oneMatchPrompt = promptBuilder.BuildCommandResults(
+    new[] { Presented(9, "info A\nerror B\ninfo C", Attrs("limit=1",
+        "limitStart=1", "limitEnd=0", "regex=\"error\"")) }, normal).Content;
+Assert(oneMatchPrompt.Contains("error B", StringComparison.Ordinal) &&
+       !oneMatchPrompt.Contains("info A", StringComparison.Ordinal) &&
+       !oneMatchPrompt.Contains("info C", StringComparison.Ordinal) &&
+       oneMatchPrompt.Contains("1/3 original lines matched", StringComparison.Ordinal) &&
+       !oneMatchPrompt.Contains("line preview", StringComparison.Ordinal),
+    "Executor one-match exact limit was incorrectly abbreviated.");
+var emptyPreviewPrompt = promptBuilder.BuildCommandResults(
+    new[] { Presented(10, lines, Attrs("limit=2", "limitStart=0", "limitEnd=0")) }, normal).Content;
+Assert(emptyPreviewPrompt.Contains("0/8 selected lines shown; 8 omitted", StringComparison.Ordinal) &&
+       !emptyPreviewPrompt.Contains("LINE_1", StringComparison.Ordinal) &&
+       !emptyPreviewPrompt.Contains("LINE_8", StringComparison.Ordinal) &&
+       emptyPreviewPrompt.Contains("Get 10", StringComparison.Ordinal),
+    "Executor zero-length previews lost omission metadata and recovery.");
+var exactPrompt = promptBuilder.BuildCommandResults(
+    new[] { Presented(5, "A\nB", Attrs("limit=2", "limitStart=1", "limitEnd=1")) }, normal).Content;
+Assert(exactPrompt.Contains("A\\nB", StringComparison.Ordinal) &&
+       !exactPrompt.Contains("line preview", StringComparison.Ordinal),
+    "Executor exact line threshold was abbreviated.");
+var zeroPrompt = promptBuilder.BuildCommandResults(
+    new[] { Presented(6, lines, Attrs("limit=0")) }, normal).Content;
+Assert(zeroPrompt.Contains("LINE_8", StringComparison.Ordinal) &&
+       !zeroPrompt.Contains("line preview", StringComparison.Ordinal),
+    "Executor limit=0 abbreviated lines.");
+var charPrompt = promptBuilder.BuildCommandResults(
+    new[] { Presented(7, new string('Z', 17000), Attrs("limit=0")) }, normal).Content;
+Assert(charPrompt.Contains("character safeguard activated", StringComparison.Ordinal) &&
+       charPrompt.Contains("Get 7", StringComparison.Ordinal),
+    "Independent prompt safeguard failed or discarded Executor recovery.");
+var noDefaults = ExecutorShellOptions.Resolve(null, new ExecutorShellDefaults());
+Assert(noDefaults.TimeoutSeconds == 60 && noDefaults.Limit == 0 &&
+       noDefaults.LimitStart == 10 && noDefaults.LimitEnd == 10 &&
+       noDefaults.Regex is null, "Executor built-in defaults changed.");
+var policyDefaults = new ExecutorShellDefaults(2, 4, 2, null, "error");
+var inherited = ExecutorShellOptions.Resolve(null, policyDefaults);
+Assert(inherited.TimeoutSeconds == 2 && inherited.Limit == 4 &&
+       inherited.Regex == "error", "Executor policy defaults not applied.");
+var clearedRegex = ExecutorShellOptions.Resolve(
+    Attrs("limit=0", "regex=\"\""), policyDefaults);
+Assert(clearedRegex.Limit == 0 && clearedRegex.Regex == string.Empty,
+    "Explicit empty regex did not override inherited filter.");
+var shortLimit = ExecutorShellOptions.Resolve(Attrs("limit=3"));
+Assert(shortLimit.LimitStart == 2 && shortLimit.LimitEnd == 1,
+    "Implicit preview did not fit smaller limit.");
+var overrideOutput = ExecutorShellOptions.Resolve(
+    Attrs("timeout=6", "limit=4", "limitStart=1", "regex=\"warn\""),
+    new ExecutorShellDefaults(2, 7, null, null, "error"));
+Assert(overrideOutput.TimeoutSeconds == 6 && overrideOutput.Limit == 4 &&
+       overrideOutput.LimitStart == 1 && overrideOutput.LimitEnd == 3 &&
+       overrideOutput.Regex == "warn", "Executor SH parameters did not override policy.");
+void Invalid(IReadOnlyDictionary<string, string> attrs, string expected)
+{
+    try { _ = ExecutorShellOptions.Resolve(attrs); }
+    catch (ArgumentException ex) when (ex.Message.Contains(expected, StringComparison.OrdinalIgnoreCase))
+    { return; }
+    throw new Exception($"Executor accepted invalid SH parameters: {string.Join(", ", attrs.Keys)}");
+}
+Invalid(Attrs("unknown=1"), "Unsupported");
+Invalid(Attrs("timeout=0"), "positive");
+Invalid(Attrs("timeout=-1"), "positive");
+Invalid(Attrs("timeout=abc"), "positive");
+Invalid(Attrs("timeout=9999999999999999999"), "positive");
+Invalid(Attrs("limit=-1"), "non-negative");
+Invalid(Attrs("limitStart=abc"), "non-negative");
+Invalid(Attrs("limit=2", "limitStart=2", "limitEnd=1"), "exceed");
+Invalid(Attrs("regex=\"[\""), "regex");
+Invalid(Attrs("regex=true"), "quoted");
+Invalid(Attrs("regex={true}"), "quoted");
+Invalid(Attrs("regex="), "quoted");
+var longLine = new string('X', 20000);
+Assert(ExecutorShellOptions.Resolve(Attrs("limit=1", "limitStart=0",
+        "limitEnd=0")).Present(new Execution {
+            Id = 11, Status = ExecutionStatus.Completed, Result = longLine + "\n" + longLine,
+            ExitCode = 0 }, presentationExecutor.StoragePath).Output?.Contains("2 omitted") == true,
+    "Executor long-line preview lost omission metadata.");
+var defaultPrompt = promptBuilder.BuildCommandResults(
+    new[] { Presented(3, "123456789") }, normal).Content;
+Assert(defaultPrompt.Contains("123456789", StringComparison.Ordinal),
+    "Unparameterized result unexpectedly truncated.");
 Assert(!promptBuilder.BuildContinue(normal).Content.Contains("<DONE>", StringComparison.Ordinal),
     "requireDone=false continuation still instructs DONE.");
 Assert(promptBuilder.BuildContinue(done).Content.Contains("<DONE>", StringComparison.Ordinal),

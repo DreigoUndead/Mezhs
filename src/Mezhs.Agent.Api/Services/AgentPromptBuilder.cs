@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Mezhs.Agent.Commands;
 using Mezhs.Agent.Configuration;
@@ -41,20 +42,33 @@ public sealed class AgentPromptBuilder(AgentOptions options)
         IReadOnlyList<Result> results,
         PolicyContext policy)
     {
-        var payload = results.Select(result => new
+        // Executor already chose line/regex previews and recovery. Agent only
+        // protects the model prompt independently against excessive characters.
+        var payload = results.Select(result =>
         {
-            command = result.Name,
-            executionId = result.ExecutionId,
-            succeeded = result.Succeeded,
-            exitCode = result.ExitCode,
-            output = string.IsNullOrEmpty(result.Output) ? null : Truncate(result.Output),
-            error = string.IsNullOrWhiteSpace(result.Error) ? null : result.Error
+            var output = result.Output;
+            var safeguardApplied = output is not null && output.Length > MaxCommandResultCharacters;
+            if (safeguardApplied)
+                output = output![..MaxCommandResultCharacters] +
+                    "\n[Separate model-prompt character safeguard activated (16000 characters).]";
+            return new
+            {
+                command = result.Name,
+                executionId = result.ExecutionId,
+                succeeded = result.Succeeded,
+                exitCode = result.ExitCode,
+                output,
+                error = string.IsNullOrWhiteSpace(result.Error) ? null : result.Error,
+                recoveryCommand = result.RecoveryCommand,
+                recoveryNote = safeguardApplied
+                    ? (result.RecoveryNote ?? "Executor recovery information is unavailable.") +
+                      " The independent model-prompt character safeguard was applied."
+                    : result.RecoveryNote
+            };
         });
         var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
         return new AgentPrompt(
-            WithCompletionGuidance(
-                Format(options.Messages.CommandResults!, "json", json),
-                policy),
+            WithCompletionGuidance(Format(options.Messages.CommandResults!, "json", json), policy),
             "command-result");
     }
 
@@ -71,7 +85,7 @@ public sealed class AgentPromptBuilder(AgentOptions options)
             ? Format(
                 Format(options.Messages.ShellContext!, "shell", HostShellDescription()),
                 "timeout",
-                policy.Settings.Limits.CommandTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture)) + "\n\n"
+                policy.Settings.Limits.CommandTimeoutSeconds.ToString(CultureInfo.InvariantCulture)) + "\n\n"
             : string.Empty;
         return $"""
             {policyInstructions}{shellContext}{options.Messages.ProtocolIntro}
@@ -99,21 +113,13 @@ public sealed class AgentPromptBuilder(AgentOptions options)
             ? "human"
             : execution.Source;
 
-    private static string WithCompletionGuidance(
-        string message,
-        PolicyContext policy)
+    private static string WithCompletionGuidance(string message, PolicyContext policy)
     {
         if (!policy.Settings.Completion.RequireDone)
             return message.TrimEnd();
-
         var done = Registry.Get(CommandBehavior.Complete);
         return $"{message.TrimEnd()}\nWhen the task is complete, return <{done.Name}> on a line by itself.";
     }
-
-    private static string Truncate(string value) =>
-        value.Length <= MaxCommandResultCharacters
-            ? value
-            : value[..MaxCommandResultCharacters] + "\n[command result truncated in prompt; full result remains in execution history]";
 
     private static string Format(string template, string name, string value) =>
         template.Replace($"{{{name}}}", value, StringComparison.Ordinal);

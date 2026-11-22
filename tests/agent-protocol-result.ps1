@@ -120,6 +120,57 @@ Check(inline.Commands.SequenceEqual([new Command("SH", "echo INLINE")]) &&
       inline.VisibleContent == "prefix  suffix",
       "Inline SH was not extracted without losing surrounding prose.");
 
+var bounded = parser.Parse("before <SH timeout=60 limit=500>echo BOUNDED</SH> after");
+Check(bounded.Commands.Count == 1 && bounded.Commands[0].Body == "echo BOUNDED" &&
+      bounded.Commands[0].Attributes?["timeout"] == "60" &&
+      bounded.Commands[0].Attributes?["limit"] == "500" &&
+      bounded.VisibleContent == "before  after", "Generic attribute extraction failed.");
+var individual = parser.Parse("<SH limit=5>echo A</SH><SH timeout=\"12\">echo B</SH>");
+Check(individual.Commands.Count == 2 &&
+      individual.Commands[0].Attributes?["limit"] == "5" &&
+      individual.Commands[1].Attributes?["timeout"] == "\"12\"",
+      "Raw SH attributes were not forwarded independently.");
+foreach (var input in new[] {
+    "<SH timeout=0>echo NO</SH>", "<SH timeout=-1>echo NO</SH>",
+    "<SH timeout=1.5>echo NO</SH>", "<SH timeout=abc>echo NO</SH>",
+    "<SH timeout=9999999999999>echo NO</SH>",
+    "<SH regex=\"[\">echo NO</SH>", "<SH limitStart=-1>echo NO</SH>",
+    "<SH limitEnd=xyz>echo NO</SH>", "<SH unexpected=1>echo NO</SH>",
+    "<SH regex>echo NO</SH>", "<SH regex={true}>echo NO</SH>"
+}) {
+    var forwarded = parser.Parse(input);
+    Check(forwarded.Commands.Count == 1 && forwarded.Commands[0].Attributes?.Count == 1,
+        "An SH parameter was rejected outside Executor: " + input);
+}
+Check(parser.Parse("<SH limit=0>echo YES</SH>").Commands.Single().Attributes?["limit"] == "0",
+      "limit=0 was not forwarded.");
+var escaped = parser.Parse("<SH regex=\"a\\\"b\">echo QUOTE</SH>");
+Check(escaped.Commands.Count == 1 &&
+      escaped.Commands[0].Attributes?["regex"] == "\"a\\\"b\"" &&
+      escaped.Commands[0].Body == "echo QUOTE",
+      "Escaped regex delimiter changed a raw attribute or rejected the command.");
+Reject(parser, "<SH timeout=1 timeout=2>echo NO</SH>", "Duplicate syntax accepted.");
+Reject(parser, "<SH>echo EARLIER</SH><SH regex=\"unfinished>echo NEVER</SH>",
+       "Malformed paired SH opener left an earlier command executable.");
+Check(parser.Parse("before <SH regex=\"unfinished").Commands.Count == 0,
+      "An unmatched malformed opener stopped being ordinary text.");
+Check(parser.Parse("<box><SH regex=\"unfinished>INERT</SH></box><SH>echo ROOT</SH>")
+          .Commands.SequenceEqual([new Command("SH", "echo ROOT")]),
+      "Malformed nested SH gained root authority.");
+Reject(parser, "<SH regex=\"a\" regex=\"b\">echo NO</SH>", "Duplicate attribute accepted.");
+var allParameters = parser.Parse(
+    "before <SH timeout=4 limit=3 limitStart=2 limitEnd=1 regex=\"error|warning\">echo HI</SH> after");
+var attrs = allParameters.Commands.Single().Attributes!;
+Check(allParameters.VisibleContent == "before  after" &&
+      allParameters.Commands.Single().Body == "echo HI" &&
+      attrs["timeout"] == "4" && attrs["limit"] == "3" &&
+      attrs["limitStart"] == "2" && attrs["limitEnd"] == "1" &&
+      attrs["regex"] == "\"error|warning\"", "Five raw SH attributes or spans changed.");
+Reject(parser, "<ATTACH limit=1>file</ATTACH>", "ATTACH gained attributes.");
+Check(parser.Parse("<box><SH timeout=1>INERT</SH></box><SH limit=5>ROOT</SH>")
+          .Commands.Single().Attributes?["limit"] == "5",
+      "Nested SH gained command authority.");
+
 // Rich raw editors also use paired-tag matching independent of line position.
 // Their nested command-looking text must stay opaque.
 var sameLineCode = new RichDocumentParser().Parse(
@@ -196,8 +247,9 @@ Check(parser.Parse(original).Commands.Single() ==
 Reject(parser, "<DONE><SH>echo NEVER</SH>",
       "DONE may not precede another command.");
 Reject(parser, "<DONE><DONE>", "Duplicate DONE must be rejected.");
-Reject(parser, "<SH extra=\"true\">echo NEVER</SH>",
-      "Invalid complete SH attributes must be rejected.");
+Check(parser.Parse("<SH extra=\"true\">echo NEVER</SH>").Commands.Single()
+          .Attributes?["extra"] == "\"true\"",
+      "Unknown SH parameter should reach Executor.");
 Reject(parser, "<DONE/>", "Self-closing DONE must be rejected.");
 var unknownMarkup = parser.Parse("<widget>pre <SH>echo OK</SH> post</widget>");
 Check(unknownMarkup.Commands.Count == 0 &&
@@ -254,10 +306,37 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
         Write-Host "PASS: Rejected $label batch produced no shell execution or filesystem side effect."
     }
 
-    Assert-RejectedBatch 'invalid-command' '<SH bad="evil">echo NEVER</SH>'
+    # Only structural/policy errors cancel the whole command batch.
+    Assert-RejectedBatch 'unterminated-quoted-sh' '<SH regex="unfinished>echo NEVER</SH>'
     Assert-RejectedBatch 'empty-shell' "<SH>`n `n</SH>"
     Assert-RejectedBatch 'disallowed' "<ATTACH>`n$($temp.Replace('\', '/'))/nonexistent.txt`n</ATTACH>"
     Assert-RejectedBatch 'done-order' "<DONE>`n<SH>`necho LATER`n</SH>"
+
+    function Assert-ExecutorError([string]$label, [string]$invalid) {
+        $marker = Join-Path $temp "executor-error-$label.txt"
+        $first = 'echo EARLIER>>"' + $marker + '"'
+        $taskText = '<SH>' + $first + '</SH>' + $invalid
+        $run = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $taskText })
+        $outcome = Wait-Execution $run.executionId 20
+        $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/executions")
+        $shells = @($history | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+        $messages = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/messages")
+        $prompts = @($messages | ForEach-Object { $_ } | Where-Object {
+            $_.role -eq 'user' -and $_.content -match 'Command results JSON:'
+        })
+        if ($outcome.status -ne 'Completed' -or -not (Test-Path -LiteralPath $marker) -or
+            $shells.Count -ne 1 -or $shells[0].status -ne 'Completed' -or
+            $prompts.Count -ne 1 -or -not $prompts[0].content.Contains('"succeeded": false')) {
+            throw "Executor $label error failed per-command isolation: status=$($outcome.status) shells=$($shells.Count), prompts=$($prompts.Count)"
+        }
+        Write-Host "PASS: Executor $label error did not launch invalid SH or undo earlier valid SH."
+    }
+    Assert-ExecutorError 'unknown-key' '<SH bad="evil">echo NEVER</SH>'
+    Assert-ExecutorError 'invalid-regex' '<SH regex="[">echo NEVER</SH>'
+    Assert-ExecutorError 'incompatible-previews' '<SH limit=2 limitStart=2 limitEnd=1>echo NEVER</SH>'
+    Assert-ExecutorError 'invalid-timeout' '<SH timeout=0>echo NEVER</SH>'
+    Assert-ExecutorError 'bare-regex' '<SH regex>echo NEVER</SH>'
+    Assert-ExecutorError 'expression-regex' '<SH regex={true}>echo NEVER</SH>'
 
     # Real Executor proof: root-level matched pairs execute regardless of line placement.
     function Assert-InlineExecuted([string]$label, [string]$prefix, [string]$suffix) {
@@ -267,7 +346,7 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
         $run = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $task })
         $outcome = Wait-Execution $run.executionId 20
         $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/executions")
-        $shells = @($history | Where-Object { $_.kind -eq 'Shell' })
+        $shells = @($history | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
         if ($outcome.status -ne 'Completed' -or $shells.Count -ne 1 -or
             $shells[0].status -ne 'Completed' -or -not (Test-Path -LiteralPath $marker)) {
             throw "Position-independent $label did not execute once. Status=$($outcome.status); shells=$($shells.Count)."
@@ -276,6 +355,71 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     }
     Assert-InlineExecuted 'prose' 'before ' ' after '
     Assert-InlineExecuted 'markdown-fence' ('```text' + "`n") ("`n" + '```')
+
+    # Positive SH parameters execute once; regex selection precedes the line preview.
+    $boundedTask = '<SH timeout=4 limit=3 limitStart=2 limitEnd=1 regex="RESULT_">echo RESULT_1 & echo RESULT_2 & echo RESULT_3 & echo RESULT_4 & echo RESULT_5 & echo RESULT_6 & echo RESULT_7 & echo RESULT_8</SH>'
+    $boundedRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence-auto'; input = $boundedTask })
+    $boundedOutcome = Wait-Execution $boundedRun.executionId 20
+    $boundedHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($boundedOutcome.chatId)/executions")
+    $boundedShells = @($boundedHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+    if ($boundedOutcome.status -ne 'Completed' -or $boundedShells.Count -ne 1 -or
+        $boundedShells[0].status -ne 'Completed' -or
+        $boundedShells[0].result -notmatch 'RESULT_3' -or
+        $boundedShells[0].result -notmatch 'RESULT_8') {
+        throw "Positive SH timeout/limit did not execute or preserve complete durable output."
+    }
+    $boundedMessages = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($boundedOutcome.chatId)/messages")
+    $boundedPrompts = @($boundedMessages | ForEach-Object { $_ } | Where-Object { $_.role -eq 'user' -and $_.content -match 'Command results JSON:' })
+    if ($boundedPrompts.Count -ne 1 -or
+        -not $boundedPrompts[0].content.Contains('line preview') -or
+        -not $boundedPrompts[0].content.Contains('RESULT_1') -or
+        -not $boundedPrompts[0].content.Contains('RESULT_8') -or
+        $boundedPrompts[0].content.Contains('RESULT_3') -or
+        -not $boundedPrompts[0].content.Contains('5 omitted')) {
+        throw "SH regex/limit failed to abbreviate only the follow-up prompt."
+    }
+    $recoveryText = [regex]::Match($boundedPrompts[0].content,
+        '(?s)Command results JSON:\s*(\[.*?\])\s*Continue the assigned deterministic test task')
+    if (-not $recoveryText.Success) { throw 'Could not locate command-result JSON for recovery.' }
+    $recoveryObject = ConvertFrom-Json $recoveryText.Groups[1].Value
+    $recovery = [string]$recoveryObject[0].recoveryCommand
+    $expectedShellId = [string]($boundedShells[0].executionId)
+    if (-not $recovery.StartsWith('<SH limit=0 regex="">') -or
+        -not $recovery.EndsWith((' Get ' + $expectedShellId + '</SH>'))) {
+        throw "Missing complete executable Executor Get recovery command (expected ID=$expectedShellId): $recovery"
+    }
+    $retrieval = [regex]::Match($recovery, '(?s)^<SH[^>]*>(.*)</SH>$').Groups[1].Value
+    $retrieved = (& cmd.exe /d /c $retrieval 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $retrieved -notmatch 'RESULT_3') {
+        throw "Generated Executor Get command failed to retrieve the full durable record: $retrieved"
+    }
+    Write-Host 'PASS: SH regex/line preview preserves durable output; generated Get command retrieves original result.'
+
+    # An explicit timeout exceeds the policy's default (2s) without a second cap.
+    # Use Windows ping (~4 seconds for five requests) to avoid a nested PowerShell startup dependency while staying beyond the 2s policy default.
+    $overrideTask = '<SH timeout=15>ping -n 5 127.0.0.1 >nul && echo OVERRIDE_OK</SH>'
+    $overrideRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $overrideTask })
+    $overrideOutcome = Wait-Execution $overrideRun.executionId 20
+    $overrideHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($overrideOutcome.chatId)/executions")
+    $overrideShells = @($overrideHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+    if ($overrideOutcome.status -ne 'Completed' -or $overrideShells.Count -ne 1 -or
+        $overrideShells[0].status -ne 'Completed' -or $overrideShells[0].result -notmatch 'OVERRIDE_OK') {
+        throw "Explicit timeout override did not complete: root=$($overrideOutcome.status), shells=$($overrideShells | ConvertTo-Json -Depth 6 -Compress)"
+    }
+    Write-Host 'PASS: Explicit SH timeout overrides the policy default without a second maximum.'
+
+    # A shorter per-command timeout must be enforced by Executor.
+    $timeoutTask = '<SH timeout=1>powershell -NoProfile -Command "Start-Sleep -Seconds 4"</SH>'
+    $timeoutRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $timeoutTask })
+    $timeoutOutcome = Wait-Execution $timeoutRun.executionId 20
+    $timeoutHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($timeoutOutcome.chatId)/executions")
+    $timeoutShells = @($timeoutHistory | ForEach-Object { $_ } | Where-Object { $_.kind -eq 'Shell' })
+    if ($timeoutOutcome.status -ne 'Completed' -or $timeoutShells.Count -ne 1 -or
+        $timeoutShells[0].status -ne 'TimedOut' -or
+        $timeoutShells[0].error -notmatch 'timed out after 1') {
+        throw "SH timeout=1 was not enforced by Executor: $($timeoutHistory | ConvertTo-Json -Depth 6 -Compress)"
+    }
+    Write-Host 'PASS: SH timeout=1 reaches Executor and terminates a longer command.'
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"

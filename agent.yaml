@@ -34,7 +34,14 @@ messages:
     - Separate observed facts from hypotheses; report causes only when evidence supports them.
   shellContext: |
     Host shell: {shell}. Execute SH text directly in this shell's syntax.
-    Each SH block times out after {timeout} seconds; its status reflects the final shell exit code.
+    Each SH block defaults to {timeout} seconds; an explicit
+    timeout=SECONDS overrides it and must be positive.
+    Optional limit=LINES (0 means unlimited), limitStart=LINES, limitEnd=LINES,
+    and regex="PATTERN" control only the follow-up preview; regex selects
+    matching lines before line limits apply. Full output remains in Executor.
+    A separate model-prompt 16000-character safeguard may still abbreviate output.
+    Abbreviated results include an executable Executor Get recovery command.
+    Its status reflects the final shell exit code.
     Verify individual steps in compound commands when their outcomes matter.
     Redirect detached child output away from MEŽS; SH completes when the direct shell exits.
 
@@ -78,6 +85,25 @@ policies:
     connectionId: chatgpt-sub
     defaultModel: gpt-6-thinking::thinking-effort=extended
     instructions: "{mezhs_default}"
+    commands:
+      allow:
+        - SH
+        - ATTACH
+    environment:
+      allow: []
+    completion:
+      requireDone: false
+      requiredSuccessfulCommands: []
+    limits:
+      commandTimeoutSeconds: 120
+
+  development:
+    name: MEŽS Development
+    connectionId: chatgpt-sub
+    defaultModel: gpt-6-thinking::thinking-effort=extended
+    instructions: |
+      {mezhs_default}
+      {mezhs_development}
     commands:
       allow:
         - SH

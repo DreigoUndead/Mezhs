@@ -36,6 +36,18 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Inline caption rejects list", "<caption>Start\n\n- One\n- Two\n</caption>", true, []),
     ("Rich Link rejects nested links", "<Link url=\"https://a.test\">Outer <Link url=\"https://b.test\">Inner</Link></Link>", true, []),
     ("Inline SH", "before <SH>echo one</SH> after", true, ["SH"]),
+    ("Bounded SH", "<SH timeout=60 limit=500>echo one</SH>", true, ["SH"]),
+    ("All SH parameters", "<SH timeout=60 limit=5 limitStart=2 limitEnd=1 regex=\"error|warning\">echo one</SH>", true, ["SH"]),
+    ("Zero limit and previews", "<SH limit=0 limitStart=0 limitEnd=0>echo one</SH>", true, ["SH"]),
+    ("SH unknown parameter forwarded", "<SH unknown=1>echo one</SH>", true, ["SH"]),
+    ("SH duplicate parameter rejects batch", "<SH timeout=1 timeout=2>echo one</SH>", false, []),
+    ("SH bare regex forwarded to Executor", "<SH>echo FIRST</SH><SH regex>echo NO</SH>", true, ["SH", "SH"]),
+    ("SH regex expression forwarded to Executor", "<SH regex={true}>echo NO</SH>", true, ["SH"]),
+    ("SH empty quoted regex accepted", "<SH regex=\"\">echo one</SH>", true, ["SH"]),
+    ("SH escaped quote kept intact", "<SH regex=\"a\\\"b\">echo one</SH>", true, ["SH"]),
+    ("Malformed paired root SH rejects batch", "<SH>echo FIRST</SH><SH regex=\"unfinished>echo NO</SH>", false, []),
+    ("Malformed nested SH stays inert", "<box><SH regex=\"unfinished>INERT</SH></box><SH>echo ROOT</SH>", true, ["SH"]),
+    ("Inert nested bounded SH", "<box><SH timeout=60>INERT</SH></box>", true, []),
     ("Multiline SH preserves body bytes", "<SH>\r\necho first\r\n<DONE>\r\n</SH>\r\n<DONE>", true, ["SH","DONE"]),
     ("Adjacent tags", "<SH>echo A</SH><ATTACH>file.txt</ATTACH><DONE>", true, ["SH","ATTACH","DONE"]),
     ("Inline ATTACH", "prefix <ATTACH>file.txt</ATTACH> suffix", true, ["ATTACH"]),
@@ -97,6 +109,8 @@ foreach (var (name, source, valid, commands) in checks)
     var result = new RichDocumentParser().Parse(source);
     var names = result.Commands.Select(c => c.Name).ToArray();
     var pass = result.Document.Valid == valid && names.SequenceEqual(commands);
+    if (name == "SH escaped quote kept intact")
+        pass &= result.Commands.Single().Attributes?["regex"] == "\"a\\\"b\"";
     if (name == "Multiline SH preserves body bytes")
         pass &= result.Commands.FirstOrDefault()?.Body == "\r\necho first\r\n<DONE>\r\n";
     if (name == "Nested box and text")
@@ -552,8 +566,8 @@ var exceptionCases = new (string Name, string Source, bool Valid, string? Diagno
         true, null, "svg", ["SH"]),
     ("Nested SVG", "<svg><svg><circle r=\"2\"/></svg></svg>",
         true, null, "svg", []),
-    ("Unsafe command attribute", "<SH onClick=\"bad\">ROOT</SH>",
-        false, "Unsupported or duplicate SH attribute: onClick.", null, []),
+    ("Generic command attributes forwarded", "<SH onClick=\"bad\">ROOT</SH>",
+        true, null, null, ["SH"]),
     ("DONE not final", "<DONE><SH>ROOT</SH>",
         false, "DONE must be the final Agent command and occur once.", null, []),
     ("Duplicate DONE", "<SH>ROOT</SH><DONE><DONE>",

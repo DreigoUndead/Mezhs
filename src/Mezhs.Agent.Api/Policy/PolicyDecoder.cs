@@ -40,7 +40,7 @@ public sealed class PolicyDecoder
     {
         var commands = definition.Commands!;
         var completion = definition.Completion!;
-        var limits = definition.Limits!;
+        var limits = definition.Limits ?? new PolicyLimitsDefinition();
         var name = string.IsNullOrWhiteSpace(definition.Name) ? id : definition.Name.Trim();
         var connectionId = definition.ConnectionId!.Trim();
         var defaultModel = string.IsNullOrWhiteSpace(definition.DefaultModel)
@@ -63,7 +63,9 @@ public sealed class PolicyDecoder
                 NormalizeCommandNames(
                     completion.RequiredSuccessfulCommands,
                     $"policies.{id}.completion.requiredSuccessfulCommands")),
-            new PolicyLimitsSettings(limits.CommandTimeoutSeconds));
+            new PolicyLimitsSettings(
+                limits.CommandTimeoutSeconds, limits.Limit, limits.LimitStart,
+                limits.LimitEnd, limits.Regex));
 
         return new PolicyContext(
             id,
@@ -80,19 +82,25 @@ public sealed class PolicyDecoder
         string template,
         IReadOnlyDictionary<string, string>? texts)
     {
-        // A reference is the entire policy instruction field; ordinary prose stays literal.
-        var match = InstructionReference.Match(template);
-        if (!match.Success)
+        // Expand only when every non-empty line is a reference. Mixed prose stays literal.
+        // References resolve one level deep; do not recursively expand shared texts.
+        var references = template.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (references.Length == 0 || references.Any(reference => !InstructionReference.IsMatch(reference)))
             return template;
 
-        var id = match.Groups[1].Value;
-        if (texts is null || !texts.TryGetValue(id, out var value))
-            throw new InvalidOperationException(
-                $"policies.{policyId}.instructions references unknown text '{id}' in adjacent instructions.yaml.");
-        if (InstructionReference.IsMatch(value))
-            throw new InvalidOperationException(
-                $"Instruction text '{id}' contains another reference. Only direct references are supported.");
-        return value;
+        var expanded = new List<string>(references.Length);
+        foreach (var reference in references)
+        {
+            var id = InstructionReference.Match(reference).Groups[1].Value;
+            if (texts is null || !texts.TryGetValue(id, out var value))
+                throw new InvalidOperationException(
+                    $"policies.{policyId}.instructions references unknown text '{id}' in adjacent instructions.yaml.");
+            if (InstructionReference.IsMatch(value))
+                throw new InvalidOperationException(
+                    $"Instruction text '{id}' contains another reference. Only direct references are supported.");
+            expanded.Add(value);
+        }
+        return string.Join("\n\n", expanded);
     }
 
     private static Func<PolicyCompletionContext, bool> CompileCompletionClaim(

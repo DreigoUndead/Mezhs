@@ -208,6 +208,13 @@ public sealed class RichDocumentParser
             }
             if (_source[cursor] != '<' || !TryTag(cursor, end, out var tag))
             {
+                if (expected is null && _source[cursor] == '<' &&
+                    IsMalformedRootShOpener(cursor, end))
+                {
+                    _failure = new ParseFailure("Malformed SH opening tag.");
+                    position = cursor;
+                    return [];
+                }
                 cursor++;
                 continue;
             }
@@ -276,7 +283,7 @@ public sealed class RichDocumentParser
                     body = _source[tag.End..close];
                     after = close + tag.Name.Length + 3;
                 }
-                if (!TryParseAttributes(tag, definition, out _, out var commandError))
+                if (!TryParseAttributes(tag, definition, out var commandAttributes, out var commandError))
                 {
                     _failure = new ParseFailure(commandError);
                     position = cursor;
@@ -289,7 +296,7 @@ public sealed class RichDocumentParser
                     return [];
                 }
                 _commands.Add(new RichCommandCandidate(tag.Name, body,
-                    new RichSourceSpan(cursor, after)));
+                    new RichSourceSpan(cursor, after), commandAttributes));
                 cursor = after;
                 continue;
             }
@@ -486,6 +493,18 @@ public sealed class RichDocumentParser
         return -1;
     }
 
+    // A root SH pair must not be skipped when malformed quoting prevents
+    // TryTag from recognizing its opener. Incomplete, unpaired openers stay text.
+    private bool IsMalformedRootShOpener(int at, int end)
+    {
+        if (!_source.AsSpan(at).StartsWith("<SH", StringComparison.Ordinal))
+            return false;
+        var next = at + 3;
+        if (next >= end || !(char.IsWhiteSpace(_source[next]) || _source[next] is '>' or '/'))
+            return false;
+        return FindOpaqueClosing("SH", next, end) >= 0;
+    }
+
     private int FindOpaqueClosing(string name, int from, int end)
     {
         var close = _source.IndexOf("</" + name + ">", from, StringComparison.Ordinal);
@@ -638,13 +657,72 @@ public sealed class RichDocumentParser
             var name = source[..i].ToString();
             if (result.ContainsKey(name) ||
                 definition.AllowedAttributes is { } allowed && !allowed.Contains(name) ||
-                definition.AllowedAttributes is null && UnsafePresentationAttribute(name))
+                definition.AllowedAttributes is null &&
+                    definition.Role != RichTagRole.Command && UnsafePresentationAttribute(name))
             {
                 reason = $"Unsupported or duplicate {tag.Name} attribute: {name}.";
                 return false;
             }
             source = source[i..].TrimStart();
             string value;
+            if (definition.Role == RichTagRole.Command)
+            {
+                // Commands carry generic lexical values unchanged to the host.
+                // This parser enforces quoting/braces and boundaries, not which
+                // command option names or values have functional meaning.
+                if (source.Length == 0 || source[0] != '=') value = "";
+                else
+                {
+                    source = source[1..].TrimStart();
+                    if (source.Length == 0)
+                        value = "";
+                    else if (source[0] is '\'' or '"')
+                    {
+                        // Use the same backslash-aware quote boundary as TryTag.
+                        // Keep the complete token intact for Executor to interpret.
+                        var quote = source[0];
+                        var stop = 1;
+                        while (stop < source.Length)
+                        {
+                            if (source[stop] == '\\' && stop + 1 < source.Length)
+                            {
+                                stop += 2;
+                                continue;
+                            }
+                            if (source[stop] == quote) break;
+                            stop++;
+                        }
+                        if (stop >= source.Length)
+                        {
+                            reason = "Unclosed quoted attribute.";
+                            return false;
+                        }
+                        value = source[..(stop + 1)].ToString();
+                        source = source[(stop + 1)..];
+                    }
+                    else if (source[0] == '{')
+                    {
+                        var stop = FindExpressionEnd(source);
+                        if (stop < 0)
+                        {
+                            reason = "Unclosed attribute expression.";
+                            return false;
+                        }
+                        value = source[..(stop + 1)].ToString();
+                        source = source[(stop + 1)..];
+                    }
+                    else
+                    {
+                        var stop = 0;
+                        while (stop < source.Length && !char.IsWhiteSpace(source[stop])) stop++;
+                        value = source[..stop].ToString();
+                        source = source[stop..];
+                    }
+                }
+                result.Add(name, value);
+                source = source.TrimStart();
+                continue;
+            }
             if (source.Length == 0 || source[0] != '=') value = "true";
             else
             {
@@ -699,11 +777,6 @@ public sealed class RichDocumentParser
                     reason = "Attribute must be quoted or a bounded literal.";
                     return false;
                 }
-            }
-            if (value.Length > 2_048)
-            {
-                reason = "Attribute value too long.";
-                return false;
             }
             result.Add(name, value);
             source = source.TrimStart();

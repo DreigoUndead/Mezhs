@@ -3,7 +3,8 @@ using Mezhs.Common.RichUi;
 
 namespace Mezhs.Agent.Commands;
 
-public sealed record Command(string Name, string? Body);
+public sealed record Command(string Name, string? Body,
+    IReadOnlyDictionary<string, string>? Attributes = null);
 
 public sealed record CommandBatch(
     IReadOnlyList<Command> Commands,
@@ -35,13 +36,13 @@ public sealed class Parser
             var end = candidate.SourceSpan.End;
             if (start < cursor || end < start || end > content.Length)
                 throw new CommandParseException("Invalid command source range.");
-            // Consume only the exact matched tag span; surrounding prose and
-            // line breaks remain visible.
             visible.Append(content, cursor, start - cursor);
             cursor = end;
-            commands.Add(new Command(candidate.Name, candidate.Body));
+            commands.Add(new Command(candidate.Name, candidate.Body,
+                candidate.Attributes is { Count: > 0 } attributes ? attributes : null));
         }
         visible.Append(content, cursor, content.Length - cursor);
         return new CommandBatch(commands, visible.ToString());
     }
+
 }

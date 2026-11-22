@@ -43,6 +43,34 @@ public sealed class ExecutorService
         }
     }
 
+    // This is the sole SH functional entry point. Reject invalid parameters
+    // before creating any durable shell row or launching a process.
+    public async Task<ExecutorShellResult> ExecuteShellAsync(
+        string command,
+        string? directory,
+        IReadOnlyDictionary<string, string>? rawAttributes,
+        ExecutorShellDefaults? defaults,
+        IReadOnlyDictionary<string, string>? environment,
+        CancellationToken cancellationToken = default)
+    {
+        ExecutorShellOptions resolved;
+        try { resolved = ExecutorShellOptions.Resolve(rawAttributes, defaults); }
+        catch (ArgumentException ex)
+        {
+            return new ExecutorShellResult(null, false, null, null, ex.Message);
+        }
+
+        int id;
+        try { id = Execute(command, directory, resolved.TimeoutSeconds, environment); }
+        catch (Exception ex)
+        {
+            return new ExecutorShellResult(null, false, null, null, ex.Message);
+        }
+
+        var execution = await WaitAsync(id, cancellationToken);
+        return resolved.Present(execution, StoragePath);
+    }
+
     public Execution Get(int id)
     {
         Reconcile(id);
