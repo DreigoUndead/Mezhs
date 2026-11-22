@@ -5,6 +5,9 @@ and finalizes the approved release.
 
 ## Before approval
 
+- Merge the latest `main` into the task branch, resolve conflicts,
+  and verify the integrated revision **before** requesting owner approval.
+  Do not modify `main` before approval.
 - Present the task branch, PR or commit, and a summary
   of the delivered behavior.
 - Report Code Review and Testing outcomes, verification

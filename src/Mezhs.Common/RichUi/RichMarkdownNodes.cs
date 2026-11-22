@@ -123,6 +123,11 @@ internal static class RichMarkdownNodes
         if (++count > 4_096 || depth > 24) throw new FormatException("Markdown node budget exceeded.");
         var start = Math.Clamp(input.Span.Start, 0, source.Length);
         var end = Math.Clamp(input.Span.End + 1, start, source.Length);
+        // An unclosed or split Markdown fence may report only its opener in Span.
+        // Its code lines retain their original positions, including rich placeholders.
+        if (input is FencedCodeBlock fence)
+            for (var i = 0; i < fence.Lines.Count; i++)
+                end = Math.Max(end, Math.Clamp(fence.Lines.Lines[i].Slice.End + 1, start, source.Length));
         var span = new RichSourceSpan(start + offset, end + offset);
         if (input is LiteralInline literalWithRich && replacements.Count > 0)
         {

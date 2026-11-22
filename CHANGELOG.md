@@ -2,6 +2,40 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.9.3] - 2026-11-21
+
+### Fixed
+- Preserve registered inline rich UI elements in incomplete and split Markdown code fences, including citations, by using Markdig's actual fenced-code line slices when the block span covers only the opening delimiter.
+- Keep the original UTF-16 source positions, independent visible rich children, inert unsupported controls, and root-only Agent command behavior.
+
+### Verification and approval
+- Owner explicitly instructed merging PR #68 on 2026-11-21; merged approved task branch at `8f59e12704dd15fe66d2dfc79268afa773bd7130` into `main` as `4ea913bd03bed2f965c562fb032e019002eb25cb`.
+- Owner classified this as Small / low risk, waiving independent plan, code and testing agents. Self-review and local merged-implementation checks passed: 121/121 C# parser cases (with 0 expected first-chance parser exceptions), 64/64 Node and Chromium rich-UI checks, and `git diff --check`.
+- Earlier task-branch Agent protocol verification passed, including rejected batch side-effect checks. MEŽS Core CI passed on earlier implementation-inclusive task commit `b122b7f5d38e81d24a834cb1c28e4f8999ffd777` (run 44738184927); this is not evidence of a final integrated CI pass.
+
+### Known limitations
+- Hosted MEŽS Core run 44828968760 for integrated implementation commit `92c4705435ecb1c5685ddc8d0eba8a3ecee23f3c` had not completed when the owner-approved PR was merged. Final Codegraph-only bot commit `8f59e12704dd15fe66d2dfc79268afa773bd7130` was not independently exercised by the local checks.
+- No separate authenticated live-provider Electron desktop test was performed. Literal citation `refs` array behavior belongs to separate PR #66, not this fix.
+
+## [0.9.2] - 2026-11-20
+
+### Fixed
+- Replace exceptions for expected Rich UI parser validation failures with explicit bounded failure results; retain fail-closed Agent command handling, inert Unknown/SVG fallback, diagnostic output and resource limits.
+- Preserve existing parser AST and command-candidate behavior while eliminating routine debugger first-chance exception noise.
+- Make first-chance regression tests resilient to parser type and namespace renames by inspecting stack-frame declaring types instead of a hardcoded class-name string.
+
+### Verification and approval
+- Owner explicitly approved merging PR #72 on 2026-11-20. The task merged into `main` as `24b4519bf0634f14bec3116be6c0f158d8b022f0`; plan and verification were archived under `specifications/implemented/parser-expected-failures-no-exceptions/`.
+- Single-agent, **non-independent** self-review and developer tests followed the owner's explicit workflow override.
+- The Release build succeeded with 0 errors and one unrelated WhatsApp CS0114 warning. C# parser tests passed 121/121 with 0 expected parser first-chance exceptions. Relevant browser tests passed 66/66 and provider JavaScript tests passed 120/120.
+- Read-only historical replay of 6,666 assistant messages matched the original parser with 0 AST and command differences across 8,325 candidates; parser first-chance exceptions dropped from 310 to 0. Unicode differential matched all 2,214 cases.
+- The implementation commit `6d979bdccad32f0df411d3664058cf9217f5b2a2` passed the hosted MEŽS Core workflow (run 44776810417). A positive-control test of the original parser DLL detected 27 first-chance exceptions, compared with 0 on the updated parser.
+
+### Known limitations
+- Final bot-only Codegraph commit `b91836d0ddb3aec81744378f22a59c2216fec8f1` had a **failed** MEŽS Core workflow (run 44785761061); its cause was not established. Its code diff from the approved archived head is limited to `.agents/codegraph/graph.json`. No passing Core CI result was established for the final merged PR head.
+- Unrelated `tests/group-delete-browser.test.cjs` focus-restoration check failed in isolation; it was not counted as passing or fixed in this task.
+- Independent review and live authenticated desktop testing were not performed under the owner's one-agent override.
+
 ## [0.9.1] - 2026-11-20
 
 ### Changed

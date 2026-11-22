@@ -233,3 +233,10 @@ Use Windows PowerShell 5.1 where `pwsh` is absent. Run `dotnet build src/Mezhs.A
 **Limits:** No production-instance test or independently forced pathological-regex timeout. The separate 16000-character prompt safeguard remains. The currently running MEZS runtime rejected a root SH timeout attribute in this testing conversation, but this does not establish a feature-branch defect or the cause of the runtime difference.
 
 **Next:** Deploy may seek explicit owner approval; do not merge into main without approval.
+
+
+### 2026-11-22 - Deploy pre-approval main integration
+
+**Change:** Integrated main revision cce2d8236d63254f726f325ff566d7bf1b98331b into the feature branch before seeking owner approval, resolving Rich UI parser and generated Codegraph conflicts. Updated .agents/deploy.md to require main synchronization, conflict resolution and integrated verification before the owner approval request.
+
+**Verification:** Isolated Windows Agent API Release build PASS (0 warnings/errors); merged Rich UI regressions PASS 132/132; policy-decoder.ps1 PASS; isolated live agent-protocol-result.ps1 PASS; generated Codegraph native backend with zero fallbacks; staged diff validation PASS. These are integration checks, not a new independent review. Owner merge approval remains pending.
