@@ -76,4 +76,15 @@ Run targeted `tests/agent-protocol-result.ps1`, parser and renderer regressions 
 
 **Scope/limits:** Frontend checks used Node SSR; a separate Chromium live visual run was not performed. The reported original execution was not rerun retroactively; corrected behavior was established with isolated fixtures. No release documentation or merge was performed during Development.
 
-**Outcome:** Development and required focused verification complete. Await owner approval for Deploy/merge; `main` is release-only.
+**Outcome:** The original implementation passed the checks above at `de2ba40`. A follow-up parser-architecture correction is now in progress; those results do not verify the revised parser. Re-run focused checks before Deploy. Await owner approval for merge; `main` is release-only.
+
+
+### 2026-11-22 — Reuse canonical parser traversal
+
+**Finding:** The initial implementation added `ReadEscapeLiteral()`, a second tag-scanning loop that independently decided which nested tags shield command discovery. Although it reused the tokenizer and close helpers, it duplicated structural policy and conflicted with `.agents/batman.md` ("Does an existing mechanism already solve this problem?" / "Prefer ... one source of truth").
+
+**Correction:** Remove `ReadEscapeLiteral()`. `ReadChildren()` now has a narrowly scoped literal mode used only for the body of `escape`: it uses the existing command recognition/attribute-validation path for direct commands and the existing paired-tag matching helpers to skip nested non-command wrappers. It does not lower Markdown, parse radio controls, validate or render nested presentation tags, or grant command eligibility to other containers. The outer escape node removes only the source spans of command candidates discovered by this traversal.
+
+**Regression:** Add coverage for malformed nested presentation attributes and commands nested inside SVG/unknown wrappers.
+
+**Verification:** Pending on the corrected revision. The passing results above apply to the previous implementation only and must not be attributed to this correction until rerun.
