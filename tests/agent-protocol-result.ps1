@@ -396,8 +396,8 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     Write-Host 'PASS: SH regex/line preview preserves durable output; generated Get command retrieves original result.'
 
     # An explicit timeout exceeds the policy's default (2s) without a second cap.
-    # Leave headroom for PowerShell startup and hosted-runner scheduling, while keeping the command beyond the 2s policy default.
-    $overrideTask = '<SH timeout=15>powershell -NoProfile -Command "Start-Sleep -Seconds 3; echo OVERRIDE_OK"</SH>'
+    # Use Windows ping (~4 seconds for five requests) to avoid a nested PowerShell startup dependency while staying beyond the 2s policy default.
+    $overrideTask = '<SH timeout=15>ping -n 5 127.0.0.1 >nul && echo OVERRIDE_OK</SH>'
     $overrideRun = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test'; input = $overrideTask })
     $overrideOutcome = Wait-Execution $overrideRun.executionId 20
     $overrideHistory = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($overrideOutcome.chatId)/executions")
