@@ -275,3 +275,11 @@ Run Windows Agent API Release build, Rich UI TestApp, `tests/policy-decoder.ps1`
 **Verification:** Source was re-fetched and inspected at the corrected commits. GitHub MEŽS Core CI for implementation/test commit 2a01c05 was in progress when first checked; no completed Windows test or independent Testing PASS is claimed here. This reviewer had no local Windows/.NET execution environment. Earlier developer tests predate the correction and do not verify it.
 
 **Next:** Complete Windows verification of the corrected head, then obtain a fresh independent Code Review (step 3) followed by independent Testing (step 4). Do not merge into main without explicit owner approval.
+
+### 2026-11-22 — Code Review 3 correction verification: CI timeout smoke
+
+**Observation:** GitHub Windows MEŽS Core workflow run 45024989270 for plan revision 22043e2 failed at the Agent command protocol and real Executor smoke step. The log shows the new escaped-quote Rich UI test passing, structural/invalid-parameter cases passing, and durable CLI Get recovery passing. The next existing timeout-override smoke failed with a generic assertion; it did not log the actual shell status. Thus neither a production regression nor scheduling delay is established as the cause.
+
+**Correction:** Commit 733c48129b4e87c40e623bb699ca862c2cd94335 gives the explicit override smoke a 15-second timeout instead of six seconds while retaining its three-second delay beyond the two-second policy default, and emits actual shell evidence if it fails again. This changes a test fixture only and is not evidence that the original failing run was caused by insufficient startup margin.
+
+**Next:** Verify the updated branch CI and repeat independent Code Review step 3 on the complete corrected revision. Subsequent independent Testing and owner-authorized Deploy remain pending. No main merge.
