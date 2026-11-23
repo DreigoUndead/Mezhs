@@ -2,12 +2,9 @@ namespace Mezhs.Configuration;
 
 public static class ConfigPath
 {
-    private const string OverrideComment = "# Add personal overrides for the adjacent base configuration here.\n";
-
-    // Default launches use a sparse personal override next to the tracked sample.
-    // Explicit --config paths retain their exact existing meaning.
+    // Default launches opt into overrides; explicit paths retain their exact existing meaning.
     public static ConfigSource FindWithOverride(
-        string[] args, string fileName, string argumentName = "--config", string? companionFileName = null)
+        string[] args, string fileName, string argumentName = "--config")
     {
         var path = Find(args, fileName, argumentName);
         for (var i = 0; i < args.Length - 1; i++)
@@ -15,29 +12,7 @@ public static class ConfigPath
             if (string.Equals(args[i], argumentName, StringComparison.OrdinalIgnoreCase))
                 return new(path);
         }
-
-        var overridePath = EnsureOverride(path);
-        if (companionFileName is not null)
-            EnsureOverride(Path.Combine(Path.GetDirectoryName(path)!, companionFileName));
-        return new(path, overridePath);
-    }
-
-    public static string EnsureOverride(string defaultPath)
-    {
-        var overridePath = Path.Combine(
-            Path.GetDirectoryName(Path.GetFullPath(defaultPath))!,
-            Path.GetFileNameWithoutExtension(defaultPath) + ".override" + Path.GetExtension(defaultPath));
-        if (!File.Exists(overridePath))
-        {
-            try
-            {
-                using var file = new FileStream(overridePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
-                using var writer = new StreamWriter(file);
-                writer.Write(OverrideComment);
-            }
-            catch (IOException) when (File.Exists(overridePath)) { /* Concurrent first startup. */ }
-        }
-        return overridePath;
+        return new(path, Overridable: true);
     }
 
     public static string Find(string[] args, string fileName, string argumentName = "--config")
@@ -79,7 +54,7 @@ public static class ConfigPath
     }
 }
 
-public sealed record ConfigSource(string Path, string? OverridePath = null)
+public sealed record ConfigSource(string Path, bool Overridable = false)
 {
-    public override string ToString() => OverridePath is null ? Path : $"{Path} + {OverridePath}";
+    public override string ToString() => Overridable ? $"{Path} + override" : Path;
 }

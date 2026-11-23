@@ -120,25 +120,39 @@ var savedDirectory = Environment.CurrentDirectory;
 try
 {
     var defaultCore = Path.Combine(configScratch, "mezhs.yaml");
+    var localCore = Path.Combine(configScratch, "mezhs.local.yaml");
     var overrideCore = Path.Combine(configScratch, "mezhs.override.yaml");
     var defaultAgent = Path.Combine(configScratch, "agent.yaml");
+    var localAgent = Path.Combine(configScratch, "agent.local.yaml");
     var overrideAgent = Path.Combine(configScratch, "agent.override.yaml");
     var defaultTexts = Path.Combine(configScratch, "instructions.yaml");
+    var localTexts = Path.Combine(configScratch, "instructions.local.yaml");
     var overrideTexts = Path.Combine(configScratch, "instructions.override.yaml");
     File.WriteAllText(defaultCore, File.ReadAllText(Path.Combine(repositoryRoot, "mezhs.yaml")));
     File.WriteAllText(defaultAgent, File.ReadAllText(args[0]));
     File.WriteAllText(defaultTexts, "texts:\n  mezhs_default: Default text\n");
+    File.WriteAllText(localCore, "legacy Core copy");
+    File.WriteAllText(localAgent, "legacy Agent copy");
+    File.WriteAllText(localTexts, "legacy instruction copy");
 
     Environment.CurrentDirectory = configScratch;
     var coreSource = ConfigPath.FindWithOverride([], "mezhs.yaml");
-    var agentSource = ConfigPath.FindWithOverride([], "agent.yaml", companionFileName: "instructions.yaml");
-    Assert(coreSource == new ConfigSource(defaultCore, overrideCore) &&
+    var agentSource = ConfigPath.FindWithOverride([], "agent.yaml");
+    Assert(coreSource == new ConfigSource(defaultCore, Overridable: true) &&
+           !File.Exists(overrideCore) && File.Exists(localCore),
+        "Config path selection unexpectedly managed personal files.");
+    Assert(agentSource == new ConfigSource(defaultAgent, Overridable: true),
+        "Default Agent config was not marked overridable.");
+
+    var initialCore = MezhsConfigLoader.Load(coreSource);
+    Assert(initialCore.Connections.Count > 0 && !File.Exists(localCore) &&
            File.ReadAllText(overrideCore).TrimStart().StartsWith('#'),
-        "Default Core startup did not create a comment-only override.");
-    Assert(agentSource == new ConfigSource(defaultAgent, overrideAgent) &&
+        "Core YAML loading did not remove its legacy copy and create a comment-only override.");
+    var initialAgent = AgentConfigLoader.Load(agentSource, ["test", "test-alt"]);
+    Assert(initialAgent.Policies.Count > 0 && !File.Exists(localAgent) && !File.Exists(localTexts) &&
            File.ReadAllText(overrideAgent).TrimStart().StartsWith('#') &&
            File.ReadAllText(overrideTexts).TrimStart().StartsWith('#'),
-        "Default Agent startup did not create comment-only config and instruction overrides.");
+        "Agent YAML loading did not remove legacy copies and create comment-only overrides.");
     File.WriteAllText(overrideCore, """
         connections:
           - id: chatgpt-sub
@@ -180,9 +194,9 @@ try
         "Agent and instruction overrides did not use the shared recursive merge.");
 
     var savedOverride = File.ReadAllText(overrideCore);
-    ConfigPath.FindWithOverride([], "mezhs.yaml");
+    MezhsConfigLoader.Load(coreSource);
     Assert(File.ReadAllText(overrideCore) == savedOverride,
-        "Subsequent startup overwrote personal overrides.");
+        "Subsequent load overwrote personal overrides.");
     var explicitPath = Path.Combine(configScratch, "custom config.yaml");
     File.WriteAllText(explicitPath, "custom");
     Assert(ConfigPath.FindWithOverride(["--config", explicitPath], "agent.yaml") == new ConfigSource(explicitPath) &&
@@ -194,8 +208,7 @@ try
     var explicitAgent = Path.Combine(customDirectory, "agent.custom.yaml");
     var explicitInstructions = Path.Combine(customDirectory, "instructions.yaml");
     File.WriteAllText(explicitAgent, File.ReadAllText(args[0]));
-    Assert(ConfigPath.FindWithOverride(["--config", explicitAgent], "agent.yaml",
-               companionFileName: "instructions.yaml") == new ConfigSource(explicitAgent) &&
+    Assert(ConfigPath.FindWithOverride(["--config", explicitAgent], "agent.yaml") == new ConfigSource(explicitAgent) &&
            !File.Exists(explicitInstructions),
         "Explicit Agent config incorrectly created an instructions sidecar.");
     var noSidecar = AgentConfigLoader.Load(explicitAgent, ["test", "test-alt"]);

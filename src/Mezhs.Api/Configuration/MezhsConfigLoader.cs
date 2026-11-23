@@ -19,7 +19,7 @@ public static partial class MezhsConfigLoader
         var deserializer = new DeserializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .Build();
-        var options = deserializer.Deserialize<T>(YamlConfig.Load(source).Text)
+        var options = deserializer.Deserialize<T>(YamlConfig.LoadOverridableYaml(source).Text)
             ?? throw new InvalidOperationException("MEŽS configuration is empty.");
 
         var configDirectory = Path.GetDirectoryName(Path.GetFullPath(source.Path))!;

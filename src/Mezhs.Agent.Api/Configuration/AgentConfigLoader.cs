@@ -14,7 +14,7 @@ public static class AgentConfigLoader
 
     public static AgentOptions Load(ConfigSource source, IReadOnlyCollection<string>? coreConnectionIds = null)
     {
-        var yaml = YamlConfig.Load(source);
+        var yaml = YamlConfig.LoadOverridableYaml(source);
         var root = yaml.Root;
 
         foreach (var key in root.Children.Keys.OfType<YamlScalarNode>())

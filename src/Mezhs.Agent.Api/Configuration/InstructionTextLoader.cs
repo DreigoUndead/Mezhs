@@ -11,16 +11,14 @@ public static class InstructionTextLoader
     {
         var directory = Path.GetDirectoryName(Path.GetFullPath(agentConfig.Path))!;
         var path = Path.Combine(directory, "instructions.yaml");
-        var overridePath = agentConfig.OverridePath is null
-            ? null
-            : Path.Combine(directory, "instructions.override.yaml");
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
         if (!File.Exists(path))
             return result; // Legacy policies with no references need no sidecar.
 
         try
         {
-            var root = YamlConfig.Load(new ConfigSource(path, overridePath)).Root;
+            var root = YamlConfig.LoadOverridableYaml(
+                new ConfigSource(path, agentConfig.Overridable)).Root;
             if (
                 !root.Children.TryGetValue(new YamlScalarNode("texts"), out var textsNode) ||
                 textsNode is not YamlMappingNode texts)

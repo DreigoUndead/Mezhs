@@ -6,14 +6,39 @@ namespace Mezhs.Configuration;
 
 public static class YamlConfig
 {
-    public static LoadedYaml Load(ConfigSource source)
+    private const string OverrideComment = "# Add personal overrides for the adjacent base configuration here.\n";
+
+    public static LoadedYaml LoadOverridableYaml(ConfigSource source)
     {
         var root = ReadMapping(source.Path);
-        if (source.OverridePath is { } overridePath && !ContainsValues(overridePath))
+        if (!source.Overridable)
             return new(root, Serialize(root));
-        if (source.OverridePath is { } populatedOverride)
-            Merge(root, ReadMapping(populatedOverride));
+
+        // Remove legacy full-copy configuration after the override migration.
+        File.Delete(PersonalPath(source.Path, "local"));
+        var overridePath = PersonalPath(source.Path, "override");
+        EnsureOverride(overridePath);
+        if (!ContainsValues(overridePath))
+            return new(root, Serialize(root));
+        Merge(root, ReadMapping(overridePath));
         return new(root, Serialize(root));
+    }
+
+    private static string PersonalPath(string path, string qualifier) => Path.Combine(
+        Path.GetDirectoryName(Path.GetFullPath(path))!,
+        $"{Path.GetFileNameWithoutExtension(path)}.{qualifier}{Path.GetExtension(path)}");
+
+    private static void EnsureOverride(string path)
+    {
+        if (File.Exists(path))
+            return;
+        try
+        {
+            using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+            using var writer = new StreamWriter(file);
+            writer.Write(OverrideComment);
+        }
+        catch (IOException) when (File.Exists(path)) { /* Concurrent first startup. */ }
     }
 
     private static YamlMappingNode ReadMapping(string path)

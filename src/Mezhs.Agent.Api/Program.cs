@@ -13,7 +13,7 @@ using Mezhs.Configuration;
 using Mezhs.Executor;
 using Mezhs.Services;
 
-var configPath = ConfigPath.FindWithOverride(args, "agent.yaml", companionFileName: "instructions.yaml");
+var configPath = ConfigPath.FindWithOverride(args, "agent.yaml");
 var coreConfigPath = ConfigPath.FindWithOverride(args, "mezhs.yaml", "--mezhs-config");
 var coreOptions = MezhsConfigLoader.Load(coreConfigPath);
 var options = AgentConfigLoader.Load(configPath, coreOptions.Connections.Select(connection => connection.Id).ToArray());

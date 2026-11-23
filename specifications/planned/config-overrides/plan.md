@@ -6,7 +6,7 @@ Level: **Standard**
 
 ## What
 
-Replace implicit full `*.local.yaml` configuration copies with sparse, Git-ignored `*.override.yaml` files for Core, Agent, and shared instructions. Default startup creates each override with one comment. Explicit `--config` and `--mezhs-config` paths remain exact and do not gain an implicit override.
+Replace implicit full `*.local.yaml` configuration copies with sparse, Git-ignored `*.override.yaml` files for Core, Agent, and shared instructions. Default configuration loading deletes the matching legacy local copy and creates each missing override with one comment. Explicit `--config` and `--mezhs-config` paths remain exact and do not delete or gain implicit personal files.
 
 Apply one shared YAML merge rule to old and new configuration shapes: mappings merge recursively; sequences of mappings with `id` fields merge by ID and may add entries; other sequences and scalar values replace the base value. Remove the obsolete repository-local `*.local.yaml` files without migrating their contents.
 
@@ -25,12 +25,12 @@ Full local copies hide new defaults introduced by later releases and reuse filen
 - [x] Agent and instruction configuration use the same recursive merge behavior.
 - [x] Explicit configuration paths load exactly the selected files without an adjacent override.
 - [x] Comment-only override files leave base configuration unchanged.
-- [x] Obsolete root `*.local.yaml` files are removed and `*.override.yaml` is Git-ignored.
+- [x] Implicit/default loads delete matching legacy `*.local.yaml` files and `*.override.yaml` is Git-ignored.
 - [x] README and current behavior specification describe the new contract.
 
 ## How
 
-`ConfigPath` owns default-versus-explicit path selection and safe first-start creation of comment-only overrides. It returns a base/override source pair to both hosts. A shared `YamlConfig` loader owns parsing and overlay semantics before the existing typed Core, Agent, and instruction validation runs. Relative paths continue to resolve from the base configuration directory.
+`ConfigPath` only owns default-versus-explicit path selection. One shared `LoadOverridableYaml` method owns legacy deletion, safe first-start creation of comment-only overrides, parsing, and overlay semantics before the existing typed Core, Agent, and instruction validation runs. Relative paths continue to resolve from the base configuration directory.
 
 The merge stays intentionally small: only ID-bearing object sequences receive item-level merging. This supports connections while avoiding invented identity rules for arbitrary YAML lists.
 
@@ -56,6 +56,14 @@ Verified revision `84410756a7128f7de03622778644ba8b13bbd076` before this documen
 
 No live provider, Electron, or browser testing is required. The build reported existing npm audit findings; no dependencies changed in this task.
 
+Consolidation follow-up based on `bb15add840d0054eea87e27358dcf3c80fc27c7f`:
+
+- Affected Release build — PASS, 0 warnings and 0 errors.
+- `tests/policy-decoder.ps1` — PASS with legacy Core, Agent, and instruction deletion exercised through configuration loading.
+- Core and Agent architecture regressions — PASS.
+- `git diff --check` — PASS.
+- `codegraph review` — status `ok`, no functional findings.
+
 ## Changes
 
 ### 2026-11-23 — One-go workflow override
@@ -78,3 +86,10 @@ No live provider, Electron, or browser testing is required. The build reported e
 **Reason:** Fulfill the accepted configuration override contract.
 **Authority:** Owner feature request.
 **Trade-off:** Deleted local-file contents were intentionally not migrated and are not recoverable through Git.
+
+### 2026-11-23 — Consolidate override lifecycle ownership
+
+**Change:** Moved legacy `*.local.yaml` deletion and `*.override.yaml` creation into the shared `LoadOverridableYaml` method used by Core, Agent, and instruction configuration. `ConfigPath` now only selects paths and whether the default is overridable.
+**Reason:** Keep one owner for reading, migration cleanup, creation, and merging, following the Batman architecture and simplicity checks.
+**Authority:** Owner follow-up request.
+**Trade-off:** The first implicit/default load permanently deletes the matching legacy full copy without migrating its values; explicit config loads do not delete it.
