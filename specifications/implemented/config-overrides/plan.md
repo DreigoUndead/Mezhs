@@ -93,3 +93,9 @@ Consolidation follow-up based on `bb15add840d0054eea87e27358dcf3c80fc27c7f`:
 **Reason:** Keep one owner for reading, migration cleanup, creation, and merging, following the Batman architecture and simplicity checks.
 **Authority:** Owner follow-up request.
 **Trade-off:** The first implicit/default load permanently deletes the matching legacy full copy without migrating its values; explicit config loads do not delete it.
+
+### 2026-11-23 — Deployment approved
+
+**Change:** Archived the completed plan for release as version `0.10.0`.
+**Reason:** Development, self-review, and agreed automated verification completed successfully.
+**Authority:** Owner explicitly requested Deploy in this task.
