@@ -78,6 +78,18 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-23 - Independent Step 4 regression rerun (BLOCKED)
+
+**Revision and isolation:** Fetched task branch `d8291831202d168c3c1501cf430888e588ebc9a0`; clean worktree. No source implementation changes since the previously verified production revision. No owner storage, running API, or active Chromium profile was modified. No additional credential/profile cloning was authorized or attempted.
+
+**Automated PASS:** `dotnet build Mezhs.sln -c Release` completed with zero errors and one previously recorded WhatsApp CS0114 warning; both `src/Mezhs.Agent.Web` and `src/Mezhs.Web/ClientApp` TypeScript/Vite production builds passed. Nine focused ChatGPT/HTTP/streaming/transfer/browser suites passed 59/59 Node tests. Canonical `Mezhs.RichUi.TestApp` Release build passed with zero warnings/errors. Typed C# protocol flow, account login/model/recovery, cancellation across eight integrations, resources, architecture, Electron provider operations, browser authorization/visibility/identity, diagnostics and Grok architecture, and Integration Contracts Probe all passed.
+
+**Intermittent browser observation:** The broader cross-provider/UI batch passed 126/127 Node tests. One real-Chromium group-deletion assertion failed because focus was not restored to its dialog opener after cancellation. The same test passed one immediate standalone rerun plus three subsequent standalone repetitions (4/4). The harness uses short fixed settling delays, but timing as the cause is not established. This unrelated intermittent failure remains an observation; no speculative UI correction was made.
+
+**Harness corrections:** An initial combined build command ended with an incorrect frontend-package directory check after the Release and frontend builds had already passed; the actual frontend package paths were verified and rebuilt successfully. Three Electron scripts initially could not start because `RUNNER_TEMP` was absent; rerunning with an isolated temporary path passed all three. A Windows cmd FOR invocation also failed to parse; PowerShell repetition succeeded. These command/setup failures are not evidence of application defects.
+
+**Live provider limitation and outcome: BLOCKED.** Prior isolated authenticated ChatGPT tests established new/continued messages, overlap, project selection and one file-reading request, but left an unexplained uncertain post-submission stream failure and no successful real signed output download. Existing focused signed-transfer/protocol automated tests passed but do not substitute for those live cases. The saved auth export was previously documented as expired; no dedicated inactive authorized profile is currently established. Further owner-authorized isolated live verification or explicit owner acceptance of limitations is required before Testing PASS. No replay, merge, deployment or release is authorized. Next agents must fetch the latest task branch, follow that branch workflow/role instructions, and retain owner-approved merge destination `integration-architecture-v2`, never `main`.
+
 ### 2026-11-23 - Focused transfer and protocol recheck (BLOCKED)
 
 **Revision:** `f1dc10cf572948a9fa188462f8c887d5831c5392` (documentation-only since production revision `035d95c6`). No live provider session was started; owner API/processes were left untouched.
