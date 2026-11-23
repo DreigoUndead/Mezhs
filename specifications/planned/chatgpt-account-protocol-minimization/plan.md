@@ -78,6 +78,37 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-23 — Live renderer-readiness diagnostics (BLOCKED; investigation incomplete)
+
+**Revision and isolation:** The diagnostics used a temporary live-test worktree and isolated API. The detached worktree reported a modified `integrations/Mezhs.Integrations.ChatGpt/browser/modules/account-transport.js` (23 insertions, 6 deletions); the test checkout separately reported a clean task branch. The exact detached-worktree commit and whether the isolated API was built from that precise modified tree were not recorded. Do not treat the runtime-wait change as committed or as a final verified revision. Owner and isolated APIs remained alive. No credentials or cookie values were emitted.
+
+**Harness/build observations:** The first generated classifier had a quoting syntax error; a corrected classifier passed syntax checks. Renderer diagnostic syntax and marker-count checks passed. The detached Release build passed with zero warnings/errors. A runtime-wait edit passed syntax checks with a 3,900 ms maximum and its Release build passed. These establish syntax/build validity only, not that the wait reliably establishes provider readiness. Two subsequent attempts to inspect navigation-failure details failed at the PowerShell command layer (unterminated string; then nested PowerShell invocation), so no failure URL/code/description evidence was collected.
+
+**Live observations:**
+- Two classified attempts (execution 9961) failed while activity was `preparing`; their traces reached `REQUIREMENTS_ERROR_PROVIDER_NOT_OBSERVED`. The returned error text said the stream failed after submission and delivery may have succeeded.
+- A later attempt (9965) also failed at requirements discovery; its renderer snapshot was `RES_5_RUNTIME_0` (5 resource entries, zero matching ChatGPT runtime asset URLs).
+- A completed text-control message (9966) returned the exact expected marker. Its sanitized trace contained one requirements attempt with `RES_5_RUNTIME_0` that failed provider discovery, and another with `RES_180_RUNTIME_31` that completed requirements preparation, reached `NATIVE_PREPARE_DONE`, then `FETCH_START` and `FETCH_STATUS_200`. Because the trace is aggregated, it does not establish that the failed and successful preparation records belong to the same message or that the failed attempt was retried.
+- With the local runtime-wait change, two attempts (9969) still failed at requirements discovery with `RES_3_RUNTIME_0` and `RES_2_RUNTIME_0`. A third completed with the expected marker and `RES_248_RUNTIME_49`, followed by successful requirements preparation and HTTP 200. This is evidence of intermittent provider discovery, not proof that the 3.9-second wait is effective or ineffective in every context.
+- The successful cases had matching ChatGPT runtime assets observed; the failed cases did not. This correlation does not establish why those assets were absent.
+- Lifecycle inspection (9970) showed that each conversation context creates a BrowserWindow and `createWindow` awaits `loadURL` followed by optional `afterInitialize`. This source excerpt does not establish that ChatGPT's runtime modules have finished loading when native requirements discovery runs.
+- The prior log summary reported four navigation failures, but their sanitized details were not retrieved. No causal link between those navigation failures and missing runtime assets is established.
+- In the failed attempts, the recorded trace stopped at `REQUIREMENTS_ERROR_PROVIDER_NOT_OBSERVED` without recorded `NATIVE_PREPARE_DONE` or `FETCH_START`, while the surfaced error described uncertain post-submission delivery. This is a classification discrepancy worth investigating, not proof from the current aggregated trace that no POST was sent. Preserve the no-replay rule for any genuinely uncertain submission.
+
+**Outcome: BLOCKED, not PASS.** At least one live message completed with the expected marker and HTTP 200, but fresh contexts still intermittently failed to discover the native requirements provider. The runtime-readiness cause, navigation-failure relevance, exact API revision under test, and post-submission error classification remain unresolved. Existing limitations around live signed output-file download and overlapping distinct served-model/thinking-effort selections also remain.
+
+**Next work:**
+1. Identify the exact commit and diff for each worktree; establish which source tree the isolated API actually loaded. Do not assume the detached runtime-wait edit is on the remote branch.
+2. Retrieve sanitized navigation failures directly from the existing test log (error code, description, host and path category only; omit query strings, tokens, identifiers and full URLs). Do not invoke a nested `powershell.exe` from the MEZS PowerShell command.
+3. Correlate each request's message ID, stage markers, renderer resource counts and elapsed wait time. Determine whether missing runtime assets reflect incomplete asynchronous loading, navigation failure, cache/resource-timing behavior, or another cause; do not select a cause from correlation alone.
+4. Verify the readiness wait on independently created contexts, concurrent context startup and a warm-page control. Record per-context observations rather than relying on aggregated traces.
+5. Trace the actual one-time conversation POST boundary and error mapping. If a requirements failure is demonstrably pre-submission, report it as such; retain the uncertain-delivery/no-replay classification after submission. Do not resend any turn whose submission outcome is genuinely uncertain.
+6. Make only the smallest evidence-supported correction. Avoid increasing a fixed timeout without evidence. Re-run the focused native-requirements tests, Release build and isolated live scenarios on the exact corrected revision; a material correction requires fresh independent Testing verification.
+7. Continue the outstanding live verification for signed output-file download and distinct served-model/thinking-effort selection in overlapping chats. Keep the provider-level model-preference PATCH unless the required live evidence supports changing it.
+8. Do not enter Deploy or merge. The only authorized eventual merge destination is `integration-architecture-v2`, and it still requires explicit owner approval.
+
+**Evidence:** MEŽS executions 9958–9972. Executions 9958, 9971 and 9972 include command/harness failures; these are not application defects.
+
+
 ### 2026-11-23 - Independent Step 4 regression rerun (BLOCKED)
 
 **Revision and isolation:** Fetched task branch `d8291831202d168c3c1501cf430888e588ebc9a0`; clean worktree. No source implementation changes since the previously verified production revision. No owner storage, running API, or active Chromium profile was modified. No additional credential/profile cloning was authorized or attempted.
