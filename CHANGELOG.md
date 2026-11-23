@@ -2,6 +2,22 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.10.0] - 2026-11-23
+
+### Changed
+- Replace implicit full `*.local.yaml` configuration copies with sparse Git-ignored `*.override.yaml` files for Core, Agent and shared instructions.
+- Merge override mappings recursively and ID-bearing object lists by ID, allowing existing connections to be customized and new connections to be added without copying the full base configuration. Other lists replace their base value.
+- Centralize implicit configuration loading in `LoadOverridableYaml`, which removes the matching legacy `*.local.yaml`, creates a comment-only override when missing and preserves existing override content. Explicit config paths remain exact and do not delete or apply adjacent personal files.
+
+### Verification and approval
+- Owner explicitly requested Deploy on 2026-11-23; PR #75 merged the approved task branch into `main` as `543eb65d35d24d0342896592ef6a8376a99ca693`.
+- Under the owner's one-go workflow direction, self-review and automated checks passed: affected Release build with 0 warnings/errors, focused policy/config regression including all three legacy-file deletions, Core and Agent architecture checks, `git diff --check`, and Codegraph review with status `ok`.
+- A full Release solution build passed before the final lifecycle consolidation; the final implementation received the affected project build and focused regressions. The later plan archival was documentation-only.
+
+### Known limitations
+- No independent review, live provider/browser testing or hosted PR CI run was required or performed. Existing npm audit findings were observed during the earlier full build; this release changes no dependencies.
+- Legacy `*.local.yaml` values are intentionally not migrated: the first implicit/default load deletes those files. They are not recoverable through Git. Explicit configuration paths are unaffected.
+
 ## [0.9.3] - 2026-11-21
 
 ### Fixed
