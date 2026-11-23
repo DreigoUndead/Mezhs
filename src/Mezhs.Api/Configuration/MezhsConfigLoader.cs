@@ -8,19 +8,21 @@ public static partial class MezhsConfigLoader
 {
     public static MezhsOptions Load(string path) => Load<MezhsOptions>(path);
 
+    public static MezhsOptions Load(ConfigSource source) => Load<MezhsOptions>(source);
+
     public static T Load<T>(string path)
+        where T : MezhsOptions => Load<T>(new ConfigSource(path));
+
+    public static T Load<T>(ConfigSource source)
         where T : MezhsOptions
     {
-        if (!File.Exists(path))
-            throw new FileNotFoundException("MEŽS configuration file was not found.", path);
-
         var deserializer = new DeserializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .Build();
-        var options = deserializer.Deserialize<T>(File.ReadAllText(path))
+        var options = deserializer.Deserialize<T>(YamlConfig.Load(source).Text)
             ?? throw new InvalidOperationException("MEŽS configuration is empty.");
 
-        var configDirectory = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        var configDirectory = Path.GetDirectoryName(Path.GetFullPath(source.Path))!;
         options.Storage.Root = Resolve(configDirectory, options.Storage.Root);
         options.Transport.ElectronDirectory = Resolve(
             configDirectory,

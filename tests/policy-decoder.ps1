@@ -114,52 +114,91 @@ Assert(initialPrompt.Contains("Host shell:", StringComparison.Ordinal),
 Assert(initialPrompt.Contains("Closing tags may appear", StringComparison.Ordinal),
     "Default instructions lost position-independent tag guidance.");
 
-var configScratch = Path.Combine(Path.GetTempPath(), $"mezhs config copies {Guid.NewGuid():N}");
+var configScratch = Path.Combine(Path.GetTempPath(), $"mezhs config overrides {Guid.NewGuid():N}");
 Directory.CreateDirectory(configScratch);
 var savedDirectory = Environment.CurrentDirectory;
 try
 {
     var defaultCore = Path.Combine(configScratch, "mezhs.yaml");
-    var localCore = Path.Combine(configScratch, "mezhs.local.yaml");
+    var overrideCore = Path.Combine(configScratch, "mezhs.override.yaml");
     var defaultAgent = Path.Combine(configScratch, "agent.yaml");
-    var localAgent = Path.Combine(configScratch, "agent.local.yaml");
+    var overrideAgent = Path.Combine(configScratch, "agent.override.yaml");
     var defaultTexts = Path.Combine(configScratch, "instructions.yaml");
-    var localTexts = Path.Combine(configScratch, "instructions.local.yaml");
-    File.WriteAllText(defaultCore, "repo default");
+    var overrideTexts = Path.Combine(configScratch, "instructions.override.yaml");
+    File.WriteAllText(defaultCore, File.ReadAllText(Path.Combine(repositoryRoot, "mezhs.yaml")));
     File.WriteAllText(defaultAgent, File.ReadAllText(args[0]));
     File.WriteAllText(defaultTexts, "texts:\n  mezhs_default: Default text\n");
 
     Environment.CurrentDirectory = configScratch;
-    Assert(ConfigPath.FindLocal([], "mezhs.yaml") == localCore &&
-           File.ReadAllText(localCore) == "repo default",
-        "Default Core config was not copied alongside its tracked sample.");
-    Assert(ConfigPath.FindLocal([], "agent.yaml", companionFileName: "instructions.yaml") == localAgent,
-        "Default Agent config was not copied.");
-    Assert(File.Exists(localTexts) &&
-           File.ReadAllText(localTexts).Contains("Default text", StringComparison.Ordinal),
-        "Default startup did not create an instructions copy next to the Agent config.");
-    File.WriteAllText(localCore, "my personalized config");
-    File.WriteAllText(localTexts, "texts:\n  mezhs_default: |\n    Personal instructions on {OS}.\n    Use <SH>code</SH>.\n    Use <ATTACH>file</ATTACH>.\n");
-    File.WriteAllText(defaultCore, "upgraded default");
-    Assert(ConfigPath.FindLocal([], "mezhs.yaml") == localCore &&
-           File.ReadAllText(localCore) == "my personalized config",
-        "Subsequent startup overwrote local settings.");
+    var coreSource = ConfigPath.FindWithOverride([], "mezhs.yaml");
+    var agentSource = ConfigPath.FindWithOverride([], "agent.yaml", companionFileName: "instructions.yaml");
+    Assert(coreSource == new ConfigSource(defaultCore, overrideCore) &&
+           File.ReadAllText(overrideCore).TrimStart().StartsWith('#'),
+        "Default Core startup did not create a comment-only override.");
+    Assert(agentSource == new ConfigSource(defaultAgent, overrideAgent) &&
+           File.ReadAllText(overrideAgent).TrimStart().StartsWith('#') &&
+           File.ReadAllText(overrideTexts).TrimStart().StartsWith('#'),
+        "Default Agent startup did not create comment-only config and instruction overrides.");
+    File.WriteAllText(overrideCore, """
+        connections:
+          - id: chatgpt-sub
+            name: ChatGPT Account ONE
+            limits:
+              maxParallel: 3
+              minInterval: 15000
+          - id: chatgpt-sub2
+            name: ChatGPT Account TWO
+            integration: chatgpt-web-account
+            workspace: Mezhs
+            defaultModel: gpt-5-6-thinking::thinking-effort=extended
+            limits:
+              maxParallel: 2
+              minInterval: 5000
+        """);
+    var mergedCore = MezhsConfigLoader.Load(coreSource);
+    var existingConnection = mergedCore.Connections.Single(item => item.Id == "chatgpt-sub");
+    var addedConnection = mergedCore.Connections.Single(item => item.Id == "chatgpt-sub2");
+    Assert(existingConnection.Name == "ChatGPT Account ONE" &&
+           existingConnection.Integration == "chatgpt-web-account" &&
+           existingConnection.Limits.MaxParallel == 3 &&
+           existingConnection.Limits.MinInterval == 15000,
+        "Core override did not recursively merge an existing connection by ID.");
+    Assert(addedConnection.Name == "ChatGPT Account TWO" &&
+           addedConnection.Workspace == "Mezhs" &&
+           addedConnection.Limits.MaxParallel == 2,
+        "Core override did not append a new connection.");
+
+    File.WriteAllText(overrideAgent, "policies:\n  low:\n    name: Overridden policy\n");
+    File.WriteAllText(overrideTexts, "texts:\n  mezhs_default: |\n    Personal instructions on {OS}.\n    Use <SH>code</SH>.\n    Use <ATTACH>file</ATTACH>.\n");
+    var referencedAgent = File.ReadAllText(defaultAgent).Replace(
+        "instructions: Complete the assigned deterministic test task.",
+        "instructions: \"{mezhs_default}\"", StringComparison.Ordinal);
+    File.WriteAllText(defaultAgent, referencedAgent);
+    var mergedAgent = AgentConfigLoader.Load(agentSource, ["test", "test-alt"]);
+    Assert(mergedAgent.Policies["low"].Name == "Overridden policy" &&
+           mergedAgent.Policies["low"].Settings.Instructions.Contains("Personal instructions", StringComparison.Ordinal),
+        "Agent and instruction overrides did not use the shared recursive merge.");
+
+    var savedOverride = File.ReadAllText(overrideCore);
+    ConfigPath.FindWithOverride([], "mezhs.yaml");
+    Assert(File.ReadAllText(overrideCore) == savedOverride,
+        "Subsequent startup overwrote personal overrides.");
     var explicitPath = Path.Combine(configScratch, "custom config.yaml");
     File.WriteAllText(explicitPath, "custom");
-    Assert(ConfigPath.FindLocal(["--config", explicitPath], "agent.yaml") == explicitPath &&
-           ConfigPath.FindLocal(["--mezhs-config", explicitPath], "mezhs.yaml", "--mezhs-config") == explicitPath,
-        "Explicit configuration paths were redirected to a local sample.");
+    Assert(ConfigPath.FindWithOverride(["--config", explicitPath], "agent.yaml") == new ConfigSource(explicitPath) &&
+           ConfigPath.FindWithOverride(["--mezhs-config", explicitPath], "mezhs.yaml", "--mezhs-config") == new ConfigSource(explicitPath),
+        "Explicit configuration paths unexpectedly gained an override.");
 
     var customDirectory = Path.Combine(configScratch, "separate config");
     Directory.CreateDirectory(customDirectory);
-    var explicitLocalAgent = Path.Combine(customDirectory, "agent.local.yaml");
-    var explicitInstructions = Path.Combine(customDirectory, "instructions.local.yaml");
-    File.WriteAllText(explicitLocalAgent, File.ReadAllText(args[0]));
-    Assert(ConfigPath.FindLocal(["--config", explicitLocalAgent], "agent.yaml",
-               companionFileName: "instructions.yaml") == explicitLocalAgent &&
+    var explicitAgent = Path.Combine(customDirectory, "agent.custom.yaml");
+    var explicitInstructions = Path.Combine(customDirectory, "instructions.yaml");
+    File.WriteAllText(explicitAgent, File.ReadAllText(args[0]));
+    Assert(ConfigPath.FindWithOverride(["--config", explicitAgent], "agent.yaml",
+               companionFileName: "instructions.yaml") == new ConfigSource(explicitAgent) &&
            !File.Exists(explicitInstructions),
-        "Explicit agent.local.yaml incorrectly created an instructions sidecar.");
-    var noSidecar = AgentConfigLoader.Load(explicitLocalAgent, ["test", "test-alt"]);
+        "Explicit Agent config incorrectly created an instructions sidecar.");
+    var noSidecar = AgentConfigLoader.Load(explicitAgent, ["test", "test-alt"]);
     Assert(noSidecar.Policies["low"].Settings.Instructions == "Complete the assigned deterministic test task.",
         "Explicit legacy policy should load without an instructions sidecar.");
 
@@ -167,35 +206,29 @@ try
     var referencedExternalAgent = File.ReadAllText(args[0]).Replace(
         "instructions: Complete the assigned deterministic test task.",
         "instructions: \"{mezhs_default}\"", StringComparison.Ordinal);
-    File.WriteAllText(explicitLocalAgent, referencedExternalAgent);
-    var explicitWithSidecar = AgentConfigLoader.Load(explicitLocalAgent, ["test", "test-alt"]);
+    File.WriteAllText(explicitAgent, referencedExternalAgent);
+    var explicitWithSidecar = AgentConfigLoader.Load(explicitAgent, ["test", "test-alt"]);
     Assert(explicitWithSidecar.Policies["low"].Settings.Instructions == "Custom sidecar text",
-        "Explicit agent.local.yaml failed to use its manually supplied instructions sidecar.");
+        "Explicit Agent config failed to use its manually supplied instructions sidecar.");
 
-    File.WriteAllText(explicitLocalAgent, File.ReadAllText(args[0]).Replace(
+    File.WriteAllText(explicitAgent, File.ReadAllText(args[0]).Replace(
         "instructions: Complete the assigned deterministic test task.",
         "instructions: \"Print {shell} literally.\"", StringComparison.Ordinal));
-    var literalPolicy = AgentConfigLoader.Load(explicitLocalAgent, ["test", "test-alt"]);
+    var literalPolicy = AgentConfigLoader.Load(explicitAgent, ["test", "test-alt"]);
     Assert(literalPolicy.Policies["low"].Settings.Instructions == "Print {shell} literally.",
         "Literal braces in a non-reference policy instruction were incorrectly expanded.");
 
-    var referencedAgent = File.ReadAllText(defaultAgent).Replace(
-        "instructions: Complete the assigned deterministic test task.",
-        "instructions: \"{mezhs_default}\"", StringComparison.Ordinal);
-    File.WriteAllText(localAgent, referencedAgent);
-    File.WriteAllText(defaultAgent, referencedAgent);
-    var localPolicies = AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
     var plainPolicies = AgentConfigLoader.Load(defaultAgent, ["test", "test-alt"]);
-    Assert(localPolicies.Policies["low"].Settings.Instructions.Contains("Personal instructions", StringComparison.Ordinal) &&
+    Assert(mergedAgent.Policies["low"].Settings.Instructions.Contains("Personal instructions", StringComparison.Ordinal) &&
            plainPolicies.Policies["low"].Settings.Instructions == "Default text",
-        "Local and default instruction sidecars were not selected independently.");
+        "Override and base instruction files were not selected independently.");
 
-    // Simulate upgrade with a contradictory legacy local sidecar. Preserve
-    // user-authored text on disk, but append an authoritative runtime protocol.
+    // Preserve contradictory personalized text on disk while appending the
+    // authoritative runtime protocol in the assembled model instructions.
     var legacyText = "texts:\n  mezhs_default: |\n    Older personalized text.\n    Escape examples never execute.\n    Example: " +
         string.Concat((char)60, "SH", (char)62, "echo EXAMPLE", (char)60, "/SH", (char)62) + "\n";
-    File.WriteAllText(localTexts, legacyText);
-    var upgraded = AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
+    File.WriteAllText(overrideTexts, legacyText);
+    var upgraded = AgentConfigLoader.Load(agentSource, ["test", "test-alt"]);
     var upgradedInstructions = upgraded.Policies["low"].ModelInstructions;
     Assert(upgradedInstructions.Contains("Older personalized text", StringComparison.Ordinal) &&
            upgradedInstructions.Contains("Authoritative runtime protocol", StringComparison.Ordinal) &&
@@ -203,29 +236,26 @@ try
            upgradedInstructions.IndexOf("Authoritative runtime protocol", StringComparison.Ordinal) >
            upgradedInstructions.IndexOf("never execute", StringComparison.OrdinalIgnoreCase),
         "Older local instruction examples suppressed or overrode upgraded command semantics.");
-    Assert(File.ReadAllText(localTexts) == legacyText,
-        "Upgrading an old installation rewrote personalized instructions.");
+    Assert(File.ReadAllText(overrideTexts) == legacyText,
+        "Loading rewrote personalized instruction overrides.");
 
-    File.WriteAllText(localTexts, "texts:\n  some_other_id: Unrelated\n");
+    File.WriteAllText(overrideTexts, "texts:\n  some_other_id: Unrelated\n");
+    var preservedBaseText = AgentConfigLoader.Load(agentSource, ["test", "test-alt"]);
+    Assert(preservedBaseText.Policies["low"].Settings.Instructions == "Default text",
+        "Unrelated instruction override removed the base text.");
+
+    File.WriteAllText(overrideTexts, "texts:\n  mezhs_default: \"{nested}\" \n");
     try
     {
-        AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
-        throw new Exception("Unknown instruction reference was accepted.");
-    }
-    catch (InvalidOperationException ex) when (ex.Message.Contains("unknown text 'mezhs_default'", StringComparison.Ordinal)) { }
-
-    File.WriteAllText(localTexts, "texts:\n  mezhs_default: \"{nested}\" \n");
-    try
-    {
-        AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
+        AgentConfigLoader.Load(agentSource, ["test", "test-alt"]);
         throw new Exception("Nested instruction reference was accepted.");
     }
     catch (InvalidOperationException ex) when (ex.Message.Contains("another reference", StringComparison.Ordinal)) { }
 
-    File.WriteAllText(localTexts, "texts:\n  mezhs_default: one\n  mezhs_default: two\n");
+    File.WriteAllText(overrideTexts, "texts:\n  mezhs_default: one\n  mezhs_default: two\n");
     try
     {
-        AgentConfigLoader.Load(localAgent, ["test", "test-alt"]);
+        AgentConfigLoader.Load(agentSource, ["test", "test-alt"]);
         throw new Exception("Duplicate instruction ID was accepted.");
     }
     catch (InvalidOperationException ex) when (ex.Message.Contains("Invalid instructions file", StringComparison.Ordinal)) { }

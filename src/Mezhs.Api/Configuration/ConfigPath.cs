@@ -2,35 +2,42 @@ namespace Mezhs.Configuration;
 
 public static class ConfigPath
 {
-    // Default launches use an editable personal copy next to the tracked sample.
+    private const string OverrideComment = "# Add personal overrides for the adjacent base configuration here.\n";
+
+    // Default launches use a sparse personal override next to the tracked sample.
     // Explicit --config paths retain their exact existing meaning.
-    public static string FindLocal(
+    public static ConfigSource FindWithOverride(
         string[] args, string fileName, string argumentName = "--config", string? companionFileName = null)
     {
         var path = Find(args, fileName, argumentName);
         for (var i = 0; i < args.Length - 1; i++)
         {
             if (string.Equals(args[i], argumentName, StringComparison.OrdinalIgnoreCase))
-                return path;
+                return new(path);
         }
 
-        var localPath = EnsureLocalCopy(path);
+        var overridePath = EnsureOverride(path);
         if (companionFileName is not null)
-            EnsureLocalCopy(Path.Combine(Path.GetDirectoryName(path)!, companionFileName));
-        return localPath;
+            EnsureOverride(Path.Combine(Path.GetDirectoryName(path)!, companionFileName));
+        return new(path, overridePath);
     }
 
-    public static string EnsureLocalCopy(string defaultPath)
+    public static string EnsureOverride(string defaultPath)
     {
-        var localPath = Path.Combine(
+        var overridePath = Path.Combine(
             Path.GetDirectoryName(Path.GetFullPath(defaultPath))!,
-            Path.GetFileNameWithoutExtension(defaultPath) + ".local" + Path.GetExtension(defaultPath));
-        if (!File.Exists(localPath))
+            Path.GetFileNameWithoutExtension(defaultPath) + ".override" + Path.GetExtension(defaultPath));
+        if (!File.Exists(overridePath))
         {
-            try { File.Copy(defaultPath, localPath); }
-            catch (IOException) when (File.Exists(localPath)) { /* Concurrent first startup. */ }
+            try
+            {
+                using var file = new FileStream(overridePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+                using var writer = new StreamWriter(file);
+                writer.Write(OverrideComment);
+            }
+            catch (IOException) when (File.Exists(overridePath)) { /* Concurrent first startup. */ }
         }
-        return localPath;
+        return overridePath;
     }
 
     public static string Find(string[] args, string fileName, string argumentName = "--config")
@@ -70,4 +77,9 @@ public static class ConfigPath
 
         return currentCandidate;
     }
+}
+
+public sealed record ConfigSource(string Path, string? OverridePath = null)
+{
+    public override string ToString() => OverridePath is null ? Path : $"{Path} + {OverridePath}";
 }
