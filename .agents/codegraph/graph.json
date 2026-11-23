@@ -382,6 +382,14 @@
       "raw": "skills/systematic-debugging/SKILL.md"
     },
     {
+      "from": 6,
+      "to": {
+        "type": "file",
+        "path": 19
+      },
+      "raw": "testing.md"
+    },
+    {
       "from": 8,
       "to": {
         "type": "file",
