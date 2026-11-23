@@ -73,10 +73,20 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 - Exercise bursty ordered stream events faster than Electron polling, split UTF-8/SSE/NDJSON frames, malformed/oversized frames, bounded-queue exhaustion, interrupted streams, cancellation and late events. Confirm the C# consumer receives protocol events while the HTTP request is still active, with no silent loss or duplication; do not use the existing last-progress snapshot as the event queue.
 - Exercise large-file bounded transfer, redirects (including cross-origin), signed destination/header validation, partial failure/cleanup, and verify that cookies, bearer tokens, Sentinel values and signed URLs cannot leak through transfer requests, progress, errors or logs.
 - Build the canonical .NET rich-UI test project explicitly before Node rich-UI tests to avoid stale fixture DLLs where affected.
-- Real provider testing, if authorized and available, must use an isolated MEZS instance/profile and separate storage as `.agents/mezhs.md` requires; never reuse or copy the owner's active profile. State exactly what was/was not tested.
+- Real provider testing, if authorized and available, must use an isolated MEZS instance/profile and separate storage as `.agents/mezhs.md` requires; never connect a test instance to the owner's active profile or copy it directly; a disposable VSS snapshot clone requires explicit owner authorization and the safeguards in `.agents/testing.md`. State exactly what was/was not tested.
 - Before merge, compare latest `integration-architecture-v2` and rerun impacted checks after reconciliation. Confirm PR base/destination is `integration-architecture-v2`, not `main`; record approval and final parent commit.
 
 ## Changes
+
+### 2026-11-23 - Focused transfer and protocol recheck (BLOCKED)
+
+**Revision:** `f1dc10cf572948a9fa188462f8c887d5831c5392` (documentation-only since production revision `035d95c6`). No live provider session was started; owner API/processes were left untouched.
+
+**Commands and results:** `node --test tests/browser-signed-transfer.test.js tests/chatgpt-account-api.test.js tests/typed-http-feasibility.test.js` PASS 20/20 (signed destination/header restrictions, bounded upload/download, redirect rejection, transfer cleanup, native streaming, no-replay and authorization failures). `powershell -NoProfile -ExecutionPolicy Bypass -File tests/chatgpt-account-protocol-flow.ps1` PASS (typed ChatGPT metadata/citations, restoration, no-replay, interruption, authentication and file protocol). `git status` was clean after execution.
+
+**Code inspection:** `ChatGptConversationState.CollectFileRefs` collects only structured `attachments` IDs and `file-service://` or `sediment://` asset pointers. `ChatGptAccountFiles.DownloadAsync` requests the provider download URL and invokes the signed binary transfer only for discovered references. The earlier live provider response contained a Markdown `sandbox:/` link but no structured file references; it therefore did not exercise a real signed output download. This is a limitation of the observed test, not evidence proving or disproving a regression. The earlier failed attached turn remains an uncertain post-submission stream failure without a verified root cause.
+
+**Outcome:** Step 4 remains **BLOCKED** pending further authorized live evidence or explicit owner acceptance of the outstanding limitations. No production code changed, no speculative retry or credential re-cloning performed, and no merge/deploy is authorized. The next agent must fetch latest task branch and follow that branch workflow/role instructions; retain merge destination `integration-architecture-v2`, not `main`.
 
 ### 2026-11-23 - Owner-authorized VSS clone testing guidance
 
