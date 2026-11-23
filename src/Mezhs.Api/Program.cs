@@ -1,7 +1,7 @@
 using Mezhs;
 using Mezhs.Configuration;
 
-var configPath = ConfigPath.FindLocal(args, "mezhs.yaml");
+var configPath = ConfigPath.FindWithOverride(args, "mezhs.yaml");
 var options = MezhsConfigLoader.Load(configPath);
 
 var builder = WebApplication.CreateBuilder(args);

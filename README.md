@@ -67,7 +67,7 @@ The Agent API includes the ordinary API and its single shared integration regist
 - [`agent.yaml`](agent.yaml): Agent host, policies, workspace and execution settings.
 - [`instructions.yaml`](instructions.yaml): shared default Agent startup guidance referenced by policies.
 
-On default startup MEŽS creates ignored personal copies (`mezhs.local.yaml`, `agent.local.yaml` and, for Agent mode, `instructions.local.yaml`) next to these committed samples, then loads the personal copies. Existing local files are preserved on subsequent starts and releases; update them manually when a new default requires a change. An explicit `--config` or `--mezhs-config` selects the exact file requested and skips that file's automatic copy.
+On default startup MEŽS removes legacy `*.local.yaml` full copies, then creates ignored `mezhs.override.yaml`, `agent.override.yaml` and, for Agent mode, `instructions.override.yaml` files next to these committed samples. Each starts with one comment; add only personal values that differ from the base file. Mappings merge recursively, and list entries with an `id` merge by ID, so an override can customize an existing connection or add a new one. Other lists replace their base value. An explicit `--config` or `--mezhs-config` selects the exact file requested without deleting or applying adjacent personal files.
 
 Change the configured connections for the providers you use. Account integrations may require a browser login. Both APIs support a custom primary config path using `--config <path>`; Agent API additionally accepts `--mezhs-config <path>` for its independently loaded Core configuration.
 

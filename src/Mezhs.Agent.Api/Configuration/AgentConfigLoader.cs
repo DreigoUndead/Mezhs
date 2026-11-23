@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Mezhs.Agent.Policy;
+using Mezhs.Configuration;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 using YamlDotNet.RepresentationModel;
@@ -9,14 +10,12 @@ namespace Mezhs.Agent.Configuration;
 public static class AgentConfigLoader
 {
     public static AgentOptions Load(string path, IReadOnlyCollection<string>? coreConnectionIds = null)
+        => Load(new ConfigSource(path), coreConnectionIds);
+
+    public static AgentOptions Load(ConfigSource source, IReadOnlyCollection<string>? coreConnectionIds = null)
     {
-        if (!File.Exists(path))
-            throw new FileNotFoundException("MEŽS Agent configuration file was not found.", path);
-        var yaml = new YamlStream();
-        using (var reader = File.OpenText(path))
-            yaml.Load(reader);
-        if (yaml.Documents.Count != 1 || yaml.Documents[0].RootNode is not YamlMappingNode root)
-            throw new InvalidOperationException("MEŽS Agent configuration must contain one YAML mapping document.");
+        var yaml = YamlConfig.LoadOverridableYaml(source);
+        var root = yaml.Root;
 
         foreach (var key in root.Children.Keys.OfType<YamlScalarNode>())
         {
@@ -28,11 +27,11 @@ public static class AgentConfigLoader
 
         var options = new DeserializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
-            .Build().Deserialize<AgentOptions>(File.ReadAllText(path))
+            .Build().Deserialize<AgentOptions>(yaml.Text)
             ?? throw new InvalidOperationException("MEŽS Agent configuration is empty.");
         if (options.Version != 1)
             throw new InvalidOperationException($"Unsupported Agent config version {options.Version}.");
-        var configDirectory = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        var configDirectory = Path.GetDirectoryName(Path.GetFullPath(source.Path))!;
         if (!Uri.TryCreate(options.Server.Listen, UriKind.Absolute, out var listen) ||
             !listen.IsLoopback ||
             (listen.Scheme != Uri.UriSchemeHttp && listen.Scheme != Uri.UriSchemeHttps))
@@ -49,7 +48,7 @@ public static class AgentConfigLoader
 
         options.Policies = new PolicyDecoder().DecodePolicies(
             RequiredMapping(root, "policies", "policies"),
-            InstructionTextLoader.Load(path));
+            InstructionTextLoader.Load(source));
         if (coreConnectionIds is not null)
             ValidatePolicyConnections(options.Policies, coreConnectionIds);
         return options;
