@@ -22,6 +22,7 @@ using Mezhs.Integrations.Browser;
 await TestNewChatMetadataAndCitations();
 await TestInaccessibleContinuationRestoration();
 await TestLargeConversationPreflight();
+await TestNativePreparationFailureIsNotSubmission();
 await TestPostFailureNeverReplays();
 await TestKnownConversationStreamInterruptionReconciles();
 await TestAuthorizationFailureNeverReplays();
@@ -100,6 +101,20 @@ static async Task TestLargeConversationPreflight()
         "Large accessible conversation was not continued exactly once.");
     Verify(host.Calls.Any(call => call.Path == "/backend-api/conversation/existing" &&
         call.HeadersOnly), "Continuation preflight must use a headers-only GET.");
+}
+
+static async Task TestNativePreparationFailureIsNotSubmission()
+{
+    var host = new FakeHost { NativePrepareFailure = true };
+    await using var integration = NewIntegration(host);
+    try {
+        await integration.PromptAsync(Chat(), new PromptRequest(
+            integration.CreateMessageId(), "native preparation failure", null, []));
+        throw new Exception("Expected native preparation failure was not propagated.");
+    } catch (BrowserRequestNotSubmittedException) { }
+    Verify(host.Posts == 0, "pre-submission failure was counted as a conversation POST.");
+    Verify(host.Calls.Count(c => c.Path == "/backend-api/f/conversation") == 1,
+        "pre-submission failure re-dispatched the stream operation.");
 }
 
 static async Task TestPostFailureNeverReplays()
@@ -222,7 +237,7 @@ sealed class FakeHost : IBrowserIntegrationHost
 {
     public int BrowserIdleMinutes => 0;
     public bool InaccessibleFirst, LargeContinuation, FailPost, InterruptAfterId,
-        AuthorizationPostFailure, WithFiles, MalformedEvent, MisleadingProcessing;
+        AuthorizationPostFailure, NativePrepareFailure, WithFiles, MalformedEvent, MisleadingProcessing;
     public string? DownloadPath, SubmittedBody, SubmittedMessageId, SubmittedNativeHook;
     public int Posts;
     public List<HttpTransportRequest> Calls { get; } = [];
@@ -270,6 +285,8 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
     {
         var req = (HttpTransportRequest)arguments!;
         host.Calls.Add(req);
+        if (host.NativePrepareFailure)
+            throw new BrowserRequestNotSubmittedException("Browser HTTP request was not submitted; native preparation failed.");
         host.Posts++;
         host.SubmittedBody = req.Body;
         host.SubmittedMessageId = req.TurnMessageId;

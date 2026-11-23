@@ -132,6 +132,7 @@ internal static class ChatGptAccountProtocol
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (BrowserAuthorizationRequiredException) { throw; }
+        catch (BrowserRequestNotSubmittedException) { throw; }
         catch (BrowserStreamProtocolException) { throw; }
         catch (IntegrationAuthorizationRequiredException) { throw; }
         catch (IntegrationHttpException) { throw; }

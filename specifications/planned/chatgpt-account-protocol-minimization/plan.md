@@ -78,6 +78,18 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-24 - Step 4 pre-submission classification correction (FAIL; independent retest required)
+
+**Change:** The generic Electron browser HTTP executor now emits a sanitized `request_not_submitted` error code when a native preparation hook fails before the target `policy.fetch` is invoked. The Electron C# transport maps it to `BrowserRequestNotSubmittedException`; ChatGPT Account propagates that exception instead of describing uncertain post-submission delivery. Native cancellation and `authorization_required` remain distinct. After the fetch starts, a reused `request_not_submitted` code is rejected and the outcome remains uncertain. No automatic retry or request replay was added.
+
+**Reason and evidence:** The earlier live failures stopped during native Sentinel/runtime discovery before the recorded conversation fetch start, but were presented as failed after submission. Inspection established that `executeBrowserHttp` invokes native hooks before the target conversation fetch. This proves the local conversation-fetch boundary for hook failures; it does not prove why runtime assets were intermittently absent in live Chromium or establish whether navigation failures caused that symptom.
+
+**Verification:** On the edited branch, 53/53 Node tests passed including ChatGPT, streaming, typed HTTP, model mismatch, native requirements, and real-Chromium rich UI. The rich-UI test initially failed on a captured layout; after explicitly rebuilding `tests/Mezhs.RichUi.TestApp` it passed. The stale-fixture explanation was not independently established. Typed C# ChatGPT protocol tests passed; integration cancellation, Electron operations, architecture, resource and integration-contract checks passed. The Release `Mezhs.sln` build passed with 0 warnings and 0 errors. `git diff --check` passed. Tests cover failure before target conversation fetch, cancellation, and ambiguous fetch after dispatch without replay.
+
+**Outcome: FAIL for this iteration, not Testing PASS.** This is a material runtime error-classification correction requiring a fresh independent Step 4 Tester on its committed revision. The corrected revision has not yet been verified with an authenticated isolated live provider. Native runtime readiness remains intermittently unresolved; signed output-file download, earlier uncertain stream failure and overlapping distinct served-model/thinking-effort acceptance are still unverified. Preserve the previous diagnosis as hypotheses, do not adopt the uncommitted 3.9-second runtime wait, do not replay uncertain turns, and do not merge or deploy. Retain the owner-approved eventual merge destination `integration-architecture-v2`, never `main`.
+
+**Authority:** Step 4 Tester correction under branch-local `.agents/testing.md` and `.agents/workflow.md`; no owner-approved architectural guarantee or merge authority was changed.
+
 ### 2026-11-23 — Live renderer-readiness diagnostics (BLOCKED; investigation incomplete)
 
 **Revision and isolation:** The diagnostics used a temporary live-test worktree and isolated API. The detached worktree reported a modified `integrations/Mezhs.Integrations.ChatGpt/browser/modules/account-transport.js` (23 insertions, 6 deletions); the test checkout separately reported a clean task branch. The exact detached-worktree commit and whether the isolated API was built from that precise modified tree were not recorded. Do not treat the runtime-wait change as committed or as a final verified revision. Owner and isolated APIs remained alive. No credentials or cookie values were emitted.

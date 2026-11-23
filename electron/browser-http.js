@@ -140,11 +140,22 @@ async function executeBrowserHttp({ window, session, args, signal, reportProgres
   const request = validateRequest(args, policy);
   signal?.throwIfAborted();
   reportProgress?.({ state: "preparing", detail: "Preparing browser HTTP request." });
-  const nativeHeaders = request.hook
-    ? checkedHeaders(await policy.nativeHooks[request.hook]({
+  let nativeHeaders = {};
+  if (request.hook) {
+    try {
+      nativeHeaders = checkedHeaders(await policy.nativeHooks[request.hook]({
         window, session, args: args.nativeArgs, endpoint: request.endpoint, signal
-      }))
-    : {};
+      }));
+    } catch (error) {
+      if (signal?.aborted || error?.name === "AbortError") throw error;
+      if (error?.code === "authorization_required") throw error;
+      // The one-time HTTP request has not reached the provider fetch callback.
+      const failure = new Error("Browser HTTP native preparation failed before request submission.");
+      failure.code = "request_not_submitted";
+      throw failure;
+    }
+  }
+
   // The provider's fetch callback owns account credentials/cookies and returns
   // the response without transferring secrets through the local C# protocol.
   const headers = {
@@ -163,6 +174,10 @@ async function executeBrowserHttp({ window, session, args, signal, reportProgres
       }
     });
   } catch (error) {
+    // Fetch was invoked: its outcome may be uncertain even if an error reused the
+    // preparation-only code. Never pass that code to the C# no-replay boundary.
+    if (error?.code === "request_not_submitted")
+      throw new Error("Browser HTTP fetch failed; request delivery may be uncertain.");
     // Preserve only whitelisted status/retry metadata, never a private response,
     // URL, signed query, bearer token, challenge or arbitrary provider exception.
     if (!Number.isInteger(error?.status) || error.status < 400 || error.status > 599)

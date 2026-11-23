@@ -73,6 +73,60 @@ test("one native-prepared ChatGPT POST emits ordered stream events while active"
     ["conv-native", "cot_token"]);
 });
 
+test("native preparation failure is classified before conversation submission", async () => {
+  let submitted = 0;
+  const actor = session(async url => {
+    const endpoint = new URL(String(url)).pathname;
+    if (endpoint === "/api/auth/session") return json({ accessToken: "token" });
+    if (endpoint === "/backend-api/f/conversation/prepare")
+      return json({ conduit_token: "conduit" });
+    if (endpoint === "/backend-api/f/conversation") submitted++;
+    throw Error("Unexpected endpoint");
+  });
+  const failedWindow = { webContents: {
+    executeJavaScript: async () => { throw Error("private native challenge detail"); }
+  } };
+  await assert.rejects(executeBrowserHttp({
+    window: failedWindow, session: actor, args: turnArgs, reportEvent: () => {}
+  }, chatgpt.http), error => {
+    assert.equal(error.code, "request_not_submitted");
+    assert.match(error.message, /before request submission/);
+    assert.doesNotMatch(error.message, /private native challenge detail/);
+    return true;
+  });
+  assert.equal(submitted, 0, "failed preparation must not submit the conversation");
+});
+
+test("native preparation cancellation is not converted into a normal failure", async () => {
+  for (const mode of ["signal", "abort-error"]) {
+    let submitted = 0;
+    const controller = new AbortController();
+    const actor = session(async url => {
+      const endpoint = new URL(String(url)).pathname;
+      if (endpoint === "/api/auth/session") return json({ accessToken: "token" });
+      if (endpoint === "/backend-api/f/conversation/prepare")
+        return json({ conduit_token: "conduit" });
+      if (endpoint === "/backend-api/f/conversation") submitted++;
+      throw Error("Unexpected endpoint");
+    });
+    const cancelledWindow = { webContents: {
+      executeJavaScript: async () => {
+        if (mode === "signal") controller.abort();
+        throw new DOMException("Cancelled native preparation", "AbortError");
+      }
+    } };
+    await assert.rejects(executeBrowserHttp({
+      window: cancelledWindow, session: actor, args: turnArgs, signal: controller.signal,
+      reportEvent: () => {}
+    }, chatgpt.http), error => {
+      assert.equal(error.name, "AbortError");
+      assert.notEqual(error.code, "request_not_submitted");
+      return true;
+    });
+    assert.equal(submitted, 0);
+  }
+});
+
 test("ambiguous native POST failure is surfaced without replay", async () => {
   let posted = 0;
   const actor = session(async (url) => {
@@ -91,6 +145,32 @@ test("ambiguous native POST failure is surfaced without replay", async () => {
     reportEvent: () => {}
   }, chatgpt.http), /connection interrupted/);
   assert.equal(posted, 1);
+});
+
+test("fetch-stage errors cannot masquerade as unsubmitted requests", async () => {
+  let submitted = 0;
+  const actor = session(async url => {
+    const endpoint = new URL(String(url)).pathname;
+    if (endpoint === "/api/auth/session") return json({ accessToken: "token" });
+    if (endpoint === "/backend-api/f/conversation/prepare")
+      return json({ conduit_token: "conduit" });
+    if (endpoint === "/backend-api/f/conversation") {
+      submitted++;
+      const error = new Error("private provider fetch error");
+      error.code = "request_not_submitted";
+      throw error;
+    }
+    throw new Error("Unexpected endpoint");
+  });
+  await assert.rejects(executeBrowserHttp({
+    window: nativeWindow, session: actor, args: turnArgs, reportEvent: () => {}
+  }, chatgpt.http), error => {
+    assert.notEqual(error.code, "request_not_submitted");
+    assert.match(error.message, /delivery may be uncertain/);
+    assert.doesNotMatch(error.message, /private provider fetch error/);
+    return true;
+  });
+  assert.equal(submitted, 1, "uncertain conversation fetch must not be replayed");
 });
 
 test("provider streaming HTTP errors expose only bounded safe status fields", async () => {
@@ -140,7 +220,11 @@ test("native auth and prepare JSON reject oversized success bodies before submis
     await assert.rejects(executeBrowserHttp({
       window: nativeWindow, session: actor, args: turnArgs,
       reportEvent: () => {}
-    }, chatgpt.http), /native JSON response exceeded 1 MiB/);
+    }, chatgpt.http), error => {
+      assert.equal(error.code, 'request_not_submitted');
+      assert.match(error.message, /before request submission/);
+      return true;
+    });
     assert.equal(cancelled, true, "oversized native response must cancel its source");
     assert.equal(submissions, 0, "must not send a turn after a failed prepare or auth read");
   }
