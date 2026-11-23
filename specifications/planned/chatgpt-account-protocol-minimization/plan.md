@@ -78,6 +78,16 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-23 - Owner-authorized VSS clone testing guidance
+
+**Owner direction:** Document the isolated authenticated-testing approach demonstrated on 2026-11-23 and continue the established workflow. The current branch revision before this change is 0a3abdd109033a67e71ea3ec89a34d0f0730d71e.
+
+**Change:** .agents/testing.md describes a narrowly scoped, owner-authorized disposable VSS snapshot clone of an active Chromium profile when a separate inactive authenticated test profile is unavailable and the owner application must remain running. It documents process/profile identification, separate test API/Electron/storage, snapshot copying of locked Cookies and companion files, clone verification, linking only to the clone, real-provider checks, non-replay after uncertain submission, and safe cleanup. .agents/mezhs.md links to this exception. Existing inactive-profile guidance remains the default.
+
+**Security boundary:** The clone carries credentials and must never be logged, committed, attached, reused indefinitely or connected to the owner active storage. Do not stop owner processes, link to the live profile or delete recursively through the junction. Owner authorization is required each time; this documentation is not blanket permission to copy live profiles. Snapshot consistency and browser authorization must be independently verified.
+
+**Verification and outcome:** Documentation diff reviewed and git diff --check passed. No production implementation changed. The previous live tests passed new and continued messages, overlapping requests, project resolution and one file-reading turn, but the earlier uncertain stream failure and signed output-download verification are unresolved. Step 4 remains BLOCKED, not PASS. Continue Testing with independent evidence or a specific owner decision. Do not merge or deploy; eventual owner-approved merge target is integration-architecture-v2, never main. Subsequent agents must fetch this task branch, use its workflow and role instructions, and pass that requirement onward.
+
 ### 2026-11-23 — Step 4 authenticated live Chromium follow-up (BLOCKED)
 
 **Revision/environment:** Fetched `origin/chatgpt-account-protocol-minimization`; live-tested `e32da493957c38a78cf1c0091b6a38cf8ea7b126`, with no production changes from previously automated-tested `035d95c6` (183/183 Node plus typed .NET, solution and browser checks PASS). Isolated task-branch API on `127.0.0.1:5374` (PID 18292), distinct Electron/process tree/storage. Owner MEŽS API PID 11816 and its browser processes stayed running. On owner direction to avoid interrupting active agents, test authorization was obtained through a disposable VSS snapshot clone of the active Chromium profile; this is an explicit *exception* to `.agents/testing.md` default prohibition on copying live credentials/cookies, not an inactive test profile. No credential material or signed URL was committed or included in this report. Destroy isolated credential-bearing clone after test.

@@ -40,7 +40,8 @@ When live tests require running a separate MEŽS instance:
 - Start with explicit test configuration paths, without
   changing the owner's active configuration.
 - Authenticate test profiles separately when required.
-  Do not copy a Chromium profile while it is in use.
+  Never directly copy an in-use Chromium profile. An explicitly
+  owner-authorized VSS snapshot clone must follow [Testing](testing.md).
 - Stop test processes and remove temporary resources
   afterward.
 
