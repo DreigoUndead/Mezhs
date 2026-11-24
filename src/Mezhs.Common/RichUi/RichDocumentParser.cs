@@ -540,26 +540,42 @@ public sealed class RichDocumentParser
             Children: children));
     }
 
-    // Return the first matching close, with balanced nesting for UI containers.
-    // Command bodies and raw elements do not contribute fake delimiters.
-    private int FindContainerClose(string name, int from, int end)
+    // Balanced container matching shares the canonical tokenizer with parsing.
+    // Processed literal bodies protect their own nested containers from closing
+    // an unrelated parent; opaque command/editor bodies are never inspected.
+    private int FindContainerClose(string name, int from, int end, int depth = 0)
     {
+        if (depth > MaxDepth)
+        {
+            _failure = new ParseFailure("Document nesting exceeds limit.", Limit: true);
+            return -1;
+        }
+        var processedTarget = RichTagRegistry.TryGet(name, out var target) &&
+            target.ProcessContent is not null;
         var nesting = 1;
         for (var at = from; at < end;)
         {
             at = _source.IndexOf('<', at);
             if (at < 0 || at >= end) break;
             if (!TryTag(at, end, out var tag)) { at++; continue; }
-            if (!tag.Closing && !tag.SelfClosing &&
-                RichTagRegistry.TryGet(tag.Name, out var definition) &&
-                !definition.SearchChildren &&
-                definition.Role is not (RichTagRole.Leaf or RichTagRole.Marker))
+            if (!tag.Closing && !tag.SelfClosing)
             {
-                var opaqueClose = FindOpaqueClosing(tag.Name, tag.End, end);
-                if (opaqueClose >= 0)
+                var known = RichTagRegistry.TryGet(tag.Name, out var definition);
+                var opaque = known && !definition.SearchChildren &&
+                    definition.Role is not (RichTagRole.Leaf or RichTagRole.Marker);
+                var shield = tag.Name != name &&
+                    (processedTarget || opaque || known && definition.ProcessContent is not null);
+                if (shield)
                 {
-                    at = opaqueClose + tag.Name.Length + 3;
-                    continue;
+                    var nestedClose = opaque
+                        ? FindOpaqueClosing(tag.Name, tag.End, end)
+                        : FindContainerClose(tag.Name, tag.End, end, depth + 1);
+                    if (_failure is not null) return -1;
+                    if (nestedClose >= 0)
+                    {
+                        at = nestedClose + tag.Name.Length + 3;
+                        continue;
+                    }
                 }
             }
             if (tag.Name == name)
