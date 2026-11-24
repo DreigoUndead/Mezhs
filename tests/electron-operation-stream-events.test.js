@@ -85,7 +85,7 @@ test("single oversized event fails before enqueueing; byte accounting remains bo
 
 test("framer-legal SSE event survives JSON escaping at the bounded queue", async () => {
   const s = state();
-  const raw = JSON.stringify({ message: "\\\\".repeat(100000) });
+  const raw = JSON.stringify({ message: "\\".repeat(100000) });
   assert.ok(Buffer.byteLength(raw, "utf8") < 256 * 1024);
   assert.ok(Buffer.byteLength(JSON.stringify(raw), "utf8") > 256 * 1024);
   const framer = new StreamFramer("text/event-stream",
