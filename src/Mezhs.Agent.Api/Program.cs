@@ -38,7 +38,7 @@ builder.Services.AddSingleton<AgentRecoveryState>();
 builder.Services.AddSingleton<PolicyRegistry>();
 builder.Services.AddSingleton<PolicyEvaluationService>();
 builder.Services.AddSingleton<AgentPromptBuilder>();
-builder.Services.AddSingleton<Parser>();
+builder.Services.AddSingleton<CommandBatchAdapter>();
 builder.Services.AddSingleton<Shell>();
 builder.Services.AddSingleton<AgentAttachmentStaging>();
 builder.Services.AddSingleton<Interpreter>();
@@ -125,7 +125,7 @@ app.MapGet("/v1/agent-chats/{chatId}/messages", (
     string chatId,
     AgentStore agentStore,
     ChatService chats,
-    Parser parser) =>
+    CommandBatchAdapter parser) =>
 {
     if (agentStore.GetAgentChat(chatId) is null)
         return Results.NotFound(new { error = $"Agent chat '{chatId}' was not found." });
