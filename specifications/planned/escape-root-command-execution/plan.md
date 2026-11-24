@@ -48,7 +48,7 @@ This design includes an explicit **root-only escape** rule that supersedes the N
 5. **Testing — independent:** run isolated live Agent/Executor and Chromium UI checks, parser/build/SSR checks and regressions; correct defects, repeat independent verification until **PASS**.
 6. **Deploy:** obtain explicit owner approval to reconcile with advanced `main` and merge; only then finalize release-reference docs and release activities.
 
-**Handoff:** owner requested a new Developer agent for Step 3. Because this is High-risk, Step 2's independent Plan Review must pass before implementation unless the owner explicitly waives that stage. The local MEŽS Agent API is required for agent creation; no agent is considered started without a verified execution ID.
+**Handoff:** owner explicitly directed proceeding to **Step 3 Development** in execution `exec_30641e35bca0468ea0527bbdc3767073`, thereby waiving the otherwise required Step 2 Plan Review for this iteration. All remaining High-risk gates (independent Code Review, independent Testing, owner-approved Deploy) remain mandatory. Launch a fresh Developer agent using `.agents/mezhs.md`; do not claim an agent started without verifying its execution ID.
 
 ## Verification
 
@@ -160,3 +160,11 @@ Historical success at `fc586fba` and static inspection of later untested revisio
 **Supersedes:** The earlier Nov 24 any-ancestor escape guarantee, the Small risk-class override for the narrow change, earlier implementation-complete claims, and older Development/Review step numbering. Previous verification remains historical only.
 
 **Status:** Plan and architecture recorded on `escape-root-command-execution`. Await independent Plan Review before substantive Development unless the owner explicitly directs a workflow override. The local Agent API could not be reached from this execution environment; no successor execution ID has been created or verified.
+
+### 2026-11-24 — Owner directs immediate Step 3 Development
+
+**Change:** Explicit owner authorization to proceed directly to Step 3. Waive the independent Step 2 Plan Review for this iteration only. Development and developer verification should follow `architecture.md` and the acceptance criteria; independent Code Review (Step 4), Testing (Step 5) and explicit merge approval (Step 6) still apply.
+
+**Authority:** Owner request in MEŽS execution `exec_30641e35bca0468ea0527bbdc3767073`: "go to step 3".
+
+**Status:** New Developer execution to be created using local MEŽS Agent API and current policy inherited from the owner execution. Execution ID must be confirmed through the Agent API before recording launch as successful. The external connector environment cannot access loopback `127.0.0.1:5060`; this fact alone does not establish the Agent host's availability.
