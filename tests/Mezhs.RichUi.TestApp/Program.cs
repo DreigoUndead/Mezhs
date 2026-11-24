@@ -343,6 +343,33 @@ var dispatcherContract =
 Console.WriteLine($"{(dispatcherContract ? "PASS" : "FAIL")}: Command and escape handlers are registry-driven");
 if (!dispatcherContract) failures++;
 
+// The reusable Core catalog has UI only; the Agent extends it from its own
+// command definitions without changing the Core parser or authorizing a shell.
+var separatedCatalogs =
+    !RichTagRegistry.Ui.TryGet("SH", out _) &&
+    !RichTagRegistry.Ui.TryGet("ATTACH", out _) &&
+    !RichTagRegistry.Ui.TryGet("DONE", out _) &&
+    Registry.All.All(command => Registry.RichTags.TryGet(command.Name, out var tag) &&
+        tag.ProcessContent == RichTagHandlers.Command &&
+        !tag.AllowAsChild) &&
+    new RichDocumentParser().Parse("<SH>echo inert</SH>").Commands.Count == 0;
+Console.WriteLine($"{(separatedCatalogs ? "PASS" : "FAIL")}: Agent extends Core UI with executable tags only in Agent context");
+if (!separatedCatalogs) failures++;
+
+// SVG namespace, validation and literal text are declared on tag metadata,
+// not detected with SVG-specific branches in the generic render traversal.
+var svgPolicies =
+    RichTagRegistry.Ui.TryGet("svg", out var svgRoot) &&
+    svgRoot.AvailableOutsideContext && svgRoot.StrictChildren &&
+    svgRoot.LiteralChildren && svgRoot.ProcessContent == RichTagHandlers.SvgTag &&
+    RichTagRegistry.Ui.TryGet("text", svgRoot, out var svgText) &&
+    svgText.Context == "svg" &&
+    RichTagRegistry.Ui.TryGet("text", out var regularText) &&
+    regularText.Context is null &&
+    !RichTagRegistry.Ui.TryGet("box", svgRoot, out _);
+Console.WriteLine($"{(svgPolicies ? "PASS" : "FAIL")}: SVG family validation, text and strict children are registry-owned");
+if (!svgPolicies) failures++;
+
 // A model can literally author the former private-use marker sequence.
 // The restored inline node must stay at its real UTF-16 position.
 var collisionSource = "pre " + (char)0xE000 + (char)0xE001 + " <text strong>node</text> post";
@@ -730,5 +757,5 @@ finally
 }
 Console.WriteLine($"PARSER_FIRST_CHANCE_EXPECTED={parserFirstChance}");
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 18 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 18 + exceptionCases.Length} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 20 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 20 + exceptionCases.Length} passed");
 return failures == 0 ? 0 : 1;
