@@ -2,7 +2,9 @@
 // fetch and explicitly named browser-native request hooks. No credential lives here.
 const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
-const MAX_FRAME_BYTES = 256 * 1024;
+// Keep provider SSE lines bounded while allowing large tool-result JSON events.
+// The Electron queue accommodates up to sixfold JSON escaping overhead.
+const MAX_FRAME_BYTES = 2 * 1024 * 1024;
 const ALLOWED_ACCEPT = new Set([
   "application/json", "text/event-stream", "application/x-ndjson", "*/*"
 ]);
@@ -92,7 +94,7 @@ class StreamFramer {
       const fragment = text.slice(cursor, end);
       if (Buffer.byteLength(this.pending, "utf8") +
           Buffer.byteLength(fragment, "utf8") > MAX_FRAME_BYTES)
-        throw protocolFailure("Browser HTTP stream frame exceeded 256 KiB.", "frame_oversized");
+        throw protocolFailure("Browser HTTP stream frame exceeded 2 MiB.", "frame_oversized");
       this.pending += fragment;
       if (newline < 0) break;
       const line = this.pending.replace(/\r$/, "");
@@ -109,7 +111,7 @@ class StreamFramer {
 
   async line(line) {
     if (Buffer.byteLength(line, "utf8") > MAX_FRAME_BYTES)
-      throw protocolFailure("Browser HTTP stream line exceeded 256 KiB.", "line_oversized");
+      throw protocolFailure("Browser HTTP stream line exceeded 2 MiB.", "line_oversized");
     if (this.format === "application/x-ndjson") {
       if (line.trim()) await this.reportEvent(line.trim());
       return;
@@ -120,7 +122,7 @@ class StreamFramer {
       // Count newline separators between SSE data lines, including empty lines.
       this.eventBytes += Buffer.byteLength(data, "utf8") + (this.eventData.length ? 1 : 0);
       if (this.eventBytes > MAX_FRAME_BYTES)
-        throw protocolFailure("Browser HTTP SSE event exceeded 256 KiB.", "sse_event_oversized");
+        throw protocolFailure("Browser HTTP SSE event exceeded 2 MiB.", "sse_event_oversized");
       this.eventData.push(data);
     }
   }
