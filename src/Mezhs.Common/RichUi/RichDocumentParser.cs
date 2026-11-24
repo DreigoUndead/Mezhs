@@ -288,7 +288,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
 
     private IReadOnlyList<RichNode> RenderChildren(int start, int end,
         IReadOnlyList<LocatedTag> tags, string? expected, int depth,
-        out int position, bool svgScope = false, bool inlineScope = false)
+        out int position, RichTagDefinition? parentDefinition = null, bool inlineScope = false)
     {
         position = start;
         if (depth > MaxDepth)
@@ -303,7 +303,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         bool Flush(int until)
         {
             if (until > plainFrom || inline.Count > 0)
-                AppendMarkdown(result, plainFrom, until, svgScope, inlineScope, inline,
+                AppendMarkdown(result, plainFrom, until, parentDefinition, inlineScope, inline,
                     insideRichContainer: expected is not null);
             if (_failure is not null) return false;
             inline.Clear();
@@ -316,7 +316,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         {
             while (cursor < until)
             {
-                if (!svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
+                if (parentDefinition?.LiteralChildren != true && _source[cursor] == '{' && !IsEscaped(cursor) &&
                     RichQuestionGrammar.TryParse(_source, cursor, end,
                         _radioLiteral, out var question, out var questionEnd))
                 {
@@ -340,11 +340,11 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             if (!PlainUntil(tag.Start)) return [];
             if (tag.Start < cursor) continue;
             if (_failure is not null) return [];
-            if (!_catalog.TryGet(tag.Name, svgScope, out var definition))
+            if (!_catalog.TryGet(tag.Name, parentDefinition, out var definition))
             {
-                if (svgScope)
+                if (parentDefinition?.StrictChildren == true)
                 {
-                    _failure = new ParseFailure($"Unsupported SVG child: {tag.Name}.");
+                    _failure = new ParseFailure($"Unsupported child: {tag.Name}.");
                     return [];
                 }
                 if (!Flush(tag.Start)) return [];
@@ -359,12 +359,12 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 continue;
             }
             var from = tag.Start;
-            var inlineElement = !svgScope && InlineElements.Contains(tag.Name);
+            var inlineElement = parentDefinition?.LiteralChildren != true && InlineElements.Contains(tag.Name);
             if (definition.Role == RichTagRole.Leaf && !tag.SelfClosing)
             {
-                if (svgScope)
+                if (parentDefinition?.StrictChildren == true)
                 {
-                    _failure = new ParseFailure("Invalid SVG leaf.");
+                    _failure = new ParseFailure("Invalid leaf in strict content.");
                     return [];
                 }
                 if (!Flush(from)) return [];
@@ -383,16 +383,15 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             }
             var validAttributes = TryParseAttributes(tag, definition,
                 out var attributes, out var reason);
-            if (validAttributes && (svgScope || tag.Name == "svg") &&
-                (svgScope && !RichSvgValidation.AllowsChild(expected, tag.Name) ||
-                 !RichSvgValidation.Valid(tag.Name, attributes)))
+            if (validAttributes && definition.Validate is { } validator &&
+                !validator(parentDefinition, definition, attributes))
             {
                 validAttributes = false;
-                reason = $"Unsafe SVG attributes or nesting: {tag.Name}.";
+                reason = $"Unsafe attributes or nesting: {tag.Name}.";
             }
             if (!validAttributes)
             {
-                if (svgScope || !definition.AllowAsChild)
+                if (parentDefinition?.StrictChildren == true || !definition.AllowAsChild)
                 {
                     _failure = new ParseFailure(reason);
                     return [];
@@ -404,25 +403,11 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 plainFrom = cursor;
                 continue;
             }
-            if (svgScope || tag.Name == "svg")
-            {
-                if (++_svgCount > 250 || depth > 12)
-                {
-                    _failure = new ParseFailure("SVG resource budget exceeded.", Limit: true);
-                    return [];
-                }
-                _svgChars += attributes.Sum(item => item.Value.Length);
-                if (_svgChars > 24_000)
-                {
-                    _failure = new ParseFailure("SVG content budget exceeded.", Limit: true);
-                    return [];
-                }
-            }
             // One dispatch point for every eligible registered tag. The
             // registry, not presentation roles, decides whether work occurs.
             var commandStart = _commands.Count;
             DispatchTag(located, definition, attributes,
-                isDocumentRoot: expected is null && located.Parent is null);
+                isDocumentRoot: expected is null && located.Parent is null, depth: depth);
             if (_failure is not null) return [];
             if (!definition.AllowAsChild)
             {
@@ -467,10 +452,10 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             {
                 var children = RenderChildren(tag.End, located.BodyEnd,
                     located.SubTags, tag.Name, depth + 1, out _,
-                    svgScope || tag.Name == "svg", inlineElement);
+                    definition, inlineElement);
                 if (_failure is { } childFailure)
                 {
-                    if (svgScope || childFailure.Limit) return [];
+                    if (parentDefinition?.StrictChildren == true || childFailure.Limit) return [];
                     _failure = null;
                     if (inlineElement && !Flush(from)) return [];
                     AddUnknown(result, located, childFailure.Reason, depth, opaque: true);
@@ -492,19 +477,40 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         return result;
     }
 
+    // Resource accounting is called exclusively by registered SVG handlers,
+    // not by name checks in the generic render traversal.
+    internal void AccountSvgTag(RichTagContent content)
+    {
+        if (++_svgCount > 250 || content.Depth > 12)
+        {
+            _failure = new ParseFailure("SVG resource budget exceeded.", Limit: true);
+            return;
+        }
+        _svgChars += content.Parameters.Sum(item => item.Value.Length);
+        if (_svgChars > 24_000)
+            _failure = new ParseFailure("SVG content budget exceeded.", Limit: true);
+    }
+
+    internal void AccountSvgLiteral(string text)
+    {
+        _svgChars += text.Length;
+        if (_svgChars > 24_000)
+            _failure = new ParseFailure("SVG content budget exceeded.", Limit: true);
+    }
+
     // A single registry-driven dispatcher builds validated, source-addressed
     // handler content. It runs in rendering source order; handlers cannot execute
     // host actions and are not serialized to the frontend.
     private void DispatchTag(LocatedTag located, RichTagDefinition definition,
         IReadOnlyDictionary<string, string> attributes, bool isDocumentRoot,
-        RichTagContent? parent = null)
+        RichTagContent? parent = null, int depth = 0)
     {
         var tag = located.Opening;
         var content = new RichTagContent(definition, attributes,
             _source[tag.End..located.BodyEnd],
             new RichSourceSpan(tag.Start, located.End),
             new RichSourceSpan(tag.End, located.BodyEnd),
-            parent ?? located.Parent?.Content, isDocumentRoot, tag.SelfClosing);
+            parent ?? located.Parent?.Content, isDocumentRoot, tag.SelfClosing, depth);
         located.Content = content;
         definition.ProcessContent?.Invoke(this, content);
     }
@@ -546,7 +552,8 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 _failure = new ParseFailure(reason);
                 return;
             }
-            DispatchTag(child, definition, parameters, isDocumentRoot: false, parent: escape);
+            DispatchTag(child, definition, parameters, isDocumentRoot: false, parent: escape,
+                depth: escape.Depth + 1);
         }
     }
 
@@ -599,19 +606,16 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         nodes.Add(node);
     }
 
-    private void AppendMarkdown(List<RichNode> nodes, int start, int end, bool svgScope,
-        bool inlineScope, IReadOnlyList<RichNode> inline, bool insideRichContainer)
+    private void AppendMarkdown(List<RichNode> nodes, int start, int end,
+        RichTagDefinition? parentDefinition, bool inlineScope,
+        IReadOnlyList<RichNode> inline, bool insideRichContainer)
     {
         if (end <= start) return;
-        if (svgScope)
+        if (parentDefinition?.LiteralChildren == true)
         {
             var raw = _source[start..end];
-            _svgChars += raw.Length;
-            if (_svgChars > 24_000)
-            {
-                _failure = new ParseFailure("SVG content budget exceeded.", Limit: true);
-                return;
-            }
+            parentDefinition.ProcessLiteral?.Invoke(this, raw);
+            if (_failure is not null) return;
             if (!string.IsNullOrWhiteSpace(raw))
                 Add(nodes, new RichNode("text", $"{start}:text", new RichSourceSpan(start, end), Text: raw));
             return;
