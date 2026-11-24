@@ -106,9 +106,43 @@ test("streaming rejects a response without an incremental reader", async () => {
 
 test("malformed UTF-8 and oversized streamed frames fail explicitly", async () => {
   const framer = new StreamFramer("text/event-stream", async () => {});
-  await assert.rejects(framer.write(new Uint8Array([0xc3, 0x28])), /encoded|valid|UTF/i);
+  await assert.rejects(framer.write(new Uint8Array([0xc3, 0x28])), error => {
+    assert.match(error.message, /encoded|valid|UTF/i);
+    assert.equal(error.code, "stream_delivery_failed");
+    assert.equal(error.reason, "invalid_utf8");
+    return true;
+  });
   const framer2 = new StreamFramer("application/x-ndjson", async () => {});
-  await assert.rejects(framer2.write("x".repeat(256 * 1024 + 1)), /256 KiB/);
+  await assert.rejects(framer2.write("x".repeat(256 * 1024 + 1)), error => {
+    assert.match(error.message, /256 KiB/);
+    assert.equal(error.reason, "frame_oversized");
+    return true;
+  });
+});
+
+test("late stream framing failure is categorized after previously delivered events", async () => {
+  let cancelled = false;
+  const first = '{"type":"message_marker","marker":"final_channel_token"}';
+  const source = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("data: " + first + "\n\n"));
+      controller.enqueue(new Uint8Array([0xc3, 0x28]));
+    },
+    cancel() { cancelled = true; }
+  });
+  const events = [];
+  await assert.rejects(executeBrowserHttp({
+    args: { method: "POST", path: "/backend-api/f/conversation",
+      body: "{}", accept: "text/event-stream", stream: true },
+    reportEvent: value => events.push(value)
+  }, policy(async () => new Response(source, { status: 200,
+    headers: { "content-type": "text/event-stream" } }))), error => {
+    assert.equal(error.code, "stream_delivery_failed");
+    assert.equal(error.reason, "invalid_utf8");
+    return true;
+  });
+  assert.deepEqual(events, [first]);
+  assert.equal(cancelled, true, "failed stream cancels the unread source");
 });
 
 test("generic transport rejects unsupported origins, headers and native hooks before fetch", async () => {
@@ -173,7 +207,11 @@ test('JSON HTTP rejects non-incremental nonempty bodies rather than unbounded te
 test('SSE empty data lines count toward event size', async () => {
   const events = [];
   const f = new StreamFramer('text/event-stream', async x => events.push(x));
-  await assert.rejects(f.write(('data:' + String.fromCharCode(10)).repeat(256 * 1024 + 2)), /256 KiB/);
+  await assert.rejects(f.write(('data:' + String.fromCharCode(10)).repeat(256 * 1024 + 2)), error => {
+    assert.match(error.message, /256 KiB/);
+    assert.equal(error.reason, "sse_event_oversized");
+    return true;
+  });
   assert.equal(events.length, 0);
 });
 
