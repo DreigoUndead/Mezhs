@@ -33,8 +33,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
     private bool[] _radioLiteral = [];
     private List<RichCommandCandidate> _commands = [];
     private int _count;
-    private int _svgCount;
-    private int _svgChars;
+    internal RichSvgQuota SvgQuota { get; } = new();
     // Expected validation failures are returned through the parser rather than
     // thrown. A limit failure cannot be recovered as a UI Unknown node.
     private sealed record ParseFailure(string Reason, bool Limit = false);
@@ -47,8 +46,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         _source = source;
         _commands = [];
         _count = 0;
-        _svgCount = 0;
-        _svgChars = 0;
+        SvgQuota.Reset();
         _failure = null;
         try
         {
@@ -87,6 +85,9 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         {
             var element = node.Kind == "element";
             var name = node.Name ?? "";
+            RichTagDefinition? registered = null;
+            if (element && _catalog.TryGet(name, out var definition))
+                registered = definition;
             var inline = element && InlineElements.Contains(name);
             var richLink = element && name == "Link";
             var mdLink = node.Kind == "link";
@@ -94,7 +95,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 !(node.Kind is "text" or "literal" or "inlineCode" or
                     "strong" or "emphasis" or "strikethrough" or
                     "lineBreak" or "link" or "image" or "taskCheckbox" ||
-                    inline || element && name == "svg");
+                    inline || registered?.PhrasingAllowed == true);
             var nestedInteractive = insideInteractive &&
                 (richLink || mdLink || node.Kind == "taskCheckbox");
             if (notPhrasing || nestedInteractive)
@@ -108,7 +109,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                         Text: _source[span.Start..span.End])]));
                 continue;
             }
-            if (node.Kind is "unknown" || element && name == "svg")
+            if (node.Kind is "unknown" || registered?.PreserveChildren == true)
             {
                 result.Add(node);
                 continue;
@@ -477,27 +478,6 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         return result;
     }
 
-    // Resource accounting is called exclusively by registered SVG handlers,
-    // not by name checks in the generic render traversal.
-    internal void AccountSvgTag(RichTagContent content)
-    {
-        if (++_svgCount > 250 || content.Depth > 12)
-        {
-            _failure = new ParseFailure("SVG resource budget exceeded.", Limit: true);
-            return;
-        }
-        _svgChars += content.Parameters.Sum(item => item.Value.Length);
-        if (_svgChars > 24_000)
-            _failure = new ParseFailure("SVG content budget exceeded.", Limit: true);
-    }
-
-    internal void AccountSvgLiteral(string text)
-    {
-        _svgChars += text.Length;
-        if (_svgChars > 24_000)
-            _failure = new ParseFailure("SVG content budget exceeded.", Limit: true);
-    }
-
     // A single registry-driven dispatcher builds validated, source-addressed
     // handler content. It runs in rendering source order; handlers cannot execute
     // host actions and are not serialized to the frontend.
@@ -517,8 +497,8 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
 
     // Handler callbacks collect only candidates. Admission and actual host
     // execution remain exclusively the Agent Interpreter/Registry's work.
-    internal void RejectTag(string reason) =>
-        _failure = new ParseFailure(reason);
+    internal void RejectTag(string reason, bool limit = false) =>
+        _failure = new ParseFailure(reason, Limit: limit);
 
     internal void AddCommandCandidate(string name, string? body, RichSourceSpan span)
     {
