@@ -93,11 +93,36 @@ async function nativeChatRequirementsHeaders(window, session, token) {
         }
       }
       if (typeof provider !== "function" || provider.length !== 1) {
-        throw new Error(runtimeUrls.length
+        // Fixed categories only: no asset URLs, page content, or credentials.
+        // Inspect the failing conversation renderer, not the management window.
+        const assetGroup = urls => {
+          if (!urls.length) return "none";
+          const paths = urls.map(value => {
+            try {
+              const url = new URL(value, "https://chatgpt.com/");
+              return url.origin === "https://chatgpt.com" ? url.pathname : "";
+            } catch { return ""; }
+          });
+          return paths.some(path => path.startsWith("/cdn/assets/")) ? "cdn_assets" :
+            paths.some(path => path.startsWith("/unauth-mweb/")) ? "unauth_mweb" :
+            paths.some(path => path.startsWith("/_next/")) ? "next" : "other";
+        };
+        const page = globalThis.location?.origin !== "https://chatgpt.com" ? "other" :
+          globalThis.location?.pathname === "/" ? "root" :
+          (globalThis.location?.pathname || "").startsWith("/auth") ||
+          (globalThis.location?.pathname || "").startsWith("/login") ? "login" : "other";
+        const ready = ["loading", "interactive", "complete"].includes(document.readyState)
+          ? document.readyState : "unknown";
+        const scripts = assetGroup(Array.from(document.scripts || [],
+          script => String(script.src || "")).filter(Boolean));
+        const resourceGroup = assetGroup(resources.map(entry => String(entry.name || "")).filter(Boolean));
+        const diagnostic = " [page=" + page + ",ready=" + ready +
+          ",scripts=" + scripts + ",resources=" + resourceGroup + "]";
+        throw new Error((runtimeUrls.length
           ? "ChatGPT native requirements provider export is unavailable " +
             "(runtimeCandidates=" + runtimeUrls.length + ")."
           : "ChatGPT native requirements provider was not observed in this document " +
-            "(resourceEntries=" + resources.length + ", cachedProvider=false).");
+            "(resourceEntries=" + resources.length + ", cachedProvider=false).") + diagnostic);
       }
 
       const prepared = await provider(async requirementsKey => {
@@ -415,6 +440,15 @@ async function nativeAccountTurnHeaders({ window, session, args, endpoint, signa
           : message.includes("native chat requirements require login")
             ? "login_required"
             : "other";
+    // The browser exception is private. Forward only enumerated states.
+    const diagnostic = /\[page=(root|login|other),ready=(loading|interactive|complete|unknown),scripts=(cdn_assets|unauth_mweb|next|other|none),resources=(cdn_assets|unauth_mweb|next|other|none)\]/.exec(message);
+    if (diagnostic && (category === "runtime_not_observed" ||
+                       category === "provider_export_unavailable")) {
+      reportProgress?.({ state: "preparing",
+        detail: "ChatGPT runtime document (page=" + diagnostic[1] +
+          ", ready=" + diagnostic[2] + ", scripts=" + diagnostic[3] +
+          ", resources=" + diagnostic[4] + ")." });
+    }
     reportProgress?.({ state: "preparing",
       detail: "ChatGPT native requirements failed (" + category + ")." });
     throw error;
