@@ -9,10 +9,8 @@ internal static class RichSvgValidation
     // SVG-specific policy belongs to the registered SVG tag family. The
     // canonical structural parser only asks the tag's validator for a result.
     internal static bool ValidForTag(
-        RichTagDefinition? parent,
         RichTagDefinition child,
         IReadOnlyDictionary<string, string> attributes) =>
-        (parent?.Context != "svg" || AllowsChild(parent.Name, child.Name)) &&
         Valid(child.Name, attributes);
 
     private static bool Match(string s, string pattern) =>
@@ -72,9 +70,6 @@ internal static class RichSvgValidation
         }
         return true;
     }
-    public static bool AllowsChild(string? parent, string child) =>
-        parent is "svg" or "g" ? child is not ("svg" or "tspan") :
-        parent is "text" or "tspan" && child == "tspan";
 }
 
 // A per-parse SVG resource guard, used only through registered SVG handlers.
