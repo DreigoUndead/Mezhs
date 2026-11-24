@@ -295,16 +295,23 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     Assert-InlineExecuted 'escape' '<escape>before ' ' after</escape>'
     function Assert-InlineInert([string]$label, [string]$prefix, [string]$suffix) {
         $marker = Join-Path $temp "inert-$label.txt"
+        $evidenceMarker = Join-Path $temp "evidence-$label.txt"
         $shellText = "echo UNEXPECTED>>`"$marker`""
-        $task = "$prefix<SH>$shellText</SH>$suffix<DONE>"
+        $evidenceText = "echo EVIDENCE>>`"$evidenceMarker`""
+        # The test-evidence policy requires one successful SH before DONE. Run
+        # that command at document root, then prove the nested SH never runs.
+        $task = "<SH>$evidenceText</SH>$prefix<SH>$shellText</SH>$suffix<DONE>"
         $run = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $task })
         $outcome = Wait-Execution $run.executionId 20
         $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/executions")
         $shells = @($history | Where-Object { $_.kind -eq 'Shell' })
-        if ($outcome.status -ne 'Completed' -or $shells.Count -ne 0 -or (Test-Path -LiteralPath $marker)) {
-            throw "Nested $label activated an inert command. Status=$($outcome.status); shells=$($shells.Count)."
+        $evidenceLines = @(if (Test-Path -LiteralPath $evidenceMarker) { Get-Content -LiteralPath $evidenceMarker })
+        if ($outcome.status -ne 'Completed' -or $shells.Count -ne 1 -or
+            $shells[0].status -ne 'Completed' -or $evidenceLines.Count -ne 1 -or
+            $evidenceLines[0] -ne 'EVIDENCE' -or (Test-Path -LiteralPath $marker)) {
+            throw "Nested $label activated an inert command or missed root evidence. Status=$($outcome.status); shells=$($shells.Count); evidence=$($evidenceLines.Count)."
         }
-        Write-Host "PASS: Nested $label command remains inert with no shell side effects."
+        Write-Host "PASS: Nested $label command stays inert; only root evidence SH executes."
     }
     Assert-InlineInert 'nested-escape' '<box><escape>before ' ' after</escape></box>'
     Assert-InlineInert 'opaque-escape' '<CodeBlock><escape>before ' ' after</escape></CodeBlock>'
