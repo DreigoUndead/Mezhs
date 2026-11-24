@@ -14,9 +14,9 @@ Parsing only discovers/normalizes data and builds host-only command candidates. 
 
 ## Current implementation and seams
 
-- `src/Mezhs.Common/RichUi/RichDocumentParser.cs`: currently contains `ReadChildren`, `ScanOpaqueContent`, `FindContainerClose`, `FindOpaqueClosing`, `TryTag`, special content handler, normalization and source spans; this is the duplication to remove/reconcile.
+- `src/Mezhs.Common/RichUi/RichDocumentParser.cs`: owns shared structural tag matching, source spans, data-only rich projection and opaque editor boundaries; command candidates remain host-only.
 - `src/Mezhs.Common/RichUi/RichDocument.cs`: registry and `RichDocument`/`RichNode`/`RichCommandCandidate` contracts.
-- `src/Mezhs.Common/RichUi/RichMarkdownNodes.cs`, `RichQuestionGrammar.cs`, `RichSvgValidation.cs`: Markdown lowering, limited interactive question grammar, SVG validation.
+- `src/Mezhs.Common/RichUi/RichMarkdownNodes.cs` and `RichQuestionGrammar.cs`: Markdown lowering and limited question grammar. SVG markup validation now belongs to `src/Mezhs.Web.Lib/src/rich-elements/Svg.tsx`.
 - `src/Mezhs.Agent.Api/Commands/CommandBatchAdapter.cs`, `Interpreter.cs`, `Registry.cs`: command candidate adapter, batch validation, policy/host execution; keep this boundary.
 - `src/Mezhs.Api.Contracts/ApiContracts.cs`, `Mezhs.Api/Services/MessageService.cs`, `ChatService.cs`: completed assistant messages currently include a validated `Document`. Agent API also transports `RichDocument`.
 - `src/Mezhs.Web.Lib/src/RichDocumentView.tsx`, `MarkdownContent.tsx`, `rich-elements/*`: typed frontend document with known component map. `RichActionContext.ts` and `rich-elements/Question.tsx` already support limited local state and a host-authorized new-turn action.
@@ -27,16 +27,22 @@ Parsing only discovers/normalizes data and builds host-only command candidates. 
 The implemented tag contract supersedes the earlier conceptual `SearchNested`
 and `AllowAsNested` fields below. A `RichTagDefinition.SupportedChildren`
 set defines how children are admitted: `null` means ordinary registered UI
-children, an empty set means opaque/no children, and explicit registered tag IDs
-mean only the listed children. Nested-only variants set `AtRoot=false` and
-use a distinct `Id` where surface names collide (ordinary `text` versus
-`svg:text`). The shared structural finder still recognizes complete excluded
-wrappers, without promoting commands inside them.
+children, an empty set means opaque/no MEŽS children, and explicit registered
+tag IDs mean only the listed MEŽS children. Nested-only variants set
+`AtRoot=false` and can use a distinct `Id` for surface-name collisions.
+The shared structural finder still recognizes complete excluded wrappers,
+without promoting commands inside them.
 
-`svg` and `g` admit graphic descendants by explicit ID; SVG `text` and
-`tspan` admit only `svg:tspan`. SVG-specific attribute validation and quotas
-remain in SVG-owned helpers. A new registered UI tag does not require a
-generic parser name-case or another structural scanner.
+**SVG exception (owner-approved 2026-11-24):** `svg` is one registered
+`RawEditor` with `SupportedChildren=empty`. It carries its bounded root
+attributes and opaque body as `RichNode(kind=raw, name=svg)`; there are no
+C# `g`/`rect`/`text` SVG sub-tag definitions. The trusted `Svg.tsx`
+decodes a finite XML/SVG subset, validates element and attribute allowlists,
+nesting, value and resource bounds, and constructs React geometry without
+HTML insertion or external references. Invalid SVG renders inert diagnostics.
+The generic C# opaque-boundary matcher skips quoted child attributes/comments
+and nested same-name tags when locating the outer closing delimiter; it
+never discovers executable commands inside SVG.
 
 The Agent `CommandBatchAdapter` projects host candidates/visible content; it
 does not tokenize the source. Core uses the UI catalog, and Agent extends it
