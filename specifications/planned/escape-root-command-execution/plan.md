@@ -197,3 +197,21 @@ Historical success at `fc586fba` and static inspection of later untested revisio
 - Initial observed status: `Running`
 
 **Handoff scope:** Review branch `escape-root-command-execution`, follow high-risk workflow and `.agents/batman.md`; inspect semantic correctness of one structural matcher, command authority boundaries and nesting, malformed/opaque containment, limits, compatibility with radio Markdown and rich UI serialization, failure-closed behavior, and sufficiency of tests. Reviewer findings, if any, must be addressed before independent Step 5 Testing. **No merge/release authority granted.**
+
+### 2026-11-24 - Independent Step 4 Code Review PASS
+
+**Reviewed revision:** `dd2267e5f4173b389d5d4bbfd05cbd55b1fc7601` on `escape-root-command-execution`.
+
+**Independent review:** Inspected the canonical RichDocument parser and registry, its structural matching and direct-parent boundaries, root escape handler, common command collector, typed document projection, Agent Registry/Interpreter validation, React component mapping, and regression coverage. No unresolved blocking defects identified. No implementation corrections required.
+
+**Verified on reviewed revision:**
+- Rich UI C# parser: 131/131 PASS.
+- Frontend SSR: PASS, exit code 0.
+- Full Release solution and TypeScript/Vite builds: PASS, 0 errors, 1 existing unrelated WhatsApp CS0114 warning.
+- Shared Web UI: 19/19 PASS; Agent architecture checks: PASS.
+- Isolated live Agent/Executor protocol suite: PASS. Verified durable single command execution, root escape execution, inert nested commands, ordered shells, fail-closed rejected batches with no shell/filesystem side effects, and continuation.
+- `git diff --check main...HEAD`: PASS; reviewed task worktree clean.
+
+**Remaining limitations:** Live Chromium interaction/visual testing was not performed by Code Review and remains mandatory for independent Step 5 Testing. npm audit reported dependency advisories during the build; no causal connection to this parser change has been established. `main` has advanced separately; no rebase, merge or release is approved.
+
+**Outcome:** Code Review PASS. Proceed to fresh independent Step 5 Testing; Step 6 still requires explicit owner approval.
