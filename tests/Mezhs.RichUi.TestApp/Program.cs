@@ -130,26 +130,30 @@ var escapePass = escapeParsed.Document.Valid &&
 Console.WriteLine($"{(escapePass ? "PASS" : "FAIL")}: Escape literal projection, exact command spans and preserved command bodies");
 if (!escapePass) failures++;
 
-// The executable parent is either document root or any complete escape scope,
-// regardless of the ancestors of that escape. All other direct parents are inert.
+// Only a document-root escape can grant its direct command children eligibility.
+// All other escape ancestry is inert, including unknown, invalid and raw wrappers.
 var escapeContexts = new (string Name, string Source, string[] Commands)[]
 {
-    ("Escape inside known UI", "<box><escape><SH>BOX</SH></escape><SH>INERT</SH></box>", ["SH"]),
-    ("Escape inside unknown UI", "<Widget><escape><SH>UNKNOWN</SH></escape></Widget>", ["SH"]),
-    ("Escape inside raw code editor", "<CodeBlock>raw <escape><SH>CODE</SH></escape></CodeBlock>", ["SH"]),
-    ("Escape inside raw writing editor", "<WritingBlock>raw <escape><ATTACH>file.txt</ATTACH></escape></WritingBlock>", ["ATTACH"]),
-    ("Escape inside invalid UI", "<box onClick=\"bad\"><escape><SH>BAD_BOX</SH></escape></box>", ["SH"]),
-    ("Escape inside invalid SVG", "<svg><escape><SH>SVG</SH></escape></svg>", ["SH"]),
-    ("Escape nested inside escape", "<escape><escape><SH>NESTED</SH></escape></escape>", ["SH"]),
-    ("Escape protects a parent closer inside command body", "<box><escape><SH>echo </box> literal</SH></escape><SH>INERT</SH></box>", ["SH"]),
+    ("Escape inside known UI", "<box><escape><SH>BOX</SH></escape><SH>INERT</SH></box>", []),
+    ("Escape inside unknown UI", "<Widget><escape><SH>UNKNOWN</SH></escape></Widget>", []),
+    ("Escape inside raw code editor", "<CodeBlock>raw <escape><SH>CODE</SH></escape></CodeBlock>", []),
+    ("Escape inside raw writing editor", "<WritingBlock>raw <escape><ATTACH>file.txt</ATTACH></escape></WritingBlock>", []),
+    ("Escape inside invalid UI", "<box onClick=\"bad\"><escape><SH>BAD_BOX</SH></escape></box>", []),
+    ("Escape inside invalid SVG", "<svg><escape><SH>SVG</SH></escape></svg>", []),
+    ("Escape nested inside escape", "<escape><escape><SH>NESTED</SH></escape></escape>", []),
+    ("Escape protects a parent closer inside command body", "<box><escape><SH>echo </box> literal</SH></escape><SH>INERT</SH></box>", []),
     ("Escape protects fake closer in nested literal wrapper", "<escape><Widget>text </escape> <SH>INERT</SH></Widget><SH>DIRECT</SH></escape>", ["SH"]),
-    ("Opaque editor with nested escape skips direct shell", "<CodeBlock><SH>INERT</SH><escape><SH>DIRECT</SH></escape></CodeBlock>", ["SH"]),
+    ("Opaque editor with nested escape skips direct shell", "<CodeBlock><SH>INERT</SH><escape><SH>DIRECT</SH></escape></CodeBlock>", []),
     ("Invalid escape inside raw editor stays inert", "<CodeBlock><escape onClick=\"invalid\"><SH>INERT</SH></escape></CodeBlock>", []),
     ("Invalid nested escape does not grant command authority", "<escape><escape onClick=\"invalid\"><SH>INERT</SH></escape><SH>DIRECT</SH></escape>", ["SH"]),
-    ("Escape inside opaque editor nested through unknown", "<CodeBlock><Widget><escape><ATTACH>path.txt</ATTACH></escape></Widget></CodeBlock>", ["ATTACH"]),
+    ("Escape inside opaque editor nested through unknown", "<CodeBlock><Widget><escape><ATTACH>path.txt</ATTACH></escape></Widget></CodeBlock>", []),
 
-    ("Escape nested under box inside escape", "<escape><box><escape><SH>INNER</SH></escape><SH>INERT</SH></box><SH>OUTER</SH></escape>", ["SH", "SH"]),
+    ("Escape nested under box inside escape", "<escape><box><escape><SH>INNER</SH></escape><SH>INERT</SH></box><SH>OUTER</SH></escape>", ["SH"]),
     ("Other nested parents stay inert", "<escape><box><SH>INERT</SH></box><SH>DIRECT</SH></escape>", ["SH"]),
+    ("Direct root escape with nested command and final marker", "<escape><box><DONE><ATTACH>INERT</ATTACH></box><SH>DIRECT</SH><DONE></escape>", ["SH", "DONE"]),
+    ("Unknown wrapper cannot promote root-only ATTACH", "<Widget><ATTACH>no.txt</ATTACH></Widget><escape><ATTACH>yes.txt</ATTACH></escape>", ["ATTACH"]),
+    ("Invalid root escape never grants direct command", "<escape onClick=\"bad\"><SH>INERT</SH></escape><SH>ROOT</SH>", ["SH"]),
+    ("Direct escape and root command source order", "<escape><ATTACH>a.txt</ATTACH></escape><SH>SECOND</SH><escape><DONE></escape>", ["ATTACH", "SH", "DONE"]),
 };
 foreach (var (name, source, expected) in escapeContexts)
 {
@@ -163,20 +167,19 @@ foreach (var (name, source, expected) in escapeContexts)
 var escapedParentCloserSource = "<box><escape><SH>echo </box> literal</SH></escape><SH>INERT</SH></box>";
 var escapedParentCloser = new RichDocumentParser().Parse(escapedParentCloserSource);
 var escapedParentCloserPass = escapedParentCloser.Document.Valid &&
-    escapedParentCloser.Commands.Count == 1 &&
-    escapedParentCloser.Commands[0].Body == "echo </box> literal" &&
-    escapedParentCloser.Commands[0].SourceSpan.End ==
-        escapedParentCloserSource.IndexOf("</SH>", StringComparison.Ordinal) + 5;
-Console.WriteLine($"{(escapedParentCloserPass ? "PASS" : "FAIL")}: Escape shields ancestor closer inside command body");
+    escapedParentCloser.Commands.Count == 0 &&
+    escapedParentCloser.Document.Nodes.SelectMany(Walk)
+        .Any(n => n.Kind == "element" && n.Name == "box");
+Console.WriteLine($"{(escapedParentCloserPass ? "PASS" : "FAIL")}: Nested escape protects ancestor closer without granting execution");
 if (!escapedParentCloserPass) failures++;
 
 var rawEscapeSource = "<CodeBlock>pre <escape><SH>HIDDEN</SH></escape> post</CodeBlock>";
 var rawEscape = new RichDocumentParser().Parse(rawEscapeSource);
 var rawEscapeText = rawEscape.Document.Nodes.SelectMany(Walk)
     .FirstOrDefault(n => n.Kind == "raw" && n.Name == "CodeBlock")?.Text;
-var rawEscapePass = rawEscape.Document.Valid && rawEscape.Commands.Count == 1 &&
-    rawEscapeText == "pre <escape></escape> post";
-Console.WriteLine($"{(rawEscapePass ? "PASS" : "FAIL")}: Opaque editor removes executed command span");
+var rawEscapePass = rawEscape.Document.Valid && rawEscape.Commands.Count == 0 &&
+    rawEscapeText == "pre <escape><SH>HIDDEN</SH></escape> post";
+Console.WriteLine($"{(rawEscapePass ? "PASS" : "FAIL")}: Opaque editor preserves all inert nested command source");
 if (!rawEscapePass) failures++;
 var fakeCloserSource = "<escape><SH>echo </escape> literal</SH><ATTACH>file.txt</ATTACH></escape>";
 var fakeCloserResult = new RichDocumentParser().Parse(fakeCloserSource);
