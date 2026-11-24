@@ -307,7 +307,7 @@ var deniedAction = done.ValidateAction(new PolicyActionContext(
     new PolicyAction(shellDefinition, "echo hello")));
 Assert(!deniedAction.Allowed, "Unconfigured SH action was not denied by default.");
 
-var parser = new Parser();
+var parser = new CommandBatchAdapter();
 // Instructions are not Agent replies. Their inline syntax examples are never
 // dispatched as host actions, even if they are recognizable in isolation.
 Assert(normal.ModelInstructions.Contains("shell text", StringComparison.Ordinal),
