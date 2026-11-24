@@ -257,9 +257,9 @@ Historical success at `fc586fba` and static inspection of later untested revisio
 
 **Authority:** Owner Step 6 blocker in execution `exec_a9fc61992ad44c39be0bc042561b5dff` and subsequent implementation direction in `exec_c75cdc07b4b048639db3ddabad191b17`. **Workflow:** Step 6 Deploy remains BLOCKED; the task has returned to Step 3 Development. No further review, merge, rebase, version bump or release is authorized by this transition.
 
-**Implementation pushed to task branch (current source revision `688bd7d39b292143eb276770ce01ca541cdfed8c`):**
+**Implementation pushed to task branch (current source revision `b9fb16213a01ee07880f355a1cdabe2d2d5d3171`):**
 - `RichTagDefinition.ProcessContent` is now a registered typed callback receiving validated `RichTagContent` (parameters, content, original source/body spans, parent context and root eligibility).
-- `SH`, `ATTACH`, `DONE` share a registry-owned executable handler; `escape` has its registered handler. No executable name checks are embedded in escape processing. Removed the old special-case `Command/Marker` collection branch from `RenderChildren`, the `ReadChildren` wrapper and the `DONE`-specific registry default.
+- `SH`, `ATTACH`, `DONE` share a registry-owned executable handler; `escape` has its registered handler. No executable name checks are embedded in escape processing. Removed the old special-case `Command/Marker` collection branch from `RenderChildren`, the `ReadChildren` wrapper and the `DONE`-specific registry default. The top-level parser now fails immediately on structural-finder errors before Markdown projection.
 - The single `DispatchTag` is used by ordinary rendering and by direct registered children of document-root escape. `LocatedTag` remains the structural parent/subtag tree; no second tree/parser or new frontend action framework was added. `RichTagContent` intentionally does not duplicate `LocatedTag.SubTags`.
 - Existing `RichDocument` transport, static React mapping, root-only containment, structural finder, original command bytes/spans and Agent Interpreter/Registry execution boundary remain unchanged. Added a focused registry-handler contract assertion to the existing C# parser fixture.
 
