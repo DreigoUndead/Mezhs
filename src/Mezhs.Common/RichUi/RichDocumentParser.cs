@@ -174,7 +174,7 @@ public sealed class RichDocumentParser
     // other complete tag remains part of the displayed source.
     private IReadOnlyList<RichNode> ReadChildren(int start, int end, string? expected,
         int depth, out int position, bool svgScope = false, bool inlineScope = false,
-        bool literalScope = false)
+        bool literalScope = false, bool allowRootOnly = false)
     {
         if (depth > MaxDepth)
         {
@@ -247,6 +247,12 @@ public sealed class RichDocumentParser
                 {
                     var literalClose = tag.SelfClosing ? tag.End :
                         FindContainerClose(tag.Name, tag.End, end);
+                    if (!tag.SelfClosing && literalClose >= 0)
+                    {
+                        _ = ReadChildren(tag.End, literalClose, null, depth + 1, out _,
+                            literalScope: true);
+                        if (_failure is not null) { position = cursor; return []; }
+                    }
                     cursor = literalClose < 0 ? tag.End :
                         literalClose + tag.Name.Length + 3;
                     continue;
@@ -263,7 +269,7 @@ public sealed class RichDocumentParser
             }
             // One traversal enforces the registry eligibility policy. A
             // forbidden opaque child stays literal without exposing its body.
-            if (expected is not null && !definition.AllowAsChild)
+            if ((expected is not null || literalScope && !allowRootOnly) && !definition.AllowAsChild)
             {
                 if (!tag.SelfClosing && !definition.SearchChildren &&
                     definition.Role is not (RichTagRole.Leaf or RichTagRole.Marker))
@@ -278,7 +284,7 @@ public sealed class RichDocumentParser
             // they produce host-only spans, not display nodes.
             // Escape literal scopes admit only registered root-only command tags.
             if ((definition.Role is RichTagRole.Command or RichTagRole.Marker) &&
-                (!literalScope || !definition.AllowAsChild))
+                (!literalScope || allowRootOnly))
             {
                 if (tag.SelfClosing)
                 {
@@ -322,6 +328,12 @@ public sealed class RichDocumentParser
                 var literalClose = definition.SearchChildren
                     ? FindContainerClose(tag.Name, tag.End, end)
                     : FindOpaqueClosing(tag.Name, tag.End, end);
+                if (literalClose >= 0)
+                {
+                    _ = ReadChildren(tag.End, literalClose, null, depth + 1, out _,
+                        literalScope: true, allowRootOnly: definition.Role == RichTagRole.OpaqueLiteral);
+                    if (_failure is not null) { position = cursor; return []; }
+                }
                 cursor = literalClose < 0 ? tag.End :
                     literalClose + tag.Name.Length + 3;
                 continue;
@@ -407,27 +419,11 @@ public sealed class RichDocumentParser
                     return [];
                 }
                 var after = closer + tag.Name.Length + 3;
-                var text = _source[tag.End..closer];
-                if (tag.Name == "escape")
-                {
-                    var commandStart = _commands.Count;
-                    _ = ReadChildren(tag.End, closer, null, depth, out _,
-                        literalScope: true);
-                    if (_failure is not null) { position = cursor; return []; }
-                    if (_commands.Count > commandStart)
-                    {
-                        var visible = new StringBuilder();
-                        var visibleFrom = tag.End;
-                        for (var i = commandStart; i < _commands.Count; i++)
-                        {
-                            var span = _commands[i].SourceSpan;
-                            visible.Append(_source, visibleFrom, span.Start - visibleFrom);
-                            visibleFrom = span.End;
-                        }
-                        visible.Append(_source, visibleFrom, closer - visibleFrom);
-                        text = visible.ToString();
-                    }
-                }
+                var commandStart = _commands.Count;
+                _ = ReadChildren(tag.End, closer, null, depth + 1, out _,
+                    literalScope: true, allowRootOnly: definition.Role == RichTagRole.OpaqueLiteral);
+                if (_failure is not null) { position = cursor; return []; }
+                var text = LiteralExcludingCommands(tag.End, closer, commandStart);
                 Add(result, new RichNode(definition.Role == RichTagRole.OpaqueLiteral ? "literal" : "raw",
                     $"{from}:raw", new RichSourceSpan(from, after),
                     Text: text, Name: tag.Name, Attributes: attributes));
@@ -488,6 +484,23 @@ public sealed class RichDocumentParser
         return result;
     }
 
+    // Project opaque text using command spans from the canonical traversal.
+    // Presentation never decides which commands may execute.
+    private string LiteralExcludingCommands(int start, int end, int commandStart)
+    {
+        if (commandStart == _commands.Count) return _source[start..end];
+        var visible = new StringBuilder();
+        var at = start;
+        for (var i = commandStart; i < _commands.Count; i++)
+        {
+            var span = _commands[i].SourceSpan;
+            visible.Append(_source, at, span.Start - at);
+            at = span.End;
+        }
+        visible.Append(_source, at, end - at);
+        return visible.ToString();
+    }
+
     private void AddUnknown(List<RichNode> nodes, Tag tag, int end, string reason,
         int depth, bool opaque = false)
     {
@@ -496,8 +509,15 @@ public sealed class RichDocumentParser
         {
             var bodyEnd = end - tag.Name.Length - 3;
             if (opaque)
+            {
+                var commandStart = _commands.Count;
+                _ = ReadChildren(tag.End, bodyEnd, null, depth + 1, out _,
+                    literalScope: true);
+                if (_failure is not null) return;
                 children = [new RichNode("literal", $"{tag.End}:literal",
-                    new RichSourceSpan(tag.End, bodyEnd), Text: _source[tag.End..bodyEnd])];
+                    new RichSourceSpan(tag.End, bodyEnd),
+                    Text: LiteralExcludingCommands(tag.End, bodyEnd, commandStart))];
+            }
             else
                 children = ReadChildren(tag.End, end, tag.Name, depth + 1, out _);
         }
