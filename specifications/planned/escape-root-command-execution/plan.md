@@ -37,8 +37,9 @@ Represent `escape` display content distinctly enough for `RichDocumentView` and 
 ## Steps
 
 1. **Development:** implement the minimal parser and muted-literal rendering delta on this branch, with targeted regressions and any necessary instruction updates.
-2. **Verification:** run focused parser and Agent command tests plus the relevant renderer checks; record observed results. Separate reviewers/testers are not required for this Small owner-overridden task.
-3. **Deploy:** request owner approval before merging; update release reference docs if behavior changes require it.
+2. **Verification:** run focused parser and Agent command tests plus the relevant renderer checks; record observed results. An independent Tester is not required for this Small owner-overridden task.
+3. **Code Review (owner requested, independent):** assign a fresh Code Reviewer to inspect the complete change against the task plan, intended base and `.agents/batman.md`, emphasizing reuse of existing mechanisms, coherent ownership, duplicated scanning/validation, unnecessary complexity, and proportional tests. Follow `.agents/code-review.md` for independently substantiated findings, correction, fresh-review loop and PASS/FAIL/BLOCKED outcome. Do not proceed to Deploy until the review reaches PASS.
+4. **Deploy:** request owner approval before merging; update release reference docs if behavior changes require it.
 
 ## Verification
 
@@ -97,3 +98,10 @@ Run targeted `tests/agent-protocol-result.ps1`, parser and renderer regressions 
 - Limitations: Node SSR checks, not a new Chromium visual test. Test fixtures establish corrected behavior; the original completed execution cannot be rerun retroactively. The parser source remained unchanged after these results at `fc586fba`.
 
 **Outcome:** Development and the required targeted verification complete on `fc586fba`. The branch awaits owner approval before Deploy/merge. As of the GitHub comparison on 2026-11-24, `main` has advanced by eight commits independently of this branch; reconcile any conflicts during Deploy after approval. Main was not changed by this task.
+
+### 2026-11-24 — Owner adds independent Code Review
+
+**Change:** The owner explicitly requested a fresh independent Code Review agent, with emphasis on `.agents/batman.md`, before Deploy. This is step 3; Deploy moves to step 4. Preserve the Small classification and all earlier accepted guarantees; a separate Testing role is still not mandatory.
+**Authority:** MEŽS execution `exec_4aeed6330e894543b7833c72225ee906`.
+**Review emphasis:** Check whether existing `ReadChildren`/registry/closing helpers suffice, whether another tag scan or duplicated authorization/validation has crept in, whether responsibilities and literal rendering boundaries are coherent, and whether the implementation and regressions are proportionate. Follow ordinary independent review rules: form findings independently and avoid reopening settled decisions without material evidence.
+**Status:** Review agent creation pending; no merge authorization.
