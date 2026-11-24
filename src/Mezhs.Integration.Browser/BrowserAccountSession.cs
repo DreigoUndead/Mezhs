@@ -133,12 +133,13 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         Action<string>? reportStage = null)
     {
         IChatBrowserTransport transport;
-        reportStage?.Invoke("Checking browser session.");
+        reportStage?.Invoke("Waiting for browser transport.");
         await _gate.WaitAsync(cancellationToken);
         try
         {
             ThrowIfDisposed();
             CancelIdle();
+            if (_transport is null) reportStage?.Invoke("Starting browser host.");
             await EnsureTransportAsync(cancellationToken);
             transport = _transport!;
             _activeUses++; // Keep the shared host alive, including during interactive login.
@@ -155,7 +156,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         {
             // Do not hold the shared transport lock while the user signs in.
             if (authorize)
-                await EnsureAuthorizedForUseAsync(transport, interactive, cancellationToken);
+                await EnsureAuthorizedForUseAsync(transport, interactive, cancellationToken, reportStage);
             cancellationToken.ThrowIfCancellationRequested();
             var contextTransport = chatId is null ? transport : transport.ForContext(chatId, ephemeral);
             contextReady = true;
@@ -187,15 +188,20 @@ public sealed class BrowserAccountSession : IAsyncDisposable
     }
 
     private async Task EnsureAuthorizedForUseAsync(
-        IChatBrowserTransport transport, bool interactive, CancellationToken cancellationToken)
+        IChatBrowserTransport transport, bool interactive, CancellationToken cancellationToken,
+        Action<string>? reportStage)
     {
         // Only the first request opens the login UI. Requests already waiting for
         // that attempt recheck cookies, then proceed or report authorization required.
         var first = await _loginGate.WaitAsync(0, cancellationToken);
         if (!first)
+        {
+            reportStage?.Invoke("Waiting for browser account authorization.");
             await _loginGate.WaitAsync(cancellationToken);
+        }
         try
         {
+            reportStage?.Invoke("Checking browser account authorization.");
             await transport.EnsureAuthorizedAsync(interactive && first, cancellationToken);
         }
         finally { _loginGate.Release(); }
