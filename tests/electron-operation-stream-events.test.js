@@ -9,7 +9,7 @@ const from = main.indexOf("const MAX_OPERATION_EVENTS =");
 const to = main.indexOf("\nconst parentProcessId", from);
 assert.ok(from >= 0 && to > from, "Event queue must live in Electron's existing operation owner.");
 const queue = vm.runInNewContext(main.slice(from, to) +
-  "\n({ queueOperationEvent, acknowledgeOperationEvents, MAX_OPERATION_EVENTS })",
+  "\n({ queueOperationEvent, acknowledgeOperationEvents, MAX_OPERATION_EVENTS, streamFailureProgress })",
   { Buffer, Promise });
 
 function state() {
@@ -62,15 +62,41 @@ test("cancelled event producers fail instead of silently dropping events", async
   s.cancelled = true;
   s.abortController.abort();
   for (const wake of s.eventWaiters.splice(0)) wake();
-  await assert.rejects(pending, /cancelled/);
+  await assert.rejects(pending, error => {
+    assert.equal(error.code, "stream_delivery_failed");
+    assert.equal(error.reason, "queue_cancelled");
+    return true;
+  });
 });
 
 test("single oversized event fails before enqueueing; byte accounting remains bounded", async () => {
   const s = state();
   await assert.rejects(queue.queueOperationEvent(s, "x".repeat(256 * 1024 + 1)),
-    /256 KiB/);
+    error => {
+      assert.match(error.message, /256 KiB/);
+      assert.equal(error.code, "stream_delivery_failed");
+      assert.equal(error.reason, "queue_event_oversized");
+      return true;
+    });
   assert.equal(s.events.length, 0);
   assert.equal(s.eventBytes, 0);
+});
+
+test("stream failure progress exposes only whitelisted categories", () => {
+  const known = queue.streamFailureProgress({
+    code: "stream_delivery_failed", reason: "sse_event_oversized",
+    message: "private response fragment"
+  });
+  assert.equal(known.state, "retrieving");
+  assert.equal(known.detail, "Browser HTTP stream failed (sse_event_oversized).");
+  assert.equal(known.analysis, null);
+  const unknown = queue.streamFailureProgress({
+    code: "stream_delivery_failed", reason: "private response fragment",
+    message: "private response fragment"
+  });
+  assert.equal(unknown.detail, "Browser HTTP stream failed (unknown).");
+  assert.doesNotMatch(JSON.stringify(unknown), /private response fragment/);
+  assert.equal(queue.streamFailureProgress({ code: "request_not_submitted" }), null);
 });
 
 test("terminal results survive a status response that is sent but not acknowledged", () => {
