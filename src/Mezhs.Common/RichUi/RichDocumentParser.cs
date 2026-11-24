@@ -299,7 +299,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         {
             if (until > plainFrom || inline.Count > 0)
                 AppendMarkdown(result, plainFrom, until, parentDefinition, inlineScope, inline,
-                    insideRichContainer: parentDefinition is not null);
+                    insideRichContainer: depth > 0);
             if (_failure is not null) return false;
             inline.Clear();
             plainFrom = until;
@@ -337,7 +337,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             if (_failure is not null) return [];
             // Root-only host commands are inert inside *all* containers,
             // irrespective of the parent's ordinary UI child policy.
-            if (parentDefinition is not null &&
+            if (located.Parent is not null &&
                 _catalog.TryGetStructural(tag.Name, out var structural) &&
                 !structural.AllowAsChild)
             {
@@ -406,7 +406,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             // registry, not presentation roles, decides whether work occurs.
             var commandStart = _commands.Count;
             DispatchTag(located, definition, attributes,
-                isDocumentRoot: parentDefinition is null && located.Parent is null, depth: depth);
+                isDocumentRoot: located.Parent is null, depth: depth);
             if (_failure is not null) return [];
             if (!definition.AllowAsChild)
             {
