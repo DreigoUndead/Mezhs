@@ -32,6 +32,21 @@ test("browser operations use one Electron host with ordered scoped events", () =
   assert.doesNotMatch(contract, /BrowserWebRequest|BrowserWebResponse/);
 });
 
+test("browser authorization allows bounded upstream probes and exposes safe session stages", () => {
+  const transport = fs.readFileSync(path.join(root,
+    "transports/Mezhs.Browser.Electron/ElectronBrowserTransport.cs"), "utf8");
+  const session = fs.readFileSync(path.join(root,
+    "src/Mezhs.Integration.Browser/BrowserAccountSession.cs"), "utf8");
+  assert.match(transport, /Timeout = TimeSpan\\.FromSeconds\\(30\\)/,
+    "the local authorization request may await the external provider probe");
+  assert.match(session, /Waiting for browser transport/);
+  assert.match(session, /Starting browser host/);
+  assert.match(session, /Waiting for browser account authorization/);
+  assert.match(session, /Checking browser account authorization/);
+  assert.doesNotMatch(session, /reportStage\\?\\.Invoke\\([^)]*(?:token|cookie|url|header|secret)/i,
+    "progress stages must not expose provider secrets");
+});
+
 test("authorization rejects stale backend tokens rather than trusting session cookie", async () => {
   let backendStatus = 401;
   const session = mockSession(async url => {
