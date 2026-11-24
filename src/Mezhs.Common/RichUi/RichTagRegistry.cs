@@ -50,7 +50,8 @@ public sealed class RichTagCatalog
 
     public RichTagCatalog(IEnumerable<RichTagDefinition> tags)
     {
-        _tags = tags.GroupBy(tag => tag.Name, StringComparer.Ordinal)
+        var entries = tags.ToArray();
+        _tags = entries.GroupBy(tag => tag.Name, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group =>
             {
                 var variants = group.ToArray();
@@ -59,6 +60,14 @@ public sealed class RichTagCatalog
                     throw new ArgumentException($"Duplicate tag registration: {group.Key}.");
                 return variants;
             }, StringComparer.Ordinal);
+
+        // Misnamed explicit children should fail at registration, not silently
+        // make a control unusable or weaken a parent's safety boundary.
+        var knownIds = entries.Select(tag => tag.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var tag in entries)
+            if (tag.SupportedChildren is { } children &&
+                children.Any(id => !knownIds.Contains(id)))
+                throw new ArgumentException($"Unknown supported child in {tag.Key}.");
     }
 
     public RichTagCatalog With(IEnumerable<RichTagDefinition> additional) =>
