@@ -21,16 +21,4 @@ public static class RichTagHandlers
         if (content.IsDocumentRoot)
             parser.DispatchDirectHandlers(content);
     }
-
-    public static void SvgTag(RichDocumentParser parser, RichTagContent content)
-    {
-        if (parser.SvgQuota.RegisterTag(content) is { } failure)
-            parser.RejectTag(failure, limit: true);
-    }
-
-    public static void SvgLiteral(RichDocumentParser parser, string text)
-    {
-        if (parser.SvgQuota.RegisterLiteral(text) is { } failure)
-            parser.RejectTag(failure, limit: true);
-    }
 }
