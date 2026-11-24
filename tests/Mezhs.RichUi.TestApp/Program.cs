@@ -442,6 +442,21 @@ var nestedOnlyAtRootPass = nestedOnlyAtRoot.Document.Valid &&
 Console.WriteLine($"{(nestedOnlyAtRootPass ? "PASS" : "FAIL")}: Nested-only definitions cannot render at document root");
 if (!nestedOnlyAtRootPass) failures++;
 
+var invalidChildRegistrationRejected = false;
+try
+{
+    _ = RichTagRegistry.Ui.With([
+        new RichTagDefinition("broken-children", RichTagRole.Container, null,
+            new HashSet<string>(["missing-tag"], StringComparer.Ordinal), AllowAsChild: true)
+    ]);
+}
+catch (ArgumentException)
+{
+    invalidChildRegistrationRejected = true;
+}
+Console.WriteLine($"{(invalidChildRegistrationRejected ? "PASS" : "FAIL")}: Unknown child IDs fail during catalog composition");
+if (!invalidChildRegistrationRejected) failures++;
+
 
 // A model can literally author the former private-use marker sequence.
 // The restored inline node must stay at its real UTF-16 position.
@@ -830,5 +845,5 @@ finally
 }
 Console.WriteLine($"PARSER_FIRST_CHANCE_EXPECTED={parserFirstChance}");
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 25 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 25 + exceptionCases.Length} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 26 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 26 + exceptionCases.Length} passed");
 return failures == 0 ? 0 : 1;
