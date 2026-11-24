@@ -141,6 +141,11 @@ var escapeContexts = new (string Name, string Source, string[] Commands)[]
     ("Escape inside invalid UI", "<box onClick=\"bad\"><escape><SH>BAD_BOX</SH></escape></box>", ["SH"]),
     ("Escape inside invalid SVG", "<svg><escape><SH>SVG</SH></escape></svg>", ["SH"]),
     ("Escape nested inside escape", "<escape><escape><SH>NESTED</SH></escape></escape>", ["SH"]),
+    ("Escape protects a parent closer inside command body", "<box><escape><SH>echo </box> literal</SH></escape><SH>INERT</SH></box>", ["SH"]),
+    ("Escape protects fake closer in nested literal wrapper", "<escape><Widget>text </escape> <SH>INERT</SH></Widget><SH>DIRECT</SH></escape>", ["SH"]),
+    ("Opaque editor with nested escape skips direct shell", "<CodeBlock><SH>INERT</SH><escape><SH>DIRECT</SH></escape></CodeBlock>", ["SH"]),
+    ("Escape inside opaque editor nested through unknown", "<CodeBlock><Widget><escape><ATTACH>path.txt</ATTACH></escape></Widget></CodeBlock>", ["ATTACH"]),
+
     ("Escape nested under box inside escape", "<escape><box><escape><SH>INNER</SH></escape><SH>INERT</SH></box><SH>OUTER</SH></escape>", ["SH", "SH"]),
     ("Other nested parents stay inert", "<escape><box><SH>INERT</SH></box><SH>DIRECT</SH></escape>", ["SH"]),
 };
@@ -152,6 +157,17 @@ foreach (var (name, source, expected) in escapeContexts)
     Console.WriteLine($"{(passed ? "PASS" : "FAIL")}: {name}; commands={string.Join(",", actual)}");
     if (!passed) failures++;
 }
+// Delimiters inside command bodies must never alter outer structural pairing.
+var escapedParentCloserSource = "<box><escape><SH>echo </box> literal</SH></escape><SH>INERT</SH></box>";
+var escapedParentCloser = new RichDocumentParser().Parse(escapedParentCloserSource);
+var escapedParentCloserPass = escapedParentCloser.Document.Valid &&
+    escapedParentCloser.Commands.Count == 1 &&
+    escapedParentCloser.Commands[0].Body == "echo </box> literal" &&
+    escapedParentCloser.Commands[0].SourceSpan.End ==
+        escapedParentCloserSource.IndexOf("</SH>", StringComparison.Ordinal) + 5;
+Console.WriteLine($"{(escapedParentCloserPass ? "PASS" : "FAIL")}: Escape shields ancestor closer inside command body");
+if (!escapedParentCloserPass) failures++;
+
 var rawEscapeSource = "<CodeBlock>pre <escape><SH>HIDDEN</SH></escape> post</CodeBlock>";
 var rawEscape = new RichDocumentParser().Parse(rawEscapeSource);
 var rawEscapeText = rawEscape.Document.Nodes.SelectMany(Walk)
