@@ -313,23 +313,24 @@ var blankLineOk = blankLineDoc.Document.Valid && blankLineDoc.Commands.Count == 
 Console.WriteLine($"{(blankLineOk ? "PASS" : "FAIL")}: Standalone command leaves no empty rendered paragraph");
 if (!blankLineOk) failures++;
 
-// Every tag carries independent child-search and child-eligibility policies.
+// Each parent declares its own complete policy for nested UI controls.
+// null accepts ordinary registered UI, empty means opaque/no nested tags.
 var controlsPass =
     Registry.RichTags.TryGet("box", out var boxDef) &&
-    boxDef.SearchChildren && boxDef.AllowAsChild &&
+    boxDef.SupportedChildren is null && boxDef.AllowAsChild &&
     Registry.RichTags.TryGet("row", out var rowDef) &&
-    rowDef.SearchChildren && rowDef.AllowAsChild &&
+    rowDef.SupportedChildren is null && rowDef.AllowAsChild &&
     Registry.RichTags.TryGet("SH", out var shellDef) &&
-    !shellDef.SearchChildren && !shellDef.AllowAsChild &&
+    shellDef.SupportedChildren is { Count: 0 } && !shellDef.AllowAsChild &&
     Registry.RichTags.TryGet("ATTACH", out var attachDef) &&
-    !attachDef.SearchChildren && !attachDef.AllowAsChild &&
+    attachDef.SupportedChildren is { Count: 0 } && !attachDef.AllowAsChild &&
     Registry.RichTags.TryGet("DONE", out var doneDef) &&
-    !doneDef.SearchChildren && !doneDef.AllowAsChild &&
+    doneDef.SupportedChildren is { Count: 0 } && !doneDef.AllowAsChild &&
     Registry.RichTags.TryGet("escape", out var escapeDef) &&
-    !escapeDef.SearchChildren && escapeDef.AllowAsChild &&
+    escapeDef.SupportedChildren is { Count: 0 } && escapeDef.AllowAsChild &&
     Registry.RichTags.TryGet("WritingBlock", out var writingDef) &&
-    !writingDef.SearchChildren && writingDef.AllowAsChild;
-Console.WriteLine($"{(controlsPass ? "PASS" : "FAIL")}: Independent per-tag child search and child eligibility policies");
+    writingDef.SupportedChildren is { Count: 0 } && writingDef.AllowAsChild;
+Console.WriteLine($"{(controlsPass ? "PASS" : "FAIL")}: Declarative parent-supported children and opaque boundaries");
 if (!controlsPass) failures++;
 
 // Architectural regression: command and escape semantics must be registered
@@ -360,13 +361,19 @@ if (!separatedCatalogs) failures++;
 // not detected with SVG-specific branches in the generic render traversal.
 var svgPolicies =
     RichTagRegistry.Ui.TryGet("svg", out var svgRoot) &&
-    svgRoot.AvailableOutsideContext && svgRoot.StrictChildren &&
+    svgRoot.AtRoot && svgRoot.SupportedChildren is { } svgChildren &&
+    svgChildren.SetEquals(["svg:g", "svg:rect", "svg:path", "svg:line",
+        "svg:polyline", "svg:polygon", "svg:circle", "svg:ellipse", "svg:text"]) &&
     svgRoot.LiteralChildren && svgRoot.ProcessContent is not null &&
     svgRoot.ProcessLiteral is not null && svgRoot.Validate is not null &&
     RichTagRegistry.Ui.TryGet("text", svgRoot, out var svgText) &&
-    svgText.Context == "svg" &&
+    svgText.Key == "svg:text" && !svgText.AtRoot &&
     RichTagRegistry.Ui.TryGet("text", out var regularText) &&
-    regularText.Context is null &&
+    regularText.Key == "text" && regularText.AtRoot &&
+    RichTagRegistry.Ui.TryGet("g", svgRoot, out var svgGroup) &&
+    svgGroup.SupportedChildren is { } groupChildren && groupChildren.SetEquals(svgChildren) &&
+    RichTagRegistry.Ui.TryGet("text", svgGroup, out var groupText) &&
+    groupText.Key == "svg:text" &&
     !RichTagRegistry.Ui.TryGet("box", svgRoot, out _);
 Console.WriteLine($"{(svgPolicies ? "PASS" : "FAIL")}: SVG family validation, text and strict children are registry-owned");
 if (!svgPolicies) failures++;
@@ -375,7 +382,7 @@ if (!svgPolicies) failures++;
 // metadata; the generic parser has no name allowlist to update.
 var customUiCatalog = RichTagRegistry.Ui.With([
     new RichTagDefinition("custom-inline", RichTagRole.Container, null,
-        SearchChildren: true, AllowAsChild: true) { Inline = true }
+        SupportedChildren: null, AllowAsChild: true) { Inline = true }
 ]);
 var customUi = new RichDocumentParser(customUiCatalog)
     .Parse("before <custom-inline>hello</custom-inline> after");
@@ -391,9 +398,11 @@ if (!customInlinePass) failures++;
 var contextualTagsPass =
     RichTagRegistry.Ui.TryGet("svg", out var svgParent) &&
     RichTagRegistry.Ui.TryGet("text", svgParent, out var scopedText) &&
-    scopedText.Context == "svg" &&
+    scopedText.Key == "svg:text" &&
+    scopedText.SupportedChildren is { } scopedChildren &&
+    scopedChildren.SetEquals(["svg:tspan"]) &&
     RichTagRegistry.Ui.TryGet("text", out var plainText) &&
-    plainText.Context is null &&
+    plainText.Key == "text" &&
     !RichTagRegistry.Ui.TryGet("path", out _) &&
     RichTagRegistry.Ui.TryGetStructural("path", out var structuralPath) &&
     structuralPath.Role == RichTagRole.Leaf;
