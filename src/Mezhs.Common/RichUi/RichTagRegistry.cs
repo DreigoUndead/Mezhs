@@ -19,7 +19,15 @@ public sealed record RichTagDefinition(
     IReadOnlySet<string>? AllowedAttributes,
     bool SearchChildren,
     bool AllowAsChild,
-    Action<RichDocumentParser, RichTagContent>? ProcessContent = null);
+    Action<RichDocumentParser, RichTagContent>? ProcessContent = null)
+{
+    // Declared by the tag family, not inferred by the generic renderer.
+    public string? Context { get; init; }
+    public bool StrictChildren { get; init; }
+    public bool LiteralChildren { get; init; }
+    public Func<RichTagDefinition?, RichTagDefinition, IReadOnlyDictionary<string, string>, bool>? Validate { get; init; }
+    public Action<RichDocumentParser, string>? ProcessLiteral { get; init; }
+}
 
 // A parser instance uses one immutable catalog. An Agent host can extend the
 // UI definitions without changing or mutating the reusable Core catalog.
@@ -33,19 +41,21 @@ public sealed class RichTagCatalog
         new(_tags.Values.Concat(additional));
 
     public bool TryGet(string name, out RichTagDefinition definition) =>
-        TryGet(name, false, out definition);
+        TryGet(name, null, out definition);
 
-    public bool TryGet(string name, bool svgScope, out RichTagDefinition definition)
+    // The catalog resolves ambiguous names (e.g. UI text versus SVG text)
+    // and restricts children according to the registered parent definition.
+    public bool TryGet(string name, RichTagDefinition? parent, out RichTagDefinition definition)
     {
-        if (svgScope && name == "text")
+        if (parent?.Context == "svg" && name == "text")
         {
             definition = RichTagRegistry.SvgText;
             return true;
         }
         if (!_tags.TryGetValue(name, out definition!)) return false;
-        return svgScope
-            ? RichTagRegistry.IsSvgTag(name) || !definition.AllowAsChild
-            : !RichTagRegistry.IsSvgTag(name) || (name is "svg" or "text");
+        return parent?.Context == "svg"
+            ? definition.Context == "svg" || !definition.AllowAsChild
+            : definition.Context is null || name == "svg";
     }
 }
 
@@ -78,7 +88,15 @@ public static class RichTagRegistry
      "strokeDasharray", "opacity", "fillOpacity", "strokeOpacity", "transform",
      "fontSize", "fontFamily", "fontWeight", "textAnchor", "dominantBaseline"];
     private static RichTagDefinition SvgTag(string name, RichTagRole role, params string[] attributes) =>
-        Tag(name, role, [..SvgCommon, ..attributes]);
+        Tag(name, role, [..SvgCommon, ..attributes]) with
+        {
+            Context = "svg",
+            StrictChildren = true,
+            LiteralChildren = true,
+            Validate = RichSvgValidation.ValidForTag,
+            ProcessContent = RichTagHandlers.SvgTag,
+            ProcessLiteral = RichTagHandlers.SvgLiteral
+        };
     internal static readonly RichTagDefinition SvgText = SvgTag("text", RichTagRole.Container, "x", "y");
     private static readonly HashSet<string> SvgNames = new(
         ["svg", "g", "rect", "path", "line", "polyline", "polygon", "circle", "ellipse", "text", "tspan"],
