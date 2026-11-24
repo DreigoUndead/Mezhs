@@ -206,6 +206,18 @@ test("same-line WritingBlock stays opaque while escape runs direct commands", ()
   assert.match(css, /\.rich-escape\s*\{[^}]*color:[^;}]*#[0-9a-f]+/i);
 });
 
+
+test("raw editors omit commands inside nested escape scopes", () => {
+  const source = '<CodeBlock>before <escape>raw <SH>RUN</SH> after</escape> end</CodeBlock>';
+  const doc = canonicalDocument(source);
+  assert.equal(doc.valid, true);
+  const raw = kinds(doc.nodes, "raw").find(n => n.name === "CodeBlock");
+  assert.equal(raw?.text, 'before <escape>raw  after</escape> end');
+  const markup = html(source, { document: doc });
+  assert.doesNotMatch(markup, /RUN/);
+  assert.match(markup, /&lt;escape&gt;/);
+});
+
 test("inline rich tags remain visible when embedded in Markdown code", () => {
   const inputs = [
     '`pre <text strong>inside</text> post`',
