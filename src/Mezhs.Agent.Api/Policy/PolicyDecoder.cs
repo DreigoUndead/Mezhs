@@ -152,7 +152,7 @@ public sealed class PolicyDecoder
         {
             rules.Add(
                 $"Authoritative runtime protocol, overriding conflicting older local instructions: to execute shell text, write <{shell.Name}>shell text</{shell.Name}> anywhere in the reply. " +
-                "The body is passed to the host shell unchanged, including whitespace. Root-only command tags execute at document root or directly inside escape, even when escape has UI, unknown, SVG or raw-editor ancestors. Other nested command tags are inert. Non-command escape content remains muted literal text.");
+                "The body is passed to the host shell unchanged, including whitespace. Root-only command tags execute at document root or directly inside an escape at document root. Commands inside other containers, including nested escapes, SVG, unknown UI and raw editors, are inert. Non-command escape content remains muted literal text.");
         }
 
         if (settings.Commands.Allow.Contains("ATTACH", StringComparer.OrdinalIgnoreCase) &&
