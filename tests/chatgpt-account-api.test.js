@@ -107,7 +107,7 @@ test("native preparation failure is classified before conversation submission", 
 
 test("native requirements failure categories stay fixed and no conversation is submitted", async () => {
   const scenarios = [
-    ["ChatGPT native requirements provider was not observed in this document (resourceEntries=3).",
+    ["ChatGPT native requirements provider was not observed in this document (resourceEntries=3). [page=root,ready=complete,scripts=unauth_mweb,resources=unauth_mweb]",
       "runtime_not_observed"],
     ["ChatGPT native requirements provider export is unavailable (runtimeCandidates=17).",
       "provider_export_unavailable"],
@@ -140,6 +140,10 @@ test("native requirements failure categories stay fixed and no conversation is s
       "ChatGPT native requirements failed (" + category + ")."));
     assert.ok(progress.every(value => !JSON.stringify(value).includes(message)),
       "progress must report a static category, not browser exception text");
+    if (category === "runtime_not_observed") {
+      assert.ok(progress.some(value => value.detail ===
+        "ChatGPT runtime document (page=root, ready=complete, scripts=unauth_mweb, resources=unauth_mweb)."));
+    }
   }
   assert.equal(submitted, 0);
 });
