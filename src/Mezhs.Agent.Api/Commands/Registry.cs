@@ -36,7 +36,7 @@ public static class Registry
             command.Name,
             command.Form == CommandForm.Block ? RichTagRole.Command : RichTagRole.Marker,
             new HashSet<string>(StringComparer.Ordinal),
-            SearchChildren: false,
+            SupportedChildren: RichTagDefinition.NoChildren,
             AllowAsChild: false,
             ProcessContent: RichTagHandlers.Command)));
 
