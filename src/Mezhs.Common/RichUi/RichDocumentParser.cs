@@ -55,7 +55,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             _radioLiteral = MarkdownLiteralMask(_source);
             var roots = FindRootTags(0, source.Length);
             if (_failure is { } structuralFailure) return Failed(source, structuralFailure.Reason);
-            var nodes = RenderChildren(0, source.Length, roots, null, 0, out _);
+            var nodes = RenderChildren(0, source.Length, roots, null, 0);
             if (_failure is { } failure) return Failed(source, failure.Reason);
             // Validate the final typed tree before releasing any command
             // candidates. Rich inline wrappers render as HTML phrasing
@@ -291,9 +291,8 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
 
     private IReadOnlyList<RichNode> RenderChildren(int start, int end,
         IReadOnlyList<LocatedTag> tags, string? expected, int depth,
-        out int position, RichTagDefinition? parentDefinition = null, bool inlineScope = false)
+        RichTagDefinition? parentDefinition = null, bool inlineScope = false)
     {
-        position = start;
         if (depth > MaxDepth)
         {
             _failure = new ParseFailure("Document nesting exceeds limit.", Limit: true);
@@ -454,7 +453,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             else
             {
                 var children = RenderChildren(tag.End, located.BodyEnd,
-                    located.SubTags, tag.Name, depth + 1, out _,
+                    located.SubTags, tag.Name, depth + 1,
                     definition, inlineElement);
                 if (_failure is { } childFailure)
                 {
@@ -476,7 +475,6 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             if (!inlineElement) plainFrom = cursor;
         }
         if (!PlainUntil(end) || !Flush(end)) return [];
-        position = end;
         return result;
     }
 
@@ -563,7 +561,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                     Text: _source[tag.End..located.BodyEnd])];
             else
                 children = RenderChildren(tag.End, located.BodyEnd, located.SubTags,
-                    tag.Name, depth + 1, out _);
+                    tag.Name, depth + 1);
         }
         if (_failure is not null) return;
         Add(nodes, new RichNode("unknown", $"{tag.Start}:unknown",
