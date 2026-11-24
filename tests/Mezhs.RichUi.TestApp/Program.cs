@@ -434,6 +434,14 @@ var deniedChildPass = deniedChild.Document.Valid &&
 Console.WriteLine($"{(deniedChildPass ? "PASS" : "FAIL")}: Disallowed children are inert and cannot promote nested commands");
 if (!deniedChildPass) failures++;
 
+var unknownRootOnly = new RichDocumentParser(Registry.RichTags).Parse(
+    "<UnknownControl><SH>INERT</SH><box><ATTACH>INERT.txt</ATTACH></box></UnknownControl><SH>ROOT</SH>");
+var unknownRootOnlyPass = unknownRootOnly.Document.Valid &&
+    unknownRootOnly.Commands.Select(c => c.Body).SequenceEqual(["ROOT"]) &&
+    unknownRootOnly.Document.Nodes.Any(n => n.Kind == "unknown" && n.Name == "UnknownControl");
+Console.WriteLine($"{(unknownRootOnlyPass ? "PASS" : "FAIL")}: Unknown-wrapper children never gain document-root command authority");
+if (!unknownRootOnlyPass) failures++;
+
 var nestedOnlyAtRoot = new RichDocumentParser(constrainedCatalog).Parse(
     "<allowed>not-root</allowed><SH>ROOT</SH>");
 var nestedOnlyAtRootPass = nestedOnlyAtRoot.Document.Valid &&
@@ -845,5 +853,5 @@ finally
 }
 Console.WriteLine($"PARSER_FIRST_CHANCE_EXPECTED={parserFirstChance}");
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 26 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 26 + exceptionCases.Length} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 27 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 27 + exceptionCases.Length} passed");
 return failures == 0 ? 0 : 1;
