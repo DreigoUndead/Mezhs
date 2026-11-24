@@ -86,8 +86,10 @@ test("native preparation failure is classified before conversation submission", 
   const failedWindow = { webContents: {
     executeJavaScript: async () => { throw Error("private native challenge detail"); }
   } };
+  const progress = [];
   await assert.rejects(executeBrowserHttp({
-    window: failedWindow, session: actor, args: turnArgs, reportEvent: () => {}
+    window: failedWindow, session: actor, args: turnArgs, reportEvent: () => {},
+    reportProgress: value => progress.push(value)
   }, chatgpt.http), error => {
     assert.equal(error.code, "request_not_submitted");
     assert.match(error.message, /before request submission/);
@@ -95,6 +97,51 @@ test("native preparation failure is classified before conversation submission", 
     return true;
   });
   assert.equal(submitted, 0, "failed preparation must not submit the conversation");
+  assert.ok(progress.some(value => value.detail === "Preparing ChatGPT conduit token."));
+  assert.ok(progress.some(value => value.detail === "Preparing ChatGPT native requirements."));
+  assert.ok(progress.some(value =>
+    value.detail === "ChatGPT native requirements failed (other)."));
+  assert.ok(progress.every(value => !JSON.stringify(value).includes("private native challenge detail")),
+    "native failure progress must not include arbitrary error text or challenge data");
+});
+
+test("native requirements failure categories stay fixed and no conversation is submitted", async () => {
+  const scenarios = [
+    ["ChatGPT native requirements provider was not observed in this document (resourceEntries=3).",
+      "runtime_not_observed"],
+    ["ChatGPT native requirements provider export is unavailable (runtimeCandidates=17).",
+      "provider_export_unavailable"],
+    ["ChatGPT requirements prepare failed with HTTP 403", "requirements_prepare_http_failure"],
+    ["ChatGPT native chat requirements require login.", "login_required"]
+  ];
+  let submitted = 0;
+  const actor = session(async url => {
+    const endpoint = new URL(String(url)).pathname;
+    if (endpoint === "/api/auth/session") return json({ accessToken: "secret-not-for-progress" });
+    if (endpoint === "/backend-api/f/conversation/prepare")
+      return json({ conduit_token: "private-conduit" });
+    if (endpoint === "/backend-api/f/conversation") submitted++;
+    throw Error("Unexpected endpoint");
+  });
+  for (const [message, category] of scenarios) {
+    const progress = [];
+    const window = { webContents: {
+      executeJavaScript: async () => { throw Error(message); }
+    } };
+    await assert.rejects(executeBrowserHttp({
+      window, session: actor, args: turnArgs, reportEvent: () => {},
+      reportProgress: value => progress.push(value)
+    }, chatgpt.http), error => {
+      assert.equal(error.code, "request_not_submitted");
+      assert.doesNotMatch(error.message, /runtimeCandidates|resourceEntries|secret-not-for-progress/);
+      return true;
+    });
+    assert.ok(progress.some(value => value.detail ===
+      "ChatGPT native requirements failed (" + category + ")."));
+    assert.ok(progress.every(value => !JSON.stringify(value).includes(message)),
+      "progress must report a static category, not browser exception text");
+  }
+  assert.equal(submitted, 0);
 });
 
 test("native preparation cancellation is not converted into a normal failure", async () => {
