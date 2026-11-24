@@ -52,8 +52,9 @@ public sealed class RichDocumentParser
         try
         {
             _radioLiteral = MarkdownLiteralMask(_source);
-            var nodes = RenderChildren(0, source.Length, FindRootTags(0, source.Length),
-                null, 0, out _);
+            var roots = FindRootTags(0, source.Length);
+            if (_failure is { } structuralFailure) return Failed(source, structuralFailure.Reason);
+            var nodes = RenderChildren(0, source.Length, roots, null, 0, out _);
             if (_failure is { } failure) return Failed(source, failure.Reason);
             // Validate the final typed tree before releasing any command
             // candidates. Rich inline wrappers render as HTML phrasing
