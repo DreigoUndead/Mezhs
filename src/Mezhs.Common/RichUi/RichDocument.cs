@@ -29,6 +29,18 @@ public sealed record RichDocument(
 public sealed record RichCommandCandidate(string Name, string? Body, RichSourceSpan SourceSpan);
 public sealed record RichParseResult(RichDocument Document, IReadOnlyList<RichCommandCandidate> Commands);
 
+// Parsing-only validated tag data. A handler can collect host candidates,
+// but this object (including its parent) is never part of RichDocument JSON.
+public sealed record RichTagContent(
+    RichTagDefinition Definition,
+    IReadOnlyDictionary<string, string> Parameters,
+    string Content,
+    RichSourceSpan SourceSpan,
+    RichSourceSpan BodySpan,
+    RichTagContent? Parent,
+    bool IsDocumentRoot,
+    bool SelfClosing);
+
 public enum RichTagRole { Container, Leaf, OpaqueLiteral, RawEditor, Command, Marker }
 public sealed record RichTagDefinition(
     string Name,
@@ -40,9 +52,9 @@ public sealed record RichTagDefinition(
     // AllowAsChild: whether this tag may be discovered while traversing any
     // other searchable tag. Independent of SearchChildren and Agent policy.
     bool AllowAsChild,
-    // Optional host-only handler for opaque body content. A handler may discover
-    // command candidates, but never performs an Agent action.
-    Action<RichDocumentParser, int, int, int>? ProcessContent = null);
+    // Registered processing callback; display-only tags have no callback.
+    // Handlers may collect candidates, but cannot execute host actions.
+    Action<RichDocumentParser, RichTagContent>? ProcessContent = null);
 
 // The shared parser owns UI syntax. Agent command authority stays with Agent Registry.
 public static class RichTagRegistry
@@ -66,6 +78,12 @@ public static class RichTagRegistry
             SearchChildren = searchChildren ?? tag.SearchChildren,
             AllowAsChild = allowAsChild ?? tag.AllowAsChild
         };
+
+    // Executable tags share the same registered handler, independent of their
+    // surface syntax (paired body or final marker).
+    private static RichTagDefinition Executable(string name, RichTagRole role) =>
+        WithDiscovery(Tag(name, role), searchChildren: false, allowAsChild: false)
+            with { ProcessContent = static (parser, content) => parser.CollectCommand(content) };
 
     private static readonly string[] SvgCommon =
     ["fill", "stroke", "strokeWidth", "strokeLinecap", "strokeLinejoin",
@@ -110,13 +128,12 @@ public static class RichTagRegistry
             Tag("CodeBlock", RichTagRole.RawEditor, "language", "editable"),
             Tag("WritingBlock", RichTagRole.RawEditor, "variant", "recipient", "cc", "bcc", "subject", "id"),
             WithDiscovery(Tag("escape", RichTagRole.OpaqueLiteral, "char"), searchChildren: false)
-                with { ProcessContent = static (parser, start, end, depth) =>
-                    parser.ProcessEscapedContent(start, end, depth) },
-            // Agent commands are root-only and opaque, using the same
-            // traversal policy as all other registered tags.
-            WithDiscovery(Tag("SH", RichTagRole.Command), searchChildren: false, allowAsChild: false),
-            WithDiscovery(Tag("ATTACH", RichTagRole.Command), searchChildren: false, allowAsChild: false),
-            WithDiscovery(Tag("DONE", RichTagRole.Marker), searchChildren: false, allowAsChild: false)
+                with { ProcessContent = static (parser, content) => parser.ProcessEscapedContent(content) },
+            // All root-only host commands are registered, never recognized by
+            // a second parser-side Command/Marker collection branch.
+            Executable("SH", RichTagRole.Command),
+            Executable("ATTACH", RichTagRole.Command),
+            Executable("DONE", RichTagRole.Marker)
         }.ToDictionary(tag => tag.Name, StringComparer.Ordinal);
 
     public static bool IsSvgTag(string name) => SvgNames.Contains(name);
