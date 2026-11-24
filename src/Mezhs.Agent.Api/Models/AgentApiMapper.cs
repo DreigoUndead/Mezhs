@@ -61,7 +61,7 @@ public static class AgentApiMapper
 
     public static AgentChatMessageView ToView(
         ApiChatHistoryMessage message,
-        Parser parser)
+        CommandBatchAdapter parser)
     {
         var displayContent = message.Content;
         var protocolCommands = new List<AgentProtocolCommandView>();
