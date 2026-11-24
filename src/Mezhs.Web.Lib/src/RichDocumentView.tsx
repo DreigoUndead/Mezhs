@@ -3,19 +3,7 @@ import type { ReactNode, ComponentType } from "react";
 import { RichCodeBlock } from "./rich-elements/CodeBlock";
 import { RichWritingBlock } from "./rich-elements/WritingBlock";
 import { Cite } from "./rich-elements/Cite";
-import { rowComponent } from "./rich-elements/Row";
-import { colComponent } from "./rich-elements/Col";
-import { boxComponent } from "./rich-elements/Box";
-import { gridComponent } from "./rich-elements/Grid";
-import { gridItemComponent } from "./rich-elements/GridItem";
-import { textComponent } from "./rich-elements/Text";
-import { titleComponent } from "./rich-elements/Title";
-import { captionComponent } from "./rich-elements/Caption";
-import { dividerComponent } from "./rich-elements/Divider";
-import { badgeComponent } from "./rich-elements/Badge";
-import { iconComponent } from "./rich-elements/Icon";
-import { linkComponent } from "./rich-elements/Link";
-import { chartComponent } from "./rich-elements/Chart";
+import { presentation } from "./rich-elements/Registry";
 import { renderSvg } from "./rich-elements/Svg";
 import { CanonicalQuestion } from "./rich-elements/Question";
 import "./markdown.css";
@@ -37,23 +25,6 @@ export type RichDocument = {
   valid: boolean;
   nodes: RichNode[];
   diagnostics: Array<{ code: string; sourceSpan: { start: number; end: number } }>;
-};
-
-// Only symbolic server-validated tag names map to host-owned presentation.
-const presentation = {
-  row: rowComponent,
-  col: colComponent,
-  box: boxComponent,
-  grid: gridComponent,
-"grid-item": gridItemComponent,
-  text: textComponent,
-  title: titleComponent,
-  caption: captionComponent,
-  divider: dividerComponent,
-  badge: badgeComponent,
-  icon: iconComponent,
-  Link: linkComponent,
-  Chart: chartComponent,
 };
 
 const safeLink = (url?: string) => {
