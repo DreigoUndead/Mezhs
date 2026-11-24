@@ -144,6 +144,8 @@ var escapeContexts = new (string Name, string Source, string[] Commands)[]
     ("Escape protects a parent closer inside command body", "<box><escape><SH>echo </box> literal</SH></escape><SH>INERT</SH></box>", ["SH"]),
     ("Escape protects fake closer in nested literal wrapper", "<escape><Widget>text </escape> <SH>INERT</SH></Widget><SH>DIRECT</SH></escape>", ["SH"]),
     ("Opaque editor with nested escape skips direct shell", "<CodeBlock><SH>INERT</SH><escape><SH>DIRECT</SH></escape></CodeBlock>", ["SH"]),
+    ("Invalid escape inside raw editor stays inert", "<CodeBlock><escape onClick=\"invalid\"><SH>INERT</SH></escape></CodeBlock>", []),
+    ("Invalid nested escape does not grant command authority", "<escape><escape onClick=\"invalid\"><SH>INERT</SH></escape><SH>DIRECT</SH></escape>", ["SH"]),
     ("Escape inside opaque editor nested through unknown", "<CodeBlock><Widget><escape><ATTACH>path.txt</ATTACH></escape></Widget></CodeBlock>", ["ATTACH"]),
 
     ("Escape nested under box inside escape", "<escape><box><escape><SH>INNER</SH></escape><SH>INERT</SH></box><SH>OUTER</SH></escape>", ["SH", "SH"]),
