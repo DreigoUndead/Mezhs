@@ -11,6 +11,14 @@ namespace Mezhs.Common.RichUi;
 // React must not reparse Markdown source to discover actionable elements.
 internal static class RichMarkdownNodes
 {
+    // These are Markdown node kinds, not UI tag names. Adding a UI tag only
+    // requires metadata in its registered definition.
+    private static readonly IReadOnlySet<string> PhrasingKinds = new HashSet<string>(
+        ["text", "literal", "inlineCode", "strong", "emphasis", "strikethrough",
+         "lineBreak", "link", "image", "taskCheckbox"], StringComparer.Ordinal);
+
+    internal static bool IsPhrasing(string kind) => PhrasingKinds.Contains(kind);
+
     // Use the same bounded Markdown extensions as RichDocumentParser. Generic
     // attributes are deliberately unsupported: braces remain visible text.
     private static readonly MarkdownPipeline Pipeline = BuildPipeline(false);
