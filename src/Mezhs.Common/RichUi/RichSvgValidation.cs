@@ -76,3 +76,31 @@ internal static class RichSvgValidation
         parent is "svg" or "g" ? child is not ("svg" or "tspan") :
         parent is "text" or "tspan" && child == "tspan";
 }
+
+// A per-parse SVG resource guard, used only through registered SVG handlers.
+// The generic structural parser knows nothing about SVG budgets or syntax.
+internal sealed class RichSvgQuota
+{
+    private int _tags;
+    private int _characters;
+
+    public void Reset()
+    {
+        _tags = 0;
+        _characters = 0;
+    }
+
+    public string? RegisterTag(RichTagContent content)
+    {
+        if (++_tags > 250 || content.Depth > 12)
+            return "SVG resource budget exceeded.";
+        _characters += content.Parameters.Sum(item => item.Value.Length);
+        return _characters > 24_000 ? "SVG content budget exceeded." : null;
+    }
+
+    public string? RegisterLiteral(string raw)
+    {
+        _characters += raw.Length;
+        return _characters > 24_000 ? "SVG content budget exceeded." : null;
+    }
+}
