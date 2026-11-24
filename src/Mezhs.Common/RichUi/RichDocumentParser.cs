@@ -12,8 +12,9 @@ namespace Mezhs.Common.RichUi;
 /// never performs an action. Invalid documents return inert literal source and
 /// no command records; a host must never recover executable substrings.
 /// </summary>
-public sealed class RichDocumentParser
+public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
 {
+    private readonly RichTagCatalog _catalog = catalog ?? RichTagRegistry.Ui;
     private const int MaxLength = 180_000;
     private const int MaxNodes = 6_000;
     private const int MaxDepth = 32;
@@ -225,7 +226,7 @@ public sealed class RichDocumentParser
                 }
                 continue;
             }
-            RichTagRegistry.TryGet(tag.Name, out var definition);
+            _catalog.TryGet(tag.Name, out var definition);
             var located = new LocatedTag(tag, open.Count > 0 ? open.Peek() : null);
             if (tag.SelfClosing || definition?.Role == RichTagRole.Marker)
             {
@@ -339,7 +340,7 @@ public sealed class RichDocumentParser
             if (!PlainUntil(tag.Start)) return [];
             if (tag.Start < cursor) continue;
             if (_failure is not null) return [];
-            if (!RichTagRegistry.TryGet(tag.Name, svgScope, out var definition))
+            if (!_catalog.TryGet(tag.Name, svgScope, out var definition))
             {
                 if (svgScope)
                 {
@@ -534,12 +535,12 @@ public sealed class RichDocumentParser
     {
         if (!escape.IsDocumentRoot) return;
         var direct = FindRootTags(escape.BodySpan.Start, escape.BodySpan.End,
-            located => RichTagRegistry.TryGet(located.Opening.Name, out var definition) &&
+            located => _catalog.TryGet(located.Opening.Name, out var definition) &&
                 !definition.AllowAsChild && definition.ProcessContent is not null);
         foreach (var child in direct)
         {
             if (_failure is not null) return;
-            RichTagRegistry.TryGet(child.Opening.Name, out var definition);
+            _catalog.TryGet(child.Opening.Name, out var definition);
             if (!TryParseAttributes(child.Opening, definition, out var parameters, out var reason))
             {
                 _failure = new ParseFailure(reason);
