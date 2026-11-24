@@ -515,32 +515,26 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         definition.ProcessContent?.Invoke(this, content);
     }
 
-    // Shared registered candidate handler for paired commands and markers.
-    // Validation and authorization remain in the Agent Interpreter/Registry.
-    internal void CollectCommand(RichTagContent content)
+    // Handler callbacks collect only candidates. Admission and actual host
+    // execution remain exclusively the Agent Interpreter/Registry's work.
+    internal void RejectTag(string reason) =>
+        _failure = new ParseFailure(reason);
+
+    internal void AddCommandCandidate(string name, string? body, RichSourceSpan span)
     {
-        if (content.SelfClosing)
-        {
-            _failure = new ParseFailure($"{content.Definition.Name} cannot be self-closing.");
-            return;
-        }
         if (_commands.Count >= MaxNodes)
         {
             _failure = new ParseFailure("Command count exceeds limit.", Limit: true);
             return;
         }
-        _commands.Add(new RichCommandCandidate(content.Definition.Name,
-            content.Definition.Role == RichTagRole.Command ? content.Content : null,
-            content.SourceSpan));
+        _commands.Add(new RichCommandCandidate(name, body, span));
     }
 
-    // Escape reuses first-level structural matching and the same dispatcher.
-    // Only direct registered root-only handlers qualify; nested wrappers stay
-    // opaque and never promote command-shaped text into a candidate.
-    internal void ProcessEscapedContent(RichTagContent escape)
+    // Reuse the existing structural finder for handlers that explicitly ask
+    // for registered direct root-only children. No command names are embedded.
+    internal void DispatchDirectHandlers(RichTagContent parent)
     {
-        if (!escape.IsDocumentRoot) return;
-        var direct = FindRootTags(escape.BodySpan.Start, escape.BodySpan.End,
+        var direct = FindRootTags(parent.BodySpan.Start, parent.BodySpan.End,
             located => _catalog.TryGet(located.Opening.Name, out var definition) &&
                 !definition.AllowAsChild && definition.ProcessContent is not null);
         foreach (var child in direct)
@@ -552,8 +546,8 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 _failure = new ParseFailure(reason);
                 return;
             }
-            DispatchTag(child, definition, parameters, isDocumentRoot: false, parent: escape,
-                depth: escape.Depth + 1);
+            DispatchTag(child, definition, parameters, isDocumentRoot: false, parent: parent,
+                depth: parent.Depth + 1);
         }
     }
 
