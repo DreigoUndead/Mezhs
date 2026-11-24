@@ -168,3 +168,22 @@ Historical success at `fc586fba` and static inspection of later untested revisio
 **Authority:** Owner request in MEŽS execution `exec_30641e35bca0468ea0527bbdc3767073`: "go to step 3".
 
 **Status:** New Developer execution to be created using local MEŽS Agent API and current policy inherited from the owner execution. Execution ID must be confirmed through the Agent API before recording launch as successful. The external connector environment cannot access loopback `127.0.0.1:5060`; this fact alone does not establish the Agent host's availability.
+
+### 2026-11-24 — Step 3 unified finder implementation and developer verification
+
+**Implementation:** Refactored `RichDocumentParser` to a single `FindRootTags` structural matcher with private parent/child relationships and a shared root rendering traversal. The root `escape` processor calls that same matcher on its bounded body and collects only direct registered root-only command tags through one `CollectCommand`; nested escapes, unknown/invalid UI, SVG and raw editors never promote commands. Removed `ScanOpaqueContent`, `FindContainerClose`, and `FindOpaqueClosing`. Retained serialized `RichDocument` shape, bounded static attributes, Markdown/radio, SVG validation, safe React projection and Agent Registry/policy execution ownership. Corrected `instructions.yaml`, current Agent spec and generated `PolicyDecoder` instructions to reflect root-only escape. Updated parser/SSR/Agent regression fixtures to retire the superseded any-ancestor rule.
+
+**Baseline:** At `54cb8d18`, .NET parser tests were **130/131**, the sole failure being the already-contradictory registry assertion expecting `escape.SearchChildren=false`; SSR **45/45** passed. During refactoring three radio grammar assertions initially failed because the next structural tag truncated the bounded radio grammar input; the developer corrected the grammar span/consumed-tag handling and reran the suites. The first isolated Agent run timed out on an inert-nested-command fixture because its policy requires successful `SH` evidence for `DONE`; the fixture was corrected to execute an independent root `SH` and assert no nested side effect. Neither intermediate failure is claimed as a production failure.
+
+**Developer verification (source revision `d1f8014c08ac33d1c06931c265fb726360b67c8d`):**
+- `dotnet run --project tests/Mezhs.RichUi.TestApp/Mezhs.RichUi.TestApp.csproj -c Release --nologo`: **131/131 PASS** at `a8a843d8` (parser source unchanged since then).
+- `node --test tests/rich-model-ui-rendering.test.cjs`: **45/45 PASS** at `a8a843d8` (frontend source unchanged since then).
+- `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/agent-protocol-result.ps1`: **PASS** at `eb9f6c0a`, including isolated durable execution for root/root escape, inert nested wrappers, invalid batches without side effects, ordered shells and continuation; `PolicyDecoder` textual instructions were subsequently aligned at `d1f8014c`.
+- `dotnet build Mezhs.sln -c Release --nologo -v minimal`: **PASS** at `eb9f6c0a`, zero errors, one existing unrelated CS0114 warning in WhatsApp.
+- `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/agent-web-shared-ui.ps1`: **PASS**, 19/19 SSR UI checks plus shared-Agent assertions, at `d1f8014c`.
+- `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/agent-architecture.ps1`: **PASS** at `d1f8014c`.
+- Developer scanner inspection: **PASS**, old three structural helpers absent; one `FindRootTags` implementation used for both root traversal and root-escape processing; worktree clean and branch pushed. Independent review is not replaced by this self-check.
+
+**Remaining verification:** Run the final-role tests at the exact review/test revision, including `git diff --check main...HEAD`; an independent isolated live Chromium visual/action test was **not** performed in Development. The main branch has independently advanced and must not be rebased or merged for this work without explicit owner-approved Deploy. No version/release change was made.
+
+**Next:** Step 4 independent Code Review, then Step 5 independent Testing and Step 6 owner-approved Deploy. Owner waived only Step 2 Plan Review; no other high-risk gate is waived.
