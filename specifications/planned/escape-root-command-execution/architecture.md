@@ -2,7 +2,7 @@
 
 Status: **design guideline / Development input**, not executable pseudocode.
 Parent plan: [plan.md](plan.md). Branch: `escape-root-command-execution`.
-Recorded: 2026-11-24. Current unmerged implementation is **not** the reference design; verify migration against the actual source.
+Recorded: 2026-11-24. The task plan's active decisions are authoritative; verify the unmerged implementation against the actual source and tested SHA.
 
 ## Intent and boundaries
 
@@ -15,7 +15,7 @@ Parsing only discovers/normalizes data and builds host-only command candidates. 
 ## Current implementation and seams
 
 - `src/Mezhs.Common/RichUi/RichDocumentParser.cs`: owns shared structural tag matching, source spans, data-only rich projection and opaque editor boundaries; command candidates remain host-only.
-- `src/Mezhs.Common/RichUi/RichDocument.cs`: registry and `RichDocument`/`RichNode`/`RichCommandCandidate` contracts.
+- `src/Mezhs.Common/RichUi/RichDocument.cs`: versioned `RichDocument`/`RichNode`/`RichCommandCandidate` DTOs; `RichTagRegistry.cs` owns tag definitions/catalog.
 - `src/Mezhs.Common/RichUi/RichMarkdownNodes.cs` and `RichQuestionGrammar.cs`: Markdown lowering and limited question grammar. SVG markup validation now belongs to `src/Mezhs.Web.Lib/src/rich-elements/Svg.tsx`.
 - `src/Mezhs.Agent.Api/Commands/CommandBatchAdapter.cs`, `Interpreter.cs`, `Registry.cs`: command candidate adapter, batch validation, policy/host execution; keep this boundary.
 - `src/Mezhs.Api.Contracts/ApiContracts.cs`, `Mezhs.Api/Services/MessageService.cs`, `ChatService.cs`: completed assistant messages currently include a validated `Document`. Agent API also transports `RichDocument`.
@@ -54,37 +54,26 @@ security boundary; build-time automatic file discovery was not introduced.
 
 ## Tag registry and parsed shape
 
-Conceptual fields (exact API left to implementation):
+The source-level contract is defined in `RichTagRegistry.cs`:
 
-```csharp
-record TagDefinition(
-    string Name,             // protocol tag name, not an arbitrary component path
-    bool AllowAsNested,      // normal nested eligibility
-    bool SearchNested,       // whether ordinary child tags are discovered/processed
-    string? ControlName,     // symbolic frontend component identity
-    TagHandler? Function);   // host-owned handler; may collect candidate, never execute
-record TagContent(
-    TagDefinition Definition,
-    ValidatedParameters Params,
-    string Content,
-    IReadOnlyList<TagContent> SubTags,
-    TagContent? Parent,
-    SourceSpan Span,
-    SourceSpan BodySpan);
-```
+- `RichTagDefinition` declares name, role, permitted attributes, `SupportedChildren`, root/nested eligibility, inline/interactive metadata and an optional registered `ProcessContent` callback.
+- `RichTagContent` supplies validated data, original source/body spans, parent context, self-closing and root flags to handlers; handlers may emit candidates but never execute host side effects.
+- `RichTagCatalog` is immutable per host. Core uses `RichTagRegistry.Ui`; Agent composes its own commands from `Mezhs.Agent.Api/Commands/Registry.cs`. This keeps Agent capabilities out of Core.
+- `SupportedChildren`: null permits ordinary registered UI descendants; empty forbids MEŽS child processing (including opaque bodies); an explicit registered ID set restricts descendants. Nested-only variants use `AtRoot=false`. Avoid new generic parser name-specific exceptions when extending the catalog.
+- The frontend `rich-elements/Registry.ts` statically binds approved tag symbols to locally imported TSX components and raw-editor factories. No model-controlled import paths, arbitrary JSX or dynamic host callbacks.
 
-Do **not** copy these declarations mechanically. Existing roles (`Container`, `Leaf`, `OpaqueLiteral`, `RawEditor`, `Command`, `Marker`) and attribute allowlists may remain if they reduce complexity. A function/handler may be assigned only to registered tags; a null handler means display-only behavior. `ControlName` is a symbolic key (`box`, not `box.tsx`) and may be absent for host-only commands. Internal `Parent` references are set during discovery but are never serialized (avoid cycles); the UI needs `children` only.
+`RichDocument` remains versioned serialized data (`version`, `valid`, `nodes`, `diagnostics`) with source spans and inert, bounded attributes. Private `Parent`/handler references and host-only command candidates must never be serialized to React. Preserve existing safe literal data representation and streaming fallback; change the protocol only if a justified, synchronized migration is approved.
 
-`Params` are bounded and validated data, not `dynamic` or arbitrary executable expressions. Preserve the existing public `attributes: Record<string,string>` and `json:` encoded structured values initially, unless a well-tested API migration is demonstrably simpler. Unrecognized/unsafe attributes become inert UI diagnostics; they do not grant handler authority. Source spans remain original UTF-16 start/end offsets, end-exclusive.
+Architectural acceptance includes a **one-more-instance exercise**: an ordinary UI tag changes only its C# definition, TSX implementation and trusted frontend binding (plus optional handler); an Agent command changes Agent registration/handler rather than the generic parser; an embedded language can remain opaque to MEŽS and be safely decoded by its owner. Review actual code and caller paths, not only test outcomes.
 
 ## Discovery and processing
 
-1. `FindRootTags(content, allowedTags)` is the **single structural tag finder**: identify direct complete tags, their matching delimiters, body spans, parsed attributes and source positions. Match all encountered recognized/unknown paired wrappers structurally, even those not returned by `allowedTags`, so filtering can never promote a nested command to root. Self-closing elements and marker tags are not assumed to have matching closers. Opaque block command bodies are never reparsed as tags. Unclosed openers remain literal according to existing behavior.
-2. `FindTags(content, allowedTags, parent)` calls the root finder and recursively populates `SubTags` only when `SearchNested=true`, reducing the allowed child set to normally nested tags (`AllowAsNested=true`). Assign `Parent` explicitly. Avoid double-adding children to both parent list and return collection; one ordered tree is authoritative.
-3. One dispatcher processes the parsed tree in **original source order**, invoking registered handlers where eligible. Handlers may emit command candidates, UI projections or normalizations, never perform shell/attachments/host side effects. Preserve the same final order between root-level and escaped candidates.
-4. A root-level `escape` is `AllowAsNested=true`, `SearchNested=false`, with a registered handler. The handler reuses `FindRootTags` **on its body**, selects only registered `!AllowAsNested` tags with a callable command function, and enqueues eligible **direct** command candidates. It does not know `SH`/`ATTACH`/`DONE` by name, and never recursively promotes commands inside other paired wrappers. Command candidates' exact original spans are removed from escape's muted literal display. Other content is shown as literal source.
-5. A nested `escape` has a non-null parent and its handler does not collect commands. Inert nested escape contents remain literal/ordinary nested presentation as appropriate. A `SearchNested=false` wrapper such as `CodeBlock`/`WritingBlock` is opaque: do not dig through it looking for escape. Unknown and invalid UI, SVG and raw-editor boundaries remain inert for nested commands.
-6. Root-level registered commands are collected normally. Missing closers do not enqueue. Validate `DONE` final/unique, forbidden attributes, command body, limits and all Agent policy checks before the first command side effect. Preserve `SH` body bytes exactly and the existing incomplete-opener behavior.
+1. `FindRootTags` is the shared structural matcher for normal parsing and bounded root-`escape` command discovery. Structural matching includes known and unknown wrappers, parent relationships, paired delimiters, self-closing tags and markers, even when a tag is not eligible for display/execution. Filtering only affects returned tags, never ancestry.
+2. `RenderChildren` consumes the located tree, applies `RichTagCatalog` parent eligibility (`SupportedChildren`, root/nested rules), produces Markdown/rich nodes and invokes the **single** `DispatchTag` for validated registered handlers. There is no separate public `FindTags` or `SearchNested` mechanism.
+3. Root-only executable tags are registered by the Agent host, never by Core. Their callbacks collect candidates with original spans and byte-exact bodies. The Agent command adapter and Interpreter authorize the batch and perform side effects only after full validation.
+4. `escape` is a registered opaque/literal MEŽS control. Its callback dispatches only **direct registered root-only handler tags** when the escape itself is at document root, using the same bounded structural finder. It does not name `SH`, `ATTACH` or `DONE` specifically. Nested escapes cannot promote commands. Non-command escape content remains muted literal display, omitting collected command spans.
+5. Other known opaque editors, SVG raw content and unknown/ineligible wrappers preserve nested command inertness. For raw editors, the C# structural matcher finds an outer boundary without interpreting the editor's embedded language. Embedded SVG geometry/attributes are validated and rendered only by trusted `Svg.tsx`; unsupported input is visibly inert.
+6. Preserve existing incomplete-opener behavior, source order, quotas, final/unique `DONE`, Markdown code-fence behavior and fail-closed invalid batches with **no partial side effects**. Root-command eligibility must not be expanded by malformed closers or skipped wrapper ancestry.
 
 **Current owner-authoritative command matrix** (applies to registered executable root-only tags, not shell alone):
 
@@ -118,7 +107,7 @@ Interactive components may own local React state (`Question.tsx` already does); 
 - Full paired matching for nested same-name containers, unknown tags, opaque editors, SVG, escapes and command bodies. A fake parent closer inside an opaque command body cannot escape its structural parent.
 - Mixed direct commands and prose retain original order, exact bodies, source spans and display projection; no duplicated command execution or double-counting during normalization.
 - Preserve bounded message length, tag/attribute count, nested depth, node budget, SVG budget, safe URL and attribute policies; fail closed on untrusted input with no partially authorized batch.
-- No second scanner, multiple copies of structural matching, special-case hard-coded executable names in escape processing, repeated raw-source reparsing in React, or frontend-originated execution. Reusing the **same** root finder on a bounded escape body is allowed.
+- No competing **MEŽS tag** parser, multiple implementations of structural matching, hard-coded executable tag names in escape processing or frontend-originated command execution. The bounded SVG-only TSX decoder is intentionally separate: it interprets a distinct embedded language and cannot grant MEŽS/Agent capabilities. Reusing the same C# finder on a bounded escape body is allowed.
 - Avoid unnecessary typed-parameter/schema rewrite, additional abstractions, network protocols, locks, queues, dynamic imports or component redesign. Retain proven behavior of ordinary Markdown, radio question grammar, visual unknowns and raw editors.
 - Since source is untrusted model output, maintain strict data-only serialization and correct distinction between visible markup and host-only executable candidates.
 
@@ -127,7 +116,7 @@ Interactive components may own local React state (`Question.tsx` already does); 
 1. Inspect current source and all relevant regression expectations. Decide the smallest compatible `TagDefinition` and `TagContent` forms, identify the shared matcher and the one dispatcher. Establish a baseline on the task worktree.
 2. Implement a reusable first-level finder with complete structural boundaries, source offsets and registry filters; add root/nested matching tests first. Replace `ReadChildren`/`ScanOpaqueContent` structural duplication and redundant close matching as a single cohesive migration, not a parallel indefinite codepath.
 3. Connect recursion, `Parent`, root-only escape handler and shared command candidate collector; align tests to the latest owner-approved matrix. Keep batch validation and policy untouched and prove invalid replies do not cause side effects.
-4. Produce the same `RichDocument` projections for Markdown, rich UI, SVG, CodeBlock/WritingBlock, Unknown and escape. Maintain stable API/React behavior; change client data shape only when required and with synchronized C#/TS tests.
+4. Preserve versioned `RichDocument` projection for Markdown, rich UI, CodeBlock/WritingBlock, Unknown and escape; represent SVG as a raw editor node interpreted by trusted TSX. Update C#/TS tests for that deliberate representation change, while retaining API/React safety.
 5. Independently review architecture and security, run isolated live Agent/Executor and browser UI checks, fix identified issues, and update task plan with evidence. Remove obsolete helpers, tests and docs for superseded behavior; never leave both tag-discovery implementations behind.
 
 ## Verification matrix
