@@ -92,6 +92,8 @@ foreach (var name in new[] { "low", "mid", "high" })
     // tags never pass through the Agent Interpreter or Executor.
     Assert(policy.ModelInstructions.Contains("<SH>shell text</SH>", StringComparison.Ordinal),
         $"Default {name} instructions lost inline matched shell syntax.");
+    Assert(!policy.ModelInstructions.Contains("escape", StringComparison.OrdinalIgnoreCase),
+        $"Default {name} instructions contain unnecessary escape-specific guidance.");
 }
 var exampleExecution = new ExecutionRecord
 {
