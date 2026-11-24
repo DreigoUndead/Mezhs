@@ -335,9 +335,18 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             if (!PlainUntil(tag.Start)) return [];
             if (tag.Start < cursor) continue;
             if (_failure is not null) return [];
+            // Root-only host commands are inert inside *all* containers,
+            // irrespective of the parent's ordinary UI child policy.
+            if (parentDefinition is not null &&
+                _catalog.TryGetStructural(tag.Name, out var structural) &&
+                !structural.AllowAsChild)
+            {
+                cursor = located.End;
+                continue;
+            }
             if (!_catalog.TryGet(tag.Name, parentDefinition, out var definition))
             {
-                if (parentDefinition?.StrictChildren == true)
+                if (parentDefinition?.SupportedChildren is { Count: > 0 })
                 {
                     _failure = new ParseFailure($"Unsupported child: {tag.Name}.");
                     return [];
@@ -348,16 +357,11 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 plainFrom = cursor;
                 continue;
             }
-            if (expected is not null && !definition.AllowAsChild)
-            {
-                cursor = located.End; // Inert literal source, including the body
-                continue;
-            }
             var from = tag.Start;
             var inlineElement = parentDefinition?.LiteralChildren != true && definition.Inline;
             if (definition.Role == RichTagRole.Leaf && !tag.SelfClosing)
             {
-                if (parentDefinition?.StrictChildren == true)
+                if (parentDefinition?.SupportedChildren is { Count: > 0 })
                 {
                     _failure = new ParseFailure("Invalid leaf in strict content.");
                     return [];
@@ -379,21 +383,21 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             var validAttributes = TryParseAttributes(tag, definition,
                 out var attributes, out var reason);
             if (validAttributes && definition.Validate is { } validator &&
-                !validator(parentDefinition, definition, attributes))
+                !validator(definition, attributes))
             {
                 validAttributes = false;
                 reason = $"Unsafe attributes or nesting: {tag.Name}.";
             }
             if (!validAttributes)
             {
-                if (parentDefinition?.StrictChildren == true || !definition.AllowAsChild)
+                if (parentDefinition?.SupportedChildren is { Count: > 0 } || !definition.AllowAsChild)
                 {
                     _failure = new ParseFailure(reason);
                     return [];
                 }
                 if (!Flush(from)) return [];
                 AddUnknown(result, located, reason, depth,
-                    opaque: !definition.SearchChildren);
+                    opaque: definition.SupportedChildren is { Count: 0 });
                 cursor = located.End;
                 plainFrom = cursor;
                 continue;
@@ -431,7 +435,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 if (inlineElement) inline.Add(element);
                 else Add(result, element);
             }
-            else if (!definition.SearchChildren)
+            else if (definition.SupportedChildren is { Count: 0 })
             {
                 var literal = new RichNode("literal", $"{tag.End}:literal",
                     new RichSourceSpan(tag.End, located.BodyEnd),
@@ -450,7 +454,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                     definition, inlineElement);
                 if (_failure is { } childFailure)
                 {
-                    if (parentDefinition?.StrictChildren == true || childFailure.Limit) return [];
+                    if (parentDefinition?.SupportedChildren is { Count: > 0 } || childFailure.Limit) return [];
                     _failure = null;
                     if (inlineElement && !Flush(from)) return [];
                     AddUnknown(result, located, childFailure.Reason, depth, opaque: true);
