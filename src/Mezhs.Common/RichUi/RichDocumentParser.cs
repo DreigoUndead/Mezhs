@@ -472,7 +472,7 @@ public sealed class RichDocumentParser
             if (!TryTag(cursor, end, out var tag)) { cursor++; continue; }
             if (tag.Closing) { cursor = tag.End; continue; }
             var known = RichTagRegistry.TryGet(tag.Name, out var definition);
-            if (known && definition.Role is RichTagRole.Command or RichTagRole.Marker)
+            if (known && definition.Role is (RichTagRole.Command or RichTagRole.Marker))
             {
                 if (allowDirectCommands && !definition.AllowAsChild)
                     CollectCommand(tag, definition, end, out cursor);
