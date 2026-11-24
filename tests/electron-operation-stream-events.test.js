@@ -72,9 +72,9 @@ test("cancelled event producers fail instead of silently dropping events", async
 
 test("single oversized event fails before enqueueing; byte accounting remains bounded", async () => {
   const s = state();
-  await assert.rejects(queue.queueOperationEvent(s, "x".repeat(2 * 1024 * 1024 + 1)),
+  await assert.rejects(queue.queueOperationEvent(s, "x".repeat(16 * 1024 * 1024 + 1)),
     error => {
-      assert.match(error.message, /2 MiB/);
+      assert.match(error.message, /16 MiB/);
       assert.equal(error.code, "stream_delivery_failed");
       assert.equal(error.reason, "queue_event_oversized");
       return true;
@@ -108,6 +108,37 @@ test("worst-case control escaping still fits serialized queue limit", async () =
   assert.equal(s.events[0].value, raw);
   assert.ok(s.eventBytes > 256 * 1024);
   assert.ok(s.eventBytes <= 2 * 1024 * 1024);
+});
+
+test("2 MiB framed control-event survives worst-case JSON escaping", async () => {
+  const s = state();
+  const raw = "\u0001".repeat(2 * 1024 * 1024 - 6);
+  assert.ok(Buffer.byteLength("data: " + raw, "utf8") <= 2 * 1024 * 1024);
+  const encodedSize = Buffer.byteLength(JSON.stringify(raw), "utf8");
+  assert.ok(encodedSize > 12 * 1024 * 1024 - 128);
+  assert.ok(encodedSize < 16 * 1024 * 1024);
+  const framer = new StreamFramer("text/event-stream",
+    value => queue.queueOperationEvent(s, value));
+  await framer.write("data: " + raw + "\n\n");
+  assert.equal(s.events.length, 1);
+  assert.equal(s.events[0].value, raw);
+  assert.equal(s.eventBytes, encodedSize);
+});
+
+test("large serialized events backpressure until acknowledged", async () => {
+  const s = state();
+  const raw = "\u0001".repeat(2 * 1024 * 1024 - 6);
+  await queue.queueOperationEvent(s, raw);
+  let released = false;
+  const second = queue.queueOperationEvent(s, raw).then(() => { released = true; });
+  await tick();
+  assert.equal(released, false);
+  assert.equal(s.events.length, 1);
+  queue.acknowledgeOperationEvents(s, 1);
+  await second;
+  assert.equal(released, true);
+  assert.equal(s.events.length, 1);
+  assert.equal(s.eventBytes, Buffer.byteLength(JSON.stringify(raw), "utf8"));
 });
 
 test("stream failure progress exposes only whitelisted categories", () => {
