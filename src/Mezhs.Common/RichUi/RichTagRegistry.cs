@@ -28,6 +28,10 @@ public sealed record RichTagDefinition(
     public bool LiteralChildren { get; init; }
     public bool PreserveChildren { get; init; }
     public bool PhrasingAllowed { get; init; }
+    // A tag's content model is metadata: a new UI tag never requires edits
+    // to the structural parser or Markdown content-model normalization.
+    public bool Inline { get; init; }
+    public bool Interactive { get; init; }
     public bool AvailableOutsideContext { get; init; }
     public Func<RichTagDefinition?, RichTagDefinition, IReadOnlyDictionary<string, string>, bool>? Validate { get; init; }
     public Action<RichDocumentParser, string>? ProcessLiteral { get; init; }
@@ -37,29 +41,57 @@ public sealed record RichTagDefinition(
 // UI definitions without changing or mutating the reusable Core catalog.
 public sealed class RichTagCatalog
 {
-    private readonly IReadOnlyDictionary<string, RichTagDefinition> _tags;
-    public RichTagCatalog(IEnumerable<RichTagDefinition> tags) =>
-        _tags = tags.ToDictionary(tag => tag.Name, StringComparer.Ordinal);
+    private readonly IReadOnlyDictionary<string, RichTagDefinition[]> _tags;
+
+    public RichTagCatalog(IEnumerable<RichTagDefinition> tags)
+    {
+        _tags = tags.GroupBy(tag => tag.Name, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group =>
+            {
+                var variants = group.ToArray();
+                if (variants.Select(tag => tag.Context).Distinct(StringComparer.Ordinal).Count()
+                    != variants.Length)
+                    throw new ArgumentException($"Duplicate tag registration: {group.Key}.");
+                return variants;
+            }, StringComparer.Ordinal);
+    }
 
     public RichTagCatalog With(IEnumerable<RichTagDefinition> additional) =>
-        new(_tags.Values.Concat(additional));
+        new(_tags.Values.SelectMany(variants => variants).Concat(additional));
+
+    // Structural matching must recognize registered opaque/leaf forms even
+    // where the tag is not eligible for display. Eligibility is checked later.
+    public bool TryGetStructural(string name, out RichTagDefinition definition)
+    {
+        if (_tags.TryGetValue(name, out var variants))
+        {
+            definition = variants[0];
+            return true;
+        }
+        definition = null!;
+        return false;
+    }
 
     public bool TryGet(string name, out RichTagDefinition definition) =>
         TryGet(name, null, out definition);
 
-    // The catalog resolves ambiguous names (e.g. UI text versus SVG text)
-    // and restricts children according to the registered parent definition.
     public bool TryGet(string name, RichTagDefinition? parent, out RichTagDefinition definition)
     {
-        if (parent?.Context == "svg" && name == "text")
-        {
-            definition = RichTagRegistry.SvgText;
-            return true;
-        }
-        if (!_tags.TryGetValue(name, out definition!)) return false;
-        return parent?.Context == "svg"
-            ? definition.Context == "svg" || !definition.AllowAsChild
-            : definition.Context is null || definition.AvailableOutsideContext;
+        definition = null!;
+        if (!_tags.TryGetValue(name, out var variants)) return false;
+
+        var context = parent?.Context;
+        var tag = variants.FirstOrDefault(candidate => candidate.Context == context);
+        if (tag is null && context is null)
+            tag = variants.FirstOrDefault(candidate => candidate.AvailableOutsideContext);
+        // Discover root-only executable tags inside foreign contexts as inert
+        // boundaries. Never promote a child through a registered parent.
+        if (tag is null && context is not null)
+            tag = variants.FirstOrDefault(candidate =>
+                candidate.Context is null && !candidate.AllowAsChild);
+        if (tag is null) return false;
+        definition = tag;
+        return true;
     }
 }
 
@@ -67,22 +99,22 @@ public sealed class RichTagCatalog
 // separately by Mezhs.Agent.Api/Commands/Registry.cs.
 public static class RichTagRegistry
 {
-    private static RichTagDefinition Tag(string name, RichTagRole role, params string[] attributes) =>
-        new(name, role, new HashSet<string>(attributes, StringComparer.Ordinal),
-            SearchChildren: role == RichTagRole.Container,
-            AllowAsChild: true);
-
-    // Presentation components receive bounded inert attributes and interpret them locally.
-    // Restricted namespaces (SVG, raw editors, Agent commands) keep explicit contracts.
-    private static RichTagDefinition Presentation(string name, RichTagRole role) =>
-        Tag(name, role) with { AllowedAttributes = null };
+    // One general tag factory. An explicit attribute list means restricted
+    // input; null keeps the existing bounded presentation attribute policy.
+    private static RichTagDefinition Tag(string name,
+        RichTagRole role = RichTagRole.Container, bool inline = false,
+        bool interactive = false, string[]? attributes = null) =>
+        new(name, role,
+            attributes is null ? null : new HashSet<string>(attributes, StringComparer.Ordinal),
+            SearchChildren: role == RichTagRole.Container, AllowAsChild: true)
+        { Inline = inline, Interactive = interactive };
 
     private static readonly string[] SvgCommon =
     ["fill", "stroke", "strokeWidth", "strokeLinecap", "strokeLinejoin",
      "strokeDasharray", "opacity", "fillOpacity", "strokeOpacity", "transform",
      "fontSize", "fontFamily", "fontWeight", "textAnchor", "dominantBaseline"];
     private static RichTagDefinition SvgTag(string name, RichTagRole role, params string[] attributes) =>
-        Tag(name, role, [..SvgCommon, ..attributes]) with
+        Tag(name, role, attributes: [..SvgCommon, ..attributes]) with
         {
             Context = "svg",
             StrictChildren = true,
@@ -93,20 +125,19 @@ public static class RichTagRegistry
             ProcessContent = RichTagHandlers.SvgTag,
             ProcessLiteral = RichTagHandlers.SvgLiteral
         };
-    internal static readonly RichTagDefinition SvgText = SvgTag("text", RichTagRole.Container, "x", "y");
     public static readonly RichTagCatalog Ui = new(
         new[]
         {
-            Presentation("box", RichTagRole.Container),
-            Presentation("row", RichTagRole.Container),
-            Presentation("col", RichTagRole.Container),
-            Presentation("grid", RichTagRole.Container),
-            Presentation("grid-item", RichTagRole.Container),
-            Presentation("text", RichTagRole.Container),
-            Presentation("title", RichTagRole.Container),
-            Presentation("caption", RichTagRole.Container),
-            Presentation("badge", RichTagRole.Container),
-            Presentation("Link", RichTagRole.Container),
+            Tag("box"),
+            Tag("row"),
+            Tag("col"),
+            Tag("grid"),
+            Tag("grid-item"),
+            Tag("text", inline: true),
+            Tag("title", inline: true),
+            Tag("caption", inline: true),
+            Tag("badge", inline: true),
+            Tag("Link", inline: true, interactive: true),
             // SVG uses the same tag registry, with SVG-specific attributes and nesting.
             SvgTag("svg", RichTagRole.Container, "viewBox", "width", "height", "preserveAspectRatio", "aria-label", "role")
                 with { AvailableOutsideContext = true },
@@ -119,14 +150,16 @@ public static class RichTagRegistry
             SvgTag("circle", RichTagRole.Leaf, "cx", "cy", "r"),
             SvgTag("ellipse", RichTagRole.Leaf, "cx", "cy", "rx", "ry"),
             SvgTag("tspan", RichTagRole.Container, "x", "y"),
-            Presentation("divider", RichTagRole.Leaf),
-            Presentation("icon", RichTagRole.Leaf),
-            Presentation("Chart", RichTagRole.Leaf),
+            // Same symbolic name as the UI tag, resolved by declared context.
+            SvgTag("text", RichTagRole.Container, "x", "y"),
+            Tag("divider", RichTagRole.Leaf),
+            Tag("icon", RichTagRole.Leaf, inline: true),
+            Tag("Chart", RichTagRole.Leaf),
             // Citation provenance is a security-sensitive namespace, not general presentation.
-            Tag("Cite", RichTagRole.Leaf, "ref", "refs"),
-            Tag("CodeBlock", RichTagRole.RawEditor, "language", "editable"),
-            Tag("WritingBlock", RichTagRole.RawEditor, "variant", "recipient", "cc", "bcc", "subject", "id"),
-            Tag("escape", RichTagRole.OpaqueLiteral, "char")
+            Tag("Cite", RichTagRole.Leaf, inline: true, attributes: ["ref", "refs"]),
+            Tag("CodeBlock", RichTagRole.RawEditor, attributes: ["language", "editable"]),
+            Tag("WritingBlock", RichTagRole.RawEditor, attributes: ["variant", "recipient", "cc", "bcc", "subject", "id"]),
+            Tag("escape", RichTagRole.OpaqueLiteral, attributes: ["char"])
                 with { ProcessContent = RichTagHandlers.Escape }
         });
 
