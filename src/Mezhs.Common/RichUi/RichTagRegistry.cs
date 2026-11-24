@@ -33,13 +33,8 @@ public sealed record RichTagDefinition(
     public string? Id { get; init; }
     public string Key => Id ?? Name;
     public bool AtRoot { get; init; } = true;
-    public bool LiteralChildren { get; init; }
-    public bool PreserveChildren { get; init; }
-    public bool PhrasingAllowed { get; init; }
     public bool Inline { get; init; }
     public bool Interactive { get; init; }
-    public Func<RichTagDefinition, IReadOnlyDictionary<string, string>, bool>? Validate { get; init; }
-    public Action<RichDocumentParser, string>? ProcessLiteral { get; init; }
 }
 
 // A parser instance uses one immutable catalog. An Agent host can extend the
@@ -126,31 +121,6 @@ public static class RichTagRegistry
             AllowAsChild: true)
         { Inline = inline, Interactive = interactive };
 
-    private static readonly string[] SvgCommon =
-    ["fill", "stroke", "strokeWidth", "strokeLinecap", "strokeLinejoin",
-     "strokeDasharray", "opacity", "fillOpacity", "strokeOpacity", "transform",
-     "fontSize", "fontFamily", "fontWeight", "textAnchor", "dominantBaseline"];
-    // SVG tags are ordinary nested-only variants, admitted by their parent's
-    // explicit SupportedChildren list. No SVG-specific resolver or parser scope.
-    private static RichTagDefinition SvgTag(string name, RichTagRole role, params string[] attributes) =>
-        Tag(name, role, attributes: [..SvgCommon, ..attributes]) with
-        {
-            Id = "svg:" + name,
-            AtRoot = false,
-            LiteralChildren = true,
-            PreserveChildren = true,
-            PhrasingAllowed = true,
-            Validate = RichSvgValidation.ValidForTag,
-            ProcessContent = RichTagHandlers.SvgTag,
-            ProcessLiteral = RichTagHandlers.SvgLiteral
-        };
-
-    private static readonly IReadOnlySet<string> SvgGraphics = new HashSet<string>(
-        ["svg:g", "svg:rect", "svg:path", "svg:line", "svg:polyline",
-         "svg:polygon", "svg:circle", "svg:ellipse", "svg:text"],
-        StringComparer.Ordinal);
-    private static readonly IReadOnlySet<string> SvgTextChildren =
-        new HashSet<string>(["svg:tspan"], StringComparer.Ordinal);
     public static readonly RichTagCatalog Ui = new(
         new[]
         {
@@ -164,23 +134,10 @@ public static class RichTagRegistry
             Tag("caption", inline: true),
             Tag("badge", inline: true),
             Tag("Link", inline: true, interactive: true),
-            // SVG uses the same tag registry, with SVG-specific attributes and nesting.
-            SvgTag("svg", RichTagRole.Container, "viewBox", "width", "height", "preserveAspectRatio", "aria-label", "role")
-                with { AtRoot = true, SupportedChildren = SvgGraphics },
-            SvgTag("g", RichTagRole.Container)
-                with { SupportedChildren = SvgGraphics },
-            SvgTag("rect", RichTagRole.Leaf, "x", "y", "rx", "ry", "width", "height"),
-            SvgTag("path", RichTagRole.Leaf, "d"),
-            SvgTag("line", RichTagRole.Leaf, "x1", "y1", "x2", "y2"),
-            SvgTag("polyline", RichTagRole.Leaf, "points"),
-            SvgTag("polygon", RichTagRole.Leaf, "points"),
-            SvgTag("circle", RichTagRole.Leaf, "cx", "cy", "r"),
-            SvgTag("ellipse", RichTagRole.Leaf, "cx", "cy", "rx", "ry"),
-            SvgTag("tspan", RichTagRole.Container, "x", "y")
-                with { SupportedChildren = SvgTextChildren },
-            // Same name as UI text; parent's child IDs select this variant.
-            SvgTag("text", RichTagRole.Container, "x", "y")
-                with { SupportedChildren = SvgTextChildren },
+            // SVG is one inert raw-editor boundary. Its trusted TSX control
+            // parses and validates the finite SVG language without C# sub-tags.
+            Tag("svg", RichTagRole.RawEditor,
+                attributes: ["viewBox", "width", "height", "preserveAspectRatio", "role", "aria-label"]),
             Tag("divider", RichTagRole.Leaf),
             Tag("icon", RichTagRole.Leaf, inline: true),
             Tag("Chart", RichTagRole.Leaf),
