@@ -1,49 +1,67 @@
-# Executable root commands inside escape literals
+# Unified rich-tag discovery and escape command semantics
 
 ID: escape-root-command-execution
-Branch: `escape-root-command-execution`
-Level: **Small (owner override, 2026-11-22)** — narrowly scoped change to existing `escape` command recognition; command authority, policy validation and Executor semantics remain unchanged.
+Branch: `escape-root-command-execution` (existing unmerged dependency/PR #74)
+Level: **High-risk (scope expanded, 2026-11-24)** — architectural refactor of the canonical parser, host-command eligibility and rich UI serialization/rendering. The earlier Small owner override applied only to the superseded narrow escape fix.
 
 ## What
 
-Make an `escape` wrapper display all ordinary source as muted literal text while recognizing and executing contained command tags that are root-only (`AllowAsChild == false`) and have a registered executable behavior. In the current protocol this includes `SH`, `ATTACH`, and `DONE` (completion). No arbitrary callback, dynamic JavaScript, or presentation component may gain host execution authority.
+Refactor MEŽS rich-tag parsing around **one reusable implementation of first-level structural matching** (`FindRootTags` conceptual contract), registry-defined tag behavior, recursive `SearchNested` discovery and a single command candidate collection path. The owner's `Tag`/`TagContent` pseudocode is an architectural guideline, not an instruction to copy record signatures or split the existing type system literally.
 
-A registered executable root-only command is eligible when its immediate parent is document root or `escape`, regardless of the ancestry of that `escape`. A command whose immediate parent is any other tag remains inert. Nested `escape` scopes are recognized even inside otherwise opaque rich-UI, unknown, SVG and raw-editor wrappers. Preserve command order, exact body, and original source spans.
+**Latest authoritative execution rule:** complete registered host-command tags execute at the **document root** or **directly inside an escape that itself is at document root**. All other locations are inert, including `box -> escape -> SH`, `escape -> box -> SH`, nested escapes, SVG, unknown/invalid wrappers and raw editors. The exception applies to all registered executable root-only tags (`SH`, `ATTACH`, `DONE` today), not just shell. Escape's ordinary content is muted literal text; executed command spans are omitted from that display.
 
-Render non-executed escape content as visually muted literal text, including unsupported or malformed presentation markup. Executed command spans do not remain displayed as literal source. Do not change styling of generic literal nodes outside `escape`.
+Preserve other existing protocol semantics: host-only authorization and batch validation, exact original command body and spans, Markdown (including existing root commands in fences/code), safe rich UI fallback, SVG limits, typed `RichDocument` transport, React local component mapping and explicit host-authorized UI actions. Do not add arbitrary JS/DOM execution, dynamic imports, new host capabilities or a generic action framework as part of this work.
+
+Full design: [architecture.md](architecture.md) (includes current code seams, registry/data model, finder contract, command matrix, API/React boundary, migration and regressions).
 
 ## Why
 
-A real Agent reply for execution `exec_3583b9fdf8854c3abb640a223830ca8e` placed its intended PowerShell `SH` inside `escape`; the execution completed without creating an Executor shell record for that command. Current parser treats `escape` as wholly opaque. Owner correction of 2026-11-22 requires executable root-only command exceptions while all other escape content stays muted literal.
-
-The November 19 owner correction in `specifications/implemented/uniform-rich-tag-matching/plan.md` remains authoritative for other rich containers but is superseded **for `escape` only**.
+The original problem was missed shell commands when a model wrapped an intended root command in `escape`. Attempts to correct it introduced successive `ReadEscapeLiteral`, `literalScope` and `ScanOpaqueContent` mechanisms, duplicating structural tag scanning and proliferating exceptions. The owner explicitly rejected this complexity and revised the execution rule to root-only escape. A coherent registry-driven discovery/handler architecture should replace ad hoc scanners while retaining safety and presentation behavior.
 
 ## Acceptance criteria
 
-- [x] `escape` containing ordinary prose, Markdown, presentation tags and malformed visual markup displays those bytes as muted literal text, not rendered UI.
-- [x] A complete, direct `SH` or `ATTACH` inside `escape` is discovered once, follows original order with independent root commands, and omits only its exact source span from displayed literal text.
-- [x] A direct `DONE` inside `escape` is recognized as the completion command and retains existing final-command and duplicate constraints.
-- [x] Direct root-only commands under `escape` execute regardless of that escape's ancestors; commands with any other immediate parent remain inert, including direct commands under UI/Unknown/SVG/raw wrappers.
-- [x] Missing command closers remain literal; malformed/unauthorized matched commands fail closed before any batch side effects; no UI or browser code gains execution ability.
-- [x] Source spans, exact shell body (including whitespace/newlines), output projection and resource budgets remain correct; examples inside escape become potentially executable by design and are documented.
-- [x] Agent policy, authoritative Agent Registry, Executor lifetime, and host-only execution authority remain unchanged.
+- [ ] A single structural tag-matching **implementation** is reused by normal recursive discovery and the root-escape handler; no surviving second nesting scanner or competing command parser. Multiple calls to that one implementation on bounded content are acceptable.
+- [ ] `FindRootTags` recognizes all complete structural wrappers (including excluded and unknown ones) to preserve direct-parent boundaries; `tagsSearch` filters **returned** tags, not structural matching. Balanced closing tags, opaque command bodies, self-closing tags, markers and incomplete openers retain established behavior.
+- [ ] `FindTags` builds consistent direct-child relationships with assigned internal `Parent` and `SearchNested` only for ordinary nested discovery. No double insertion, duplicate handler call or source-order loss.
+- [ ] Root and direct children of **root-level escape** collect registered executable root-only tags exactly once. No commands execute inside other containers or inside nested escapes. Rejected/invalid batches cannot produce partial side effects. `DONE` remains final/unique.
+- [ ] Root-level escape's function has no hard-coded `SH`, `ATTACH` or `DONE` names and does not execute commands directly; it reuses first-level matching and the common candidate collector. The Agent Registry/Interpreter/policy continue to own validation and host execution.
+- [ ] Original `RichDocument` JSON and frontend `RichDocumentView` component mapping remain compatible unless a justified synchronized versioned change is needed. `Parent`, handler functions and command candidates are never serialized as UI callbacks.
+- [ ] Bounded validated params, markup normalization, source spans, literal/raw/unknown diagnostics, safe SVG, Markdown, React state, host action context, streaming/legacy fallback and resource limits remain correct.
+- [ ] Focused .NET/parser, SSR/TypeScript, Agent/Executor and isolated live Chromium checks pass at one identified final revision. Independent reviews and tests record actual evidence. All superseded ancestry tests/spec/instructions are updated.
+- [ ] No commit/merge to `main`, version bump or release change before explicit owner approval. Preserve task-branch isolation and document remaining conflicts with advanced `main`.
 
 ## How
 
-Keep `RichDocumentParser` responsible for structural parsing and rendering. Register `escape` with a `ProcessContent` handler in `RichTagRegistry`; the handler discovers only direct registered root-only command candidates and leaves ordinary contents literal. Use a single shared `CollectCommand` path for root and escaped candidates. For opaque/raw/unknown ancestors, use a generic traversal that can invoke registered content handlers without granting their other children execution rights or rendering them as UI. Reuse the existing tokenizer, tag matching, attribute validation and source-span projection. Do not add tag-name-specific logic, a separate escape parser, or new Agent authorization. Agent Registry and policy continue to own execution.
+Use [architecture.md](architecture.md) as the design and verification reference. Reuse existing `RichTagRegistry`, `RichDocument`, `RichDocumentParser`, `RichMarkdownNodes`, `RichQuestionGrammar`, `RichDocumentView` and `RichActionContext` where appropriate. Refactor or delete overlapping scanners and overgrown literal-mode flags rather than adding further wrappers. Keep C# backend tag handlers as candidate collectors/projection logic, not the same thing as React event callbacks. UI node `ControlName` is only a symbolic key resolved to a static React map; validated attributes remain inert data. Avoid rewriting the JSON parameter protocol or adding generic client-side action dispatch unless unavoidable and approved.
 
-Represent `escape` display content distinctly enough for `RichDocumentView` and shared CSS to render it muted and preserve literal characters/whitespace, without applying this style to unrelated literals. Ensure display nodes cannot promote command authority.
+This design includes an explicit **root-only escape** rule that supersedes the Nov 24 "any ancestor" interpretation. Root-escape `SearchNested=false` is deliberate: its handler selects only direct root-only callable tags. Other nested wrappers are structural boundaries, not opportunities to search for executable substrings.
 
 ## Steps
 
-1. **Development:** implement the minimal parser and muted-literal rendering delta on this branch, with targeted regressions and any necessary instruction updates.
-2. **Verification:** run focused parser and Agent command tests plus the relevant renderer checks; record observed results. An independent Tester is not required for this Small owner-overridden task.
-3. **Code Review (owner requested, independent):** assign a fresh Code Reviewer to inspect the complete change against the task plan, intended base and `.agents/batman.md`, emphasizing reuse of existing mechanisms, coherent ownership, duplicated scanning/validation, unnecessary complexity, and proportional tests. Follow `.agents/code-review.md` for independently substantiated findings, correction, fresh-review loop and PASS/FAIL/BLOCKED outcome. Do not proceed to Deploy until the review reaches PASS.
-4. **Deploy:** request owner approval before merging; update release reference docs if behavior changes require it.
+1. **Plan — this update:** document the owner decisions, current architecture, affected interfaces, migration and acceptance matrix; commit on the existing task branch.
+   - Done when current requirements supersede stale top-level plan content and detailed design is linked.
+2. **Plan Review — independent (required):** validate scope, risk classification, feasibility, containment and proportionality against actual code and `.agents/batman.md`; correct plan findings or escalate owner-level changes.
+   - Done when a fresh independent Plan Reviewer records **PASS**.
+3. **Development:** following Plan Review PASS, refactor the tag discovery/processing pipeline and compatible React projection, remove obsolete scanners, update current specs/instructions, and run developer verification.
+   - Done when a single cohesive implementation and regressions are committed/pushed to the task branch with evidence.
+4. **Code Review — independent:** inspect full code change, security, architecture, regression coverage and diff against intended base; correct and repeat with fresh review until **PASS**.
+5. **Testing — independent:** run isolated live Agent/Executor and Chromium UI checks, parser/build/SSR checks and regressions; correct defects, repeat independent verification until **PASS**.
+6. **Deploy:** obtain explicit owner approval to reconcile with advanced `main` and merge; only then finalize release-reference docs and release activities.
+
+**Handoff:** owner requested a new Developer agent for Step 3. Because this is High-risk, Step 2's independent Plan Review must pass before implementation unless the owner explicitly waives that stage. The local MEŽS Agent API is required for agent creation; no agent is considered started without a verified execution ID.
 
 ## Verification
 
-Run targeted `tests/agent-protocol-result.ps1`, parser and renderer regressions covering direct versus nested commands, exact-span removal, invalid-batch rejection and muted literal presentation. Run the relevant build as needed. No independent verification gate is mandated. Do not use the owner's active Agent storage or browser profile for tests.
+See the detailed matrix in [architecture.md](architecture.md). At minimum:
+
+- `dotnet run --project tests/Mezhs.RichUi.TestApp/Mezhs.RichUi.TestApp.csproj -c Release --nologo`
+- `node --test tests/rich-model-ui-rendering.test.cjs`, and relevant frontend build/typecheck
+- `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/agent-protocol-result.ps1`
+- `tests/agent-web-shared-ui.ps1`, `tests/agent-architecture.ps1`, relevant API/Agent integration fixtures
+- `dotnet build Mezhs.sln -c Release --nologo -v minimal`, `git diff --check main...HEAD`
+- Independent isolated browser and Agent/Executor behavior checks with fresh test storage/profile and command-side-effect assertions.
+
+Historical success at `fc586fba` and static inspection of later untested revisions do **not** verify the refactor. Keep explicit limitations and exact tested SHA; no live tests should use the owner's active profiles/databases.
 
 ## Changes
 
@@ -127,3 +145,18 @@ Run targeted `tests/agent-protocol-result.ps1`, parser and renderer regressions 
 **Regression changes:** Added direct and nested escape cases in known/unknown/invalid/SVG/raw ancestors; inert commands with other immediate parents; nested escape and parent-closing delimiters inside command bodies; invalid escape attributes; preserved source-span/body and raw presentation checks. Existing SSR and isolated Agent/Executor fixtures remain.
 
 **Verification limitation:** GitHub source inspection confirms the old mode flags and command-name checks are absent. This environment has no .NET SDK, PowerShell or accessible Windows MEŽS Agent API; targeted C# parser tests, PowerShell Agent/Executor integration, SSR tests and full solution build have **not** been executed against this revision. Historical passing results belong to older commits. Do not treat the regression definitions or static inspection as a runtime PASS. Once executable tests are run, record evidence and proceed to a fresh independent Step 3 Code Review. No deploy/merge authorization.
+
+
+### 2026-11-24 — Owner adopts unified tag registry and root-only escape, expands scope
+
+**Change:** Replace the current repeated structural scanners with one reusable `FindRootTags` implementation, recursive `FindTags` discovery, assigned parent, and tag-specific handler dispatch. A root `escape` invokes that same finder on its body for direct registered root-only callable commands; nested `escape` is inert. Preserve typed `RichDocument` serialization, fixed React component mappings, safe params and host action context. Reclassify from Small to High-risk because the task is now a cross-parser/API/UI refactor, not the former localized escape fix. See [architecture.md](architecture.md).
+
+**Reason:** Owner rejected the `ReadEscapeLiteral` → `literalScope` → `ScanOpaqueContent` sequence as duplicated machinery, iterated the `Tag`/`TagContent` pseudocode, explicitly changed the command matrix to `nothing -> escape -> command` only, and requested full documentation and a Developer agent.
+
+**Authority:** MEŽS owner executions `exec_8e65c8e86c2c437cb921f7394d3da593`, `exec_89f6ae98aa55400b97aafa9149732ff0`, `exec_6c27eacf88ce442ea5a7ab764dd72955`, `exec_4e19a1ef652043a5928cc048dfac8ea2`.
+
+**Trade-off:** Nested `escape` inside box/raw/unknown/SVG no longer executes; prior tests requiring it must be replaced with inert expectations. Handler may rescan the root `escape` body using the **same** `FindRootTags` implementation; single implementation is the invariant, not one total source traversal. Larger scope restores the independent High-risk workflow gates.
+
+**Supersedes:** The earlier Nov 24 any-ancestor escape guarantee, the Small risk-class override for the narrow change, earlier implementation-complete claims, and older Development/Review step numbering. Previous verification remains historical only.
+
+**Status:** Plan and architecture recorded on `escape-root-command-execution`. Await independent Plan Review before substantive Development unless the owner explicitly directs a workflow override. The local Agent API could not be reached from this execution environment; no successor execution ID has been created or verified.
