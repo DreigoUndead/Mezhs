@@ -331,6 +331,17 @@ var controlsPass =
 Console.WriteLine($"{(controlsPass ? "PASS" : "FAIL")}: Independent per-tag child search and child eligibility policies");
 if (!controlsPass) failures++;
 
+// Architectural regression: command and escape semantics must be registered
+// callbacks, not ad-hoc command-role branches in RichDocumentParser.
+var dispatcherContract =
+    new[] { "SH", "ATTACH", "DONE", "escape" }
+        .All(name => RichTagRegistry.TryGet(name, out var definition) &&
+            definition.ProcessContent is not null) &&
+    RichTagRegistry.TryGet("box", out var displayDefinition) &&
+    displayDefinition.ProcessContent is null;
+Console.WriteLine($"{(dispatcherContract ? "PASS" : "FAIL")}: Command and escape handlers are registry-driven");
+if (!dispatcherContract) failures++;
+
 // A model can literally author the former private-use marker sequence.
 // The restored inline node must stay at its real UTF-16 position.
 var collisionSource = "pre " + (char)0xE000 + (char)0xE001 + " <text strong>node</text> post";
