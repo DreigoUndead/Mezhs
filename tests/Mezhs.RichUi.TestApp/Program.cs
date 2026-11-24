@@ -357,25 +357,20 @@ var separatedCatalogs =
 Console.WriteLine($"{(separatedCatalogs ? "PASS" : "FAIL")}: Agent extends Core UI with executable tags only in Agent context");
 if (!separatedCatalogs) failures++;
 
-// SVG namespace, validation and literal text are declared on tag metadata,
-// not detected with SVG-specific branches in the generic render traversal.
+// SVG is one opaque raw-editor definition. Its geometry and value rules
+// belong exclusively to the trusted frontend component.
 var svgPolicies =
     RichTagRegistry.Ui.TryGet("svg", out var svgRoot) &&
-    svgRoot.AtRoot && svgRoot.SupportedChildren is { } svgChildren &&
-    svgChildren.SetEquals(["svg:g", "svg:rect", "svg:path", "svg:line",
-        "svg:polyline", "svg:polygon", "svg:circle", "svg:ellipse", "svg:text"]) &&
-    svgRoot.LiteralChildren && svgRoot.ProcessContent is not null &&
-    svgRoot.ProcessLiteral is not null && svgRoot.Validate is not null &&
-    RichTagRegistry.Ui.TryGet("text", svgRoot, out var svgText) &&
-    svgText.Key == "svg:text" && !svgText.AtRoot &&
+    svgRoot.AtRoot && svgRoot.Role == RichTagRole.RawEditor &&
+    svgRoot.SupportedChildren is { Count: 0 } &&
+    svgRoot.AllowedAttributes is { } svgAttributes &&
+    svgAttributes.SetEquals(["viewBox", "width", "height", "preserveAspectRatio", "role", "aria-label"]) &&
+    !RichTagRegistry.Ui.TryGet("g", out _) &&
+    !RichTagRegistry.Ui.TryGet("path", out _) &&
+    !RichTagRegistry.Ui.TryGet("rect", out _) &&
     RichTagRegistry.Ui.TryGet("text", out var regularText) &&
-    regularText.Key == "text" && regularText.AtRoot &&
-    RichTagRegistry.Ui.TryGet("g", svgRoot, out var svgGroup) &&
-    svgGroup.SupportedChildren is { } groupChildren && groupChildren.SetEquals(svgChildren) &&
-    RichTagRegistry.Ui.TryGet("text", svgGroup, out var groupText) &&
-    groupText.Key == "svg:text" &&
-    !RichTagRegistry.Ui.TryGet("box", svgRoot, out _);
-Console.WriteLine($"{(svgPolicies ? "PASS" : "FAIL")}: SVG family validation, text and strict children are registry-owned");
+    regularText.Key == "text";
+Console.WriteLine($"{(svgPolicies ? "PASS" : "FAIL")}: SVG is an opaque registered control");
 if (!svgPolicies) failures++;
 
 // A new UI control's nesting/inline behavior comes entirely from registered
@@ -393,21 +388,17 @@ var customInlinePass = customUi.Document.Valid && customUi.Commands.Count == 0 &
 Console.WriteLine($"{(customInlinePass ? "PASS" : "FAIL")}: Registered inline control requires no parser special case");
 if (!customInlinePass) failures++;
 
-// Context collisions are resolved from catalog declarations, not a hardcoded
-// SVG-text override in the generic parser.
-var contextualTagsPass =
-    RichTagRegistry.Ui.TryGet("svg", out var svgParent) &&
-    RichTagRegistry.Ui.TryGet("text", svgParent, out var scopedText) &&
-    scopedText.Key == "svg:text" &&
-    scopedText.SupportedChildren is { } scopedChildren &&
-    scopedChildren.SetEquals(["svg:tspan"]) &&
-    RichTagRegistry.Ui.TryGet("text", out var plainText) &&
-    plainText.Key == "text" &&
-    !RichTagRegistry.Ui.TryGet("path", out _) &&
-    RichTagRegistry.Ui.TryGetStructural("path", out var structuralPath) &&
-    structuralPath.Role == RichTagRole.Leaf;
-Console.WriteLine($"{(contextualTagsPass ? "PASS" : "FAIL")}: Context variants use the registry and preserve structural leaf forms");
-if (!contextualTagsPass) failures++;
+// Raw SVG content travels as data, not executable Agent sub-tags.
+var rawSvgSource = "<svg viewBox=\"0 0 80 80\"><text>hello</text><SH>INERT</SH></svg><SH>ROOT</SH>";
+var rawSvgDocument = new RichDocumentParser(Registry.RichTags).Parse(rawSvgSource);
+var opaqueSvgPass = rawSvgDocument.Document.Valid &&
+    rawSvgDocument.Commands.Select(c => c.Body).SequenceEqual(["ROOT"]) &&
+    rawSvgDocument.Document.Nodes.SelectMany(Walk).Any(n =>
+        n.Kind == "raw" && n.Name == "svg" &&
+        n.Text == "<text>hello</text><SH>INERT</SH>" &&
+        n.Attributes?["viewBox"] == "0 0 80 80");
+Console.WriteLine($"{(opaqueSvgPass ? "PASS" : "FAIL")}: SVG transport and Agent command isolation");
+if (!opaqueSvgPass) failures++;
 
 // An arbitrary registered parent (not only SVG) owns the child allowlist.
 // Unknown/disallowed wrappers must never promote contained host commands.
