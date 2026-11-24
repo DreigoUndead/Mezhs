@@ -24,16 +24,21 @@ const providerOperations = new Map();
 const MAX_OPERATION_EVENTS = 128;
 const MAX_OPERATION_EVENT_BYTES = 4 * 1024 * 1024;
 const MAX_OPERATION_EVENT_BYTES_SINGLE = 256 * 1024;
+// Fixed classifications only: never transport a provider frame or arbitrary exception text.
+const STREAM_FAILURE_REASONS = new Set([
+  "invalid_utf8", "frame_oversized", "line_oversized", "sse_event_oversized",
+  "missing_reader", "queue_invalid_event", "queue_event_oversized", "queue_cancelled"
+]);
 
 async function queueOperationEvent(state, value) {
   const encoded = JSON.stringify(value);
   if (typeof encoded !== "string")
     throw Object.assign(new Error("Browser HTTP stream produced an invalid event."),
-      { code: "stream_delivery_failed" });
+      { code: "stream_delivery_failed", reason: "queue_invalid_event" });
   const bytes = Buffer.byteLength(encoded, "utf8");
   if (bytes > MAX_OPERATION_EVENT_BYTES_SINGLE)
     throw Object.assign(new Error("Browser HTTP stream event exceeded the 256 KiB limit."),
-      { code: "stream_delivery_failed" });
+      { code: "stream_delivery_failed", reason: "queue_event_oversized" });
   while (!state.cancelled &&
          (state.events.length >= MAX_OPERATION_EVENTS ||
           state.eventBytes + bytes > MAX_OPERATION_EVENT_BYTES)) {
@@ -41,7 +46,7 @@ async function queueOperationEvent(state, value) {
   }
   if (state.cancelled || state.abortController.signal.aborted)
     throw Object.assign(new Error("Browser HTTP stream operation was cancelled."),
-      { code: "stream_delivery_failed" });
+      { code: "stream_delivery_failed", reason: "queue_cancelled" });
   state.eventSequence++;
   state.events.push({ sequence: state.eventSequence, value, bytes });
   state.eventBytes += bytes;
@@ -421,6 +426,15 @@ function queueProviderOperation(request) {
           ? "Browser transport operation failed (details redacted)."
           : String(error?.stack ?? error);
         state.code = safeCode;
+        if (safeCode === "stream_delivery_failed") {
+          const reason = STREAM_FAILURE_REASONS.has(error?.reason)
+            ? error.reason : "unknown";
+          state.progress = {
+            state: "retrieving",
+            detail: "Browser HTTP stream failed (" + reason + ").",
+            analysis: null
+          };
+        }
         state.status = "failed";
       }
     } finally {
