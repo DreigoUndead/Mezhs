@@ -30,7 +30,6 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
     private bool[] _radioLiteral = [];
     private List<RichCommandCandidate> _commands = [];
     private int _count;
-    internal RichSvgQuota SvgQuota { get; } = new();
     // Expected validation failures are returned through the parser rather than
     // thrown. A limit failure cannot be recovered as a UI Unknown node.
     private sealed record ParseFailure(string Reason, bool Limit = false);
@@ -43,7 +42,6 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         _source = source;
         _commands = [];
         _count = 0;
-        SvgQuota.Reset();
         _failure = null;
         try
         {
@@ -90,7 +88,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             var mdLink = node.Kind == "link";
             var notPhrasing = phrasingOnly &&
                 !(RichMarkdownNodes.IsPhrasing(node.Kind) ||
-                    inline || registered?.PhrasingAllowed == true);
+                    inline);
             var nestedInteractive = insideInteractive &&
                 (richLink || mdLink || node.Kind == "taskCheckbox");
             if (notPhrasing || nestedInteractive)
@@ -104,7 +102,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                         Text: _source[span.Start..span.End])]));
                 continue;
             }
-            if (node.Kind is "unknown" || registered?.PreserveChildren == true)
+            if (node.Kind is "unknown")
             {
                 result.Add(node);
                 continue;
@@ -235,8 +233,13 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             // with closing syntax are located for the existing diagnostic path.
             if (definition?.Role is RichTagRole.Command or RichTagRole.RawEditor or RichTagRole.Leaf)
             {
-                var close = _source.IndexOf("</" + tag.Name + ">", tag.End,
-                    StringComparison.Ordinal);
+                // Raw editor bodies may contain markup. Their closer must not
+                // be forged inside a quoted attribute, comment or nested tag
+                // with the same name. Command bodies retain their existing
+                // byte-exact first-closer semantics.
+                var close = definition.Role == RichTagRole.RawEditor
+                    ? FindOpaqueClosing(tag.Name, tag.End, end)
+                    : _source.IndexOf("</" + tag.Name + ">", tag.End, StringComparison.Ordinal);
                 if (close >= 0 && close < end)
                 {
                     located.BodyEnd = close;
@@ -282,6 +285,51 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         return tagsSearch is null ? roots : roots.Where(tagsSearch).ToArray();
     }
 
+    // One bounded markup-aware raw-body closer search. Parsing a raw editor
+    // remains opaque to the MEŽS tag tree: these tokens are used only to find
+    // its matching boundary, never returned as executable/visible tags.
+    private int FindOpaqueClosing(string name, int start, int end)
+    {
+        var nested = 0;
+        for (var cursor = start; cursor < end;)
+        {
+            var at = _source.IndexOf('<', cursor);
+            if (at < 0 || at >= end) break;
+            if (_source.AsSpan(at).StartsWith("<!--", StringComparison.Ordinal))
+            {
+                var stop = _source.IndexOf("-->", at + 4, StringComparison.Ordinal);
+                if (stop < 0 || stop + 3 > end) return -1;
+                cursor = stop + 3;
+                continue;
+            }
+            if (_source.AsSpan(at).StartsWith("<![CDATA[", StringComparison.Ordinal))
+            {
+                var stop = _source.IndexOf("]]>", at + 9, StringComparison.Ordinal);
+                if (stop < 0 || stop + 3 > end) return -1;
+                cursor = stop + 3;
+                continue;
+            }
+            if (!TryTag(at, end, out var found))
+            {
+                cursor = at + 1;
+                continue;
+            }
+            cursor = found.End;
+            if (found.Name != name) continue;
+            if (found.Closing)
+            {
+                if (nested == 0) return at;
+                nested--;
+            }
+            else if (!found.SelfClosing)
+            {
+                nested++;
+                if (nested > MaxDepth) return -1;
+            }
+        }
+        return -1;
+    }
+
     private IReadOnlyList<RichNode> RenderChildren(int start, int end,
         IReadOnlyList<LocatedTag> tags, int depth,
         RichTagDefinition? parentDefinition = null, bool inlineScope = false)
@@ -311,7 +359,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         {
             while (cursor < until)
             {
-                if (parentDefinition?.LiteralChildren != true && _source[cursor] == '{' && !IsEscaped(cursor) &&
+                if (_source[cursor] == '{' && !IsEscaped(cursor) &&
                     RichQuestionGrammar.TryParse(_source, cursor, end,
                         _radioLiteral, out var question, out var questionEnd))
                 {
@@ -358,7 +406,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 continue;
             }
             var from = tag.Start;
-            var inlineElement = parentDefinition?.LiteralChildren != true && definition.Inline;
+            var inlineElement = definition.Inline;
             if (definition.Role == RichTagRole.Leaf && !tag.SelfClosing)
             {
                 if (parentDefinition?.SupportedChildren is { Count: > 0 })
@@ -382,12 +430,6 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             }
             var validAttributes = TryParseAttributes(tag, definition,
                 out var attributes, out var reason);
-            if (validAttributes && definition.Validate is { } validator &&
-                !validator(definition, attributes))
-            {
-                validAttributes = false;
-                reason = $"Unsafe attributes or nesting: {tag.Name}.";
-            }
             if (!validAttributes)
             {
                 if (parentDefinition?.SupportedChildren is { Count: > 0 } || !definition.AllowAsChild)
@@ -580,15 +622,6 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         IReadOnlyList<RichNode> inline, bool insideRichContainer)
     {
         if (end <= start) return;
-        if (parentDefinition?.LiteralChildren == true)
-        {
-            var raw = _source[start..end];
-            parentDefinition.ProcessLiteral?.Invoke(this, raw);
-            if (_failure is not null) return;
-            if (!string.IsNullOrWhiteSpace(raw))
-                Add(nodes, new RichNode("text", $"{start}:text", new RichSourceSpan(start, end), Text: raw));
-            return;
-        }
         // Inline rich nodes occupy original source spans while Markdig parses
         // surrounding text as one Markdown context. Their descendants were
         // already counted by the recursive parser; count only new AST nodes.
