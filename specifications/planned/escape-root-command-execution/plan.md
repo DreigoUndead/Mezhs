@@ -252,3 +252,17 @@ Historical success at `fc586fba` and static inspection of later untested revisio
 **Authority:** Owner MEŽS execution `exec_6755761a7e3d498cac0c7b2c41a04508`: "the deploy step is asking me for codereview now. o do not see agreed upon contract implemented anywhere. what gives?"
 
 **Trade-off:** This reopens development without discarding the working finder, serialized UI contract or existing passing behavior. No version change, merge, or unauthorized host execution scope expansion.
+
+### 2026-11-24 — Owner-directed Step 3 Development resumed; handler dispatch refactor
+
+**Authority:** Owner Step 6 blocker in execution `exec_a9fc61992ad44c39be0bc042561b5dff` and subsequent implementation direction in `exec_c75cdc07b4b048639db3ddabad191b17`. **Workflow:** Step 6 Deploy remains BLOCKED; the task has returned to Step 3 Development. No further review, merge, rebase, version bump or release is authorized by this transition.
+
+**Implementation pushed to task branch (current source revision `688bd7d39b292143eb276770ce01ca541cdfed8c`):**
+- `RichTagDefinition.ProcessContent` is now a registered typed callback receiving validated `RichTagContent` (parameters, content, original source/body spans, parent context and root eligibility).
+- `SH`, `ATTACH`, `DONE` share a registry-owned executable handler; `escape` has its registered handler. No executable name checks are embedded in escape processing. Removed the old special-case `Command/Marker` collection branch from `RenderChildren`, the `ReadChildren` wrapper and the `DONE`-specific registry default.
+- The single `DispatchTag` is used by ordinary rendering and by direct registered children of document-root escape. `LocatedTag` remains the structural parent/subtag tree; no second tree/parser or new frontend action framework was added. `RichTagContent` intentionally does not duplicate `LocatedTag.SubTags`.
+- Existing `RichDocument` transport, static React mapping, root-only containment, structural finder, original command bytes/spans and Agent Interpreter/Registry execution boundary remain unchanged. Added a focused registry-handler contract assertion to the existing C# parser fixture.
+
+**Verification status:** Source-level checks confirmed the registered callbacks, single dispatcher definition, absence of the old command-role collection branch/obsolete scanners, root escape guard and final-`DONE` rule. These are **static observations, not a test-suite PASS**. The external editing environment has no `dotnet` / C# compiler or accessible Windows MEŽS Agent host, and no GitHub status/workflow run was reported for the pushed revision. Required developer parser/build/SSR/Agent checks and independent Code Review + Testing must run on the corrected revision before any return to Deploy. No new agent was created during this implementation.
+
+**Next:** Complete developer verification in the isolated task worktree; fix any findings on this branch. Then create fresh independent Step 4 Code Review and Step 5 Testing against the final verified revision, respecting the no-concurrent-task-worker workflow.
