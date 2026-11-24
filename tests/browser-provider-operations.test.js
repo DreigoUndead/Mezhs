@@ -37,13 +37,13 @@ test("browser authorization allows bounded upstream probes and exposes safe sess
     "transports/Mezhs.Browser.Electron/ElectronBrowserTransport.cs"), "utf8");
   const session = fs.readFileSync(path.join(root,
     "src/Mezhs.Integration.Browser/BrowserAccountSession.cs"), "utf8");
-  assert.match(transport, /Timeout = TimeSpan\\.FromSeconds\\(30\\)/,
+  assert.match(transport, /Timeout = TimeSpan\.FromSeconds\(30\)/,
     "the local authorization request may await the external provider probe");
   assert.match(session, /Waiting for browser transport/);
   assert.match(session, /Starting browser host/);
   assert.match(session, /Waiting for browser account authorization/);
   assert.match(session, /Checking browser account authorization/);
-  assert.doesNotMatch(session, /reportStage\\?\\.Invoke\\([^)]*(?:token|cookie|url|header|secret)/i,
+  assert.doesNotMatch(session, /reportStage\?\.Invoke\([^)]*(?:token|cookie|url|header|secret)/i,
     "progress stages must not expose provider secrets");
 });
 
