@@ -41,7 +41,7 @@ export const rawBlocks = {
   CodeBlock: (source: string, attrs: Record<string, string>) =>
     createElement(RichCodeBlock, {
       source,
-      language: /^[\\w+#.-]{1,32}$/.test(attrs.language || "") ? attrs.language : "text",
+      language: /^[\w+#.-]{1,32}$/.test(attrs.language || "") ? attrs.language : "text",
       editable: attrs.editable === "true",
     }),
   WritingBlock: (source: string, attrs: Record<string, string>) =>
