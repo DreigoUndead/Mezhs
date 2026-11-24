@@ -293,6 +293,8 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     Assert-InlineExecuted 'prose' 'before ' ' after '
     Assert-InlineExecuted 'markdown-fence' ('```text' + "`n") ("`n" + '```')
     Assert-InlineExecuted 'escape' '<escape>before ' ' after</escape>'
+    Assert-InlineExecuted 'nested-escape' '<box><escape>before ' ' after</escape></box>'
+    Assert-InlineExecuted 'opaque-escape' '<CodeBlock><escape>before ' ' after</escape></CodeBlock>'
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
