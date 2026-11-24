@@ -23,7 +23,10 @@ const providerOperations = new Map();
 // The acknowledgement cursor makes retried status polls lossless.
 const MAX_OPERATION_EVENTS = 128;
 const MAX_OPERATION_EVENT_BYTES = 4 * 1024 * 1024;
-const MAX_OPERATION_EVENT_BYTES_SINGLE = 256 * 1024;
+// Framed SSE/NDJSON event data is limited to 256 KiB. JSON.stringify may expand
+// legal characters (for example backslashes and controls), so the serialized
+// queue item needs headroom while the aggregate 4 MiB queue remains bounded.
+const MAX_OPERATION_EVENT_BYTES_SINGLE = 2 * 1024 * 1024;
 // Fixed classifications only: never transport a provider frame or arbitrary exception text.
 const STREAM_FAILURE_REASONS = new Set([
   "invalid_utf8", "frame_oversized", "line_oversized", "sse_event_oversized",
@@ -48,7 +51,7 @@ async function queueOperationEvent(state, value) {
       { code: "stream_delivery_failed", reason: "queue_invalid_event" });
   const bytes = Buffer.byteLength(encoded, "utf8");
   if (bytes > MAX_OPERATION_EVENT_BYTES_SINGLE)
-    throw Object.assign(new Error("Browser HTTP stream event exceeded the 256 KiB limit."),
+    throw Object.assign(new Error("Browser HTTP serialized stream event exceeded the 2 MiB limit."),
       { code: "stream_delivery_failed", reason: "queue_event_oversized" });
   while (!state.cancelled &&
          (state.events.length >= MAX_OPERATION_EVENTS ||
