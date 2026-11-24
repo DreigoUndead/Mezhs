@@ -45,8 +45,12 @@ async function nativeChatRequirementsHeaders(window, session, token) {
     (async () => {
       const providerCacheKey = Symbol.for("mezhs.chatgpt.nativeRequirementsProvider");
       const resources = performance.getEntriesByType("resource");
-      const runtimeUrls = resources
-        .map(entry => String(entry.name || ""))
+      // A renderer may retain loaded script tags after Resource Timing entries
+      // are cleared or truncated. Discover only same-origin ChatGPT asset URLs.
+      const runtimeUrls = [...new Set([
+        ...resources.map(entry => String(entry.name || "")),
+        ...Array.from(document.scripts || [], script => String(script.src || ""))
+      ])]
         .filter(url => /^https:\\/\\/chatgpt\\.com\\/cdn\\/assets\\/[^/?#]+\\.js(?:[?#].*)?$/i.test(url));
 
       // Resource Timing can be cleared or truncated without unloading the page.
