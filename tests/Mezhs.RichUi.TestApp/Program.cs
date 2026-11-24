@@ -371,6 +371,35 @@ var svgPolicies =
 Console.WriteLine($"{(svgPolicies ? "PASS" : "FAIL")}: SVG family validation, text and strict children are registry-owned");
 if (!svgPolicies) failures++;
 
+// A new UI control's nesting/inline behavior comes entirely from registered
+// metadata; the generic parser has no name allowlist to update.
+var customUiCatalog = RichTagRegistry.Ui.With([
+    new RichTagDefinition("custom-inline", RichTagRole.Container, null,
+        SearchChildren: true, AllowAsChild: true) { Inline = true }
+]);
+var customUi = new RichDocumentParser(customUiCatalog)
+    .Parse("before <custom-inline>hello</custom-inline> after");
+var customInlinePass = customUi.Document.Valid && customUi.Commands.Count == 0 &&
+    customUi.Document.Nodes.SelectMany(Walk).Any(n =>
+        n.Kind == "element" && n.Name == "custom-inline" &&
+        n.Children?.Any(child => child.Text?.Contains("hello", StringComparison.Ordinal) == true) == true);
+Console.WriteLine($"{(customInlinePass ? "PASS" : "FAIL")}: Registered inline control requires no parser special case");
+if (!customInlinePass) failures++;
+
+// Context collisions are resolved from catalog declarations, not a hardcoded
+// SVG-text override in the generic parser.
+var contextualTagsPass =
+    RichTagRegistry.Ui.TryGet("svg", out var svgParent) &&
+    RichTagRegistry.Ui.TryGet("text", svgParent, out var scopedText) &&
+    scopedText.Context == "svg" &&
+    RichTagRegistry.Ui.TryGet("text", out var plainText) &&
+    plainText.Context is null &&
+    !RichTagRegistry.Ui.TryGet("path", out _) &&
+    RichTagRegistry.Ui.TryGetStructural("path", out var structuralPath) &&
+    structuralPath.Role == RichTagRole.Leaf;
+Console.WriteLine($"{(contextualTagsPass ? "PASS" : "FAIL")}: Context variants use the registry and preserve structural leaf forms");
+if (!contextualTagsPass) failures++;
+
 // A model can literally author the former private-use marker sequence.
 // The restored inline node must stay at its real UTF-16 position.
 var collisionSource = "pre " + (char)0xE000 + (char)0xE001 + " <text strong>node</text> post";
@@ -758,5 +787,5 @@ finally
 }
 Console.WriteLine($"PARSER_FIRST_CHANCE_EXPECTED={parserFirstChance}");
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 20 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 20 + exceptionCases.Length} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 22 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 22 + exceptionCases.Length} passed");
 return failures == 0 ? 0 : 1;
