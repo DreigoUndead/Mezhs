@@ -10,7 +10,11 @@ public sealed class ElectronBrowserTransport(string electronDirectory) : IChatBr
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan OperationPollInterval = TimeSpan.FromSeconds(2);
     private readonly string _electronDirectory = Path.GetFullPath(electronDirectory);
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
+    // The loopback /authorize call itself awaits upstream provider authentication
+    // probes and Chromium storage flushing. Keep a finite deadline, but allow
+    // more than ten seconds for that external work. Stop/cancel still use their
+    // own shorter cancellation tokens.
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(30) };
     private readonly TaskCompletionSource<Uri> _ready = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
     private Process? _process;
