@@ -9,6 +9,7 @@ using Mezhs.Agent.Models;
 using Mezhs.Agent.Persistence;
 using Mezhs.Agent.Policy;
 using Mezhs.Agent.Services;
+using Mezhs.Common.RichUi;
 using Mezhs.Configuration;
 using Mezhs.Executor;
 using Mezhs.Services;
@@ -23,6 +24,7 @@ var executorStorage = Path.Combine(
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddMezhsApi(coreOptions, options.Server.Listen);
+builder.Services.AddSingleton(Registry.RichTags);
 builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
     policy.SetIsOriginAllowed(origin =>
             Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.IsLoopback)
