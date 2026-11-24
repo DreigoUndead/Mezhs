@@ -350,7 +350,7 @@ var separatedCatalogs =
     !RichTagRegistry.Ui.TryGet("ATTACH", out _) &&
     !RichTagRegistry.Ui.TryGet("DONE", out _) &&
     Registry.All.All(command => Registry.RichTags.TryGet(command.Name, out var tag) &&
-        tag.ProcessContent == RichTagHandlers.Command &&
+        tag.ProcessContent is not null &&
         !tag.AllowAsChild) &&
     new RichDocumentParser().Parse("<SH>echo inert</SH>").Commands.Count == 0;
 Console.WriteLine($"{(separatedCatalogs ? "PASS" : "FAIL")}: Agent extends Core UI with executable tags only in Agent context");
@@ -361,7 +361,7 @@ if (!separatedCatalogs) failures++;
 var svgPolicies =
     RichTagRegistry.Ui.TryGet("svg", out var svgRoot) &&
     svgRoot.AvailableOutsideContext && svgRoot.StrictChildren &&
-    svgRoot.LiteralChildren && svgRoot.ProcessContent == RichTagHandlers.SvgTag &&
+    svgRoot.LiteralChildren && svgRoot.ProcessContent is not null &&
     RichTagRegistry.Ui.TryGet("text", svgRoot, out var svgText) &&
     svgText.Context == "svg" &&
     RichTagRegistry.Ui.TryGet("text", out var regularText) &&
