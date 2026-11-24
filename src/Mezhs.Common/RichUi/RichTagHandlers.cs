@@ -9,4 +9,10 @@ public static class RichTagHandlers
 
     public static void Escape(RichDocumentParser parser, RichTagContent content) =>
         parser.ProcessEscapedContent(content);
+
+    public static void SvgTag(RichDocumentParser parser, RichTagContent content) =>
+        parser.AccountSvgTag(content);
+
+    public static void SvgLiteral(RichDocumentParser parser, string text) =>
+        parser.AccountSvgLiteral(text);
 }
