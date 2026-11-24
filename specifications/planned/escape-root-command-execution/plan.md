@@ -6,72 +6,79 @@ Level: **High-risk (scope expanded, 2026-11-24)** — architectural refactor of 
 
 ## What
 
-Refactor MEŽS rich-tag parsing around **one reusable implementation of first-level structural matching** (`FindRootTags` conceptual contract), registry-defined tag behavior, recursive `SearchNested` discovery and a single command candidate collection path. The owner's `Tag`/`TagContent` pseudocode is an architectural guideline, not an instruction to copy record signatures or split the existing type system literally.
+Build one registry-driven MEŽS rich-document pipeline with shared structural matching, registered handlers and strict host-command boundaries. The existing source is on the unmerged `escape-root-command-execution` branch; the task is in Development pending fresh independent review and testing.
 
-**Latest authoritative execution rule:** complete registered host-command tags execute at the **document root** or **directly inside an escape that itself is at document root**. All other locations are inert, including `box -> escape -> SH`, `escape -> box -> SH`, nested escapes, SVG, unknown/invalid wrappers and raw editors. The exception applies to all registered executable root-only tags (`SH`, `ATTACH`, `DONE` today), not just shell. Escape's ordinary content is muted literal text; executed command spans are omitted from that display.
+- **Shared syntax:** `RichDocumentParser` owns one `FindRootTags` structural matcher and one `DispatchTag`. `RichTagRegistry.Ui` contains Core UI tags; Agent extends that immutable catalog with its own `SH`, `ATTACH` and `DONE` definitions and authorizes execution separately.
+- **Child ownership:** `RichTagDefinition.SupportedChildren` declares generic nesting: null admits ordinary registered UI children, an empty set admits no MEŽS child tags, and an explicit set admits only named registered child IDs. Nested-only variants can use `AtRoot=false`. There is no `SearchNested`-specific parser architecture.
+- **Embedded SVG:** C# registers only `svg` as an opaque `RawEditor`. Its body is data in `RichNode(kind=raw, name=svg)`; `Svg.tsx` alone decodes and validates the finite SVG grammar and renders safe React elements. Unsupported SVG is inert and visually diagnostic.
+- **Frontend extension:** trusted `rich-elements/Registry.ts` statically maps symbolic UI names to host-owned TSX controls. Ordinary new tags require their C# definition, frontend component and trusted frontend registration, plus an optional handler; adding a tag must not require changing generic parsing or rendering logic.
+- **Agent-only behavior:** `CommandBatchAdapter` projects candidates/visible content but does not parse tag syntax; the Agent Registry/Interpreter/policy remain the sole command execution authority.
 
-Preserve other existing protocol semantics: host-only authorization and batch validation, exact original command body and spans, Markdown (including existing root commands in fences/code), safe rich UI fallback, SVG limits, typed `RichDocument` transport, React local component mapping and explicit host-authorized UI actions. Do not add arbitrary JS/DOM execution, dynamic imports, new host capabilities or a generic action framework as part of this work.
+**Authoritative execution rule:** complete registered host-command tags are eligible at document root, or as **direct children of an `escape` that is itself at document root**. All other placements are inert (including nested escapes, SVG, unknown/invalid wrappers and raw editors). This applies to every registered executable root-only tag, not only shell. Escape renders ordinary content as muted literal text, excluding executable command spans. Preserve exact original source spans and bodies, full-batch validation, the final/unique `DONE` invariant and existing behavior for Markdown code examples.
 
-Full design: [architecture.md](architecture.md) (includes current code seams, registry/data model, finder contract, command matrix, API/React boundary, migration and regressions).
+Keep safe `RichDocument` JSON transport, bounded inputs, Markdown/radio behavior, inert editor/unknown diagnostics, explicit frontend action authorization and legacy/streaming fallback. Do not add generic JS execution, DOM HTML injection, arbitrary imports or unrelated host capabilities.
+
+Detailed current boundaries and verification: [architecture.md](architecture.md). Its older conceptual snippets must not override the current decisions above.
 
 ## Why
 
-The original problem was missed shell commands when a model wrapped an intended root command in `escape`. Attempts to correct it introduced successive `ReadEscapeLiteral`, `literalScope` and `ScanOpaqueContent` mechanisms, duplicating structural tag scanning and proliferating exceptions. The owner explicitly rejected this complexity and revised the execution rule to root-only escape. A coherent registry-driven discovery/handler architecture should replace ad hoc scanners while retaining safety and presentation behavior.
+The original failure was missed shell commands when models wrapped root commands in `escape`. Successive special-purpose scanners and literal flags added complexity. The owner instead chose a single structural matcher, declared tag semantics and root-only command eligibility.
+
+During implementation, additional owner challenges exposed two further architecture mistakes: a duplicate list of tag-name-dependent parser rules and C# interpretation of a separate embedded SVG language. The intended correction is not another set of special cases. A new control or embedded language should be added at its **owning extension point** without modifying generic syntax behavior or duplicating validation. Approval requires verifying this actual contract in source, not only confirming that existing behavior tests pass.
 
 ## Acceptance criteria
 
-- [ ] A single structural tag-matching **implementation** is reused by normal recursive discovery and the root-escape handler; no surviving second nesting scanner or competing command parser. Multiple calls to that one implementation on bounded content are acceptable.
-- [ ] `FindRootTags` recognizes all complete structural wrappers (including excluded and unknown ones) to preserve direct-parent boundaries; `tagsSearch` filters **returned** tags, not structural matching. Balanced closing tags, opaque command bodies, self-closing tags, markers and incomplete openers retain established behavior.
-- [ ] `FindTags` builds consistent direct-child relationships with assigned internal `Parent` and `SearchNested` only for ordinary nested discovery. No double insertion, duplicate handler call or source-order loss.
-- [ ] Root and direct children of **root-level escape** collect registered executable root-only tags exactly once. No commands execute inside other containers or inside nested escapes. Rejected/invalid batches cannot produce partial side effects. `DONE` remains final/unique.
-- [ ] Root-level escape's function has no hard-coded `SH`, `ATTACH` or `DONE` names and does not execute commands directly; it reuses first-level matching and the common candidate collector. The Agent Registry/Interpreter/policy continue to own validation and host execution.
-- [ ] Original `RichDocument` JSON and frontend `RichDocumentView` component mapping remain compatible unless a justified synchronized versioned change is needed. `Parent`, handler functions and command candidates are never serialized as UI callbacks.
-- [ ] Bounded validated params, markup normalization, source spans, literal/raw/unknown diagnostics, safe SVG, Markdown, React state, host action context, streaming/legacy fallback and resource limits remain correct.
-- [ ] Focused .NET/parser, SSR/TypeScript, Agent/Executor and isolated live Chromium checks pass at one identified final revision. Independent reviews and tests record actual evidence. All superseded ancestry tests/spec/instructions are updated.
-- [ ] No commit/merge to `main`, version bump or release change before explicit owner approval. Preserve task-branch isolation and document remaining conflicts with advanced `main`.
+- [ ] One shared structural matcher (`FindRootTags`) maintains complete parent/child boundaries for known and unknown wrappers; one dispatcher invokes registered tag callbacks. No competing Agent tag scanner or tag-name-specific processing path for ordinary UI additions.
+- [ ] `SupportedChildren` and registered tag metadata determine root and parent eligibility, inline/interactive behavior and opaque child treatment. The parser does not require modification to add an ordinary registered UI tag.
+- [ ] A hypothetical new ordinary UI tag needs only C# registration, its TSX implementation, and a trusted frontend registry binding (optional host handler). A hypothetical Agent command extends only Agent definitions/handlers, not the Core UI parser. The Code Reviewer **walks these examples against actual callers/source**, and records any exceptions with evidence.
+- [ ] Each layer owns only information it needs: shared C# syntax/document structure; Agent command authorization/execution; trusted React presentation and bounded embedded-language decoding. No duplicate SVG child hierarchy or SVG-specific branches in generic C# or React rendering.
+- [ ] SVG is one registered opaque raw control in C#. `Svg.tsx` validates its supported child grammar, attributes, geometry, nesting and resource bounds; invalid/malicious SVG stays inert with no HTML/JS injection or external references.
+- [ ] Root-level commands and **direct** commands inside root-level `escape` are collected once, in source order, with original bodies/spans; nested commands in all other wrappers remain inert. Invalid batches have no side effects; `DONE` is final and unique.
+- [ ] Unknown/malformed markup and fake closers cannot promote nested `SH`/`ATTACH` to root. Opaque boundaries, limits, source spans, Markdown, questions, raw editors and diagnostics have meaningful regression coverage.
+- [ ] Versioned `RichDocument` transport, static trusted TSX registration, host-authorized actions, streaming fallback, Core/Agent catalog isolation and existing consumer behavior remain compatible or any synchronized change is explicitly justified.
+- [ ] Real .NET parser/build, SSR/TypeScript, Agent/Executor and isolated Chromium checks pass at one **identified final source revision**; code review inspects actual architecture, not just test outcomes. Earlier PASS at different SHAs does not verify current code.
+- [ ] Work remains on the task branch. No modification/merge to `main`, version bump or release until explicit owner approval.
 
 ## How
 
-Use [architecture.md](architecture.md) as the design and verification reference. Reuse existing `RichTagRegistry`, `RichDocument`, `RichDocumentParser`, `RichMarkdownNodes`, `RichQuestionGrammar`, `RichDocumentView` and `RichActionContext` where appropriate. Refactor or delete overlapping scanners and overgrown literal-mode flags rather than adding further wrappers. Keep C# backend tag handlers as candidate collectors/projection logic, not the same thing as React event callbacks. UI node `ControlName` is only a symbolic key resolved to a static React map; validated attributes remain inert data. Avoid rewriting the JSON parameter protocol or adding generic client-side action dispatch unless unavoidable and approved.
+Use the current source and [architecture.md](architecture.md), not superseded `SearchNested` pseudocode. Prefer deleting redundant tag handling to adding flags. The generic C# parser discovers structure and produces data/candidates; `RichTagCatalog` composes reusable Core tags and Agent extensions; `RichTagHandlers` contains host-owned callbacks that cannot execute commands directly; `CommandBatchAdapter` adapts candidate records. A separate finite SVG decoder in `Svg.tsx` owns SVG-only syntax. Trusted frontend `rich-elements/Registry.ts` maps symbolic names to locally imported components; `RichDocumentView.tsx` must not gain per-control rendering cases.
 
-This design includes an explicit **root-only escape** rule that supersedes the Nov 24 "any ancestor" interpretation. Root-escape `SearchNested=false` is deliberate: its handler selects only direct root-only callable tags. Other nested wrappers are structural boundaries, not opportunities to search for executable substrings.
+Before accepting architecture, perform a **small extension exercise**:
+1. Add (conceptually or through a minimal test fixture) one ordinary UI tag, one Agent-only command and one opaque embedded control.
+2. Identify the exact files changed and owner of parsing, validation, rendering and execution. Flag any new generic parser/renderer condition or duplicated source of truth.
+3. Compare against a simpler solution that removes or delegates a responsibility; retain additional machinery only where an established requirement/security boundary justifies it.
+4. Verify both the declared contract and the implemented behavior. Passing regression tests alone does not establish architectural acceptance.
+
+This exercise is a review method, not permission to add unnecessary example controls or speculative frameworks.
 
 ## Steps
 
-1. **Plan — this update:** document the owner decisions, current architecture, affected interfaces, migration and acceptance matrix; commit on the existing task branch.
-   - Done when current requirements supersede stale top-level plan content and detailed design is linked.
-2. **Plan Review — independent (required):** validate scope, risk classification, feasibility, containment and proportionality against actual code and `.agents/batman.md`; correct plan findings or escalate owner-level changes.
-   - Done when a fresh independent Plan Reviewer records **PASS**.
-3. **Development:** following Plan Review PASS, refactor the tag discovery/processing pipeline and compatible React projection, remove obsolete scanners, update current specs/instructions, and run developer verification.
-   - Done when a single cohesive implementation and regressions are committed/pushed to the task branch with evidence.
-4. **Code Review — independent:** inspect full code change, security, architecture, regression coverage and diff against intended base; correct and repeat with fresh review until **PASS**.
-5. **Testing — independent:** run isolated live Agent/Executor and Chromium UI checks, parser/build/SSR checks and regressions; correct defects, repeat independent verification until **PASS**.
-6. **Deploy:** obtain explicit owner approval to reconcile with advanced `main` and merge; only then finalize release-reference docs and release activities.
-
-**Handoff:** owner explicitly directed proceeding to **Step 3 Development** in execution `exec_30641e35bca0468ea0527bbdc3767073`, thereby waiving the otherwise required Step 2 Plan Review for this iteration. All remaining High-risk gates (independent Code Review, independent Testing, owner-approved Deploy) remain mandatory. Launch a fresh Developer agent using `.agents/mezhs.md`; do not claim an agent started without verifying its execution ID.
+1. **Plan:** document owner decisions, behavior, ownership, risk and acceptance criteria on this task branch. Keep active requirements in the main sections; put superseded rationale in `Changes`.
+2. **Plan Review:** originally required for High-risk, but the owner explicitly waived this step for the current iteration in `exec_30641e35bca0468ea0527bbdc3767073`. That waiver does not cover review, testing or deploy.
+3. **Development:** implement one generic tag pipeline and composed registry; make SVG opaque; update synchronized C# / TSX tests, instructions and plan. Run developer verification. **Current status:** implementation committed; latest SVG migration still lacks observed .NET/SSR/live test output. Any identified failure returns to Development for correction.
+4. **Code Review — independent:** owner requested a new reviewer in `exec_76856c3ac24b4595a421dffe3750b8d0`. Review the **current** task head after these documentation edits, inspect the full change and source-level extension contract, run/require missing verification, correct findings per workflow and record exact SHA and PASS/FAIL/BLOCKED evidence. Do not reuse superseded review PASS.
+5. **Testing — independent:** on the corrected reviewed revision, run isolated live Agent/Executor and Chromium tests plus the required parser/build/SSR checks. Correct and repeat review/testing as workflow requires.
+6. **Deploy:** only after owner approval, reconcile advanced `main`, merge and perform release-reference work. There is **no merge authorization** in the current review request.
 
 ## Verification
 
-See the detailed matrix in [architecture.md](architecture.md). At minimum:
+Verify on one exact final commit (the reviewer must identify it and report results, not infer success):
 
 - `dotnet run --project tests/Mezhs.RichUi.TestApp/Mezhs.RichUi.TestApp.csproj -c Release --nologo`
-- `node --test tests/rich-model-ui-rendering.test.cjs`, and relevant frontend build/typecheck
+- `node --test tests/rich-model-ui-rendering.test.cjs` and frontend TypeScript/Vite build
 - `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/agent-protocol-result.ps1`
-- `tests/agent-web-shared-ui.ps1`, `tests/agent-architecture.ps1`, relevant API/Agent integration fixtures
-- `dotnet build Mezhs.sln -c Release --nologo -v minimal`, `git diff --check main...HEAD`
-- Independent isolated browser and Agent/Executor behavior checks with fresh test storage/profile and command-side-effect assertions.
+- `tests/agent-web-shared-ui.ps1`, `tests/agent-architecture.ps1`, relevant API/Agent fixtures
+- `dotnet build Mezhs.sln -c Release --nologo -v minimal` and `git diff --check main...HEAD`
+- Independent Chromium checks using isolated browser profile/test storage, including SVG safe/unsafe output and interactive controls.
+- The source-level extension exercise above, proving no new generic per-tag cases and respecting host command authority.
 
-Historical success at `fc586fba` and static inspection of later untested revisions do **not** verify the refactor. Keep explicit limitations and exact tested SHA; no live tests should use the owner's active profiles/databases.
+SVG-specific grammar/limits are now validated by trusted `Svg.tsx` and SSR tests, **not** by C# SVG-subtag validation. C# tests must verify opaque containment and no command promotion. Older successful reviews/tests do not verify the new SVG decoder. No live tests may use the owner's active profile/databases.
 
-## Open owner-acceptance blocker — generalized tag handler contract
+## Current acceptance status
 
-**Status as of 2026-11-24: NOT READY FOR DEPLOY.** The owner questioned whether the full agreed architecture was implemented after the Step 5 PASS. Static inspection of the latest implementation confirms that `FindRootTags` and its private `LocatedTag { Parent, SubTags }` tree exist, and `ScanOpaqueContent` / old closing helpers have been removed. Root-only `escape` and inert nested command behavior have passed the reported tests.
+The earlier owner-acceptance blocker (missing generalized registered handler dispatch after a behavioral PASS) led to a return to Development and subsequent implementation changes; its original finding and rationale are preserved in `Changes`. **That historical blocker is not the current definition of the implementation.** New changes include per-parent tag policy, a composed Core/Agent catalog, registered callbacks, static frontend registry, and frontend-owned SVG grammar.
 
-**However**, the generalized registry-driven processing contract is not fully present: `RichTagDefinition.ProcessContent` is registered only for `escape`; `SH`/`ATTACH`/`DONE` are still handled by a hardcoded `Role == Command/Marker` path in `RenderChildren` and by `ProcessEscapedContent` collecting those roles directly. There is no unified dispatch of registered command-capable handlers over the discovered tag tree. `LocatedTag` is a private structural node, not a complete validated `TagContent` representation. These deviations are not automatically defects in syntax or current tests, but **must be evaluated against the owner's approved architectural intent** before acceptance. The React static registry/`RichDocument` transport already existed and was explicitly intended to remain compatible, so lack of frontend rewrite alone is not a defect.
-
-**Next action:** pause Deploy. Reopen Step 3 specifically for registry handler/dispatcher ownership and a coherent data/param contract, retaining the working single finder and existing host-only validation. A Developer should produce the smallest architecture that actually fulfills the intent, record any justified divergences explicitly, and add a targeted dispatcher-contract test. Any consequential departure from the agreed handler model needs owner acceptance. Re-run developer checks, independent Step 4 Code Review and Step 5 Testing on the resulting implementation before Deploy. Do not merge or rebase `main` in the meantime.
-
-**Review/test provenance:** The independent Step 4 PASS at `dd2267e5` and Step 5 PASS at `0831970d` remain valid evidence for the implementation and test coverage they exercised. The branch head `a7f9e85a3f2b` differs only by plan documentation after the tested revision. This new acceptance finding was not covered by the previous behavioral test suites, and does not mean their PASS observations were false.
+**Current state:** unmerged Development revision, static architecture/source inspection only for recent changes. The independent Code Review and Testing PASS reports in `Changes` apply to older commits and cannot approve this revision. Owner requested a fresh Code Review; it must inspect and verify the exact head and may return FAIL/BLOCKED. Deploy remains blocked.
 
 ## Changes
 
@@ -342,3 +349,13 @@ Historical success at `fc586fba` and static inspection of later untested revisio
 **Verification required:** GitHub commit and file-diff checks confirm source changes and removals; source inspection only, **not a compiler/renderer/MEŽS command PASS**. The connector showed zero GitHub workflow runs and combined-status contexts on the source revision. Execute `dotnet build Mezhs.sln -c Release --nologo -v minimal`, `dotnet run --project tests/Mezhs.RichUi.TestApp/Mezhs.RichUi.TestApp.csproj -c Release --nologo`, `node --test tests/rich-model-ui-rendering.test.cjs`, `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/agent-protocol-result.ps1`, frontend TypeScript/Vite production build and independent browser test on the **exact final revision** before Step 4 review/Step 5 testing. A malformed unterminated outer opaque opener still follows the existing incomplete-opener protocol; independent security testing must exercise that boundary.
 
 **Status:** Step 3 implementation committed, runtime verification pending. No changes to `main`, deploy, release, or owner-approval status.
+
+### 2026-11-24 — Design extension checks and current-plan reconciliation
+
+**Authority:** Owner `exec_d5b8246f325546fa8b2830be3792f8d4` requested review of what guidance was missing; owner `exec_76856c3ac24b4595a421dffe3750b8d0` requested updating Batman/plan and starting a fresh Code Review.
+
+**Change:** Added three compact Batman questions on extension cost, opaque embedded-language ownership and removing responsibilities instead of adding machinery. Reconciled this plan's active requirements, architecture, acceptance tests and workflow status with the latest composed registry and opaque SVG/TSX implementation; removed stale top-level `SearchNested` expectations and reclassified the old handler blocker as historical. Added a source-level extension exercise for ordinary UI controls, Agent commands and opaque embedded controls to test architecture beyond regression behavior.
+
+**Reason:** Previous reviewer/testing passes missed a promised generic handler contract; owner intervention also exposed avoidable SVG and tag-specific complexity. Testing only existing fixtures does not prove the extension/ownership contract is real.
+
+**Trade-off:** The extension exercise is an architectural check, not a mandatory implementation of sample controls. Prior successful tests are retained as history but do not establish current revision correctness. Exact-SHA runtime verification and independent Review/Testing are still required before owner-approved Deploy.
