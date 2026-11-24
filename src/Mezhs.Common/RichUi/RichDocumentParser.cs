@@ -50,7 +50,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             _radioLiteral = MarkdownLiteralMask(_source);
             var roots = FindRootTags(0, source.Length);
             if (_failure is { } structuralFailure) return Failed(source, structuralFailure.Reason);
-            var nodes = RenderChildren(0, source.Length, roots, null, 0);
+            var nodes = RenderChildren(0, source.Length, roots, 0);
             if (_failure is { } failure) return Failed(source, failure.Reason);
             // Validate the final typed tree before releasing any command
             // candidates. Rich inline wrappers render as HTML phrasing
@@ -283,7 +283,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
     }
 
     private IReadOnlyList<RichNode> RenderChildren(int start, int end,
-        IReadOnlyList<LocatedTag> tags, string? expected, int depth,
+        IReadOnlyList<LocatedTag> tags, int depth,
         RichTagDefinition? parentDefinition = null, bool inlineScope = false)
     {
         if (depth > MaxDepth)
@@ -299,7 +299,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         {
             if (until > plainFrom || inline.Count > 0)
                 AppendMarkdown(result, plainFrom, until, parentDefinition, inlineScope, inline,
-                    insideRichContainer: expected is not null);
+                    insideRichContainer: parentDefinition is not null);
             if (_failure is not null) return false;
             inline.Clear();
             plainFrom = until;
@@ -406,7 +406,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             // registry, not presentation roles, decides whether work occurs.
             var commandStart = _commands.Count;
             DispatchTag(located, definition, attributes,
-                isDocumentRoot: expected is null && located.Parent is null, depth: depth);
+                isDocumentRoot: parentDefinition is null && located.Parent is null, depth: depth);
             if (_failure is not null) return [];
             if (!definition.AllowAsChild)
             {
@@ -450,8 +450,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             else
             {
                 var children = RenderChildren(tag.End, located.BodyEnd,
-                    located.SubTags, tag.Name, depth + 1,
-                    definition, inlineElement);
+                    located.SubTags, depth + 1, definition, inlineElement);
                 if (_failure is { } childFailure)
                 {
                     if (parentDefinition?.SupportedChildren is { Count: > 0 } || childFailure.Limit) return [];
@@ -557,8 +556,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                     new RichSourceSpan(tag.End, located.BodyEnd),
                     Text: _source[tag.End..located.BodyEnd])];
             else
-                children = RenderChildren(tag.End, located.BodyEnd, located.SubTags,
-                    tag.Name, depth + 1);
+                children = RenderChildren(tag.End, located.BodyEnd, located.SubTags, depth + 1);
         }
         if (_failure is not null) return;
         Add(nodes, new RichNode("unknown", $"{tag.Start}:unknown",
