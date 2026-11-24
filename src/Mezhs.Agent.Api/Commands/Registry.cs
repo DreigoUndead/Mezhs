@@ -1,3 +1,5 @@
+using Mezhs.Common.RichUi;
+
 namespace Mezhs.Agent.Commands;
 
 public enum CommandForm
@@ -26,6 +28,17 @@ public static class Registry
         new("SH", CommandForm.Block, CommandBehavior.Shell),
         new("ATTACH", CommandForm.Block, CommandBehavior.Attach)
     ];
+
+    // Executable tag registration belongs to the Agent host. Core uses only
+    // the UI catalog; both hosts continue to share the single C# parser.
+    public static readonly RichTagCatalog RichTags = RichTagRegistry.Ui.With(
+        All.Select(command => new RichTagDefinition(
+            command.Name,
+            command.Form == CommandForm.Block ? RichTagRole.Command : RichTagRole.Marker,
+            new HashSet<string>(StringComparer.Ordinal),
+            SearchChildren: false,
+            AllowAsChild: false,
+            ProcessContent: RichTagHandlers.Command)));
 
     private static readonly IReadOnlyDictionary<string, CommandDefinition> ByName =
         All.ToDictionary(command => command.Name, StringComparer.OrdinalIgnoreCase);
