@@ -30,6 +30,17 @@ const STREAM_FAILURE_REASONS = new Set([
   "missing_reader", "queue_invalid_event", "queue_event_oversized", "queue_cancelled"
 ]);
 
+function streamFailureProgress(error) {
+  if (error?.code !== "stream_delivery_failed") return null;
+  const reason = STREAM_FAILURE_REASONS.has(error?.reason)
+    ? error.reason : "unknown";
+  return {
+    state: "retrieving",
+    detail: "Browser HTTP stream failed (" + reason + ").",
+    analysis: null
+  };
+}
+
 async function queueOperationEvent(state, value) {
   const encoded = JSON.stringify(value);
   if (typeof encoded !== "string")
@@ -426,15 +437,8 @@ function queueProviderOperation(request) {
           ? "Browser transport operation failed (details redacted)."
           : String(error?.stack ?? error);
         state.code = safeCode;
-        if (safeCode === "stream_delivery_failed") {
-          const reason = STREAM_FAILURE_REASONS.has(error?.reason)
-            ? error.reason : "unknown";
-          state.progress = {
-            state: "retrieving",
-            detail: "Browser HTTP stream failed (" + reason + ").",
-            analysis: null
-          };
-        }
+        if (safeCode === "stream_delivery_failed")
+          state.progress = streamFailureProgress(error);
         state.status = "failed";
       }
     } finally {
