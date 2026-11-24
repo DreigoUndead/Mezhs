@@ -63,6 +63,16 @@ See the detailed matrix in [architecture.md](architecture.md). At minimum:
 
 Historical success at `fc586fba` and static inspection of later untested revisions do **not** verify the refactor. Keep explicit limitations and exact tested SHA; no live tests should use the owner's active profiles/databases.
 
+## Open owner-acceptance blocker — generalized tag handler contract
+
+**Status as of 2026-11-24: NOT READY FOR DEPLOY.** The owner questioned whether the full agreed architecture was implemented after the Step 5 PASS. Static inspection of the latest implementation confirms that `FindRootTags` and its private `LocatedTag { Parent, SubTags }` tree exist, and `ScanOpaqueContent` / old closing helpers have been removed. Root-only `escape` and inert nested command behavior have passed the reported tests.
+
+**However**, the generalized registry-driven processing contract is not fully present: `RichTagDefinition.ProcessContent` is registered only for `escape`; `SH`/`ATTACH`/`DONE` are still handled by a hardcoded `Role == Command/Marker` path in `RenderChildren` and by `ProcessEscapedContent` collecting those roles directly. There is no unified dispatch of registered command-capable handlers over the discovered tag tree. `LocatedTag` is a private structural node, not a complete validated `TagContent` representation. These deviations are not automatically defects in syntax or current tests, but **must be evaluated against the owner's approved architectural intent** before acceptance. The React static registry/`RichDocument` transport already existed and was explicitly intended to remain compatible, so lack of frontend rewrite alone is not a defect.
+
+**Next action:** pause Deploy. Reopen Step 3 specifically for registry handler/dispatcher ownership and a coherent data/param contract, retaining the working single finder and existing host-only validation. A Developer should produce the smallest architecture that actually fulfills the intent, record any justified divergences explicitly, and add a targeted dispatcher-contract test. Any consequential departure from the agreed handler model needs owner acceptance. Re-run developer checks, independent Step 4 Code Review and Step 5 Testing on the resulting implementation before Deploy. Do not merge or rebase `main` in the meantime.
+
+**Review/test provenance:** The independent Step 4 PASS at `dd2267e5` and Step 5 PASS at `0831970d` remain valid evidence for the implementation and test coverage they exercised. The branch head `a7f9e85a3f2b` differs only by plan documentation after the tested revision. This new acceptance finding was not covered by the previous behavioral test suites, and does not mean their PASS observations were false.
+
 ## Changes
 
 ### 2026-11-22 — Owner revised escape semantics
@@ -232,3 +242,13 @@ Historical success at `fc586fba` and static inspection of later untested revisio
 **Boundaries and limitations:** Chromium UI scenarios used a mocked API, while real Agent/Executor protocol scenarios were exercised separately with isolated storage. No production profile/database was used; no external provider authentication was required. No blocking defect was found in the tested scope. The advanced `main` branch still needs reconciliation during owner-approved Deploy. No merge, version bump or release was performed.
 
 **Outcome:** **Step 5 Testing PASS**. Proceed to Step 6 Deploy only for owner-approval/reconciliation work; never merge or release without explicit owner authorization.
+
+### 2026-11-24 — Owner identifies missing generalized handler contract; Deploy paused
+
+**Finding:** Owner reports the agreed `Tag`/`TagContent`/registered-`Function` contract is not observable in the delivered implementation. Source inspection confirms a genuine gap: `FindRootTags`/parent tree were implemented, but the generic handler invocation contract was not. `RenderChildren` still dispatches command-role special cases, and only `escape` registers a `ProcessContent` callback.
+
+**Change:** Mark architecture acceptance incomplete, return to development for the specific missing registry/dispatcher contract, and suspend the current Deploy handoff. Keep prior review/testing evidence scoped to its actual revision; require fresh Code Review and Testing for any implementation correction.
+
+**Authority:** Owner MEŽS execution `exec_6755761a7e3d498cac0c7b2c41a04508`: "the deploy step is asking me for codereview now. o do not see agreed upon contract implemented anywhere. what gives?"
+
+**Trade-off:** This reopens development without discarding the working finder, serialized UI contract or existing passing behavior. No version change, merge, or unauthorized host execution scope expansion.
