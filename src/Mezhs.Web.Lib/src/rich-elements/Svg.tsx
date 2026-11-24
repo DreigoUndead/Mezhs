@@ -98,9 +98,11 @@ function decode(value: string): string | null {
     const end = value.indexOf(";", i + 1);
     if (end < 0 || end - i > 14) return null;
     const entity = value.slice(i + 1, end);
-    const named: Record<string, string> =
-      { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
-    let decoded = named[entity];
+    // Avoid prototype-property lookups for untrusted entity names.
+    let decoded: string | undefined =
+      entity === "amp" ? "&" : entity === "lt" ? "<" :
+      entity === "gt" ? ">" : entity === "quot" ? '"' :
+      entity === "apos" ? "'" : undefined;
     if (decoded === undefined && /^#(?:x[0-9a-f]+|\d+)$/i.test(entity)) {
       const point = entity[1]?.toLowerCase() === "x"
         ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
@@ -143,8 +145,10 @@ function parseSvg(body: string, rootAttrs: Record<string, string>): SvgNode | nu
   if (body.length > 24000 || Object.keys(rootAttrs).length > 16) return null;
   const rootProps: Record<string, string> = Object.create(null);
   for (const [name, value] of Object.entries(rootAttrs)) {
-    if (typeof value !== "string" || !validAttribute("svg", name, value)) return null;
-    rootProps[name] = value;
+    if (typeof value !== "string") return null;
+    const decoded = decode(value);
+    if (decoded === null || !validAttribute("svg", name, decoded)) return null;
+    rootProps[name] = decoded;
   }
   const root: SvgNode = { tag: "svg", props: rootProps, children: [] };
   const stack: SvgNode[] = [root];
