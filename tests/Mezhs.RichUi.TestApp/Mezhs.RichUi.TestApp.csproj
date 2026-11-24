@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Mezhs.Common\Mezhs.Common.csproj" />
+    <ProjectReference Include="..\..\src\Mezhs.Agent.Api\Mezhs.Agent.Api.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
