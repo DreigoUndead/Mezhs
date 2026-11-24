@@ -17,6 +17,8 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
     private readonly RichTagCatalog _catalog = catalog ?? RichTagRegistry.Ui;
     private const int MaxLength = 180_000;
     private const int MaxNodes = 6_000;
+    // Bounded structural work, including tokens that do not become UI nodes.
+    private const int MaxTagTokens = 24_000;
     private const int MaxDepth = 32;
     private const int MaxTagLength = 4_096;
     private const int MaxAttributes = 16;
@@ -208,9 +210,9 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 continue;
             }
             cursor = tag.End;
-            if (++count > MaxNodes * 4)
+            if (++count > MaxTagTokens)
             {
-                _failure = new ParseFailure("Structural tag budget exceeded.", Limit: true);
+                _failure = new ParseFailure("Tag token count exceeds limit.", Limit: true);
                 break;
             }
             if (tag.Closing)
