@@ -409,6 +409,40 @@ var contextualTagsPass =
 Console.WriteLine($"{(contextualTagsPass ? "PASS" : "FAIL")}: Context variants use the registry and preserve structural leaf forms");
 if (!contextualTagsPass) failures++;
 
+// An arbitrary registered parent (not only SVG) owns the child allowlist.
+// Unknown/disallowed wrappers must never promote contained host commands.
+var constrainedCatalog = Registry.RichTags.With([
+    new RichTagDefinition("restricted", RichTagRole.Container, null,
+        new HashSet<string>(["allowed"], StringComparer.Ordinal), AllowAsChild: true),
+    new RichTagDefinition("allowed", RichTagRole.Container, null,
+        SupportedChildren: null, AllowAsChild: true) { AtRoot = false }
+]);
+var allowedChild = new RichDocumentParser(constrainedCatalog).Parse(
+    "<restricted><allowed>yes</allowed><SH>INERT</SH></restricted><SH>ROOT</SH>");
+var allowedChildPass = allowedChild.Document.Valid &&
+    allowedChild.Commands.Select(c => c.Body).SequenceEqual(["ROOT"]) &&
+    allowedChild.Document.Nodes.SelectMany(Walk).Any(n => n.Name == "allowed" &&
+        n.Children?.Any(c => c.Text == "yes") == true);
+Console.WriteLine($"{(allowedChildPass ? "PASS" : "FAIL")}: Explicit parent child IDs admit registered nested-only tags");
+if (!allowedChildPass) failures++;
+
+var deniedChild = new RichDocumentParser(constrainedCatalog).Parse(
+    "<restricted><box><SH>INERT</SH></box></restricted><SH>ROOT</SH>");
+var deniedChildPass = deniedChild.Document.Valid &&
+    deniedChild.Commands.Select(c => c.Body).SequenceEqual(["ROOT"]) &&
+    deniedChild.Document.Nodes.Any(n => n.Kind == "unknown" && n.Name == "restricted");
+Console.WriteLine($"{(deniedChildPass ? "PASS" : "FAIL")}: Disallowed children are inert and cannot promote nested commands");
+if (!deniedChildPass) failures++;
+
+var nestedOnlyAtRoot = new RichDocumentParser(constrainedCatalog).Parse(
+    "<allowed>not-root</allowed><SH>ROOT</SH>");
+var nestedOnlyAtRootPass = nestedOnlyAtRoot.Document.Valid &&
+    nestedOnlyAtRoot.Commands.Select(c => c.Body).SequenceEqual(["ROOT"]) &&
+    nestedOnlyAtRoot.Document.Nodes.Any(n => n.Kind == "unknown" && n.Name == "allowed");
+Console.WriteLine($"{(nestedOnlyAtRootPass ? "PASS" : "FAIL")}: Nested-only definitions cannot render at document root");
+if (!nestedOnlyAtRootPass) failures++;
+
+
 // A model can literally author the former private-use marker sequence.
 // The restored inline node must stay at its real UTF-16 position.
 var collisionSource = "pre " + (char)0xE000 + (char)0xE001 + " <text strong>node</text> post";
@@ -796,5 +830,5 @@ finally
 }
 Console.WriteLine($"PARSER_FIRST_CHANCE_EXPECTED={parserFirstChance}");
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 22 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 22 + exceptionCases.Length} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 25 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 25 + exceptionCases.Length} passed");
 return failures == 0 ? 0 : 1;
