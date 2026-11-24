@@ -106,7 +106,7 @@ public static class RichTagRegistry
             Tag("Cite", RichTagRole.Leaf, "ref", "refs"),
             Tag("CodeBlock", RichTagRole.RawEditor, "language", "editable"),
             Tag("WritingBlock", RichTagRole.RawEditor, "variant", "recipient", "cc", "bcc", "subject", "id"),
-            Tag("escape", RichTagRole.OpaqueLiteral, "char"),
+            WithDiscovery(Tag("escape", RichTagRole.OpaqueLiteral, "char"), searchChildren: true),
             // Agent commands are root-only and opaque, using the same
             // traversal policy as all other registered tags.
             WithDiscovery(Tag("SH", RichTagRole.Command), searchChildren: false, allowAsChild: false),
