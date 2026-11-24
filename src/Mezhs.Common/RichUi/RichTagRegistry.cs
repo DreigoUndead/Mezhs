@@ -26,6 +26,9 @@ public sealed record RichTagDefinition(
     public string? Context { get; init; }
     public bool StrictChildren { get; init; }
     public bool LiteralChildren { get; init; }
+    public bool PreserveChildren { get; init; }
+    public bool PhrasingAllowed { get; init; }
+    public bool AvailableOutsideContext { get; init; }
     public Func<RichTagDefinition?, RichTagDefinition, IReadOnlyDictionary<string, string>, bool>? Validate { get; init; }
     public Action<RichDocumentParser, string>? ProcessLiteral { get; init; }
 }
@@ -56,7 +59,7 @@ public sealed class RichTagCatalog
         if (!_tags.TryGetValue(name, out definition!)) return false;
         return parent?.Context == "svg"
             ? definition.Context == "svg" || !definition.AllowAsChild
-            : definition.Context is null || name == "svg";
+            : definition.Context is null || definition.AvailableOutsideContext;
     }
 }
 
@@ -94,15 +97,13 @@ public static class RichTagRegistry
             Context = "svg",
             StrictChildren = true,
             LiteralChildren = true,
+            PreserveChildren = true,
+            PhrasingAllowed = true,
             Validate = RichSvgValidation.ValidForTag,
             ProcessContent = RichTagHandlers.SvgTag,
             ProcessLiteral = RichTagHandlers.SvgLiteral
         };
     internal static readonly RichTagDefinition SvgText = SvgTag("text", RichTagRole.Container, "x", "y");
-    private static readonly HashSet<string> SvgNames = new(
-        ["svg", "g", "rect", "path", "line", "polyline", "polygon", "circle", "ellipse", "text", "tspan"],
-        StringComparer.Ordinal);
-
     public static readonly RichTagCatalog Ui = new(
         new[]
         {
@@ -117,7 +118,8 @@ public static class RichTagRegistry
             Presentation("badge", RichTagRole.Container),
             Presentation("Link", RichTagRole.Container),
             // SVG uses the same tag registry, with SVG-specific attributes and nesting.
-            SvgTag("svg", RichTagRole.Container, "viewBox", "width", "height", "preserveAspectRatio", "aria-label", "role"),
+            SvgTag("svg", RichTagRole.Container, "viewBox", "width", "height", "preserveAspectRatio", "aria-label", "role")
+                with { AvailableOutsideContext = true },
             SvgTag("g", RichTagRole.Container),
             SvgTag("rect", RichTagRole.Leaf, "x", "y", "rx", "ry", "width", "height"),
             SvgTag("path", RichTagRole.Leaf, "d"),
@@ -138,5 +140,4 @@ public static class RichTagRegistry
                 with { ProcessContent = RichTagHandlers.Escape }
         });
 
-    public static bool IsSvgTag(string name) => SvgNames.Contains(name);
 }
