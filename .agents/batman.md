@@ -25,6 +25,12 @@ not mechanically to every line of code.
   repeated local workarounds?
 - Is a broader redesign justified, or is a local correction
   sufficient?
+- If one more instance of this feature were added, which
+  files would change? Would generic infrastructure need a
+  new special case?
+- When content has its own language or rules, can its owner
+  interpret it while callers treat it as opaque, without
+  weakening required validation or security boundaries?
 
 ## Simplicity
 
@@ -35,6 +41,8 @@ not mechanically to every line of code.
   merely prepare for hypothetical future use?
 - Can the same requirements be met with fewer concepts
   and less coupling?
+- Before adding machinery, compare an option that removes
+  the responsibility entirely. What requirement rules it out?
 
 ## Regression
 
