@@ -52,7 +52,8 @@ public sealed class RichDocumentParser
         try
         {
             _radioLiteral = MarkdownLiteralMask(_source);
-            var nodes = ReadChildren(0, source.Length, null, 0, out _);
+            var nodes = RenderChildren(0, source.Length, FindRootTags(0, source.Length),
+                null, 0, out _);
             if (_failure is { } failure) return Failed(source, failure.Reason);
             // Validate the final typed tree before releasing any command
             // candidates. Rich inline wrappers render as HTML phrasing
@@ -179,6 +180,7 @@ public sealed class RichDocumentParser
         public Tag Opening { get; } = opening;
         public LocatedTag? Parent { get; set; } = parent;
         public List<LocatedTag> SubTags { get; } = [];
+        public RichTagContent? Content { get; set; }
         public int BodyEnd { get; set; } = opening.End;
         public int End { get; set; } = opening.End;
         public bool Complete { get; set; }
@@ -282,18 +284,6 @@ public sealed class RichDocumentParser
         return tagsSearch is null ? roots : roots.Where(tagsSearch).ToArray();
     }
 
-    // Ordinary nested discovery reuses the already paired structure. Only
-    // searchable registered containers recurse; opaque and unknown boundaries
-    // never promote a descendant to a root-level command candidate.
-    private IReadOnlyList<RichNode> ReadChildren(int start, int end, string? expected,
-        int depth, out int position, bool svgScope = false, bool inlineScope = false)
-    {
-        var tags = FindRootTags(start, end);
-        if (_failure is not null) { position = start; return []; }
-        return RenderChildren(start, end, tags, expected, depth,
-            out position, svgScope, inlineScope);
-    }
-
     private IReadOnlyList<RichNode> RenderChildren(int start, int end,
         IReadOnlyList<LocatedTag> tags, string? expected, int depth,
         out int position, bool svgScope = false, bool inlineScope = false)
@@ -366,13 +356,6 @@ public sealed class RichDocumentParser
                 cursor = located.End; // Inert literal source, including the body
                 continue;
             }
-            if (definition.Role is RichTagRole.Command or RichTagRole.Marker)
-            {
-                CollectCommand(located, definition);
-                cursor = located.End;
-                if (_failure is not null) return [];
-                continue;
-            }
             var from = tag.Start;
             var inlineElement = !svgScope && InlineElements.Contains(tag.Name);
             if (definition.Role == RichTagRole.Leaf && !tag.SelfClosing)
@@ -407,7 +390,7 @@ public sealed class RichDocumentParser
             }
             if (!validAttributes)
             {
-                if (svgScope)
+                if (svgScope || !definition.AllowAsChild)
                 {
                     _failure = new ParseFailure(reason);
                     return [];
@@ -433,6 +416,17 @@ public sealed class RichDocumentParser
                     return [];
                 }
             }
+            // One dispatch point for every eligible registered tag. The
+            // registry, not presentation roles, decides whether work occurs.
+            var commandStart = _commands.Count;
+            DispatchTag(located, definition, attributes,
+                isDocumentRoot: expected is null && located.Parent is null);
+            if (_failure is not null) return [];
+            if (!definition.AllowAsChild)
+            {
+                cursor = located.End; // Registered host-only tag, never UI
+                continue;
+            }
             if (!inlineElement && !Flush(from)) return [];
             cursor = tag.End;
             if (definition.Role is RichTagRole.OpaqueLiteral or RichTagRole.RawEditor)
@@ -442,13 +436,6 @@ public sealed class RichDocumentParser
                     _failure = new ParseFailure($"{tag.Name} requires a closing delimiter.");
                     return [];
                 }
-                var commandStart = _commands.Count;
-                // Only a complete document-root escape may invoke its handler.
-                // The handler itself selects direct executable children using
-                // the registry and the same structural finder.
-                if (located.Parent is null && definition.ProcessContent is { } process)
-                    process(this, tag.End, located.BodyEnd, depth + 1);
-                if (_failure is not null) return [];
                 var text = LiteralExcludingCommands(tag.End, located.BodyEnd, commandStart);
                 Add(result, new RichNode(definition.Role == RichTagRole.OpaqueLiteral ? "literal" : "raw",
                     $"{from}:raw", new RichSourceSpan(from, located.End),
@@ -503,19 +490,30 @@ public sealed class RichDocumentParser
         return result;
     }
 
-    // The one candidate collector is shared by document-root discovery and
-    // the root-escape handler. Execution remains with Agent Registry/Interpreter.
-    private void CollectCommand(LocatedTag located, RichTagDefinition definition)
+    // A single registry-driven dispatcher builds validated, source-addressed
+    // handler content. It runs in rendering source order; handlers cannot execute
+    // host actions and are not serialized to the frontend.
+    private void DispatchTag(LocatedTag located, RichTagDefinition definition,
+        IReadOnlyDictionary<string, string> attributes, bool isDocumentRoot,
+        RichTagContent? parent = null)
     {
         var tag = located.Opening;
-        if (tag.SelfClosing)
+        var content = new RichTagContent(definition, attributes,
+            _source[tag.End..located.BodyEnd],
+            new RichSourceSpan(tag.Start, located.End),
+            new RichSourceSpan(tag.End, located.BodyEnd),
+            parent ?? located.Parent?.Content, isDocumentRoot, tag.SelfClosing);
+        located.Content = content;
+        definition.ProcessContent?.Invoke(this, content);
+    }
+
+    // Shared registered candidate handler for paired commands and markers.
+    // Validation and authorization remain in the Agent Interpreter/Registry.
+    internal void CollectCommand(RichTagContent content)
+    {
+        if (content.SelfClosing)
         {
-            _failure = new ParseFailure($"{tag.Name} cannot be self-closing.");
-            return;
-        }
-        if (!TryParseAttributes(tag, definition, out _, out var error))
-        {
-            _failure = new ParseFailure(error);
+            _failure = new ParseFailure($"{content.Definition.Name} cannot be self-closing.");
             return;
         }
         if (_commands.Count >= MaxNodes)
@@ -523,31 +521,30 @@ public sealed class RichDocumentParser
             _failure = new ParseFailure("Command count exceeds limit.", Limit: true);
             return;
         }
-        _commands.Add(new RichCommandCandidate(tag.Name,
-            definition.Role == RichTagRole.Command
-                ? _source[tag.End..located.BodyEnd] : null,
-            new RichSourceSpan(tag.Start, located.End)));
+        _commands.Add(new RichCommandCandidate(content.Definition.Name,
+            content.Definition.Role == RichTagRole.Command ? content.Content : null,
+            content.SourceSpan));
     }
 
-    // Registered escape handler: root-only, direct-only, no command names
-    // embedded in the algorithm, and no host effects. All inner wrappers,
-    // including unknown/invalid/opaque tags, shield their nested commands.
-    internal void ProcessEscapedContent(int start, int end, int depth)
+    // Escape reuses first-level structural matching and the same dispatcher.
+    // Only direct registered root-only handlers qualify; nested wrappers stay
+    // opaque and never promote command-shaped text into a candidate.
+    internal void ProcessEscapedContent(RichTagContent escape)
     {
-        if (depth > MaxDepth)
-        {
-            _failure = new ParseFailure("Document nesting exceeds limit.", Limit: true);
-            return;
-        }
-        var direct = FindRootTags(start, end, located =>
-            RichTagRegistry.TryGet(located.Opening.Name, out var definition) &&
-            !definition.AllowAsChild &&
-            definition.Role is RichTagRole.Command or RichTagRole.Marker);
+        if (!escape.IsDocumentRoot) return;
+        var direct = FindRootTags(escape.BodySpan.Start, escape.BodySpan.End,
+            located => RichTagRegistry.TryGet(located.Opening.Name, out var definition) &&
+                !definition.AllowAsChild && definition.ProcessContent is not null);
         foreach (var child in direct)
         {
-            if (_failure is not null) break;
+            if (_failure is not null) return;
             RichTagRegistry.TryGet(child.Opening.Name, out var definition);
-            CollectCommand(child, definition);
+            if (!TryParseAttributes(child.Opening, definition, out var parameters, out var reason))
+            {
+                _failure = new ParseFailure(reason);
+                return;
+            }
+            DispatchTag(child, definition, parameters, isDocumentRoot: false, parent: escape);
         }
     }
 
