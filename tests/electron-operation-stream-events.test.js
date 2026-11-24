@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { StreamFramer } = require("../electron/browser-http");
 
 const main = fs.readFileSync(path.join(__dirname, "../electron/main.js"), "utf8");
 const from = main.indexOf("const MAX_OPERATION_EVENTS =");
@@ -71,15 +72,42 @@ test("cancelled event producers fail instead of silently dropping events", async
 
 test("single oversized event fails before enqueueing; byte accounting remains bounded", async () => {
   const s = state();
-  await assert.rejects(queue.queueOperationEvent(s, "x".repeat(256 * 1024 + 1)),
+  await assert.rejects(queue.queueOperationEvent(s, "x".repeat(2 * 1024 * 1024 + 1)),
     error => {
-      assert.match(error.message, /256 KiB/);
+      assert.match(error.message, /2 MiB/);
       assert.equal(error.code, "stream_delivery_failed");
       assert.equal(error.reason, "queue_event_oversized");
       return true;
     });
   assert.equal(s.events.length, 0);
   assert.equal(s.eventBytes, 0);
+});
+
+test("framer-legal SSE event survives JSON escaping at the bounded queue", async () => {
+  const s = state();
+  const raw = JSON.stringify({ message: "\\\\".repeat(100000) });
+  assert.ok(Buffer.byteLength(raw, "utf8") < 256 * 1024);
+  assert.ok(Buffer.byteLength(JSON.stringify(raw), "utf8") > 256 * 1024);
+  const framer = new StreamFramer("text/event-stream",
+    value => queue.queueOperationEvent(s, value));
+  await framer.write("data: " + raw + "\n\n");
+  assert.equal(s.events.length, 1);
+  assert.equal(s.events[0].value, raw);
+  assert.equal(s.events[0].sequence, 1);
+  assert.ok(s.eventBytes < 4 * 1024 * 1024);
+});
+
+test("worst-case control escaping still fits serialized queue limit", async () => {
+  const s = state();
+  const raw = "\u0001".repeat(250000);
+  assert.ok(Buffer.byteLength(raw, "utf8") <= 256 * 1024);
+  const framer = new StreamFramer("text/event-stream",
+    value => queue.queueOperationEvent(s, value));
+  await framer.write("data: " + raw + "\n\n");
+  assert.equal(s.events.length, 1);
+  assert.equal(s.events[0].value, raw);
+  assert.ok(s.eventBytes > 256 * 1024);
+  assert.ok(s.eventBytes <= 2 * 1024 * 1024);
 });
 
 test("stream failure progress exposes only whitelisted categories", () => {
