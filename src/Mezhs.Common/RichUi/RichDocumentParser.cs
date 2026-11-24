@@ -325,7 +325,7 @@ public sealed class RichDocumentParser
             while (cursor < until)
             {
                 if (!svgScope && _source[cursor] == '{' && !IsEscaped(cursor) &&
-                    RichQuestionGrammar.TryParse(_source, cursor, until,
+                    RichQuestionGrammar.TryParse(_source, cursor, end,
                         _radioLiteral, out var question, out var questionEnd))
                 {
                     if (!Flush(cursor)) return false;
@@ -340,8 +340,13 @@ public sealed class RichDocumentParser
         }
         foreach (var located in tags)
         {
+            // The finite radio-question grammar owns its complete span, even
+            // when that span includes otherwise structural presentation tags.
+            // Never process or collect a tag already consumed by that grammar.
+            if (located.Opening.Start < cursor) continue;
             var tag = located.Opening;
             if (!PlainUntil(tag.Start)) return [];
+            if (tag.Start < cursor) continue;
             if (_failure is not null) return [];
             if (!RichTagRegistry.TryGet(tag.Name, svgScope, out var definition))
             {
