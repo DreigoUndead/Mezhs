@@ -23,7 +23,7 @@ public sealed record Interpretation(
     string? Error);
 
 public sealed class Interpreter(
-    Parser parser,
+    CommandBatchAdapter parser,
     PolicyEvaluationService evaluations,
     Shell shell,
     Mezhs.Agent.Services.AgentAttachmentStaging attachments)
