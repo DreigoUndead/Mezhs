@@ -20,7 +20,7 @@ public sealed class AgentWorker : BackgroundService
     private readonly IntegrationRegistry _integrations;
     private readonly AgentPromptBuilder _prompts;
     private readonly PolicyEvaluationService _evaluations;
-    private readonly Parser _parser;
+    private readonly CommandBatchAdapter _parser;
     private readonly Interpreter _commands;
     private readonly ExecutorService _executor;
     private readonly AgentRecoveryState _recovery;
@@ -44,7 +44,7 @@ public sealed class AgentWorker : BackgroundService
         IntegrationRegistry integrations,
         AgentPromptBuilder prompts,
         PolicyEvaluationService evaluations,
-        Parser parser,
+        CommandBatchAdapter parser,
         Interpreter commands,
         ExecutorService executor,
         AgentRecoveryState recovery,
