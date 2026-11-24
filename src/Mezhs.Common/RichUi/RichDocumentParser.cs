@@ -267,6 +267,9 @@ public sealed class RichDocumentParser
                 plainFrom = cursor;
                 continue;
             }
+            // The registry defines the one literal role that opens an executable
+            // direct-child scope. Command names never influence this decision.
+            var opensCommandScope = definition.Role == RichTagRole.OpaqueLiteral;
             // One traversal enforces the registry eligibility policy. A
             // forbidden opaque child stays literal without exposing its body.
             if ((expected is not null || literalScope && !allowRootOnly) && !definition.AllowAsChild)
@@ -331,7 +334,7 @@ public sealed class RichDocumentParser
                 if (literalClose >= 0)
                 {
                     _ = ReadChildren(tag.End, literalClose, null, depth + 1, out _,
-                        literalScope: true, allowRootOnly: definition.Role == RichTagRole.OpaqueLiteral);
+                        literalScope: true, allowRootOnly: opensCommandScope);
                     if (_failure is not null) { position = cursor; return []; }
                 }
                 cursor = literalClose < 0 ? tag.End :
@@ -421,7 +424,7 @@ public sealed class RichDocumentParser
                 var after = closer + tag.Name.Length + 3;
                 var commandStart = _commands.Count;
                 _ = ReadChildren(tag.End, closer, null, depth + 1, out _,
-                    literalScope: true, allowRootOnly: definition.Role == RichTagRole.OpaqueLiteral);
+                    literalScope: true, allowRootOnly: opensCommandScope);
                 if (_failure is not null) { position = cursor; return []; }
                 var text = LiteralExcludingCommands(tag.End, closer, commandStart);
                 Add(result, new RichNode(definition.Role == RichTagRole.OpaqueLiteral ? "literal" : "raw",
