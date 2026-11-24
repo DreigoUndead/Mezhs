@@ -17,10 +17,34 @@ Parsing only discovers/normalizes data and builds host-only command candidates. 
 - `src/Mezhs.Common/RichUi/RichDocumentParser.cs`: currently contains `ReadChildren`, `ScanOpaqueContent`, `FindContainerClose`, `FindOpaqueClosing`, `TryTag`, special content handler, normalization and source spans; this is the duplication to remove/reconcile.
 - `src/Mezhs.Common/RichUi/RichDocument.cs`: registry and `RichDocument`/`RichNode`/`RichCommandCandidate` contracts.
 - `src/Mezhs.Common/RichUi/RichMarkdownNodes.cs`, `RichQuestionGrammar.cs`, `RichSvgValidation.cs`: Markdown lowering, limited interactive question grammar, SVG validation.
-- `src/Mezhs.Agent.Api/Commands/Parser.cs`, `Interpreter.cs`, `Registry.cs`: command candidate adapter, batch validation, policy/host execution; keep this boundary.
+- `src/Mezhs.Agent.Api/Commands/CommandBatchAdapter.cs`, `Interpreter.cs`, `Registry.cs`: command candidate adapter, batch validation, policy/host execution; keep this boundary.
 - `src/Mezhs.Api.Contracts/ApiContracts.cs`, `Mezhs.Api/Services/MessageService.cs`, `ChatService.cs`: completed assistant messages currently include a validated `Document`. Agent API also transports `RichDocument`.
 - `src/Mezhs.Web.Lib/src/RichDocumentView.tsx`, `MarkdownContent.tsx`, `rich-elements/*`: typed frontend document with known component map. `RichActionContext.ts` and `rich-elements/Question.tsx` already support limited local state and a host-authorized new-turn action.
 - Tests: `tests/Mezhs.RichUi.TestApp/Program.cs`, `tests/rich-model-ui-rendering.test.cjs`, `tests/agent-protocol-result.ps1`, `tests/agent-web-shared-ui.ps1`, relevant Agent architecture/safety fixtures. Existing tests contain both older and now superseded ancestry expectations; update them deliberately.
+
+## Parent-defined child policy (2026-11-24 owner correction)
+
+The implemented tag contract supersedes the earlier conceptual `SearchNested`
+and `AllowAsNested` fields below. A `RichTagDefinition.SupportedChildren`
+set defines how children are admitted: `null` means ordinary registered UI
+children, an empty set means opaque/no children, and explicit registered tag IDs
+mean only the listed children. Nested-only variants set `AtRoot=false` and
+use a distinct `Id` where surface names collide (ordinary `text` versus
+`svg:text`). The shared structural finder still recognizes complete excluded
+wrappers, without promoting commands inside them.
+
+`svg` and `g` admit graphic descendants by explicit ID; SVG `text` and
+`tspan` admit only `svg:tspan`. SVG-specific attribute validation and quotas
+remain in SVG-owned helpers. A new registered UI tag does not require a
+generic parser name-case or another structural scanner.
+
+The Agent `CommandBatchAdapter` projects host candidates/visible content; it
+does not tokenize the source. Core uses the UI catalog, and Agent extends it
+immutably with host-only command definitions. The React frontend retains its
+separate statically imported, trusted component registry under
+`rich-elements/Registry.ts`, so a UI component does not change the generic
+`RichDocumentView`. This explicitly preserves the frontend import/DOM
+security boundary; build-time automatic file discovery was not introduced.
 
 ## Tag registry and parsed shape
 
