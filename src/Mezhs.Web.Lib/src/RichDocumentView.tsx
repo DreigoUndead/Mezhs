@@ -1,9 +1,6 @@
 import { createElement, Fragment } from "react";
 import type { ReactNode, ComponentType } from "react";
-import { RichCodeBlock } from "./rich-elements/CodeBlock";
-import { RichWritingBlock } from "./rich-elements/WritingBlock";
-import { Cite } from "./rich-elements/Cite";
-import { presentation } from "./rich-elements/Registry";
+import { presentation, rawBlocks } from "./rich-elements/Registry";
 import { renderSvg } from "./rich-elements/Svg";
 import { CanonicalQuestion } from "./rich-elements/Question";
 import "./markdown.css";
@@ -51,19 +48,13 @@ function renderNode(node: RichNode, depth: number, svgScope: boolean): ReactNode
   if (node.kind === "question") return <CanonicalQuestion key={key} node={node}
     renderChild={child => renderNode(child, depth + 1, false)} />;
   if (node.kind === "raw") {
-    if (node.name === "CodeBlock")
-      return <RichCodeBlock key={key} source={node.text || ""}
-        language={/^[\w+#.-]{1,32}$/.test(attrs.language || "") ? attrs.language : "text"}
-        editable={attrs.editable === "true"} />;
-    if (node.name === "WritingBlock")
-      return <RichWritingBlock key={key} source={node.text || ""}
-        variant={attrs.variant || "standard"} subject={attrs.subject || ""}
-        recipient={attrs.recipient || ""} cc={attrs.cc || ""} bcc={attrs.bcc || ""} />;
-    return node.text || "";
+    const name = node.name || "";
+    const factory = Object.prototype.hasOwnProperty.call(rawBlocks, name)
+      ? rawBlocks[name as keyof typeof rawBlocks] : null;
+    return factory ? <Fragment key={key}>{factory(node.text || "", attrs)}</Fragment> : node.text || "";
   }
   if (node.kind === "element") {
     const name = node.name || "";
-    if (name === "Cite") return <Cite key={key} />;
     if (name === "svg" || svgScope)
       return renderSvg(name, attrs, node.children?.map(child =>
         <Fragment key={child.id}>{renderNode(child, depth + 1, true)}</Fragment>));
