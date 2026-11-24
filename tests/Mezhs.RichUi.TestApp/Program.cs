@@ -130,6 +130,46 @@ var escapePass = escapeParsed.Document.Valid &&
 Console.WriteLine($"{(escapePass ? "PASS" : "FAIL")}: Escape literal projection, exact command spans and preserved command bodies");
 if (!escapePass) failures++;
 
+// The executable parent is either document root or any complete escape scope,
+// regardless of the ancestors of that escape. All other direct parents are inert.
+var escapeContexts = new (string Name, string Source, string[] Commands)[]
+{
+    ("Escape inside known UI", "<box><escape><SH>BOX</SH></escape><SH>INERT</SH></box>", ["SH"]),
+    ("Escape inside unknown UI", "<Widget><escape><SH>UNKNOWN</SH></escape></Widget>", ["SH"]),
+    ("Escape inside raw code editor", "<CodeBlock>raw <escape><SH>CODE</SH></escape></CodeBlock>", ["SH"]),
+    ("Escape inside raw writing editor", "<WritingBlock>raw <escape><ATTACH>file.txt</ATTACH></escape></WritingBlock>", ["ATTACH"]),
+    ("Escape inside invalid UI", "<box onClick=\"bad\"><escape><SH>BAD_BOX</SH></escape></box>", ["SH"]),
+    ("Escape inside invalid SVG", "<svg><escape><SH>SVG</SH></escape></svg>", ["SH"]),
+    ("Escape nested inside escape", "<escape><escape><SH>NESTED</SH></escape></escape>", ["SH"]),
+    ("Escape nested under box inside escape", "<escape><box><escape><SH>INNER</SH></escape><SH>INERT</SH></box><SH>OUTER</SH></escape>", ["SH", "SH"]),
+    ("Other nested parents stay inert", "<escape><box><SH>INERT</SH></box><SH>DIRECT</SH></escape>", ["SH"]),
+};
+foreach (var (name, source, expected) in escapeContexts)
+{
+    var parsed = new RichDocumentParser().Parse(source);
+    var actual = parsed.Commands.Select(c => c.Name).ToArray();
+    var passed = parsed.Document.Valid && actual.SequenceEqual(expected);
+    Console.WriteLine($"{(passed ? "PASS" : "FAIL")}: {name}; commands={string.Join(",", actual)}");
+    if (!passed) failures++;
+}
+var rawEscapeSource = "<CodeBlock>pre <escape><SH>HIDDEN</SH></escape> post</CodeBlock>";
+var rawEscape = new RichDocumentParser().Parse(rawEscapeSource);
+var rawEscapeText = rawEscape.Document.Nodes.SelectMany(Walk)
+    .FirstOrDefault(n => n.Kind == "raw" && n.Name == "CodeBlock")?.Text;
+var rawEscapePass = rawEscape.Document.Valid && rawEscape.Commands.Count == 1 &&
+    rawEscapeText == "pre <escape></escape> post";
+Console.WriteLine($"{(rawEscapePass ? "PASS" : "FAIL")}: Opaque editor removes executed command span");
+if (!rawEscapePass) failures++;
+var fakeCloserSource = "<escape><SH>echo </escape> literal</SH><ATTACH>file.txt</ATTACH></escape>";
+var fakeCloserResult = new RichDocumentParser().Parse(fakeCloserSource);
+var fakeCloserPass = fakeCloserResult.Document.Valid &&
+    fakeCloserResult.Commands.Select(c => c.Name).SequenceEqual(["SH", "ATTACH"]) &&
+    fakeCloserResult.Commands[0].Body == "echo </escape> literal" &&
+    fakeCloserResult.Commands.All(c =>
+        fakeCloserSource[c.SourceSpan.Start..c.SourceSpan.End].StartsWith("<" + c.Name, StringComparison.Ordinal));
+Console.WriteLine($"{(fakeCloserPass ? "PASS" : "FAIL")}: Command body does not close ancestor escape");
+if (!fakeCloserPass) failures++;
+
 // Regression: the rendered tree, not only VisibleContent, must keep Markdown flow.
 var shellOpen = string.Concat((char)60, "SH", (char)62);
 var shellClose = string.Concat((char)60, "/SH", (char)62);
