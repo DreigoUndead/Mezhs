@@ -403,7 +403,8 @@ test("emphasis and list-item formatting span nested inline rich elements", () =>
 test("valid bounded SVG is mounted as native accessible geometry", () => {
   const doc = canonicalDocument(svg);
   assert.equal(doc.valid, true);
-  assert.equal(kinds(doc.nodes, "element").filter(n=>n.name==="svg").length, 1);
+  assert.equal(kinds(doc.nodes, "raw").filter(n=>n.name==="svg").length, 1);
+  assert.match(kinds(doc.nodes, "raw")[0].text, /<rect/);
   const result = html(svg, { document: doc });
   assert.match(result, /<svg/);
   assert.match(result, /<rect/);
@@ -444,11 +445,54 @@ test("SVG numeric resource bounds fall back without mounting geometry", () => {
   assert.match(html(input, { document: doc }), /rich-unknown/);
 });
 
-test("SVG nested inside layout is still validated by the C# authority", () => {
+test("SVG nested inside layout is validated by the TSX control", () => {
   const input = '<box border>\n<svg viewBox="0 0 20 20">\n<rect width="10" height="10" />\n</svg>\n</box>';
   const doc = canonicalDocument(input);
   assert.equal(doc.valid, true);
   assert.match(html(input), /<svg/);
+});
+
+test("SVG finite decoder rejects unknown children, nested SVG and oversize syntax", () => {
+  const malicious = [
+    '<svg><svg><circle r="2"/></svg></svg>',
+    '<svg><box>not an SVG tag</box></svg>',
+    '<svg><text onclick="alert(1)">x</text></svg>',
+    '<svg><rect width="3" href="https://evil.example/x"/></svg>',
+    '<svg><circle r="100000000"/></svg>',
+    '<svg><path d="M0 0; stroke:url(evil)"/></svg>',
+    '<svg><text>&missing;</text></svg>',
+    '<svg><text><script>alert(1)</script></text></svg>',
+    '<svg>' + '<circle r="2"/>'.repeat(251) + '</svg>',
+    '<svg>' + '<g>'.repeat(13) + '<rect width="1"/>' + '</g>'.repeat(13) + '</svg>',
+  ];
+  for (const input of malicious) {
+    const doc = canonicalDocument(input);
+    assert.equal(doc.valid, true, input);
+    const output = html(input, { document: doc });
+    assert.match(output, /rich-unknown/, input);
+    assert.doesNotMatch(output, /<svg|<script\b|href="https?:|onclick=/i, input);
+  }
+});
+
+test("SVG text entities are decoded as inert React text", () => {
+  const input = '<svg><text x="1" y="2">A &amp; B &lt;tag&gt; &#x1F642;</text></svg>';
+  const doc = canonicalDocument(input);
+  assert.equal(doc.valid, true);
+  assert.equal(kinds(doc.nodes, "raw").filter(n => n.name === "svg").length, 1);
+  const output = html(input, { document: doc });
+  assert.match(output, /<svg/);
+  assert.match(output, /A &amp; B &lt;tag&gt;/);
+  assert.doesNotMatch(output, /<tag>/);
+});
+
+test("SVG opaque body never yields commands or executable event handlers", () => {
+  const input = '<svg><text><SH>echo inert</SH></text></svg><SH>echo root</SH>';
+  const doc = canonicalDocument(input);
+  assert.equal(doc.valid, true);
+  assert.equal(kinds(doc.nodes, "raw").filter(n => n.name === "svg").length, 1);
+  const output = html(input, { document: doc });
+  assert.match(output, /rich-unknown/);
+  assert.doesNotMatch(output, /<svg|<SH>|onClick=/);
 });
 
 test("representative radio question lowers to inert precomputed selection data", () => {
