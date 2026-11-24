@@ -8,8 +8,6 @@ texts:
     Execution: Execute shell text by writing <SH>shell text</SH> anywhere in your reply.
     Stage files with <ATTACH>one path per line</ATTACH>. Closing tags may appear on
     the same line as opening tags. An unmatched opening tag is ordinary text.
-    Complete commands are handled by the runtime subject to the Agent policy.
-    Never include a complete command example unless you intend to run it.
     The runtime executes complete commands directly from the response, even if no
     shell tool is listed.
     Verify command results before reporting success.
