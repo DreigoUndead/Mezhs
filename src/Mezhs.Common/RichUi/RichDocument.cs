@@ -109,7 +109,7 @@ public static class RichTagRegistry
             Tag("Cite", RichTagRole.Leaf, "ref", "refs"),
             Tag("CodeBlock", RichTagRole.RawEditor, "language", "editable"),
             Tag("WritingBlock", RichTagRole.RawEditor, "variant", "recipient", "cc", "bcc", "subject", "id"),
-            WithDiscovery(Tag("escape", RichTagRole.OpaqueLiteral, "char"), searchChildren: true)
+            WithDiscovery(Tag("escape", RichTagRole.OpaqueLiteral, "char"), searchChildren: false)
                 with { ProcessContent = static (parser, start, end, depth) =>
                     parser.ProcessEscapedContent(start, end, depth) },
             // Agent commands are root-only and opaque, using the same
