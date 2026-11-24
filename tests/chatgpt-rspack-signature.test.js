@@ -10,7 +10,7 @@ const { nativeChatRequirementsHeaders: getNativeHeaders } = require(
 
 function testBrowser({ requirements, returnedHeaders, status = 200, providerAvailable = true,
   resourceNames = ["https://chatgpt.com/cdn/assets/manifest-currentbuild.js"],
-  providerResourceName = resourceNames[0], providerModuleId = "lXEa",
+  scriptNames = [], providerResourceName = resourceNames[0], providerModuleId = "lXEa",
   prepareResponse = null }) {
   const calls = [];
   const imports = [];
@@ -30,6 +30,7 @@ function testBrowser({ requirements, returnedHeaders, status = 200, providerAvai
   // must share the same global object even when Resource Timing entries disappear.
   const context = vm.createContext({
     TextDecoder,
+    document: { scripts: scriptNames.map(src => ({ src })) },
     performance: { getEntriesByType: () => resourceVisible
       ? resourceNames.map(name => ({ name }))
       : [] },
@@ -91,6 +92,45 @@ test("native requirements runtime discovery supports current ChatGPT asset names
     "https://chatgpt.com/cdn/assets/entry.client-currentbuild.js",
     "https://chatgpt.com/cdn/assets/4813494d-currentbuild.js"
   ]);
+});
+
+test("script tags supply ChatGPT asset candidates when Resource Timing is empty", async () => {
+  const runtimeAsset = "https://chatgpt.com/cdn/assets/4813494d-currentbuild.js";
+  const { window, imports, calls } = testBrowser({
+    requirements: { token: "issued" },
+    returnedHeaders: { "OpenAI-Sentinel-Chat-Requirements-Token": "issued" },
+    resourceNames: [],
+    scriptNames: [
+      "https://attacker.example/cdn/assets/fake.js",
+      "https://chatgpt.com/other/path/manifest.js",
+      "https://chatgpt.com/cdn/assets/entry.client-currentbuild.js",
+      runtimeAsset,
+      runtimeAsset
+    ],
+    providerResourceName: runtimeAsset
+  });
+  const headers = await getNativeHeaders(window, {}, "access-secret");
+  assert.equal(headers["OpenAI-Sentinel-Chat-Requirements-Token"], "issued");
+  assert.deepEqual(imports, [
+    "https://chatgpt.com/cdn/assets/entry.client-currentbuild.js",
+    runtimeAsset
+  ], "only unique ChatGPT runtime assets may be imported");
+  assert.equal(calls.length, 1, "only one requirements prepare request");
+});
+
+test("untrusted script URLs cannot replace missing ChatGPT runtime", async () => {
+  const { window, imports, calls } = testBrowser({
+    requirements: { token: "issued" },
+    returnedHeaders: { "OpenAI-Sentinel-Chat-Requirements-Token": "issued" },
+    resourceNames: [],
+    scriptNames: ["https://untrusted.example/cdn/assets/manifest.js"]
+  });
+  await assert.rejects(
+    getNativeHeaders(window, {}, "access-secret"),
+    /not observed in this document/
+  );
+  assert.equal(imports.length, 0);
+  assert.equal(calls.length, 0);
 });
 
 test("native requirements discovery supports semantic fallback after module renames", async () => {
