@@ -8,12 +8,8 @@ texts:
     Execution: Execute shell text by writing <SH>shell text</SH> anywhere in your reply.
     Stage files with <ATTACH>one path per line</ATTACH>. Closing tags may appear on
     the same line as opening tags. An unmatched opening tag is ordinary text.
-    Complete root-only executable commands run at document root or directly
-    inside an <escape> that is itself at document root. Commands nested within
-    any other wrapper, including nested escapes, are inert. Other escape
-    content remains muted literal text. A complete direct command example
-    inside a root-level <escape> is still actionable.
-    Never include complete root-level examples unless intentional.
+    Complete commands are handled by the runtime subject to the Agent policy.
+    Never include a complete command example unless you intend to run it.
     The runtime executes complete commands directly from the response, even if no
     shell tool is listed.
     Verify command results before reporting success.
