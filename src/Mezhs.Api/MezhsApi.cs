@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Mezhs.Api.Contracts;
+using Mezhs.Common.RichUi;
 using Mezhs.Configuration;
 using Mezhs.Integrations;
 using Mezhs.Models;
@@ -24,6 +25,7 @@ public static class MezhsApi
         builder.Services.AddExceptionHandler<ApiExceptionHandler>();
         builder.Services.AddProblemDetails();
         builder.Services.AddSingleton(options);
+        builder.Services.AddSingleton(RichTagRegistry.Ui);
         builder.Services.AddSingleton<ChatStore>();
         builder.Services.AddSingleton<ChatService>();
         builder.Services.AddSingleton<FileStore>();
