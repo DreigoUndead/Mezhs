@@ -8,7 +8,7 @@ Level: **Small (owner override, 2026-11-22)** — narrowly scoped change to exis
 
 Make an `escape` wrapper display all ordinary source as muted literal text while recognizing and executing contained command tags that are root-only (`AllowAsChild == false`) and have a registered executable behavior. In the current protocol this includes `SH`, `ATTACH`, and `DONE` (completion). No arbitrary callback, dynamic JavaScript, or presentation component may gain host execution authority.
 
-A command is eligible only when it is a direct command-level child of the `escape` body, not buried in another complete paired rich-UI, unknown, SVG, or raw-editor container. Other wrappers retain their current root-only, inert nested-command rules. Preserve command order, exact body, and original source spans.
+A registered executable root-only command is eligible when its immediate parent is document root or `escape`, regardless of the ancestry of that `escape`. A command whose immediate parent is any other tag remains inert. Nested `escape` scopes are recognized even inside otherwise opaque rich-UI, unknown, SVG and raw-editor wrappers. Preserve command order, exact body, and original source spans.
 
 Render non-executed escape content as visually muted literal text, including unsupported or malformed presentation markup. Executed command spans do not remain displayed as literal source. Do not change styling of generic literal nodes outside `escape`.
 
@@ -23,14 +23,14 @@ The November 19 owner correction in `specifications/implemented/uniform-rich-tag
 - [x] `escape` containing ordinary prose, Markdown, presentation tags and malformed visual markup displays those bytes as muted literal text, not rendered UI.
 - [x] A complete, direct `SH` or `ATTACH` inside `escape` is discovered once, follows original order with independent root commands, and omits only its exact source span from displayed literal text.
 - [x] A direct `DONE` inside `escape` is recognized as the completion command and retains existing final-command and duplicate constraints.
-- [x] Commands in nested non-command containers inside `escape` remain inert text; commands inside all other UI/Unknown/SVG/raw wrappers remain inert as before.
+- [x] Direct root-only commands under `escape` execute regardless of that escape's ancestors; commands with any other immediate parent remain inert, including direct commands under UI/Unknown/SVG/raw wrappers.
 - [x] Missing command closers remain literal; malformed/unauthorized matched commands fail closed before any batch side effects; no UI or browser code gains execution ability.
 - [x] Source spans, exact shell body (including whitespace/newlines), output projection and resource budgets remain correct; examples inside escape become potentially executable by design and are documented.
 - [x] Agent policy, authoritative Agent Registry, Executor lifetime, and host-only execution authority remain unchanged.
 
 ## How
 
-Keep `RichDocumentParser` as the only structural scanner. Make `escape` a narrowly defined command-aware literal scope rather than a general searchable UI container. Use the tag registry's `!AllowAsChild` and executable command role (`Command`/`Marker`) to select eligible host command candidates; the Agent command registry still owns actual behavior and policy validation. Reuse the canonical tag tokenizer, paired-tag matching, and existing command-validation path. Avoid a second parser, global child eligibility changes, or frontend-originated execution.
+Keep `RichDocumentParser` as the only structural scanner. The registry defines `escape` as the command-aware opaque-literal role; the same `ReadChildren` traversal can inspect otherwise opaque ancestors without rendering their contents as UI. Only that role enables its direct registered root-only children. The tag registry's `!AllowAsChild` and executable command role (`Command`/`Marker`) determine candidates; the Agent command registry still owns actual behavior and policy validation. Reuse canonical tag tokenization, balanced matching, command validation and source-span projection. No command-name checks or second escape scanner belong in parser logic.
 
 Represent `escape` display content distinctly enough for `RichDocumentView` and shared CSS to render it muted and preserve literal characters/whitespace, without applying this style to unrelated literals. Ensure display nodes cannot promote command authority.
 
@@ -105,3 +105,13 @@ Run targeted `tests/agent-protocol-result.ps1`, parser and renderer regressions 
 **Authority:** MEŽS execution `exec_4aeed6330e894543b7833c72225ee906`.
 **Review emphasis:** Check whether existing `ReadChildren`/registry/closing helpers suffice, whether another tag scan or duplicated authorization/validation has crept in, whether responsibilities and literal rendering boundaries are coherent, and whether the implementation and regressions are proportionate. Follow ordinary independent review rules: form findings independently and avoid reopening settled decisions without material evidence.
 **Status:** Review agent creation pending; no merge authorization.
+
+### 2026-11-24 — Owner simplifies universal escape ancestry; developer correction
+
+**Authority:** Owner task in MEŽS execution `exec_34b4f60c1e794af398937ed5abacfd47` and follow-up `exec_0a2a44aa2dfc4497b8b62a22f62d5059`.
+
+**Behavior correction:** Any executable `!AllowAsChild` tag is enabled when its immediate parent is `escape`, or when the tag is at root. Ancestors of the escape are irrelevant. Direct commands beneath other tags remain inert. The earlier code-review finding that `escape` itself must be root-level is withdrawn; the plan's prior broad containment wording is superseded.
+
+**Batman correction:** One `ReadChildren` structural traversal and one registry-owned definition of `escape` as a command-aware opaque-literal scope. Balanced matching for nested escape; normal, raw and invalid opaque nodes reuse a generic exact-command-span projection rather than escape-specific name or command checks. No `SH`-specific parser branch or second scanner. Add focused parser, SSR and isolated Agent/Executor regressions for nested escape ancestry, raw editors, SVG, invalid/unknown containers, opaque command bodies and inert adjacent commands.
+
+**Verification status:** Source changes and regression definitions were committed on the task branch through GitHub. Full .NET, PowerShell and SSR test execution is not yet verified in this agent environment; earlier 131/131, 44/44 and isolated integration passes apply to the older `fc586fba` revision only. Do not infer PASS for the new code. A fresh independent Step 3 Code Review is required after targeted verification. No merge or Deploy authorization.
