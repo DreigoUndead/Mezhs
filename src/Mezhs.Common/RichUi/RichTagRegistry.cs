@@ -11,7 +11,7 @@ public sealed record RichTagContent(
     RichTagContent? Parent,
     bool IsDocumentRoot,
     bool SelfClosing,
-    int Depth = 0);
+    int Depth);
 
 public enum RichTagRole { Container, Leaf, OpaqueLiteral, RawEditor, Command, Marker }
 public sealed record RichTagDefinition(
@@ -77,16 +77,6 @@ public static class RichTagRegistry
     private static RichTagDefinition Presentation(string name, RichTagRole role) =>
         Tag(name, role) with { AllowedAttributes = null };
 
-    // An individual tag may override either traversal policy without
-    // changing its role, syntax, attribute allowlist or siblings.
-    private static RichTagDefinition WithDiscovery(RichTagDefinition tag,
-        bool? searchChildren = null, bool? allowAsChild = null) =>
-        tag with
-        {
-            SearchChildren = searchChildren ?? tag.SearchChildren,
-            AllowAsChild = allowAsChild ?? tag.AllowAsChild
-        };
-
     private static readonly string[] SvgCommon =
     ["fill", "stroke", "strokeWidth", "strokeLinecap", "strokeLinejoin",
      "strokeDasharray", "opacity", "fillOpacity", "strokeOpacity", "transform",
@@ -136,7 +126,7 @@ public static class RichTagRegistry
             Tag("Cite", RichTagRole.Leaf, "ref", "refs"),
             Tag("CodeBlock", RichTagRole.RawEditor, "language", "editable"),
             Tag("WritingBlock", RichTagRole.RawEditor, "variant", "recipient", "cc", "bcc", "subject", "id"),
-            WithDiscovery(Tag("escape", RichTagRole.OpaqueLiteral, "char"), searchChildren: false)
+            Tag("escape", RichTagRole.OpaqueLiteral, "char")
                 with { ProcessContent = RichTagHandlers.Escape }
         });
 
