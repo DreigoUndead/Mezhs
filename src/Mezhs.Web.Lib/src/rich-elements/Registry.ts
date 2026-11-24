@@ -1,21 +1,21 @@
-import { rowComponent } from "./rich-elements/Row";
-import { colComponent } from "./rich-elements/Col";
-import { boxComponent } from "./rich-elements/Box";
-import { gridComponent } from "./rich-elements/Grid";
-import { gridItemComponent } from "./rich-elements/GridItem";
-import { textComponent } from "./rich-elements/Text";
-import { titleComponent } from "./rich-elements/Title";
-import { captionComponent } from "./rich-elements/Caption";
-import { dividerComponent } from "./rich-elements/Divider";
-import { badgeComponent } from "./rich-elements/Badge";
-import { iconComponent } from "./rich-elements/Icon";
-import { linkComponent } from "./rich-elements/Link";
-import { chartComponent } from "./rich-elements/Chart";
+import { rowComponent } from "./Row";
+import { colComponent } from "./Col";
+import { boxComponent } from "./Box";
+import { gridComponent } from "./Grid";
+import { gridItemComponent } from "./GridItem";
+import { textComponent } from "./Text";
+import { titleComponent } from "./Title";
+import { captionComponent } from "./Caption";
+import { dividerComponent } from "./Divider";
+import { badgeComponent } from "./Badge";
+import { iconComponent } from "./Icon";
+import { linkComponent } from "./Link";
+import { chartComponent } from "./Chart";
 
 // Only server-validated symbolic names select these statically imported
 // host-owned components; model content is never an import path or component.
 // Only symbolic server-validated tag names map to host-owned presentation.
-const presentation = {
+export const presentation = {
   row: rowComponent,
   col: colComponent,
   box: boxComponent,
