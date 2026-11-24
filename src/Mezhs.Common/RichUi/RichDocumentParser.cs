@@ -489,7 +489,8 @@ public sealed class RichDocumentParser
                 ? FindOpaqueClosing(tag.Name, tag.End, end)
                 : FindContainerClose(tag.Name, tag.End, end);
             if (closeAt < 0) { cursor = tag.End; continue; }
-            if (known && definition!.ProcessContent is { } process)
+            if (known && definition!.ProcessContent is { } process &&
+                TryParseAttributes(tag, definition, out _, out _))
                 process(this, tag.End, closeAt, depth + 1);
             else
                 ScanOpaqueContent(tag.End, closeAt, depth + 1);
