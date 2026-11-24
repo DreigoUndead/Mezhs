@@ -7,7 +7,8 @@ namespace Mezhs.Services;
 
 public sealed class ChatService(
     ChatStore store,
-    IntegrationRegistry integrations)
+    IntegrationRegistry integrations,
+    RichTagCatalog tags)
 {
     public IReadOnlyList<ApiChat> GetChats(string? connectionId = null) =>
         store.GetChats(connectionId)
@@ -60,7 +61,7 @@ public sealed class ChatService(
             title);
     }
 
-    private static ApiChatHistoryMessage ToApiHistoryMessage(StoredMessage message)
+    private ApiChatHistoryMessage ToApiHistoryMessage(StoredMessage message)
     {
         var origin = message.Origin;
         if (string.IsNullOrWhiteSpace(origin) ||
@@ -96,6 +97,6 @@ public sealed class ChatService(
             message.ActivityHistory,
             string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
             message.Status == MessageStatus.Completed
-                ? new RichDocumentParser().Parse(message.Content).Document : null);
+                ? new RichDocumentParser(tags).Parse(message.Content).Document : null);
     }
 }
