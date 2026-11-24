@@ -78,6 +78,14 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-24 - Isolated rebuild and live authorization verification (BLOCKED)
+
+**Revision:** Fetched task branch `f523d7895cc4c1e2681e0abe32ebee0af5f876f4`; no source-code corrections. Independently built Release solution and both frontends in disposable detached worktree `mezhs-step4-live-f523d789-20261124`: 0 errors; one unrelated pre-existing WhatsApp CS0114 warning. In the task checkout, 39/39 focused ChatGPT/browser HTTP and signed-transfer Node tests and the typed C# ChatGPT protocol flow passed. These are automated validations, not a substitute for authenticated provider verification.
+
+**Isolation and live findings:** Launched that rebuilt revision in a separate temporary worktree with its own Electron installation, storage/profile, connection `chatgpt-live-test` and API port 5378 (test API PID 11080). Isolated `/health` passed; `/v1/connections` reported `chatgpt-web-account` and `requiresLogin=true`; its actual model discovery returned HTTP 401. POST to `/v1/connections/chatgpt-live-test/browser` returned HTTP 200 and showed a separate test Chromium host, but subsequent model discovery still returned HTTP 401. The owner API remained active on port 5060. No owner active profile or credentials were copied or accessed; an old auth export is expired, and no external login is requested under latest owner instruction. No authenticated provider message was submitted, so 401 is an expected unauthenticated test-state observation, not an established code regression.
+
+**Result: BLOCKED, not PASS.** Corrected current revision has a successful independent rebuild and isolated live API/browser smoke, but authenticated provider send/continuation, model/effort overlap, output-file download and explanation of prior intermittent stream failure cannot be verified without an independently authenticated test session or explicit owner acceptance of those limits. Preserve the previous authenticated evidence at earlier revisions without treating it as current-revision validation. No production fix, update or recompilation is required from the owner. Clean up only isolated test API/Chromium and its disposable worktree after this run; never interrupt active owner MEZS services. No merge or deployment. Eventual owner-approved merge destination remains `integration-architecture-v2`, not `main`.
+
 ### 2026-11-24 - Independent Step 4 retest at 3c55f87c (BLOCKED)
 
 **Revision and workflow:** Fetched origin/chatgpt-account-protocol-minimization and verified local HEAD equals remote at 3c55f87c4923ac3f6b4d526fc41c167a212adcb4. Followed this branch .agents/workflow.md, .agents/testing.md, Batman and task plan; no owner checkout changes, no merge.
