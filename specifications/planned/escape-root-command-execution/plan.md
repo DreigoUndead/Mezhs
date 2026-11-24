@@ -215,3 +215,20 @@ Historical success at `fc586fba` and static inspection of later untested revisio
 **Remaining limitations:** Live Chromium interaction/visual testing was not performed by Code Review and remains mandatory for independent Step 5 Testing. npm audit reported dependency advisories during the build; no causal connection to this parser change has been established. `main` has advanced separately; no rebase, merge or release is approved.
 
 **Outcome:** Code Review PASS. Proceed to fresh independent Step 5 Testing; Step 6 still requires explicit owner approval.
+
+### 2026-11-24 - Independent Step 5 Testing PASS
+
+**Tested application revision:** `0831970d153b22e9681629b3d203dd8a4e644500` on `escape-root-command-execution`. Independent Tester used the task worktree without changing production configuration or application source.
+
+**Observed results on this revision:**
+- C# canonical rich UI parser: **131/131 PASS**; includes root commands, root escape direct commands, inert nested wrappers/escapes, structural boundaries, opaque bodies, exact source spans, radio grammar, malformed input and resource limits.
+- Node rich rendering/SSR: **45/45 PASS**.
+- Isolated live Agent/Executor protocol suite: **PASS**; durable command execution exactly once, ordered shells, rejected batches with no shell/filesystem side effects, nested command inertness, same-turn completion and continuation.
+- Shared Agent Web UI: **19/19 PASS** plus shared component assertions; Agent architecture suite: **PASS**.
+- Full `dotnet build Mezhs.sln -c Release --nologo -v minimal`: **PASS**, zero errors; TypeScript/Vite builds successful. One existing unrelated WhatsApp CS0114 warning. npm reported dependency audit advisories; they were not attributed to this change.
+- Real headless Chromium (`node --test tests/rich-model-ui-browser.test.cjs`): **1/1 PASS**. Ran with Microsoft Edge, a fresh temporary browser profile and local mocked API data. Browser assertions include inert nested command-shaped editor contents, safe rich layout/SVG, editing/copying, read-only/host-authorized UI actions, question state isolation, draft/upload preservation and chat/connection switching.
+- `git diff --check main...HEAD`: **PASS**. Original application revision was clean and unchanged during testing.
+
+**Boundaries and limitations:** Chromium UI scenarios used a mocked API, while real Agent/Executor protocol scenarios were exercised separately with isolated storage. No production profile/database was used; no external provider authentication was required. No blocking defect was found in the tested scope. The advanced `main` branch still needs reconciliation during owner-approved Deploy. No merge, version bump or release was performed.
+
+**Outcome:** **Step 5 Testing PASS**. Proceed to Step 6 Deploy only for owner-approval/reconciliation work; never merge or release without explicit owner authorization.
