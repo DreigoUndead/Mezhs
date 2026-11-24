@@ -144,7 +144,8 @@ async function executeBrowserHttp({ window, session, args, signal, reportProgres
   if (request.hook) {
     try {
       nativeHeaders = checkedHeaders(await policy.nativeHooks[request.hook]({
-        window, session, args: args.nativeArgs, endpoint: request.endpoint, signal
+        window, session, args: args.nativeArgs, endpoint: request.endpoint, signal,
+        reportProgress
       }));
     } catch (error) {
       if (signal?.aborted || error?.name === "AbortError") throw error;
