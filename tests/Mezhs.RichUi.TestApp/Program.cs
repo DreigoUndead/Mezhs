@@ -644,26 +644,36 @@ var svgShellAttachSource = "<svg>before<SH>echo HIDDEN</SH>middle<ATTACH>path.tx
 var svgWrappedShellSource = "<svg><widget>before<SH>echo HIDDEN</SH>after</widget></svg>";
 var svgTests = new (string Name, string Source, bool Valid, Func<RichParseResult, bool> Extra)[]
 {
-    ("Representative SVG", File.ReadAllText(Path.Combine("tests","fixtures","rich-model-ui","representative-svg.md")), true, r => r.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "svg" && n.Children?.Any(c => c.Name == "text") == true && n.Children?.Any(c => c.Name == "g" && c.Children?.Any(x => x.Name == "rect") == true && c.Children?.Any(x => x.Name == "text" && x.Children?.Any(t => t.Text?.Contains("Collector") == true) == true) == true) == true)),
+    ("Representative SVG", File.ReadAllText(Path.Combine("tests","fixtures","rich-model-ui","representative-svg.md")), true,
+        r => r.Document.Nodes.Any(n => n.Kind == "raw" && n.Name == "svg" &&
+            n.Text?.Contains("<g>", StringComparison.Ordinal) == true &&
+            n.Text?.Contains("Collector", StringComparison.Ordinal) == true)),
     ("SVG embedded SH is inert", "<svg viewBox=\"0 0 100 100\"><SH>echo YES</SH></svg>", true, r => r.Commands.Count == 0),
     ("SVG keeps nested SH and ATTACH inert", svgShellAttachSource, true, r =>
-        r.Commands.Count == 0 &&
-        r.Document.Nodes.Single().Children?.Any(n => n.Kind == "text" &&
-            n.Text?.Contains("<SH>echo HIDDEN</SH>middle<ATTACH>path.txt</ATTACH>", StringComparison.Ordinal) == true) == true &&
-        r.Document.Nodes.Single().Children?.Any(n => n.Name == "circle") == true),
-    ("SVG unknown wrapper keeps nested SH inert", svgWrappedShellSource, true, r =>
-        r.Commands.Count == 0 &&
-        r.Document.Nodes.Single().Kind == "unknown" &&
-        r.Document.Nodes.Single().Name == "svg"),
-    ("SVG injected event rejected", "<svg onload=\"alert(1)\"></svg>", true, r => r.Commands.Count == 0),
-    ("SVG forbidden url rejected", "<svg><rect x=\"1\" fill=\"url(#evil)\" /></svg>", true, r => r.Commands.Count == 0),
-    ("SVG text namespace accepted", "<svg viewBox=\"0 0 80 80\"><text x=\"15\" y=\"30\" fontSize=\"12\" >Hello</text></svg>", true, r => r.Document.Nodes.Any(n => n.Name == "svg" && n.Children?.Any(c => c.Name == "text" && c.Children?.Any(t => t.Text == "Hello") == true) == true)),
-    ("SVG nested foreign UI rejected", "<svg><box>bad</box></svg>", true, r => r.Commands.Count == 0),
-    ("SVG foreign UI under unknown wrapper rejected", "<svg><widget><box>bad</box></widget></svg>", true, r => r.Commands.Count == 0),
-    ("SVG unknown wrapper is diagnostic", "<svg><widget>literal</widget></svg>", true, r => r.Document.Nodes.Any(n => n.Kind == "unknown" && n.Name == "svg")),
-    ("SVG unknown wrapper keeps SH inert", "<svg><widget><SH>echo YES</SH></widget></svg>", true, r => r.Commands.Count == 0 && r.Document.Nodes.Any(n => n.Kind == "unknown")),
-    ("SVG nested SVG rejected", "<svg><svg></svg></svg>", true, r => r.Commands.Count == 0),
-    ("SVG geometry over bound rejected", "<svg><circle r=\"100000000\" /></svg>", true, r => r.Commands.Count == 0),
+        r.Commands.Count == 0 && r.Document.Nodes.Single().Kind == "raw" &&
+        r.Document.Nodes.Single().Text == "before<SH>echo HIDDEN</SH>middle<ATTACH>path.txt</ATTACH>after<circle r='2'/>"),
+    ("SVG unknown wrapper keeps SH inert", svgWrappedShellSource, true, r =>
+        r.Commands.Count == 0 && r.Document.Nodes.Single().Kind == "raw"),
+    ("SVG root event attribute rejected", "<svg onload=\"alert(1)\"></svg>", true,
+        r => r.Commands.Count == 0 && r.Document.Nodes.Any(n => n.Kind == "unknown")),
+    ("SVG unsafe child paint stays opaque for TSX to reject", "<svg><rect fill=\"url(#evil)\" /></svg>", true,
+        r => r.Commands.Count == 0 && r.Document.Nodes.Any(n => n.Kind == "raw")),
+    ("SVG text preserved unchanged", "<svg viewBox=\"0 0 80 80\"><text x=\"15\" y=\"30\">Hello</text></svg>", true,
+        r => r.Document.Nodes.Any(n => n.Kind == "raw" && n.Text?.Contains("<text x=", StringComparison.Ordinal) == true)),
+    ("SVG nested foreign UI is inert", "<svg><box>bad</box><SH>INERT</SH></svg>", true, r => r.Commands.Count == 0),
+    ("SVG foreign UI under unknown wrapper inert", "<svg><widget><box>bad</box></widget></svg>", true, r => r.Commands.Count == 0),
+    ("SVG unknown wrapper deferred to TSX", "<svg><widget>literal</widget></svg>", true,
+        r => r.Document.Nodes.Any(n => n.Kind == "raw" && n.Name == "svg")),
+    ("SVG malformed wrapper keeps SH inert", "<svg><widget><SH>echo YES</SH></widget></svg>", true,
+        r => r.Commands.Count == 0 && r.Document.Nodes.Any(n => n.Kind == "raw")),
+    ("Nested SVG remains opaque for TSX to reject", "<svg><svg><circle r=\"2\"/></svg></svg>", true, r => r.Commands.Count == 0),
+    ("SVG geometry bounds deferred to TSX", "<svg><circle r=\"100000000\" /></svg>", true, r => r.Commands.Count == 0),
+    ("SVG false closer in quoted child attribute cannot expose SH", "<svg><text title=\"</svg>\"><SH>INERT</SH></text></svg><SH>ROOT</SH>", true,
+        r => r.Commands.Select(c => c.Body).SequenceEqual(["ROOT"])),
+    ("SVG false closer in comment cannot expose SH", "<svg><!-- </svg> --><SH>INERT</SH></svg><SH>ROOT</SH>", true,
+        r => r.Commands.Select(c => c.Body).SequenceEqual(["ROOT"])),
+    ("Nested same-name SVG boundary cannot expose SH", "<svg><svg></svg><SH>INERT</SH></svg><SH>ROOT</SH>", true,
+        r => r.Commands.Select(c => c.Body).SequenceEqual(["ROOT"])),
 };
 foreach (var (name, source, valid, extra) in svgTests)
 {
@@ -844,5 +854,5 @@ finally
 }
 Console.WriteLine($"PARSER_FIRST_CHANCE_EXPECTED={parserFirstChance}");
 
-Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 27 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 27 + exceptionCases.Length} passed");
+Console.WriteLine($"{checks.Length + svgTests.Length + inlineTests.Length + 30 + exceptionCases.Length - failures}/{checks.Length + svgTests.Length + inlineTests.Length + 30 + exceptionCases.Length} passed");
 return failures == 0 ? 0 : 1;
