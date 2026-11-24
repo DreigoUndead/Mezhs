@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { Cite } from "./Cite";
+import { RichCodeBlock } from "./CodeBlock";
+import { RichWritingBlock } from "./WritingBlock";
 import { rowComponent } from "./Row";
 import { colComponent } from "./Col";
 import { boxComponent } from "./Box";
@@ -29,5 +33,25 @@ export const presentation = {
   icon: iconComponent,
   Link: linkComponent,
   Chart: chartComponent,
+  Cite,
+};
+
+// Raw editor markup is inert data; React only invokes these trusted factories.
+export const rawBlocks = {
+  CodeBlock: (source: string, attrs: Record<string, string>) =>
+    createElement(RichCodeBlock, {
+      source,
+      language: /^[\\w+#.-]{1,32}$/.test(attrs.language || "") ? attrs.language : "text",
+      editable: attrs.editable === "true",
+    }),
+  WritingBlock: (source: string, attrs: Record<string, string>) =>
+    createElement(RichWritingBlock, {
+      source,
+      variant: attrs.variant || "standard",
+      subject: attrs.subject || "",
+      recipient: attrs.recipient || "",
+      cc: attrs.cc || "",
+      bcc: attrs.bcc || "",
+    }),
 };
 
