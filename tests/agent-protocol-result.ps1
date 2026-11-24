@@ -293,8 +293,23 @@ Console.WriteLine("PASS: Position-independent matching, unknown containment, and
     Assert-InlineExecuted 'prose' 'before ' ' after '
     Assert-InlineExecuted 'markdown-fence' ('```text' + "`n") ("`n" + '```')
     Assert-InlineExecuted 'escape' '<escape>before ' ' after</escape>'
-    Assert-InlineExecuted 'nested-escape' '<box><escape>before ' ' after</escape></box>'
-    Assert-InlineExecuted 'opaque-escape' '<CodeBlock><escape>before ' ' after</escape></CodeBlock>'
+    function Assert-InlineInert([string]$label, [string]$prefix, [string]$suffix) {
+        $marker = Join-Path $temp "inert-$label.txt"
+        $shellText = "echo UNEXPECTED>>`"$marker`""
+        $task = "$prefix<SH>$shellText</SH>$suffix<DONE>"
+        $run = Invoke-RestMethod -Method Post -Uri "$base/v1/executions" -ContentType 'application/json' -Body (ConvertTo-Json @{ policyId = 'test-evidence'; input = $task })
+        $outcome = Wait-Execution $run.executionId 20
+        $history = @(Invoke-RestMethod -Uri "$base/v1/agent-chats/$($outcome.chatId)/executions")
+        $shells = @($history | Where-Object { $_.kind -eq 'Shell' })
+        if ($outcome.status -ne 'Completed' -or $shells.Count -ne 0 -or (Test-Path -LiteralPath $marker)) {
+            throw "Nested $label activated an inert command. Status=$($outcome.status); shells=$($shells.Count)."
+        }
+        Write-Host "PASS: Nested $label command remains inert with no shell side effects."
+    }
+    Assert-InlineInert 'nested-escape' '<box><escape>before ' ' after</escape></box>'
+    Assert-InlineInert 'opaque-escape' '<CodeBlock><escape>before ' ' after</escape></CodeBlock>'
+    Assert-InlineInert 'unknown-escape' '<Widget><escape>before ' ' after</escape></Widget>'
+    Assert-InlineInert 'nested-escapes' '<escape><escape>before ' ' after</escape></escape>'
 
     $orderedFile = Join-Path $temp 'ordered-batch.txt'
     $orderedTask = "<SH>`necho FIRST>>`"$orderedFile`"`n</SH>`n<SH>`necho SECOND>>`"$orderedFile`"`n</SH>`n<DONE>"
