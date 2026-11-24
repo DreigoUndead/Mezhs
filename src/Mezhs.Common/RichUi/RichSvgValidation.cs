@@ -6,6 +6,15 @@ namespace Mezhs.Common.RichUi;
 // Server-only SVG value bounds. Unknown attributes have already failed the tag registry.
 internal static class RichSvgValidation
 {
+    // SVG-specific policy belongs to the registered SVG tag family. The
+    // canonical structural parser only asks the tag's validator for a result.
+    internal static bool ValidForTag(
+        RichTagDefinition? parent,
+        RichTagDefinition child,
+        IReadOnlyDictionary<string, string> attributes) =>
+        (parent?.Context != "svg" || AllowsChild(parent.Name, child.Name)) &&
+        Valid(child.Name, attributes);
+
     private static bool Match(string s, string pattern) =>
         Regex.IsMatch(s, pattern, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
     private static bool N(string s, double lo, double hi) =>
