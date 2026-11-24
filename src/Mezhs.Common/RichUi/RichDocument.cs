@@ -62,7 +62,7 @@ public static class RichTagRegistry
     private static RichTagDefinition Tag(string name, RichTagRole role, params string[] attributes) =>
         new(name, role, new HashSet<string>(attributes, StringComparer.Ordinal),
             SearchChildren: role == RichTagRole.Container,
-            AllowAsChild: name != "DONE");
+            AllowAsChild: true);
 
     // Presentation components receive bounded inert attributes and interpret them locally.
     // Restricted namespaces (SVG, raw editors, Agent commands) keep explicit contracts.
