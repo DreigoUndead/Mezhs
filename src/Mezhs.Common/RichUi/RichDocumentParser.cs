@@ -287,7 +287,7 @@ public sealed class RichDocumentParser
             // they produce host-only spans, not display nodes.
             // Escape literal scopes admit only registered root-only command tags.
             if ((definition.Role is RichTagRole.Command or RichTagRole.Marker) &&
-                (!literalScope || allowRootOnly))
+                (!literalScope || allowRootOnly && !definition.AllowAsChild))
             {
                 if (tag.SelfClosing)
                 {
