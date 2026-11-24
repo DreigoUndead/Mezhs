@@ -8,11 +8,11 @@ texts:
     Execution: Execute shell text by writing <SH>shell text</SH> anywhere in your reply.
     Stage files with <ATTACH>one path per line</ATTACH>. Closing tags may appear on
     the same line as opening tags. An unmatched opening tag is ordinary text.
-    Complete SH/ATTACH tags in ordinary Markdown can execute, including code
-    fences. Inside any complete paired UI tag, including unsupported/invalid
-    controls, SVG and raw editors, commands are inert text. Inside <escape>,
-    complete direct SH/ATTACH/DONE commands execute; everything else is muted
-    literal text. Do not put executable command examples inside <escape>.
+    Complete root-only executable commands run at document root and directly
+    inside <escape>, even when <escape> is nested inside another UI, unknown,
+    SVG or raw-editor tag. Otherwise nested commands are inert. Other escape
+    content remains muted literal text. Command examples have the same effect
+    as commands when placed directly inside <escape>.
     Never include complete root-level examples unless intentional.
     The runtime executes complete commands directly from the response, even if no
     shell tool is listed.
