@@ -362,6 +362,7 @@ var svgPolicies =
     RichTagRegistry.Ui.TryGet("svg", out var svgRoot) &&
     svgRoot.AvailableOutsideContext && svgRoot.StrictChildren &&
     svgRoot.LiteralChildren && svgRoot.ProcessContent is not null &&
+    svgRoot.ProcessLiteral is not null && svgRoot.Validate is not null &&
     RichTagRegistry.Ui.TryGet("text", svgRoot, out var svgText) &&
     svgText.Context == "svg" &&
     RichTagRegistry.Ui.TryGet("text", out var regularText) &&
