@@ -201,7 +201,7 @@ test("failed streamed framing cancels the unread upstream response", async () =>
   let cancelled = false;
   const body = new ReadableStream({
     start(controller) {
-      controller.enqueue(new TextEncoder().encode("data: " + "x".repeat(256 * 1024 + 1) + "\n\n"));
+      controller.enqueue(new TextEncoder().encode("data: " + "x".repeat(2 * 1024 * 1024 + 1) + "\n\n"));
     },
     cancel() { cancelled = true; }
   });
@@ -210,7 +210,7 @@ test("failed streamed framing cancels the unread upstream response", async () =>
       body: "{}", accept: "text/event-stream", stream: true },
     reportEvent: () => {}
   }, policy(async () => new Response(body, { status: 200,
-    headers: { "content-type": "text/event-stream" } }))), /256 KiB/);
+    headers: { "content-type": "text/event-stream" } }))), /2 MiB/);
   assert.equal(cancelled, true, "failed framing must cancel its source");
 });
 
