@@ -14,26 +14,31 @@ public sealed record RichTagContent(
     int Depth);
 
 public enum RichTagRole { Container, Leaf, OpaqueLiteral, RawEditor, Command, Marker }
+// SupportedChildren is the complete child policy:
+// null = ordinary registered UI children; empty = opaque/no nested tags;
+// explicit IDs = only those children (including contextual name variants).
 public sealed record RichTagDefinition(
     string Name,
     RichTagRole Role,
     IReadOnlySet<string>? AllowedAttributes,
-    bool SearchChildren,
+    IReadOnlySet<string>? SupportedChildren,
     bool AllowAsChild,
     Action<RichDocumentParser, RichTagContent>? ProcessContent = null)
 {
-    // Declared by the tag family, not inferred by the generic renderer.
-    public string? Context { get; init; }
-    public bool StrictChildren { get; init; }
+    public static readonly IReadOnlySet<string> NoChildren =
+        new HashSet<string>(StringComparer.Ordinal);
+
+    // Only variants explicitly listed by their parent can be nested-only.
+    // Key distinguishes equal surface names such as UI text and SVG text.
+    public string? Id { get; init; }
+    public string Key => Id ?? Name;
+    public bool AtRoot { get; init; } = true;
     public bool LiteralChildren { get; init; }
     public bool PreserveChildren { get; init; }
     public bool PhrasingAllowed { get; init; }
-    // A tag's content model is metadata: a new UI tag never requires edits
-    // to the structural parser or Markdown content-model normalization.
     public bool Inline { get; init; }
     public bool Interactive { get; init; }
-    public bool AvailableOutsideContext { get; init; }
-    public Func<RichTagDefinition?, RichTagDefinition, IReadOnlyDictionary<string, string>, bool>? Validate { get; init; }
+    public Func<RichTagDefinition, IReadOnlyDictionary<string, string>, bool>? Validate { get; init; }
     public Action<RichDocumentParser, string>? ProcessLiteral { get; init; }
 }
 
@@ -49,7 +54,7 @@ public sealed class RichTagCatalog
             .ToDictionary(group => group.Key, group =>
             {
                 var variants = group.ToArray();
-                if (variants.Select(tag => tag.Context).Distinct(StringComparer.Ordinal).Count()
+                if (variants.Select(tag => tag.Key).Distinct(StringComparer.Ordinal).Count()
                     != variants.Length)
                     throw new ArgumentException($"Duplicate tag registration: {group.Key}.");
                 return variants;
@@ -80,17 +85,19 @@ public sealed class RichTagCatalog
         definition = null!;
         if (!_tags.TryGetValue(name, out var variants)) return false;
 
-        var context = parent?.Context;
-        var tag = variants.FirstOrDefault(candidate => candidate.Context == context);
-        if (tag is null && context is null)
-            tag = variants.FirstOrDefault(candidate => candidate.AvailableOutsideContext);
-        // Discover root-only executable tags inside foreign contexts as inert
-        // boundaries. Never promote a child through a registered parent.
-        if (tag is null && context is not null)
-            tag = variants.FirstOrDefault(candidate =>
-                candidate.Context is null && !candidate.AllowAsChild);
-        if (tag is null) return false;
-        definition = tag;
+        RichTagDefinition? selected;
+        if (parent is null)
+            selected = variants.FirstOrDefault(tag => tag.AtRoot);
+        else if (parent.SupportedChildren is { Count: 0 })
+            selected = null;
+        else if (parent.SupportedChildren is { } supported)
+            selected = variants.FirstOrDefault(tag =>
+                tag.AllowAsChild && supported.Contains(tag.Key));
+        else
+            selected = variants.FirstOrDefault(tag => tag.AtRoot && tag.AllowAsChild);
+
+        if (selected is null) return false;
+        definition = selected;
         return true;
     }
 }
@@ -106,18 +113,21 @@ public static class RichTagRegistry
         bool interactive = false, string[]? attributes = null) =>
         new(name, role,
             attributes is null ? null : new HashSet<string>(attributes, StringComparer.Ordinal),
-            SearchChildren: role == RichTagRole.Container, AllowAsChild: true)
+            SupportedChildren: role == RichTagRole.Container ? null : RichTagDefinition.NoChildren,
+            AllowAsChild: true)
         { Inline = inline, Interactive = interactive };
 
     private static readonly string[] SvgCommon =
     ["fill", "stroke", "strokeWidth", "strokeLinecap", "strokeLinejoin",
      "strokeDasharray", "opacity", "fillOpacity", "strokeOpacity", "transform",
      "fontSize", "fontFamily", "fontWeight", "textAnchor", "dominantBaseline"];
+    // SVG tags are ordinary nested-only variants, admitted by their parent's
+    // explicit SupportedChildren list. No SVG-specific resolver or parser scope.
     private static RichTagDefinition SvgTag(string name, RichTagRole role, params string[] attributes) =>
         Tag(name, role, attributes: [..SvgCommon, ..attributes]) with
         {
-            Context = "svg",
-            StrictChildren = true,
+            Id = "svg:" + name,
+            AtRoot = false,
             LiteralChildren = true,
             PreserveChildren = true,
             PhrasingAllowed = true,
@@ -125,6 +135,13 @@ public static class RichTagRegistry
             ProcessContent = RichTagHandlers.SvgTag,
             ProcessLiteral = RichTagHandlers.SvgLiteral
         };
+
+    private static readonly IReadOnlySet<string> SvgGraphics = new HashSet<string>(
+        ["svg:g", "svg:rect", "svg:path", "svg:line", "svg:polyline",
+         "svg:polygon", "svg:circle", "svg:ellipse", "svg:text"],
+        StringComparer.Ordinal);
+    private static readonly IReadOnlySet<string> SvgTextChildren =
+        new HashSet<string>(["svg:tspan"], StringComparer.Ordinal);
     public static readonly RichTagCatalog Ui = new(
         new[]
         {
@@ -140,8 +157,9 @@ public static class RichTagRegistry
             Tag("Link", inline: true, interactive: true),
             // SVG uses the same tag registry, with SVG-specific attributes and nesting.
             SvgTag("svg", RichTagRole.Container, "viewBox", "width", "height", "preserveAspectRatio", "aria-label", "role")
-                with { AvailableOutsideContext = true },
-            SvgTag("g", RichTagRole.Container),
+                with { AtRoot = true, SupportedChildren = SvgGraphics },
+            SvgTag("g", RichTagRole.Container)
+                with { SupportedChildren = SvgGraphics },
             SvgTag("rect", RichTagRole.Leaf, "x", "y", "rx", "ry", "width", "height"),
             SvgTag("path", RichTagRole.Leaf, "d"),
             SvgTag("line", RichTagRole.Leaf, "x1", "y1", "x2", "y2"),
@@ -149,9 +167,11 @@ public static class RichTagRegistry
             SvgTag("polygon", RichTagRole.Leaf, "points"),
             SvgTag("circle", RichTagRole.Leaf, "cx", "cy", "r"),
             SvgTag("ellipse", RichTagRole.Leaf, "cx", "cy", "rx", "ry"),
-            SvgTag("tspan", RichTagRole.Container, "x", "y"),
-            // Same symbolic name as the UI tag, resolved by declared context.
-            SvgTag("text", RichTagRole.Container, "x", "y"),
+            SvgTag("tspan", RichTagRole.Container, "x", "y")
+                with { SupportedChildren = SvgTextChildren },
+            // Same name as UI text; parent's child IDs select this variant.
+            SvgTag("text", RichTagRole.Container, "x", "y")
+                with { SupportedChildren = SvgTextChildren },
             Tag("divider", RichTagRole.Leaf),
             Tag("icon", RichTagRole.Leaf, inline: true),
             Tag("Chart", RichTagRole.Leaf),
