@@ -1,11 +1,12 @@
 using System.Text.Json;
 using Mezhs.Common.RichUi;
+using Mezhs.Agent.Commands;
 
 if (args.Contains("--parse-stdin-results"))
 {
     Console.InputEncoding = System.Text.Encoding.UTF8;
     var inputs = JsonSerializer.Deserialize<string[]>(Console.In.ReadToEnd()) ?? [];
-    var results = inputs.Select(source => new RichDocumentParser().Parse(source)).ToArray();
+    var results = inputs.Select(source => new RichDocumentParser(Registry.RichTags).Parse(source)).ToArray();
     Console.Write(JsonSerializer.Serialize(results, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
     return 0;
 }
@@ -16,7 +17,7 @@ if (args.Contains("--parse-stdin"))
     // Node feeds UTF-8 JSON bytes. Preserve non-ASCII radio choice payloads.
     Console.InputEncoding = System.Text.Encoding.UTF8;
     var inputs = JsonSerializer.Deserialize<string[]>(Console.In.ReadToEnd()) ?? [];
-    var results = inputs.Select(source => new RichDocumentParser().Parse(source).Document).ToArray();
+    var results = inputs.Select(source => new RichDocumentParser(Registry.RichTags).Parse(source).Document).ToArray();
     Console.Write(JsonSerializer.Serialize(results, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
     return 0;
 }
@@ -104,7 +105,7 @@ static IEnumerable<RichNode> Walk(RichNode node)
 }
 foreach (var (name, source, valid, commands) in checks)
 {
-    var result = new RichDocumentParser().Parse(source);
+    var result = new RichDocumentParser(Registry.RichTags).Parse(source);
     var names = result.Commands.Select(c => c.Name).ToArray();
     var pass = result.Document.Valid == valid && names.SequenceEqual(commands);
     if (name == "Multiline SH preserves body bytes")
@@ -119,7 +120,7 @@ foreach (var (name, source, valid, commands) in checks)
 }
 // Escape commands retain original source ranges while non-commands stay literal.
 var escapeSource = "pre <escape>alpha <text>literal</text> <SH>\r\necho ONE\r\n</SH> beta <ATTACH>file.txt</ATTACH><DONE></escape> post";
-var escapeParsed = new RichDocumentParser().Parse(escapeSource);
+var escapeParsed = new RichDocumentParser(Registry.RichTags).Parse(escapeSource);
 var escapeLiteral = escapeParsed.Document.Nodes.SelectMany(Walk)
     .SingleOrDefault(n => n.Kind == "literal" && n.Name == "escape");
 var escapePass = escapeParsed.Document.Valid &&
@@ -157,7 +158,7 @@ var escapeContexts = new (string Name, string Source, string[] Commands)[]
 };
 foreach (var (name, source, expected) in escapeContexts)
 {
-    var parsed = new RichDocumentParser().Parse(source);
+    var parsed = new RichDocumentParser(Registry.RichTags).Parse(source);
     var actual = parsed.Commands.Select(c => c.Name).ToArray();
     var passed = parsed.Document.Valid && actual.SequenceEqual(expected);
     Console.WriteLine($"{(passed ? "PASS" : "FAIL")}: {name}; commands={string.Join(",", actual)}");
@@ -165,7 +166,7 @@ foreach (var (name, source, expected) in escapeContexts)
 }
 // Delimiters inside command bodies must never alter outer structural pairing.
 var escapedParentCloserSource = "<box><escape><SH>echo </box> literal</SH></escape><SH>INERT</SH></box>";
-var escapedParentCloser = new RichDocumentParser().Parse(escapedParentCloserSource);
+var escapedParentCloser = new RichDocumentParser(Registry.RichTags).Parse(escapedParentCloserSource);
 var escapedParentCloserPass = escapedParentCloser.Document.Valid &&
     escapedParentCloser.Commands.Count == 0 &&
     escapedParentCloser.Document.Nodes.SelectMany(Walk)
@@ -174,7 +175,7 @@ Console.WriteLine($"{(escapedParentCloserPass ? "PASS" : "FAIL")}: Nested escape
 if (!escapedParentCloserPass) failures++;
 
 var rawEscapeSource = "<CodeBlock>pre <escape><SH>HIDDEN</SH></escape> post</CodeBlock>";
-var rawEscape = new RichDocumentParser().Parse(rawEscapeSource);
+var rawEscape = new RichDocumentParser(Registry.RichTags).Parse(rawEscapeSource);
 var rawEscapeText = rawEscape.Document.Nodes.SelectMany(Walk)
     .FirstOrDefault(n => n.Kind == "raw" && n.Name == "CodeBlock")?.Text;
 var rawEscapePass = rawEscape.Document.Valid && rawEscape.Commands.Count == 0 &&
@@ -182,7 +183,7 @@ var rawEscapePass = rawEscape.Document.Valid && rawEscape.Commands.Count == 0 &&
 Console.WriteLine($"{(rawEscapePass ? "PASS" : "FAIL")}: Opaque editor preserves all inert nested command source");
 if (!rawEscapePass) failures++;
 var fakeCloserSource = "<escape><SH>echo </escape> literal</SH><ATTACH>file.txt</ATTACH></escape>";
-var fakeCloserResult = new RichDocumentParser().Parse(fakeCloserSource);
+var fakeCloserResult = new RichDocumentParser(Registry.RichTags).Parse(fakeCloserSource);
 var fakeCloserPass = fakeCloserResult.Document.Valid &&
     fakeCloserResult.Commands.Select(c => c.Name).SequenceEqual(["SH", "ATTACH"]) &&
     fakeCloserResult.Commands[0].Body == "echo </escape> literal" &&
@@ -196,7 +197,7 @@ var shellOpen = string.Concat((char)60, "SH", (char)62);
 var shellClose = string.Concat((char)60, "/SH", (char)62);
 var shellTag = shellOpen + "echo HIDDEN" + shellClose;
 var inlineSource = "Before " + shellTag + " after";
-var inlineDoc = new RichDocumentParser().Parse(inlineSource);
+var inlineDoc = new RichDocumentParser(Registry.RichTags).Parse(inlineSource);
 var paragraph = inlineDoc.Document.Nodes.SingleOrDefault();
 var inlineOk = inlineDoc.Document.Valid && inlineDoc.Commands.Count == 1 &&
     inlineDoc.Commands[0].Body == "echo HIDDEN" && paragraph?.Kind == "paragraph" &&
@@ -205,38 +206,38 @@ var inlineOk = inlineDoc.Document.Valid && inlineDoc.Commands.Count == 1 &&
     paragraph.Children[0].SourceSpan.End == inlineSource.IndexOf(shellOpen, StringComparison.Ordinal) &&
     paragraph.Children[1].SourceSpan.Start == inlineSource.IndexOf(" after", StringComparison.Ordinal);
 // Generic syntax layer: literal object attributes, unknown envelopes, and pipes.
-var objectDoc = new RichDocumentParser().Parse("<box border={{size:2,color:\"danger\"}}>Red</box>");
+var objectDoc = new RichDocumentParser(Registry.RichTags).Parse("<box border={{size:2,color:\"danger\"}}>Red</box>");
 var objectJson = objectDoc.Document.Nodes.SelectMany(Walk).FirstOrDefault(n => n.Name == "box")?
     .Attributes?.GetValueOrDefault("border");
 var objectPass = objectDoc.Document.Valid && objectJson?.StartsWith("json:", StringComparison.Ordinal) == true &&
     Uri.UnescapeDataString(objectJson[5..]).Contains("\"danger\"", StringComparison.Ordinal);
 Console.WriteLine($"{(objectPass ? "PASS" : "FAIL")}: Bounded JSX object literal is serialized as inert JSON");
 if (!objectPass) failures++;
-var dynamicDoc = new RichDocumentParser().Parse("<box border={{size:alert(1)}}>unsafe</box>");
+var dynamicDoc = new RichDocumentParser(Registry.RichTags).Parse("<box border={{size:alert(1)}}>unsafe</box>");
 var dynamicPass = dynamicDoc.Document.Valid && dynamicDoc.Commands.Count == 0 &&
     dynamicDoc.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "unknown" && n.Name == "box");
 Console.WriteLine($"{(dynamicPass ? "PASS" : "FAIL")}: Dynamic expression falls back to inert unknown control");
 if (!dynamicPass) failures++;
-var unknownEnvelope = new RichDocumentParser().Parse("<Widget><SH>inert</SH></Widget><SH>root</SH>");
+var unknownEnvelope = new RichDocumentParser(Registry.RichTags).Parse("<Widget><SH>inert</SH></Widget><SH>root</SH>");
 var unknownPass = unknownEnvelope.Document.Valid && unknownEnvelope.Commands.Count == 1 &&
     unknownEnvelope.Commands[0].Body == "root" &&
     unknownEnvelope.Document.Nodes.Any(n => n.Kind == "unknown" && n.Name == "Widget");
 Console.WriteLine($"{(unknownPass ? "PASS" : "FAIL")}: Unknown wrapper preserves root-only command boundary");
 if (!unknownPass) failures++;
-var tableDoc = new RichDocumentParser().Parse("| A | B |\\n|---|---|\\n| 1 | 2 |".Replace("\\n", "\n"));
+var tableDoc = new RichDocumentParser(Registry.RichTags).Parse("| A | B |\\n|---|---|\\n| 1 | 2 |".Replace("\\n", "\n"));
 var tablePass = tableDoc.Document.Valid && tableDoc.Document.Nodes.SelectMany(Walk)
     .Any(n => n.Kind == "table" && n.Children?.Any(c => c.Kind == "tableRow") == true);
 Console.WriteLine($"{(tablePass ? "PASS" : "FAIL")}: Pipe table remains a generic Markdown syntax transformation");
 if (!tablePass) failures++;
 var htmlWrapperSource = "<widget>\\n<text>inside</text>\\n</widget>\\n<SH>ROOT</SH>".Replace("\\n", "\n");
-var htmlWrapperDoc = new RichDocumentParser().Parse(htmlWrapperSource);
+var htmlWrapperDoc = new RichDocumentParser(Registry.RichTags).Parse(htmlWrapperSource);
 var htmlWrapperPass = htmlWrapperDoc.Document.Valid && htmlWrapperDoc.Commands.Count == 1 &&
     htmlWrapperDoc.Commands[0].Body == "ROOT" &&
     htmlWrapperDoc.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "unknown" && n.Name == "widget");
 Console.WriteLine($"{(htmlWrapperPass ? "PASS" : "FAIL")}: Multiline unknown HTML wrapper cannot discard root commands");
 if (!htmlWrapperPass) failures++;
 var commentSource = "<!--\\n<text>hello</text>\\n-->\\n<SH>ROOT</SH>".Replace("\\n", "\n");
-var commentDoc = new RichDocumentParser().Parse(commentSource);
+var commentDoc = new RichDocumentParser(Registry.RichTags).Parse(commentSource);
 var commentPass = commentDoc.Document.Valid && commentDoc.Commands.Count == 1 &&
     commentDoc.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "element" && n.Name == "text");
 Console.WriteLine($"{(commentPass ? "PASS" : "FAIL")}: HTML literal lowering restores rich elements");
@@ -250,7 +251,7 @@ var citeFenceInputs = new[] {
     "Before\n\n~~~jsx\n" + citeFenceTag + "\n<Cite ref={foo}/>\n~~~\n\nAfter"
 };
 var citeFencesPass = citeFenceInputs.All(source => {
-    var parsed = new RichDocumentParser().Parse(source);
+    var parsed = new RichDocumentParser(Registry.RichTags).Parse(source);
     var cites = parsed.Document.Nodes.SelectMany(Walk).Where(n => n.Kind == "element" && n.Name == "Cite").ToArray();
     var start = source.IndexOf(citeFenceTag, StringComparison.Ordinal);
     return parsed.Document.Valid && parsed.Commands.Count == 0 && cites.Length == 1 &&
@@ -258,7 +259,7 @@ var citeFencesPass = citeFenceInputs.All(source => {
 });
 Console.WriteLine($"{(citeFencesPass ? "PASS" : "FAIL")}: Fenced rich inline nodes survive with exact spans, including unclosed and split fences");
 if (!citeFencesPass) failures++;
-var citeFenceWithShell = new RichDocumentParser().Parse("~~~jsx\n" + citeFenceTag + "\n<Widget/>\n~~~\n" + shellTag);
+var citeFenceWithShell = new RichDocumentParser(Registry.RichTags).Parse("~~~jsx\n" + citeFenceTag + "\n<Widget/>\n~~~\n" + shellTag);
 var citeShellNodes = citeFenceWithShell.Document.Nodes.SelectMany(Walk).ToArray();
 var citeShellPass = citeFenceWithShell.Document.Valid && citeFenceWithShell.Commands.Count == 1 &&
     citeFenceWithShell.Commands[0].Body == "echo HIDDEN" &&
@@ -268,7 +269,7 @@ Console.WriteLine($"{(citeShellPass ? "PASS" : "FAIL")}: Fenced rich inline lowe
 if (!citeShellPass) failures++;
 
 var fenceInfoSource = "~~~<text>info</text>\\ncontent\\n~~~\\n<SH>ROOT</SH>".Replace("\\n", "\n");
-var fenceInfoDoc = new RichDocumentParser().Parse(fenceInfoSource);
+var fenceInfoDoc = new RichDocumentParser(Registry.RichTags).Parse(fenceInfoSource);
 var fenceInfoPass = fenceInfoDoc.Document.Valid && fenceInfoDoc.Commands.Count == 1 &&
     fenceInfoDoc.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "element" && n.Name == "text");
 Console.WriteLine($"{(fenceInfoPass ? "PASS" : "FAIL")}: Fence info literal survives lowering without losing root shell");
@@ -277,33 +278,33 @@ if (!fenceInfoPass) failures++;
 
 Console.WriteLine($"{(inlineOk ? "PASS" : "FAIL")}: Rendered inline command retains one paragraph and exact spans");
 if (!inlineOk) failures++;
-var strongDoc = new RichDocumentParser().Parse("**Before " + shellTag + " after**");
+var strongDoc = new RichDocumentParser(Registry.RichTags).Parse("**Before " + shellTag + " after**");
 var strongNode = strongDoc.Document.Nodes.SingleOrDefault()?.Children?.SingleOrDefault();
 var strongOk = strongDoc.Document.Valid && strongNode?.Kind == "strong" &&
     strongNode.Children?.Count == 2 && strongNode.Children[0].Text == "Before " &&
     strongNode.Children[1].Text == " after";
 Console.WriteLine($"{(strongOk ? "PASS" : "FAIL")}: Rendered command preserves spanning strong emphasis");
 if (!strongOk) failures++;
-var listDoc = new RichDocumentParser().Parse("- Before " + shellTag + " after");
+var listDoc = new RichDocumentParser(Registry.RichTags).Parse("- Before " + shellTag + " after");
 var listParagraphs = listDoc.Document.Nodes.SelectMany(Walk).Where(n => n.Kind == "paragraph").ToArray();
 var listOk = listDoc.Document.Valid && listDoc.Document.Nodes.Count == 1 &&
     listDoc.Document.Nodes[0].Kind == "list" && listParagraphs.Length == 1 &&
     listParagraphs[0].Children?.Count == 2;
 Console.WriteLine($"{(listOk ? "PASS" : "FAIL")}: Rendered command retains one Markdown list item");
 if (!listOk) failures++;
-var codeDoc = new RichDocumentParser().Parse("`pre " + shellTag + " post`");
+var codeDoc = new RichDocumentParser(Registry.RichTags).Parse("`pre " + shellTag + " post`");
 var codeNodes = codeDoc.Document.Nodes.SelectMany(Walk).Where(n => n.Kind == "inlineCode").ToArray();
 var codeOk = codeDoc.Document.Valid && codeNodes.Length == 1 && codeNodes[0].Text == "pre  post";
 Console.WriteLine($"{(codeOk ? "PASS" : "FAIL")}: Removed command leaves intact inline code text");
 if (!codeOk) failures++;
-var fenceDoc = new RichDocumentParser().Parse("~~~\npre " + shellTag + " post\n~~~");
+var fenceDoc = new RichDocumentParser(Registry.RichTags).Parse("~~~\npre " + shellTag + " post\n~~~");
 var fenceNodes = fenceDoc.Document.Nodes.SelectMany(Walk).Where(n => n.Kind == "code").ToArray();
 var fenceOk = fenceDoc.Document.Valid && fenceNodes.Length == 1 &&
     fenceNodes[0].Text?.Contains("pre  post", StringComparison.Ordinal) == true;
 Console.WriteLine($"{(fenceOk ? "PASS" : "FAIL")}: Removed command leaves intact fenced code text");
 if (!fenceOk) failures++;
 // A command surrounded by blank lines must not leave an empty paragraph.
-var blankLineDoc = new RichDocumentParser().Parse("Before\n\n" + shellTag + "\n\nAfter");
+var blankLineDoc = new RichDocumentParser(Registry.RichTags).Parse("Before\n\n" + shellTag + "\n\nAfter");
 var blankLineOk = blankLineDoc.Document.Valid && blankLineDoc.Commands.Count == 1 &&
     blankLineDoc.Document.Nodes.Count == 2 &&
     blankLineDoc.Document.Nodes.All(n => n.Kind == "paragraph" && n.Children?.Count == 1) &&
@@ -314,19 +315,19 @@ if (!blankLineOk) failures++;
 
 // Every tag carries independent child-search and child-eligibility policies.
 var controlsPass =
-    RichTagRegistry.TryGet("box", out var boxDef) &&
+    Registry.RichTags.TryGet("box", out var boxDef) &&
     boxDef.SearchChildren && boxDef.AllowAsChild &&
-    RichTagRegistry.TryGet("row", out var rowDef) &&
+    Registry.RichTags.TryGet("row", out var rowDef) &&
     rowDef.SearchChildren && rowDef.AllowAsChild &&
-    RichTagRegistry.TryGet("SH", out var shellDef) &&
+    Registry.RichTags.TryGet("SH", out var shellDef) &&
     !shellDef.SearchChildren && !shellDef.AllowAsChild &&
-    RichTagRegistry.TryGet("ATTACH", out var attachDef) &&
+    Registry.RichTags.TryGet("ATTACH", out var attachDef) &&
     !attachDef.SearchChildren && !attachDef.AllowAsChild &&
-    RichTagRegistry.TryGet("DONE", out var doneDef) &&
+    Registry.RichTags.TryGet("DONE", out var doneDef) &&
     !doneDef.SearchChildren && !doneDef.AllowAsChild &&
-    RichTagRegistry.TryGet("escape", out var escapeDef) &&
+    Registry.RichTags.TryGet("escape", out var escapeDef) &&
     !escapeDef.SearchChildren && escapeDef.AllowAsChild &&
-    RichTagRegistry.TryGet("WritingBlock", out var writingDef) &&
+    Registry.RichTags.TryGet("WritingBlock", out var writingDef) &&
     !writingDef.SearchChildren && writingDef.AllowAsChild;
 Console.WriteLine($"{(controlsPass ? "PASS" : "FAIL")}: Independent per-tag child search and child eligibility policies");
 if (!controlsPass) failures++;
@@ -335,9 +336,9 @@ if (!controlsPass) failures++;
 // callbacks, not ad-hoc command-role branches in RichDocumentParser.
 var dispatcherContract =
     new[] { "SH", "ATTACH", "DONE", "escape" }
-        .All(name => RichTagRegistry.TryGet(name, out var definition) &&
+        .All(name => Registry.RichTags.TryGet(name, out var definition) &&
             definition.ProcessContent is not null) &&
-    RichTagRegistry.TryGet("box", out var displayDefinition) &&
+    Registry.RichTags.TryGet("box", out var displayDefinition) &&
     displayDefinition.ProcessContent is null;
 Console.WriteLine($"{(dispatcherContract ? "PASS" : "FAIL")}: Command and escape handlers are registry-driven");
 if (!dispatcherContract) failures++;
@@ -345,7 +346,7 @@ if (!dispatcherContract) failures++;
 // A model can literally author the former private-use marker sequence.
 // The restored inline node must stay at its real UTF-16 position.
 var collisionSource = "pre " + (char)0xE000 + (char)0xE001 + " <text strong>node</text> post";
-var collisionResult = new RichDocumentParser().Parse(collisionSource);
+var collisionResult = new RichDocumentParser(Registry.RichTags).Parse(collisionSource);
 var collisionChildren = collisionResult.Document.Nodes.FirstOrDefault()?.Children;
 var collisionStart = collisionSource.IndexOf("<text strong>", StringComparison.Ordinal);
 var collisionElement = collisionChildren?.FirstOrDefault(n => n.Name == "text");
@@ -364,7 +365,7 @@ if (!collisionPass) failures++;
 // GFM task checkboxes are valid native phrasing inputs inside Markdown list
 // paragraphs, but remain forbidden inside interactive rich links/buttons.
 var taskSource = "- [x] Completed\n- [ ] Pending";
-var taskResult = new RichDocumentParser().Parse(taskSource);
+var taskResult = new RichDocumentParser(Registry.RichTags).Parse(taskSource);
 var taskNodes = taskResult.Document.Nodes.SelectMany(Walk)
     .Where(node => node.Kind == "taskCheckbox").ToArray();
 var taskPass = taskResult.Document.Valid && taskResult.Commands.Count == 0 &&
@@ -377,7 +378,7 @@ if (!taskPass) failures++;
 // never implicit Markdown code. The root Markdown pipeline retains indented code.
 var capturedLayout = File.ReadAllText(Path.Combine("tests", "fixtures",
     "rich-model-ui", "indented-layout-capture.md"));
-var capturedDocument = new RichDocumentParser().Parse(capturedLayout);
+var capturedDocument = new RichDocumentParser(Registry.RichTags).Parse(capturedLayout);
 var captureNodes = capturedDocument.Document.Nodes.SelectMany(Walk).ToArray();
 var capturedPass = capturedDocument.Document.Valid && capturedDocument.Commands.Count == 0 &&
     captureNodes.Count(n => n.Kind == "code") == 0 &&
@@ -391,12 +392,12 @@ var capturedPass = capturedDocument.Document.Valid && capturedDocument.Commands.
         n.Children?.Any(t => t.Text?.Contains("Identify known tags") == true) == true);
 Console.WriteLine($"{(capturedPass ? "PASS" : "FAIL")}: Captured indented nested UI is rich layout, not code; nodes={captureNodes.Length}; code={captureNodes.Count(n => n.Kind == "code")}");
 if (!capturedPass) failures++;
-var rootIndented = new RichDocumentParser().Parse("Intro\\n\\n    actual code".Replace("\\n", "\n"));
+var rootIndented = new RichDocumentParser(Registry.RichTags).Parse("Intro\\n\\n    actual code".Replace("\\n", "\n"));
 var rootIndentedPass = rootIndented.Document.Valid &&
     rootIndented.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "code");
 Console.WriteLine($"{(rootIndentedPass ? "PASS" : "FAIL")}: Root Markdown retains four-space code blocks");
 if (!rootIndentedPass) failures++;
-var containerFenced = new RichDocumentParser().Parse("<box>\\n  ~~~\\n  code inside rich box\\n  ~~~\\n</box>".Replace("\\n", "\n"));
+var containerFenced = new RichDocumentParser(Registry.RichTags).Parse("<box>\\n  ~~~\\n  code inside rich box\\n  ~~~\\n</box>".Replace("\\n", "\n"));
 var containerFencedPass = containerFenced.Document.Valid &&
     containerFenced.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "code" &&
         n.Text?.Contains("code inside rich box") == true);
@@ -404,7 +405,7 @@ Console.WriteLine($"{(containerFencedPass ? "PASS" : "FAIL")}: Explicit fenced c
 if (!containerFencedPass) failures++;
 
 var fixture = File.ReadAllText(Path.Combine("tests", "fixtures", "rich-model-ui", "custom-controls-question.md"));
-var parsedQuestion = new RichDocumentParser().Parse(fixture);
+var parsedQuestion = new RichDocumentParser(Registry.RichTags).Parse(fixture);
 var question = parsedQuestion.Document.Nodes.SingleOrDefault(n => n.Kind == "question");
 var choices = question?.Children?.Where(n => n.Kind == "questionOption").ToArray() ?? [];
 var buttons = question?.Children?.Where(n => n.Kind == "questionButton").ToArray() ?? [];
@@ -422,7 +423,7 @@ var radioPass = parsedQuestion.Document.Valid && parsedQuestion.Commands.Count =
 Console.WriteLine($"{(radioPass ? "PASS" : "FAIL")}: Real radio fixture; valid={parsedQuestion.Document.Valid}; choices={choices.Length}; diagnostics={string.Join(",", parsedQuestion.Document.Diagnostics.Select(d => d.Code))}");
 if (!radioPass) failures++;
 var wrappedFixture = File.ReadAllText(Path.Combine("tests", "fixtures", "rich-model-ui", "wrapped-question.md"));
-var wrappedResult = new RichDocumentParser().Parse(wrappedFixture);
+var wrappedResult = new RichDocumentParser(Registry.RichTags).Parse(wrappedFixture);
 var wrappedQuestion = wrappedResult.Document.Nodes.SingleOrDefault(n => n.Kind == "question");
 var wrappedPass = wrappedResult.Document.Valid && wrappedResult.Commands.Count == 0 &&
     wrappedQuestion?.Attributes?.GetValueOrDefault("initial") == "A" &&
@@ -439,7 +440,7 @@ var radioCode = wrappedFixture
     .Replace("**A — Send to the collector.** One pipeline, one endpoint.",
         "Literal code: `</radio>` is a label example.")
     .Replace("Confirm</button>", "Confirm `</button>` in code</button>");
-var radioCodeResult = new RichDocumentParser().Parse(radioCode);
+var radioCodeResult = new RichDocumentParser(Registry.RichTags).Parse(radioCode);
 var radioCodeNode = radioCodeResult.Document.Nodes.SingleOrDefault(n => n.Kind == "question");
 var radioCodeOption = radioCodeNode?.Children?.FirstOrDefault(n => n.Kind == "questionOption");
 var radioCodeButton = radioCodeNode?.Children?.FirstOrDefault(n => n.Kind == "questionButton");
@@ -450,13 +451,13 @@ var radioCodePass = radioCodeResult.Document.Valid && radioCodeResult.Commands.C
 Console.WriteLine($"{(radioCodePass ? "PASS" : "FAIL")}: Radio and button delimiters inside inline Markdown code remain inert with original spans");
 if (!radioCodePass) failures++;
 
-var rejectedBox = new RichDocumentParser().Parse(wrappedFixture.Replace("<box border", "<box onClick=\"unsafe()\" border"));
+var rejectedBox = new RichDocumentParser(Registry.RichTags).Parse(wrappedFixture.Replace("<box border", "<box onClick=\"unsafe()\" border"));
 var rejectedBoxPass = rejectedBox.Document.Valid && rejectedBox.Commands.Count == 0 &&
     rejectedBox.Document.Nodes.SelectMany(Walk).Any(n => n.Kind == "unknown" && n.Name == "box");
 Console.WriteLine($"{(rejectedBoxPass ? "PASS" : "FAIL")}: Unsafe radio box wrapper remains inert");
 if (!rejectedBoxPass) failures++;
 
-var staticStyle = new RichDocumentParser().Parse("<text textAlign=\"center\" tabularNums>42</text><title textAlign=\"center\" tabularNums>Title</title>");
+var staticStyle = new RichDocumentParser(Registry.RichTags).Parse("<text textAlign=\"center\" tabularNums>42</text><title textAlign=\"center\" tabularNums>Title</title>");
 var staticStylePass = staticStyle.Document.Valid &&
     staticStyle.Document.Nodes.SelectMany(Walk).Count(n => n.Kind == "element" &&
         n.Name is "text" or "title" &&
@@ -519,7 +520,7 @@ var inlineTests = new (string Name, string Source, Func<RichParseResult, bool> C
 };
 foreach (var (name, source, verify) in inlineTests)
 {
-    var parsed = new RichDocumentParser().Parse(source);
+    var parsed = new RichDocumentParser(Registry.RichTags).Parse(source);
     var pass = verify(parsed);
     Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={parsed.Document.Valid}; errors={string.Join(",", parsed.Document.Diagnostics.Select(d => d.Code))}");
     if (!pass) failures++;
@@ -552,14 +553,14 @@ var svgTests = new (string Name, string Source, bool Valid, Func<RichParseResult
 };
 foreach (var (name, source, valid, extra) in svgTests)
 {
-    var result = new RichDocumentParser().Parse(source);
+    var result = new RichDocumentParser(Registry.RichTags).Parse(source);
     var pass = result.Document.Valid == valid && extra(result);
     Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; errors={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
     if (!pass) failures++;
 }
 // Position-independent matching includes markup-looking tags within Markdown.
 var nestedSource = "<box><box><text>Nested sibling</text></box> outer</box>";
-var nestedResult = new RichDocumentParser().Parse(nestedSource);
+var nestedResult = new RichDocumentParser(Registry.RichTags).Parse(nestedSource);
 var nestedPass = nestedResult.Document.Valid &&
     nestedResult.Document.Nodes.SingleOrDefault()?.Name == "box" &&
     nestedResult.Document.Nodes[0].Children?.Any(n => n.Name == "box") == true;
@@ -573,7 +574,7 @@ var rawSiblings = string.Concat(Enumerable.Range(0, 1500)
 var rawTimer = System.Diagnostics.Stopwatch.StartNew();
 GC.Collect();
 var rawBefore = GC.GetAllocatedBytesForCurrentThread();
-var rawResult = new RichDocumentParser().Parse(rawSiblings);
+var rawResult = new RichDocumentParser(Registry.RichTags).Parse(rawSiblings);
 rawTimer.Stop();
 var rawBytes = GC.GetAllocatedBytesForCurrentThread() - rawBefore;
 var rawCount = rawResult.Document.Nodes.SelectMany(Walk).Count(n => n.Name == "WritingBlock");
@@ -585,7 +586,7 @@ if (!rawPass) failures++;
 var wideSource = string.Concat(Enumerable.Range(0, 900)
     .Select(i => $"<box><text>Label {i}</text></box>\\n")).Replace("\\n", "\n");
 var timer = System.Diagnostics.Stopwatch.StartNew();
-var wideParsed = new RichDocumentParser().Parse(wideSource);
+var wideParsed = new RichDocumentParser(Registry.RichTags).Parse(wideSource);
 timer.Stop();
 var widePass = wideParsed.Document.Valid && wideParsed.Commands.Count == 0 &&
     wideParsed.Document.Nodes.Count(n => n.Name == "box") == 900 &&
@@ -597,7 +598,7 @@ var deepSource = string.Concat(Enumerable.Repeat("<box>\n", 20)) +
     "~~~\n<SH>\necho NEVER\n</SH>\n~~~\n" +
     string.Concat(Enumerable.Repeat("</box>\n", 20));
 timer.Restart();
-var deepParsed = new RichDocumentParser().Parse(deepSource);
+var deepParsed = new RichDocumentParser(Registry.RichTags).Parse(deepSource);
 timer.Stop();
 var deepPass = deepParsed.Document.Valid && deepParsed.Commands.Count == 0 &&
     timer.Elapsed < TimeSpan.FromSeconds(8);
@@ -609,7 +610,7 @@ var alternatingSource = string.Concat(Enumerable.Range(0, 600)
 GC.Collect();
 var beforeAllocated = GC.GetAllocatedBytesForCurrentThread();
 timer.Restart();
-var alternatingParsed = new RichDocumentParser().Parse(alternatingSource);
+var alternatingParsed = new RichDocumentParser(Registry.RichTags).Parse(alternatingSource);
 timer.Stop();
 var bytesAllocated = GC.GetAllocatedBytesForCurrentThread() - beforeAllocated;
 var inlineNodes = alternatingParsed.Document.Nodes.SelectMany(Walk).Count(n => n.Name == "text");
@@ -700,7 +701,7 @@ try
     foreach (var (name, source, valid, diagnostic, unknown, commands) in exceptionCases)
     {
         var before = parserFirstChance;
-        var parsed = new RichDocumentParser().Parse(source);
+        var parsed = new RichDocumentParser(Registry.RichTags).Parse(source);
         var candidates = parsed.Commands.ToArray();
         var pass = parsed.Document.Valid == valid &&
             candidates.Select(c => c.Name).SequenceEqual(commands) &&
