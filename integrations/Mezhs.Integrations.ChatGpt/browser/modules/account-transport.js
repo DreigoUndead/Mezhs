@@ -369,7 +369,7 @@ async function apiJson(session, token, endpoint, options = {}) {
 
 // Browser-native requirements are created for this one POST only. The logical
 // prepare payload is built by C#; credentials and Sentinel remain in Electron.
-async function nativeAccountTurnHeaders({ window, session, args, endpoint, signal }) {
+async function nativeAccountTurnHeaders({ window, session, args, endpoint, signal, reportProgress }) {
   if (endpoint !== API.conversation || !args || typeof args !== "object" ||
       !args.prepare || typeof args.clientSessionId !== "string" ||
       !/^[0-9a-f-]{36}$/i.test(args.clientSessionId))
@@ -383,6 +383,7 @@ async function nativeAccountTurnHeaders({ window, session, args, endpoint, signa
       "Content-Type": "application/json",
       "x-oai-turn-trace-id": traceId
     });
+  reportProgress?.({ state: "preparing", detail: "Preparing ChatGPT conduit token." });
   const prepared = await apiJson(session, token, API.conversationPrepare, {
     method: "POST", headers: prepareHeaders,
     body: JSON.stringify(args.prepare), signal
@@ -392,7 +393,28 @@ async function nativeAccountTurnHeaders({ window, session, args, endpoint, signa
     throw new Error("ChatGPT conversation prepare did not return a valid conduit token.");
 
   signal?.throwIfAborted();
-  const requirements = await nativeChatRequirementsHeaders(window, session, token);
+  reportProgress?.({ state: "preparing", detail: "Preparing ChatGPT native requirements." });
+  let requirements;
+  try {
+    requirements = await nativeChatRequirementsHeaders(window, session, token);
+  } catch (error) {
+    if (signal?.aborted || error?.name === "AbortError") throw error;
+    // Only constant categories cross the progress boundary. Never forward browser
+    // exceptions, signed destinations, Sentinel values, headers or challenge data.
+    const message = typeof error?.message === "string" ? error.message : "";
+    const category = message.includes("native requirements provider was not observed in this document")
+      ? "runtime_not_observed"
+      : message.includes("native requirements provider export is unavailable")
+        ? "provider_export_unavailable"
+        : message.includes("requirements prepare failed with HTTP")
+          ? "requirements_prepare_http_failure"
+          : message.includes("native chat requirements require login")
+            ? "login_required"
+            : "other";
+    reportProgress?.({ state: "preparing",
+      detail: "ChatGPT native requirements failed (" + category + ")." });
+    throw error;
+  }
   const headers = await webApiHeaders(session, endpoint, args.clientSessionId, {
     ...requirements,
     "x-conduit-token": conduit,
