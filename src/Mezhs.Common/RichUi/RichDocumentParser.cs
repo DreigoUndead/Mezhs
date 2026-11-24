@@ -22,11 +22,6 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
     private const int MaxDepth = 32;
     private const int MaxTagLength = 4_096;
     private const int MaxAttributes = 16;
-    // These display-only elements participate in their parent's inline Markdown
-    // flow. Their bodies are still parsed recursively by this same C# parser.
-    private static readonly IReadOnlySet<string> InlineElements =
-        new HashSet<string>(["text", "title", "badge", "caption", "Link", "icon", "Cite"],
-            StringComparer.Ordinal);
     private string _source = "";
     // These names must not bypass active-content validation as unknown markup.
     // Markdown code literals may still show them as non-executable examples.
@@ -90,13 +85,11 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             RichTagDefinition? registered = null;
             if (element && _catalog.TryGet(name, out var definition))
                 registered = definition;
-            var inline = element && InlineElements.Contains(name);
-            var richLink = element && name == "Link";
+            var inline = registered?.Inline == true;
+            var richLink = registered?.Interactive == true;
             var mdLink = node.Kind == "link";
             var notPhrasing = phrasingOnly &&
-                !(node.Kind is "text" or "literal" or "inlineCode" or
-                    "strong" or "emphasis" or "strikethrough" or
-                    "lineBreak" or "link" or "image" or "taskCheckbox" ||
+                !(RichMarkdownNodes.IsPhrasing(node.Kind) ||
                     inline || registered?.PhrasingAllowed == true);
             var nestedInteractive = insideInteractive &&
                 (richLink || mdLink || node.Kind == "taskCheckbox");
@@ -229,7 +222,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 }
                 continue;
             }
-            _catalog.TryGet(tag.Name, out var definition);
+            _catalog.TryGetStructural(tag.Name, out var definition);
             var located = new LocatedTag(tag, open.Count > 0 ? open.Peek() : null);
             if (tag.SelfClosing || definition?.Role == RichTagRole.Marker)
             {
@@ -361,7 +354,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 continue;
             }
             var from = tag.Start;
-            var inlineElement = parentDefinition?.LiteralChildren != true && InlineElements.Contains(tag.Name);
+            var inlineElement = parentDefinition?.LiteralChildren != true && definition.Inline;
             if (definition.Role == RichTagRole.Leaf && !tag.SelfClosing)
             {
                 if (parentDefinition?.StrictChildren == true)
