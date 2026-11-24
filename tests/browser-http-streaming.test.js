@@ -20,6 +20,43 @@ test("SSE frames preserve order across split UTF-8 and multiple data lines", asy
   assert.deepEqual(events, ['{"message":"café"}', 'first\nsecond']);
 });
 
+test("large provider SSE event remains ordered under a 2 MiB per-frame bound", async () => {
+  const events = [];
+  const framer = new StreamFramer("text/event-stream", value => events.push(value));
+  const large = JSON.stringify({ output: "x".repeat(1024 * 1024) });
+  await framer.write('data: {"type":"message_marker"}\n\n');
+  await framer.write("data: " + large.slice(0, 512 * 1024));
+  await framer.write(large.slice(512 * 1024) + "\n\n");
+  assert.equal(events.length, 2);
+  assert.equal(events[0], '{"type":"message_marker"}');
+  assert.equal(events[1], large);
+});
+
+test("late oversized provider frame fails explicitly and cancels unread body", async () => {
+  let cancelled = false;
+  const marker = '{"type":"message_marker"}';
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("data: " + marker + "\n\n"));
+      controller.enqueue(new TextEncoder().encode("data: " + "x".repeat(2 * 1024 * 1024)));
+    },
+    cancel() { cancelled = true; }
+  });
+  const delivered = [];
+  await assert.rejects(executeBrowserHttp({
+    args: { method: "POST", path: "/backend-api/conversation", body: "{}",
+      accept: "text/event-stream", stream: true },
+    reportEvent: value => delivered.push(value)
+  }, policy(async () => new Response(body, { status: 200,
+    headers: { "content-type": "text/event-stream" } }))), error => {
+    assert.equal(error.code, "stream_delivery_failed");
+    assert.equal(error.reason, "frame_oversized");
+    return true;
+  });
+  assert.deepEqual(delivered, [marker]);
+  assert.equal(cancelled, true);
+});
+
 test("NDJSON events reach C# while the fetch stream is still active", async () => {
   let finish;
   const gate = new Promise(resolve => { finish = resolve; });
@@ -113,8 +150,8 @@ test("malformed UTF-8 and oversized streamed frames fail explicitly", async () =
     return true;
   });
   const framer2 = new StreamFramer("application/x-ndjson", async () => {});
-  await assert.rejects(framer2.write("x".repeat(256 * 1024 + 1)), error => {
-    assert.match(error.message, /256 KiB/);
+  await assert.rejects(framer2.write("x".repeat(2 * 1024 * 1024 + 1)), error => {
+    assert.match(error.message, /2 MiB/);
     assert.equal(error.reason, "frame_oversized");
     return true;
   });
@@ -207,8 +244,8 @@ test('JSON HTTP rejects non-incremental nonempty bodies rather than unbounded te
 test('SSE empty data lines count toward event size', async () => {
   const events = [];
   const f = new StreamFramer('text/event-stream', async x => events.push(x));
-  await assert.rejects(f.write(('data:' + String.fromCharCode(10)).repeat(256 * 1024 + 2)), error => {
-    assert.match(error.message, /256 KiB/);
+  await assert.rejects(f.write(('data:' + String.fromCharCode(10)).repeat(2 * 1024 * 1024 + 2)), error => {
+    assert.match(error.message, /2 MiB/);
     assert.equal(error.reason, "sse_event_oversized");
     return true;
   });
