@@ -244,7 +244,10 @@ test('JSON HTTP rejects non-incremental nonempty bodies rather than unbounded te
 test('SSE empty data lines count toward event size', async () => {
   const events = [];
   const f = new StreamFramer('text/event-stream', async x => events.push(x));
-  await assert.rejects(f.write(('data:' + String.fromCharCode(10)).repeat(2 * 1024 * 1024 + 2)), error => {
+  // Keep the test linear: fill a near-limit event with one large line,
+  // then prove that empty data-line separators also count toward the limit.
+  await f.write('data: ' + 'x'.repeat(2 * 1024 * 1024 - 8) + '\n');
+  await assert.rejects(f.write('data:\n'.repeat(9)), error => {
     assert.match(error.message, /2 MiB/);
     assert.equal(error.reason, "sse_event_oversized");
     return true;
