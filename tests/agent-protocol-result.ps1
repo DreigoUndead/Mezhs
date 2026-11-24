@@ -99,20 +99,20 @@ static void Reject(Parser parser, string content, string message)
 // authority; every executable command must have exactly one canonical tag role.
 foreach (var command in Registry.All)
 {
-    Check(RichTagRegistry.TryGet(command.Name, out var tag) &&
+    Check(Registry.RichTags.TryGet(command.Name, out var tag) &&
           tag.Role == (command.Form == CommandForm.Block
               ? RichTagRole.Command : RichTagRole.Marker),
           "Canonical rich tags diverged from Agent command definitions.");
 }
-Check(RichTagRegistry.TryGet("box", out var boxTag) &&
+Check(Registry.RichTags.TryGet("box", out var boxTag) &&
       boxTag.Role == RichTagRole.Container, "Box must be a container node.");
-Check(RichTagRegistry.TryGet("CodeBlock", out var codeTag) &&
+Check(Registry.RichTags.TryGet("CodeBlock", out var codeTag) &&
       codeTag.Role == RichTagRole.RawEditor, "CodeBlock must remain literal raw source.");
-Check(RichTagRegistry.TryGet("WritingBlock", out var writingTag) &&
+Check(Registry.RichTags.TryGet("WritingBlock", out var writingTag) &&
       writingTag.Role == RichTagRole.RawEditor, "WritingBlock must remain literal raw source.");
-Check(RichTagRegistry.TryGet("icon", out var iconTag) &&
+Check(Registry.RichTags.TryGet("icon", out var iconTag) &&
       iconTag.Role == RichTagRole.Leaf, "Icon cannot own command descendants.");
-Check(!RichTagRegistry.TryGet("UNKNOWN", out _), "Unknown tags must not be registered.");
+Check(!Registry.RichTags.TryGet("UNKNOWN", out _), "Unknown tags must not be registered.");
 
 // All supported paired tags use source-position matching, not line boundaries.
 var inline = parser.Parse("prefix <SH>echo INLINE</SH> suffix");
@@ -122,7 +122,7 @@ Check(inline.Commands.SequenceEqual([new Command("SH", "echo INLINE")]) &&
 
 // Rich raw editors also use paired-tag matching independent of line position.
 // Their nested command-looking text must stay opaque.
-var sameLineCode = new RichDocumentParser().Parse(
+var sameLineCode = new RichDocumentParser(Registry.RichTags).Parse(
     "before <CodeBlock language=\"text\">raw <SH>INERT</SH></CodeBlock> after");
 Check(sameLineCode.Document.Valid && sameLineCode.Commands.Count == 0 &&
       sameLineCode.Document.Nodes.Any(n => n.Kind == "raw" && n.Name == "CodeBlock" &&
@@ -134,7 +134,7 @@ Check(rawBeforeShell.Commands.SequenceEqual([new Command("SH", "echo OK")]) &&
       rawBeforeShell.VisibleContent == "before <CodeBlock language=\"text\">raw</CodeBlock>",
       "Inline CodeBlock prevented a following root command.");
 
-var sameLineWriting = new RichDocumentParser().Parse(
+var sameLineWriting = new RichDocumentParser(Registry.RichTags).Parse(
     "before <WritingBlock variant=\"document\">raw <SH>INERT</SH></WritingBlock> after");
 Check(sameLineWriting.Document.Valid && sameLineWriting.Commands.Count == 0 &&
       sameLineWriting.Document.Nodes.Any(n => n.Kind == "raw" && n.Name == "WritingBlock" &&
@@ -145,7 +145,7 @@ var writingBeforeShell = parser.Parse(
 Check(writingBeforeShell.Commands.SequenceEqual([new Command("SH", "echo OK")]) &&
       writingBeforeShell.VisibleContent == "before <WritingBlock variant=\"document\">raw</WritingBlock>",
       "Inline WritingBlock prevented a following root command.");
-var sameLineEscape = new RichDocumentParser().Parse(
+var sameLineEscape = new RichDocumentParser(Registry.RichTags).Parse(
     "before <escape>raw <SH>INERT</SH></escape> after");
 Check(sameLineEscape.Document.Valid &&
       sameLineEscape.Commands.Select(c => c.Body).SequenceEqual(["INERT"]) &&
@@ -198,7 +198,7 @@ Check(escapedCommands.Commands.SequenceEqual([
     escapedCommands.VisibleContent.Contains("<box><SH>NO</SH></box>", StringComparison.Ordinal) &&
     !escapedCommands.VisibleContent.Contains("<ATTACH>file.txt</ATTACH>", StringComparison.Ordinal),
     "Escape must interleave direct commands and leave nested noncommand markup literal.");
-var badEscaped = new RichDocumentParser().Parse(
+var badEscaped = new RichDocumentParser(Registry.RichTags).Parse(
     "<SH>FIRST</SH><escape><SH invalid=\"bad\">NO</SH></escape>");
 Check(!badEscaped.Document.Valid && badEscaped.Commands.Count == 0,
     "Invalid nested escape command must reject the entire batch before effects.");
@@ -226,7 +226,7 @@ var malformedUnknown = parser.Parse("prose </unknown bad> tail");
 Check(malformedUnknown.Commands.Count == 0 &&
       malformedUnknown.VisibleContent == "prose </unknown bad> tail",
       "Malformed unknown closing markup must remain ordinary text.");
-var foreignSvg = new RichDocumentParser().Parse("<path d=\"M0 0\"/>");
+var foreignSvg = new RichDocumentParser(Registry.RichTags).Parse("<path d=\"M0 0\"/>");
 Check(foreignSvg.Document.Valid && foreignSvg.Commands.Count == 0 &&
       foreignSvg.Document.Nodes.Any(n => n.Kind == "unknown" && n.Name == "path"),
       "Registered SVG geometry outside SVG must render an inert diagnostic.");
