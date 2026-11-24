@@ -299,3 +299,18 @@ Historical success at `fc586fba` and static inspection of later untested revisio
 
 **Required before Step 4:** On an isolated Windows task worktree, run the plan's full Developer verification matrix including `dotnet build`, parser  and SSR tests, Agent protocol with side effects and host policy, and `git diff --check main...HEAD`. Fix any failures on the task branch. Then initiate fresh independent Step 4 Code Review and Step 5 Testing on the exact corrected revision; only owner-approved Step 6 may reconcile with advanced `main`. No agent spawned, merge, version or release action occurred in this step.
 
+### 2026-11-24 — Registered inline content model and context variants
+
+**Owner feedback:** MEŽS execution `exec_be4bc142936349d39ef498308bd5a91e` requires that adding a UI tag not require modifying generic parsing logic. Source revision: `40e5f225949b32f512ba4ee54772bb241664916a`.
+
+- The Agent's `Commands/Parser.cs` is a post-parse command-batch adapter: it validates candidates against Agent `Registry`, projects `VisibleContent`, and never independently tokenizes tags. Its name could be changed for clarity without altering its role.
+- `RichTagCatalog` remains one effective immutable catalog per host. Core receives `RichTagRegistry.Ui`; Agent composes `Registry.All` over it. A mutable global singleton would leak execution definitions between Core and Agent process roles and fixtures; immutable host-local composition preserves the intended extension model. Physical implementation of shared definitions stays in Common to avoid an Api/Common dependency cycle.
+- Removed the parallel `InlineElements` tag-name allowlist and the `Link` name-specific nesting branch from `RichDocumentParser`. Registered `Inline` and `Interactive` flags now control those behaviors, including newly registered controls. Distinct Markdown node kinds remain defined in `RichMarkdownNodes`, not mixed with UI tag definitions in the generic parser.
+- `RichTagCatalog` now resolves tag-name collisions through metadata (`Context` and `AvailableOutsideContext`) rather than a hard-coded SVG `text` branch. The shared structural finder can still recognize registered leaf/opaque forms regardless of display eligibility. Registered SVG text is an ordinary contextual definition in the catalog.
+- Simplified the registry registration helpers from `Presentation` + `SvgTag` + `Tag` to general `Tag` plus one shared SVG-family preset (`SvgTag` retains explicit geometry allowlists and security rules). Adding a regular UI tag is one declarative tag entry, and optionally a registered handler.
+- Added C# parser regressions for a previously unknown inline tag registered by metadata and for contextual name resolution with no tag-specific parser code.
+
+**Remaining frontend contract question:** React currently uses an explicitly imported static component map in `RichDocumentView.tsx`. Registering a new frontend control still needs that trusted frontend map updated alongside its TSX file. This remains a separate static registry, intentionally avoiding user-supplied import paths and dynamic model-driven imports. Whether to replace it with compile-time local component discovery must be decided against the existing esbuild SSR test/build pipeline; do not silently add dynamic import behavior.
+
+**Verification:** The source is committed, but no .NET compiler/MEŽS command output or independent tests have yet been observed by this execution. Do not claim test PASS until the shell/CI results are available. High-risk Code Review, Testing and Deploy remain blocked until correction and verification.
+
