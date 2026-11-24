@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { Cite } from "./Cite";
 import { RichCodeBlock } from "./CodeBlock";
 import { RichWritingBlock } from "./WritingBlock";
+import { renderSvgBlock } from "./Svg";
 import { rowComponent } from "./Row";
 import { colComponent } from "./Col";
 import { boxComponent } from "./Box";
@@ -38,6 +39,7 @@ export const presentation = {
 
 // Raw editor markup is inert data; React only invokes these trusted factories.
 export const rawBlocks = {
+  svg: renderSvgBlock,
   CodeBlock: (source: string, attrs: Record<string, string>) =>
     createElement(RichCodeBlock, {
       source,
