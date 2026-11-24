@@ -11,7 +11,7 @@ const { nativeChatRequirementsHeaders: getNativeHeaders } = require(
 function testBrowser({ requirements, returnedHeaders, status = 200, providerAvailable = true,
   resourceNames = ["https://chatgpt.com/cdn/assets/manifest-currentbuild.js"],
   scriptNames = [], providerResourceName = resourceNames[0], providerModuleId = "lXEa",
-  prepareResponse = null }) {
+  prepareResponse = null, pageUrl = "https://chatgpt.com/", readyState = "complete" }) {
   const calls = [];
   const imports = [];
   let resourceVisible = true;
@@ -29,8 +29,8 @@ function testBrowser({ requirements, returnedHeaders, status = 200, providerAvai
   // One context represents one renderer document. Consecutive script executions
   // must share the same global object even when Resource Timing entries disappear.
   const context = vm.createContext({
-    TextDecoder,
-    document: { scripts: scriptNames.map(src => ({ src })) },
+    TextDecoder, URL, location: new URL(pageUrl),
+    document: { readyState, scripts: scriptNames.map(src => ({ src })) },
     performance: { getEntriesByType: () => resourceVisible
       ? resourceNames.map(name => ({ name }))
       : [] },
@@ -131,6 +131,28 @@ test("untrusted script URLs cannot replace missing ChatGPT runtime", async () =>
   );
   assert.equal(imports.length, 0);
   assert.equal(calls.length, 0);
+});
+
+test("failed discovery reports only fixed asset categories from the current renderer", async () => {
+  const { window, calls, imports } = testBrowser({
+    resourceNames: ["https://chatgpt.com/unauth-mweb/runtime.js"],
+    scriptNames: ["https://chatgpt.com/unauth-mweb/app.js",
+      "https://malicious.example/private-secret.js"],
+    pageUrl: "https://chatgpt.com/",
+    readyState: "complete"
+  });
+  await assert.rejects(
+    getNativeHeaders(window, {}, "private-auth-secret"),
+    error => {
+      assert.match(error.message, /not observed in this document/);
+      assert.match(error.message,
+        /\[page=root,ready=complete,scripts=unauth_mweb,resources=unauth_mweb\]/);
+      assert.doesNotMatch(error.message, /private-secret|malicious\.example|private-auth-secret/);
+      return true;
+    }
+  );
+  assert.equal(imports.length, 0, "unrecognized assets are not imported");
+  assert.equal(calls.length, 0, "no Sentinel request without verified provider");
 });
 
 test("native requirements discovery supports semantic fallback after module renames", async () => {
