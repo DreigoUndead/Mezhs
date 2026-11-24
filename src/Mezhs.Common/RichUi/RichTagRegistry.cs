@@ -10,7 +10,8 @@ public sealed record RichTagContent(
     RichSourceSpan BodySpan,
     RichTagContent? Parent,
     bool IsDocumentRoot,
-    bool SelfClosing);
+    bool SelfClosing,
+    int Depth = 0);
 
 public enum RichTagRole { Container, Leaf, OpaqueLiteral, RawEditor, Command, Marker }
 public sealed record RichTagDefinition(
