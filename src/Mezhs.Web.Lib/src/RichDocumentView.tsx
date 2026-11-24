@@ -1,7 +1,6 @@
 import { createElement, Fragment } from "react";
 import type { ReactNode, ComponentType } from "react";
 import { presentation, rawBlocks } from "./rich-elements/Registry";
-import { renderSvg } from "./rich-elements/Svg";
 import { CanonicalQuestion } from "./rich-elements/Question";
 import "./markdown.css";
 
@@ -32,12 +31,12 @@ const safeLink = (url?: string) => {
   } catch { return undefined; }
 };
 
-function renderNode(node: RichNode, depth: number, svgScope: boolean): ReactNode {
+function renderNode(node: RichNode, depth: number): ReactNode {
   if (depth > 40) return null;
   const key = node.id;
   const attrs = node.attributes || {};
   const content = () => node.children?.map(child =>
-    <Fragment key={child.id}>{renderNode(child, depth + 1, svgScope)}</Fragment>);
+    <Fragment key={child.id}>{renderNode(child, depth + 1)}</Fragment>);
   if (node.kind === "literal" && node.name === "escape") return <span key={key} className="rich-escape">{node.text || ""}</span>;
   if (node.kind === "literal" || node.kind === "text") return node.text || "";
   if (node.kind === "unknown") return <span key={key} className="rich-unknown" role="note">
@@ -46,7 +45,7 @@ function renderNode(node: RichNode, depth: number, svgScope: boolean): ReactNode
     <span className="rich-unknown-content">{content()}</span>
   </span>;
   if (node.kind === "question") return <CanonicalQuestion key={key} node={node}
-    renderChild={child => renderNode(child, depth + 1, false)} />;
+    renderChild={child => renderNode(child, depth + 1)} />;
   if (node.kind === "raw") {
     const name = node.name || "";
     const factory = Object.prototype.hasOwnProperty.call(rawBlocks, name)
@@ -55,9 +54,6 @@ function renderNode(node: RichNode, depth: number, svgScope: boolean): ReactNode
   }
   if (node.kind === "element") {
     const name = node.name || "";
-    if (name === "svg" || svgScope)
-      return renderSvg(name, attrs, node.children?.map(child =>
-        <Fragment key={child.id}>{renderNode(child, depth + 1, true)}</Fragment>));
     const element = Object.prototype.hasOwnProperty.call(presentation, name)
       ? presentation[name as keyof typeof presentation] : null;
     if (!element) return null;
@@ -118,6 +114,6 @@ export function RichDocumentView({ document, source }: { document: RichDocument;
   if (document.version !== 1 || !document.valid)
     return <div className="prompt-text">{source}</div>;
   return <div className="markdown-content">
-    {document.nodes.map(node => <Fragment key={node.id}>{renderNode(node, 0, false)}</Fragment>)}
+    {document.nodes.map(node => <Fragment key={node.id}>{renderNode(node, 0)}</Fragment>)}
   </div>;
 }
