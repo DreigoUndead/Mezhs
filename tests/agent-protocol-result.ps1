@@ -84,12 +84,12 @@ try {
 using Mezhs.Agent.Commands;
 using Mezhs.Common.RichUi;
 
-var parser = new Parser();
+var parser = new CommandBatchAdapter();
 static void Check(bool ok, string message)
 {
     if (!ok) throw new InvalidOperationException(message);
 }
-static void Reject(Parser parser, string content, string message)
+static void Reject(CommandBatchAdapter parser, string content, string message)
 {
     try { parser.Parse(content); }
     catch (CommandParseException) { return; }
