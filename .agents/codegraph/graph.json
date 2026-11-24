@@ -6925,6 +6925,14 @@
       "raw": "node:vm"
     },
     {
+      "from": 311,
+      "to": {
+        "type": "file",
+        "path": 35
+      },
+      "raw": "../electron/browser-http"
+    },
+    {
       "from": 312,
       "to": {
         "type": "external",
