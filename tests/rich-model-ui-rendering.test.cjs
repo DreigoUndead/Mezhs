@@ -207,14 +207,14 @@ test("same-line WritingBlock stays opaque while escape runs direct commands", ()
 });
 
 
-test("raw editors omit commands inside nested escape scopes", () => {
+test("raw editors preserve inert commands inside nested escape scopes", () => {
   const source = '<CodeBlock>before <escape>raw <SH>RUN</SH> after</escape> end</CodeBlock>';
   const doc = canonicalDocument(source);
   assert.equal(doc.valid, true);
   const raw = kinds(doc.nodes, "raw").find(n => n.name === "CodeBlock");
-  assert.equal(raw?.text, 'before <escape>raw  after</escape> end');
+  assert.equal(raw?.text, 'before <escape>raw <SH>RUN</SH> after</escape> end');
   const markup = html(source, { document: doc });
-  assert.doesNotMatch(markup, /RUN/);
+  assert.match(markup, /&lt;SH&gt;RUN&lt;\/SH&gt;/);
   assert.match(markup, /&lt;escape&gt;/);
 });
 
