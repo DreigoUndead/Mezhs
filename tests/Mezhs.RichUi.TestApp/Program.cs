@@ -118,6 +118,20 @@ foreach (var (name, source, valid, commands) in checks)
     Console.WriteLine($"{(pass ? "PASS" : "FAIL")}: {name}; valid={result.Document.Valid}; commands={string.Join(",", names)}; diagnostics={string.Join(",", result.Document.Diagnostics.Select(d => d.Code))}");
     if (!pass) failures++;
 }
+// Unknown wrappers intentionally preserve functional registered descendants,
+// but they must not bypass nested-interactive normalization.
+var unknownInteractiveSource = "<Widget><Link url=\"https://outer.test\">outer " +
+    "<Link url=\"https://inner.test\">inner</Link></Link></Widget>" +
+    "<SH>ROOT</SH>";
+var unknownInteractive = new RichDocumentParser(Registry.RichTags).Parse(unknownInteractiveSource);
+var unknownInteractivePass = unknownInteractive.Document.Valid &&
+    unknownInteractive.Commands.Select(c => c.Body).SequenceEqual(["ROOT"]) &&
+    unknownInteractive.Document.Nodes.SelectMany(Walk).Any(n =>
+        n.Kind == "unknown" && n.Attributes is { } attrs &&
+        attrs.TryGetValue("reason", out var reason) && reason == "Nested interactive content");
+Console.WriteLine($"{(unknownInteractivePass ? "PASS" : "FAIL")}: Unknown-wrapper UI descendants still reject nested interactive content");
+if (!unknownInteractivePass) failures++;
+
 // Escape commands retain original source ranges while non-commands stay literal.
 var escapeSource = "pre <escape>alpha <text>literal</text> <SH>\r\necho ONE\r\n</SH> beta <ATTACH>file.txt</ATTACH><DONE></escape> post";
 var escapeParsed = new RichDocumentParser(Registry.RichTags).Parse(escapeSource);
