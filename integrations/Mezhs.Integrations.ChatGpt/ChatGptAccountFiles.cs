@@ -155,8 +155,10 @@ internal static class ChatGptAccountFiles
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (IntegrationHttpException error)
             {
-                progress?.Invoke(new("retrieving", "ChatGPT attachment " + stage +
-                    " failed (HTTP " + (int)error.StatusCode + ")."));
+                var detail = error.StatusCode is { } status
+                    ? " failed (HTTP " + (int)status + ")."
+                    : " failed (HTTP status unavailable).";
+                progress?.Invoke(new("retrieving", "ChatGPT attachment " + stage + detail));
             }
             catch
             {
