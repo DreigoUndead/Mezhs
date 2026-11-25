@@ -6,7 +6,7 @@ Level: **High-risk (scope expanded, 2026-11-24)** — architectural refactor of 
 
 ## What
 
-Build one registry-driven MEŽS rich-document pipeline with shared structural matching, registered handlers and strict host-command boundaries. The existing source is on the unmerged `escape-root-command-execution` branch; the task is in Development pending fresh independent review and testing.
+Build one registry-driven MEŽS rich-document pipeline with shared structural matching, registered handlers and strict host-command boundaries. The existing source is on the unmerged `escape-root-command-execution` branch; the task is in the repeat-independent Step 4 Code Review cycle after corrections to the first current-revision review; Step 5 Testing and Deploy remain pending.
 
 - **Shared syntax:** `RichDocumentParser` owns one `FindRootTags` structural matcher and one `DispatchTag`. `RichTagRegistry.Ui` contains Core UI tags; Agent extends that immutable catalog with its own `SH`, `ATTACH` and `DONE` definitions and authorizes execution separately.
 - **Child ownership:** `RichTagDefinition.SupportedChildren` declares generic nesting: null admits ordinary registered UI children, an empty set admits no MEŽS child tags, and an explicit set admits only named registered child IDs. Nested-only variants can use `AtRoot=false`. There is no `SearchNested`-specific parser architecture.
@@ -78,7 +78,7 @@ SVG-specific grammar/limits are now validated by trusted `Svg.tsx` and SSR tests
 
 The earlier owner-acceptance blocker (missing generalized registered handler dispatch after a behavioral PASS) led to a return to Development and subsequent implementation changes; its original finding and rationale are preserved in `Changes`. **That historical blocker is not the current definition of the implementation.** New changes include per-parent tag policy, a composed Core/Agent catalog, registered callbacks, static frontend registry, and frontend-owned SVG grammar.
 
-**Current state:** unmerged Development revision, static architecture/source inspection only for recent changes. The independent Code Review and Testing PASS reports in `Changes` apply to older commits and cannot approve this revision. Owner requested a fresh Code Review; it must inspect and verify the exact head and may return FAIL/BLOCKED. Deploy remains blocked.
+**Current state:** The first fresh Step 4 Code Review found and corrected functional/frontend issues, with final checks passing at `0e14b5403cecdccf25ceb422ff93b61526b2da38`. That review is **FAIL** by the required fresh-independent-iteration rule; a new independent Step 4 reviewer must validate the corrections before any PASS. Previous Code Review/Testing PASS applies only to superseded commits. Step 5 independent Testing, including live isolated Chromium, remains pending. Deploy remains blocked.
 
 ## Changes
 
@@ -359,3 +359,29 @@ The earlier owner-acceptance blocker (missing generalized registered handler dis
 **Reason:** Previous reviewer/testing passes missed a promised generic handler contract; owner intervention also exposed avoidable SVG and tag-specific complexity. Testing only existing fixtures does not prove the extension/ownership contract is real.
 
 **Trade-off:** The extension exercise is an architectural check, not a mandatory implementation of sample controls. Prior successful tests are retained as history but do not establish current revision correctness. Exact-SHA runtime verification and independent Review/Testing are still required before owner-approved Deploy.
+
+
+### 2026-11-25 — Independent Step 4 Code Review #1: FAIL after corrections
+
+**Reviewed:** branch `escape-root-command-execution`, original head `2fa12cdc51ce345c36b5edec33efa9f3ae79d659`, then corrected through `0e14b5403cecdccf25ceb422ff93b61526b2da38`. Existing task worktree was clean before fast-forward and remained isolated from `main`. Reviewer inspected the complete task change, current plan and architecture, registered Core/Agent tag contracts, single structural finder/dispatcher, source-span command candidate handling, React static UI registry, opaque SVG renderer, and relevant tests. This was the first review of the current substantially revised architecture, not a continuation of the older historical PASS.
+
+**Findings and corrections (all pushed on task branch):**
+1. **Blocking frontend build regression:** `src/Mezhs.Web.Lib/src/RichDocumentView.tsx` passed three arguments to a two-argument `renderNode` function at two table rendering paths, causing TypeScript TS2554 and failing both Web and Agent Web builds. Corrected both call sites at `74980afc`. Original failure reproduced in `dotnet build Mezhs.sln`.
+2. **Blocking contextual metadata regression:** `RichDocumentParser.NormalizeContentModel` resolved element metadata without its parent definition; nested-only registered variants (`AtRoot=false`) lost `Inline`/`Interactive` metadata during normalization, violating the extensibility/nesting contract. Carried the effective registered parent context into recursive normalization and added a focused nested-only inline test, at `d7d93f86` and `5ac3af6b`. This is a functional behavior correction requiring another independent review.
+3. **Misleading failing test fixture:** explicit-ID nested-only child acceptance test assumed immediate text children, but the supported Markdig projection includes a paragraph. Replaced only the expectation with a descendant traversal at `67fb22e7`; original parser suite reproduced 145/146 with that one failed assertion, subsequent 146/146 after correction.
+4. **Stale policy regression assertion:** `tests/policy-decoder.ps1` expected the old instructional phrase `Complete command pairs inside Markdown`, removed deliberately during owner-requested instruction simplification. Updated the assertion to check current authoritative shell syntax at `7d9ecbba`; the previously failing policy test then passed. This was a test expectation mismatch, not evidence that the runtime command policy failed.
+5. **Diff hygiene:** removed one extra EOF blank line in trusted TSX registry `src/Mezhs.Web.Lib/src/rich-elements/Registry.ts` at `0e14b540`, clearing `git diff --check`.
+
+**Source-level extension/ownership exercise:** An ordinary tag is introduced through a Core `RichTagDefinition`, a trusted frontend component and a registration in `rich-elements/Registry.ts`, without adding name-specific processing to generic C# `FindRootTags`/`RenderChildren` or React `RichDocumentView`; the test-only `custom-inline` and nested-only registration exercises verify this. A new Agent host command is added to the Agent-only composed `Registry.RichTags` with a registered `ProcessContent` candidate handler and separate Interpreter/policy validation, not by duplicating tag tokenization in `CommandBatchAdapter`; existing root-only `SH`/`ATTACH`/`DONE` confirm containment. Embedded SVG remains one C# opaque raw control; finite XML/SVG parsing, validation and geometry rendering belong to `Svg.tsx` and are not a second Agent-capable tag scanner. Raw-body matching is a boundary finder, not competing command authorization. Source review found no new arbitrary JS/DOM execution or unchecked host UI callback path.
+
+**Verified on exact corrected source revision `0e14b5403cecdccf25ceb422ff93b61526b2da38`:**
+- `dotnet run --project tests/Mezhs.RichUi.TestApp/Mezhs.RichUi.TestApp.csproj -c Release --nologo`: **146/146 PASS** (MEŽS command execution `10683`).
+- `node --test tests/rich-model-ui-rendering.test.cjs`: **48/48 PASS** (`10683`).
+- `dotnet build Mezhs.sln -c Release --nologo -v minimal`: **PASS, zero errors**, one known unrelated WhatsApp CS0114 warning (`10686`).
+- `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/policy-decoder.ps1`: **PASS** (`10686`).
+- `tests/agent-architecture.ps1`: **PASS**; `tests/agent-web-shared-ui.ps1`: **19/19 PASS** (`10689`).
+- `tests/agent-protocol-result.ps1`: **PASS** on this exact corrected revision (`10693`), including isolated live Agent/Executor command-side-effect checks for valid root/escape shells, nested inertness, failed batches with no filesystem side effects, ordering, durable IDs and continuation.
+- `git diff --check main...HEAD`: **PASS**; checked-out task worktree clean and tracking remote (`10683`). Frontend TypeScript/Vite builds included in the successful solution build.
+- The test command outputs returned observed pass/fail results. These are not inferred from earlier review or Development runs.
+
+**Outcome:** **Step 4 Code Review FAIL (corrected)** because functional frontend and contextual-parser behavior changed within this review. Per `.agents/code-review.md`, proceed to a **fresh independent Step 4 Code Reviewer** to verify the corrections and adjacent risks. Do not silently upgrade this review to PASS. Isolated live Chromium visual/action testing was **not** performed in this review and remains mandatory in Step 5 independent Testing. No owner approval to reconcile/merge `main`, version bump, or deploy was given. npm dependency audit emitted warnings during initial builds; not analyzed as part of the specific parser/escape behavior change.
