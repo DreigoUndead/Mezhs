@@ -442,15 +442,14 @@ async function nativeAccountTurnHeaders({ window, session, args, endpoint, signa
             : "other";
     // The browser exception is private. Forward only enumerated states.
     const diagnostic = /\[page=(root|login|other),ready=(loading|interactive|complete|unknown),scripts=(cdn_assets|unauth_mweb|next|other|none),resources=(cdn_assets|unauth_mweb|next|other|none)\]/.exec(message);
-    if (diagnostic && (category === "runtime_not_observed" ||
-                       category === "provider_export_unavailable")) {
-      reportProgress?.({ state: "preparing",
-        detail: "ChatGPT runtime document (page=" + diagnostic[1] +
-          ", ready=" + diagnostic[2] + ", scripts=" + diagnostic[3] +
-          ", resources=" + diagnostic[4] + ")." });
-    }
-    reportProgress?.({ state: "preparing",
-      detail: "ChatGPT native requirements failed (" + category + ")." });
+    // Electron retains only the latest progress snapshot. Preserve safe per-renderer
+    // categories in the terminal detail rather than in an immediately overwritten update.
+    const safeRuntime = diagnostic && (category === 'runtime_not_observed' ||
+        category === 'provider_export_unavailable')
+      ? ' [page=' + diagnostic[1] + ',ready=' + diagnostic[2] +
+        ',scripts=' + diagnostic[3] + ',resources=' + diagnostic[4] + ']' : '';
+    reportProgress?.({ state: 'preparing',
+      detail: 'ChatGPT native requirements failed (' + category + ')' + safeRuntime + '.' });
     throw error;
   }
   const headers = await webApiHeaders(session, endpoint, args.clientSessionId, {

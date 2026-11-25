@@ -136,14 +136,14 @@ test("native requirements failure categories stay fixed and no conversation is s
       assert.doesNotMatch(error.message, /runtimeCandidates|resourceEntries|secret-not-for-progress/);
       return true;
     });
-    assert.ok(progress.some(value => value.detail ===
-      "ChatGPT native requirements failed (" + category + ")."));
+    const expected = category === 'runtime_not_observed'
+      ? 'ChatGPT native requirements failed (runtime_not_observed) ' +
+        '[page=root,ready=complete,scripts=unauth_mweb,resources=unauth_mweb].'
+      : 'ChatGPT native requirements failed (' + category + ').';
+    assert.equal(progress.at(-1)?.detail, expected,
+      'latest-only Electron polling must retain the safe renderer classification');
     assert.ok(progress.every(value => !JSON.stringify(value).includes(message)),
-      "progress must report a static category, not browser exception text");
-    if (category === "runtime_not_observed") {
-      assert.ok(progress.some(value => value.detail ===
-        "ChatGPT runtime document (page=root, ready=complete, scripts=unauth_mweb, resources=unauth_mweb)."));
-    }
+      'progress must not include private browser exception text');
   }
   assert.equal(submitted, 0);
 });
