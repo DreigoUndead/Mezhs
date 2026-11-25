@@ -73,7 +73,8 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
 
     // UI content-model errors are displayed as inert diagnostics, not fatal.
     private IReadOnlyList<RichNode> NormalizeContentModel(IReadOnlyList<RichNode> nodes,
-        bool phrasingOnly = false, bool insideInteractive = false)
+        bool phrasingOnly = false, bool insideInteractive = false,
+        RichTagDefinition? parentDefinition = null)
     {
         var result = new List<RichNode>(nodes.Count);
         foreach (var node in nodes)
@@ -81,7 +82,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             var element = node.Kind == "element";
             var name = node.Name ?? "";
             RichTagDefinition? registered = null;
-            if (element && _catalog.TryGet(name, out var definition))
+            if (element && _catalog.TryGet(name, parentDefinition, out var definition))
                 registered = definition;
             var inline = registered?.Inline == true;
             var richLink = registered?.Interactive == true;
@@ -112,7 +113,8 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                     phrasingOnly || inline ||
                     node.Kind is "paragraph" or "heading" or
                         "strong" or "emphasis" or "strikethrough" or "link" or "questionButton",
-                    insideInteractive || richLink || mdLink || node.Kind == "questionButton") });
+                    insideInteractive || richLink || mdLink || node.Kind == "questionButton",
+                    registered ?? parentDefinition) });
             else result.Add(node);
         }
         return result;
