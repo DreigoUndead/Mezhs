@@ -116,8 +116,21 @@ async function nativeChatRequirementsHeaders(window, session, token) {
         const scripts = assetGroup(Array.from(document.scripts || [],
           script => String(script.src || "")).filter(Boolean));
         const resourceGroup = assetGroup(resources.map(entry => String(entry.name || "")).filter(Boolean));
+        // Three bounded bits classify JS paths without reporting script URLs:
+        // 1=ChatGPT CDN assets, 2=other ChatGPT paths, 4=cross-origin.
+        let jsMask = 0;
+        for (const raw of [
+          ...resources.map(entry => String(entry.name || "")),
+          ...Array.from(document.scripts || [], element => String(element.src || ""))
+        ]) {
+          let source;
+          try { source = new URL(raw, "https://chatgpt.com/"); } catch { continue; }
+          if (!/\.js$/i.test(source.pathname)) continue;
+          jsMask |= source.origin !== "https://chatgpt.com" ? 4
+            : source.pathname.startsWith("/cdn/assets/") ? 1 : 2;
+        }
         const diagnostic = " [page=" + page + ",ready=" + ready +
-          ",scripts=" + scripts + ",resources=" + resourceGroup + "]";
+          ",scripts=" + scripts + ",resources=" + resourceGroup + ",jsMask=" + jsMask + "]";
         throw new Error((runtimeUrls.length
           ? "ChatGPT native requirements provider export is unavailable " +
             "(runtimeCandidates=" + runtimeUrls.length + ")."
@@ -441,13 +454,13 @@ async function nativeAccountTurnHeaders({ window, session, args, endpoint, signa
             ? "login_required"
             : "other";
     // The browser exception is private. Forward only enumerated states.
-    const diagnostic = /\[page=(root|login|other),ready=(loading|interactive|complete|unknown),scripts=(cdn_assets|unauth_mweb|next|other|none),resources=(cdn_assets|unauth_mweb|next|other|none)\]/.exec(message);
+    const diagnostic = /\[page=(root|login|other),ready=(loading|interactive|complete|unknown),scripts=(cdn_assets|unauth_mweb|next|other|none),resources=(cdn_assets|unauth_mweb|next|other|none),jsMask=([0-7])\]/.exec(message);
     // Electron retains only the latest progress snapshot. Preserve safe per-renderer
     // categories in the terminal detail rather than in an immediately overwritten update.
     const safeRuntime = diagnostic && (category === 'runtime_not_observed' ||
         category === 'provider_export_unavailable')
       ? ' [page=' + diagnostic[1] + ',ready=' + diagnostic[2] +
-        ',scripts=' + diagnostic[3] + ',resources=' + diagnostic[4] + ']' : '';
+        ',scripts=' + diagnostic[3] + ',resources=' + diagnostic[4] + ',jsMask=' + diagnostic[5] + ']' : '';
     reportProgress?.({ state: 'preparing',
       detail: 'ChatGPT native requirements failed (' + category + ')' + safeRuntime + '.' });
     throw error;

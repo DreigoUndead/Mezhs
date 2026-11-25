@@ -107,7 +107,7 @@ test("native preparation failure is classified before conversation submission", 
 
 test("native requirements failure categories stay fixed and no conversation is submitted", async () => {
   const scenarios = [
-    ["ChatGPT native requirements provider was not observed in this document (resourceEntries=3). [page=root,ready=complete,scripts=unauth_mweb,resources=unauth_mweb]",
+    ["ChatGPT native requirements provider was not observed in this document (resourceEntries=3). [page=root,ready=complete,scripts=unauth_mweb,resources=unauth_mweb,jsMask=6]",
       "runtime_not_observed"],
     ["ChatGPT native requirements provider export is unavailable (runtimeCandidates=17).",
       "provider_export_unavailable"],
@@ -138,7 +138,7 @@ test("native requirements failure categories stay fixed and no conversation is s
     });
     const expected = category === 'runtime_not_observed'
       ? 'ChatGPT native requirements failed (runtime_not_observed) ' +
-        '[page=root,ready=complete,scripts=unauth_mweb,resources=unauth_mweb].'
+        '[page=root,ready=complete,scripts=unauth_mweb,resources=unauth_mweb,jsMask=6].'
       : 'ChatGPT native requirements failed (' + category + ').';
     assert.equal(progress.at(-1)?.detail, expected,
       'latest-only Electron polling must retain the safe renderer classification');

@@ -135,7 +135,7 @@ test("untrusted script URLs cannot replace missing ChatGPT runtime", async () =>
 
 test("failed discovery reports only fixed asset categories from the current renderer", async () => {
   const { window, calls, imports } = testBrowser({
-    resourceNames: ["https://chatgpt.com/unauth-mweb/runtime.js"],
+    resourceNames: ["https://chatgpt.com/unauth-mweb/runtime.js", "https://chatgpt.com/cdn/assets/theme.css"],
     scriptNames: ["https://chatgpt.com/unauth-mweb/app.js",
       "https://malicious.example/private-secret.js"],
     pageUrl: "https://chatgpt.com/",
@@ -146,7 +146,7 @@ test("failed discovery reports only fixed asset categories from the current rend
     error => {
       assert.match(error.message, /not observed in this document/);
       assert.match(error.message,
-        /\[page=root,ready=complete,scripts=unauth_mweb,resources=unauth_mweb\]/);
+        /\[page=root,ready=complete,scripts=unauth_mweb,resources=cdn_assets,jsMask=6\]/);
       assert.doesNotMatch(error.message, /private-secret|malicious\.example|private-auth-secret/);
       return true;
     }
