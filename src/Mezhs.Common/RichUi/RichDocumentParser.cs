@@ -105,7 +105,12 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             }
             if (node.Kind is "unknown")
             {
-                result.Add(node);
+                // Unsupported wrappers can still display registered UI children.
+                // Normalize those descendants too, or invalid nested interactive
+                // controls can bypass the content model through an unknown parent.
+                result.Add(node.Children is { Count: > 0 } unknownChildren
+                    ? node with { Children = NormalizeContentModel(unknownChildren) }
+                    : node);
                 continue;
             }
             if (node.Children is { Count: > 0 } children)
