@@ -28,6 +28,8 @@ await TestKnownConversationStreamInterruptionReconciles();
 await TestAuthorizationFailureNeverReplays();
 await TestMalformedEventIsNeverSilentlyReconciled();
 await TestImageUploadAndDownload();
+await TestSandboxOutputDownload();
+await TestSandboxOutputFailure();
 await TestUploadRejectsStaleSseProcessingEvent();
 Console.WriteLine("PASS: typed C# ChatGPT protocol - metadata, citations, restoration, no-replay, interruption, auth, files and SSE processing integrity");
 
@@ -195,6 +197,47 @@ static async Task TestImageUploadAndDownload()
     finally { File.Delete(image); File.Delete(output); }
 }
 
+static async Task TestSandboxOutputDownload()
+{
+    var host = new FakeHost { SandboxOutput = true };
+    var output = Path.GetTempFileName();
+    try
+    {
+        await File.WriteAllTextAsync(output, "sandbox artifact");
+        host.DownloadPath = output;
+        await using var integration = NewIntegration(host);
+        var result = await integration.PromptAsync(Chat(), new PromptRequest(
+            integration.CreateMessageId(), "generate file", null, []));
+        var calls = host.Calls.Where(c => c.Path.Contains("/interpreter/download")).ToArray();
+        Verify(calls.Length == 1, "sandbox links were duplicated or invalid paths accepted");
+        Verify(calls[0].Method == "GET" &&
+            calls[0].Path == "/backend-api/conversation/conv-1/interpreter/download" +
+                "?message_id=assistant-final&sandbox_path=%2Fmnt%2Fdata%2Fhello%20world.txt&download_intent=true",
+            "sandbox resolver did not bind the current conversation, assistant message and path");
+        Verify(host.Transfers.Count == 1 && host.Transfers[0].Action == "download",
+            "sandbox artifact did not use the shared signed transfer");
+        Verify(result.Files is { Count: 1 } && result.Files[0].Path == output,
+            "sandbox artifact was not returned");
+        Verify(host.Posts == 1, "sandbox resolution replayed the submission");
+    }
+    finally { File.Delete(output); }
+}
+
+static async Task TestSandboxOutputFailure()
+{
+    var host = new FakeHost { SandboxOutput = true, SandboxFailure = true };
+    await using var integration = NewIntegration(host);
+    var activities = new List<IntegrationActivity>();
+    var result = await integration.PromptAsync(Chat(activities.Add), new PromptRequest(
+        integration.CreateMessageId(), "generate file", null, []));
+    Verify(result.Text.Contains("hello%20world.txt") && (result.Files?.Count ?? 0) == 0,
+        "best-effort failed sandbox lookup must preserve the text response");
+    Verify(host.Posts == 1 && host.Transfers.Count == 0,
+        "failed sandbox resolution triggered another submission or a transfer");
+    Verify(activities.Any(a => a.Detail == "ChatGPT attachment resolution failed (HTTP 404)."),
+        "sandbox resolution failure stage was not reported");
+}
+
 static async Task TestUploadRejectsStaleSseProcessingEvent()
 {
     var host = new FakeHost { WithFiles = true, MisleadingProcessing = true };
@@ -237,7 +280,8 @@ sealed class FakeHost : IBrowserIntegrationHost
 {
     public int BrowserIdleMinutes => 0;
     public bool InaccessibleFirst, LargeContinuation, FailPost, InterruptAfterId,
-        AuthorizationPostFailure, NativePrepareFailure, WithFiles, MalformedEvent, MisleadingProcessing;
+        AuthorizationPostFailure, NativePrepareFailure, WithFiles, MalformedEvent, MisleadingProcessing,
+        SandboxOutput, SandboxFailure;
     public string? DownloadPath, SubmittedBody, SubmittedMessageId, SubmittedNativeHook;
     public int Posts;
     public List<HttpTransportRequest> Calls { get; } = [];
@@ -336,6 +380,10 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
                     "{\"file_id\":\"file-1\"}\n", "text/event-stream")
                 : new(200, "{\"event\":\"file.processing.completed\",\"file_id\":\"file-1\"}\n",
                     "text/event-stream");
+        if (path.StartsWith("/backend-api/conversation/conv-1/interpreter/download?", StringComparison.Ordinal))
+            return host.SandboxFailure
+                ? new(404, "", "application/json")
+                : new(200, """{"download_url":"https://test.blob.core.windows.net/out/sandbox"}""");
         if (path == "/backend-api/files/file-output/download")
             return new(200, """{"download_url":"https://test.blob.core.windows.net/out/file"}""");
         if (path == "/backend-api/conversation/conv-1")
@@ -352,7 +400,12 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
         object m1 = new {
             id = "assistant-final", author = new { role = "assistant" }, channel = "final",
             status = "finished_successfully",
-            content = new { content_type = "text", parts = new [] { "See " + marker + " and " + missing } },
+            content = new { content_type = "text", parts = new [] { host.SandboxOutput
+                ? "[file](sandbox:/mnt/data/hello%20world.txt) [duplicate](sandbox:/mnt/data/hello%20world.txt) " +
+                  "[traversal](sandbox:/mnt/data/%2E%2E/secret.txt) [other](sandbox:/etc/passwd) " +
+                  "[backslash](sandbox:/mnt/data/a%5Cb) [nested escape](sandbox:/mnt/data/%252E%252E/x) " +
+                  "[remote](https://example.org/a.txt)"
+                : "See " + marker + " and " + missing } },
             metadata = new { model_slug = "served-model", thinking_effort = "high",
                 content_references = new [] { new { matched_text = marker,
                     alt = "[Example](https://example.org)" } },

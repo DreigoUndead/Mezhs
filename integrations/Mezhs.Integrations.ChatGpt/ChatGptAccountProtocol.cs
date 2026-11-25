@@ -154,11 +154,12 @@ internal static class ChatGptAccountProtocol
         var result = await ChatGptConversationState.WaitAsync(http, conversationId,
             request.MessageId, execution, progress, cancellationToken);
         IReadOnlyList<BrowserArtifact> artifacts = [];
-        if (result.Files.Count > 0)
+        if (result.Files.Count > 0 || result.SandboxPaths.Count > 0)
         {
             progress?.Invoke(new("retrieving", "Downloading ChatGPT response attachments."));
             artifacts = await ChatGptAccountFiles.DownloadAsync(http, transport,
-                result.Files, cancellationToken);
+                result.Files, conversationId, result.ParentMessageId, result.SandboxPaths,
+                progress, cancellationToken);
         }
         return new ChatGptSendResponse(result.Text, conversationId,
             result.ParentMessageId, result.ProjectId,

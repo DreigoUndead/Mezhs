@@ -219,7 +219,7 @@ internal sealed class ChatGptStreamState(
 
 internal sealed record ChatGptConversationResult(
     string Text, string ParentMessageId, string? ProjectId, string? Model,
-    IReadOnlyDictionary<string, string> Files);
+    IReadOnlyDictionary<string, string> Files, IReadOnlyList<string> SandboxPaths);
 
 internal static class ChatGptConversationState
 {
@@ -335,11 +335,12 @@ internal static class ChatGptConversationState
                 ChatGptJson.String(ChatGptJson.Get(request, "metadata"), "resolved_model_slug");
             var model = resolved is null ? null
                 : ChatGptModelSelection.Id(resolved, resultExecution.ThinkingEffort);
+            var text = CitedText(assistant);
             var reply = new ChatGptConversationResult(
-                CitedText(assistant),
+                text,
                 ChatGptJson.String(assistant, "id")!,
                 ChatGptJson.String(conversation, "gizmo_id"),
-                model, files);
+                model, files, ChatGptAccountFiles.FindSandboxPaths(text));
             return new(reply, resultExecution, false, progressKey, "responding",
                 "Model response completed.", analysisText);
         }

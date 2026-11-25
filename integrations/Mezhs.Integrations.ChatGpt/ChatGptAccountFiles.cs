@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Mezhs.Browser;
 using Mezhs.Integrations.Browser;
 
@@ -84,22 +85,63 @@ internal static class ChatGptAccountFiles
         return uploads;
     }
 
+    // Sandbox links do not contain a library file ID. Resolve only current-turn
+    // Markdown download links beneath /mnt/data, not arbitrary URLs or paths.
+    internal static IReadOnlyList<string> FindSandboxPaths(string text)
+    {
+        var paths = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Match match in Regex.Matches(text,
+            @"\]\(\s*(?:<sandbox:(?<path>/mnt/data/[^<>\r\n]+)>|sandbox:(?<path>/mnt/data/[^\s()<>]+))\s*\)",
+            RegexOptions.CultureInvariant | RegexOptions.NonBacktracking))
+        {
+            var encoded = match.Groups["path"].Value;
+            if (encoded.Length > 2048) continue;
+            var path = Uri.UnescapeDataString(encoded);
+            if (!path.StartsWith("/mnt/data/", StringComparison.Ordinal) ||
+                path.Any(c => char.IsControl(c) || c is '\\' or ':' or '?' or '#' or '%') ||
+                path["/mnt/data/".Length..].Split('/').Any(part => part is "" or "." or ".."))
+                continue;
+            if (seen.Add(path)) paths.Add(path);
+        }
+        return paths;
+    }
+
     public static async Task<IReadOnlyList<BrowserArtifact>> DownloadAsync(
         BrowserHttpExecutor http, IChatBrowserTransport transport,
-        IReadOnlyDictionary<string, string> refs, CancellationToken cancellationToken)
+        IReadOnlyDictionary<string, string> refs, string conversationId,
+        string assistantMessageId, IReadOnlyList<string> sandboxPaths,
+        Action<BrowserOperationProgress>? progress, CancellationToken cancellationToken)
     {
         var artifacts = new List<BrowserArtifact>();
-        foreach (var (id, name) in refs)
+        var downloads = refs.Select(pair => (Endpoint:
+            FilesEndpoint + "/" + Uri.EscapeDataString(pair.Key) + "/download", Name: pair.Value))
+            .Concat(sandboxPaths.Select(path => (Endpoint:
+                ChatGptAccountProtocol.ConversationPath(conversationId) + "/interpreter/download" +
+                "?message_id=" + Uri.EscapeDataString(assistantMessageId) +
+                "&sandbox_path=" + Uri.EscapeDataString(path) + "&download_intent=true",
+                Name: Path.GetFileName(path))));
+        foreach (var (endpoint, name) in downloads)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var stage = "resolution";
             try
             {
                 var response = await http.CallAsync(
-                    new HttpEndpoint<EmptyHttpRequest, JsonElement>(HttpMethod.Get,
-                        FilesEndpoint + "/" + Uri.EscapeDataString(id) + "/download"),
+                    new HttpEndpoint<EmptyHttpRequest, JsonElement>(HttpMethod.Get, endpoint),
                     request: null, cancellationToken: cancellationToken);
                 var url = ChatGptJson.String(response, "download_url");
-                if (url is null) continue;
+                if (url is null)
+                {
+                    progress?.Invoke(new("retrieving", "ChatGPT attachment resolution returned no download URL."));
+                    continue;
+                }
+                // Preserve same-origin relative URLs supported by the old provider.
+                // All destinations remain subject to the shared signed-transfer policy.
+                if (url.StartsWith("/", StringComparison.Ordinal) &&
+                    !url.StartsWith("//", StringComparison.Ordinal))
+                    url = new Uri(new Uri("https://chatgpt.com"), url).AbsoluteUri;
+                stage = "transfer";
                 var safeName = Path.GetFileName(name);
                 if (string.IsNullOrWhiteSpace(safeName)) safeName = "download";
                 var transferred = await http.TransferAsync(new BrowserBinaryTransferRequest(
@@ -107,12 +149,19 @@ internal static class ChatGptAccountFiles
                 if (!string.IsNullOrWhiteSpace(transferred.LocalPath))
                     artifacts.Add(new BrowserArtifact("", safeName,
                         transferred.ContentType, transferred.LocalPath));
+                else
+                    progress?.Invoke(new("retrieving", "ChatGPT attachment transfer returned no local file."));
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (IntegrationHttpException error)
+            {
+                progress?.Invoke(new("retrieving", "ChatGPT attachment " + stage +
+                    " failed (HTTP " + (int)error.StatusCode + ")."));
+            }
             catch
             {
                 // Best-effort artifact retrieval; never log a signed URL, secret or response.
-                Console.Error.WriteLine("Could not download a ChatGPT response artifact.");
+                progress?.Invoke(new("retrieving", "ChatGPT attachment " + stage + " failed."));
             }
         }
         return artifacts;
