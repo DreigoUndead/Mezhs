@@ -56,4 +56,3 @@ export const rawBlocks = {
       bcc: attrs.bcc || "",
     }),
 };
-
