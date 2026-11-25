@@ -89,6 +89,7 @@ test("canonical inline content model converts nested anchors to inert diagnostic
     '<Link url="https://a.test">Before [inner](https://b.test)</Link>',
     '<Link url="https://a.test">Before <Link url="https://b.test">nested</Link></Link>',
     '[Before <Link url="https://b.test">nested</Link>](https://a.test)',
+    '<Widget><Link url="https://a.test">Before <Link url="https://b.test">nested</Link></Link></Widget>',
   ];
   const docs = canonicalDocuments(invalid);
   for (let i = 0; i < invalid.length; i++) {
