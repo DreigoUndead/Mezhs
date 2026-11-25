@@ -99,8 +99,8 @@ function renderNode(node: RichNode, depth: number): ReactNode {
       const headers = rows.filter(row => row.attributes?.header === "true");
       const body = rows.filter(row => row.attributes?.header !== "true");
       return <table key={key}>
-        {headers.length > 0 && <thead>{headers.map(row => <Fragment key={row.id}>{renderNode(row, depth + 1, false)}</Fragment>)}</thead>}
-        <tbody>{body.map(row => <Fragment key={row.id}>{renderNode(row, depth + 1, false)}</Fragment>)}</tbody>
+        {headers.length > 0 && <thead>{headers.map(row => <Fragment key={row.id}>{renderNode(row, depth + 1)}</Fragment>)}</thead>}
+        <tbody>{body.map(row => <Fragment key={row.id}>{renderNode(row, depth + 1)}</Fragment>)}</tbody>
       </table>;
     }
     case "tableRow": return <tr key={key}>{children}</tr>;
