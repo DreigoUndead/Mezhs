@@ -413,7 +413,7 @@ var allowedChild = new RichDocumentParser(constrainedCatalog).Parse(
 var allowedChildPass = allowedChild.Document.Valid &&
     allowedChild.Commands.Select(c => c.Body).SequenceEqual(["ROOT"]) &&
     allowedChild.Document.Nodes.SelectMany(Walk).Any(n => n.Name == "allowed" &&
-        n.Children?.Any(c => c.Text == "yes") == true);
+        n.Children?.SelectMany(Walk).Any(c => c.Text == "yes") == true);
 Console.WriteLine($"{(allowedChildPass ? "PASS" : "FAIL")}: Explicit parent child IDs admit registered nested-only tags");
 if (!allowedChildPass) failures++;
 
