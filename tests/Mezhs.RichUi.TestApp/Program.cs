@@ -388,6 +388,25 @@ var customInlinePass = customUi.Document.Valid && customUi.Commands.Count == 0 &
 Console.WriteLine($"{(customInlinePass ? "PASS" : "FAIL")}: Registered inline control requires no parser special case");
 if (!customInlinePass) failures++;
 
+// A nested-only inline variant must keep its registered phrasing metadata
+// during normalization, even though its surface name is not root-eligible.
+var contextualInlineCatalog = RichTagRegistry.Ui.With([
+    new RichTagDefinition("parent-inline", RichTagRole.Container, null,
+        new HashSet<string>(["nested-phrase"], StringComparer.Ordinal), AllowAsChild: true)
+        { Inline = true },
+    new RichTagDefinition("nested-phrase", RichTagRole.Container, null,
+        SupportedChildren: null, AllowAsChild: true)
+        { AtRoot = false, Inline = true }
+]);
+var contextualInline = new RichDocumentParser(contextualInlineCatalog).Parse(
+    "<parent-inline>before <nested-phrase>inside</nested-phrase> after</parent-inline>");
+var contextualInlinePass = contextualInline.Document.Valid &&
+    contextualInline.Document.Nodes.SelectMany(Walk).Any(n =>
+        n.Kind == "element" && n.Name == "nested-phrase" &&
+        n.Children?.SelectMany(Walk).Any(c => c.Text == "inside") == true);
+Console.WriteLine($"{(contextualInlinePass ? "PASS" : "FAIL")}: Nested-only inline metadata survives normalization");
+if (!contextualInlinePass) failures++;
+
 // Raw SVG content travels as data, not executable Agent sub-tags.
 var rawSvgSource = "<svg viewBox=\"0 0 80 80\"><text>hello</text><SH>INERT</SH></svg><SH>ROOT</SH>";
 var rawSvgDocument = new RichDocumentParser(Registry.RichTags).Parse(rawSvgSource);
