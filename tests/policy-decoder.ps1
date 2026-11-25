@@ -201,7 +201,7 @@ try
     var upgradedInstructions = upgraded.Policies["low"].ModelInstructions;
     Assert(upgradedInstructions.Contains("Older personalized text", StringComparison.Ordinal) &&
            upgradedInstructions.Contains("Authoritative runtime protocol", StringComparison.Ordinal) &&
-           upgradedInstructions.Contains("Complete command pairs inside Markdown", StringComparison.Ordinal) &&
+           upgradedInstructions.Contains("to execute shell text, write <SH>shell text</SH> anywhere in the reply", StringComparison.Ordinal) &&
            upgradedInstructions.IndexOf("Authoritative runtime protocol", StringComparison.Ordinal) >
            upgradedInstructions.IndexOf("never execute", StringComparison.OrdinalIgnoreCase),
         "Older local instruction examples suppressed or overrode upgraded command semantics.");
