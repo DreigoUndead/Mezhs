@@ -894,6 +894,14 @@
       "raw": "System.Text.Json.Nodes"
     },
     {
+      "from": 44,
+      "to": {
+        "type": "external",
+        "name": "System.Text.RegularExpressions"
+      },
+      "raw": "System.Text.RegularExpressions"
+    },
+    {
       "from": 45,
       "to": {
         "type": "external",
