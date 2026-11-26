@@ -73,8 +73,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
 
     // UI content-model errors are displayed as inert diagnostics, not fatal.
     private IReadOnlyList<RichNode> NormalizeContentModel(IReadOnlyList<RichNode> nodes,
-        bool phrasingOnly = false, bool insideInteractive = false,
-        RichTagDefinition? parentDefinition = null)
+        bool phrasingOnly = false, bool insideInteractive = false)
     {
         var result = new List<RichNode>(nodes.Count);
         foreach (var node in nodes)
@@ -82,7 +81,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             var element = node.Kind == "element";
             var name = node.Name ?? "";
             RichTagDefinition? registered = null;
-            if (element && _catalog.TryGet(name, parentDefinition, out var definition))
+            if (element && _catalog.TryGet(name, out var definition))
                 registered = definition;
             var inline = registered?.Inline == true;
             var richLink = registered?.Interactive == true;
@@ -118,8 +117,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                     phrasingOnly || inline ||
                     node.Kind is "paragraph" or "heading" or
                         "strong" or "emphasis" or "strikethrough" or "link" or "questionButton",
-                    insideInteractive || richLink || mdLink || node.Kind == "questionButton",
-                    registered ?? parentDefinition) });
+                    insideInteractive || richLink || mdLink || node.Kind == "questionButton") });
             else result.Add(node);
         }
         return result;
@@ -178,11 +176,9 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
     // not grant any tag authority: unknown, excluded and opaque wrappers still
     // form boundaries before semantic discovery decides what to render.
     // Parent links are private to parsing; no such links or handlers reach JSON.
-    private sealed class LocatedTag(Tag opening, LocatedTag? parent,
-        RichTagDefinition? structuralDefinition)
+    private sealed class LocatedTag(Tag opening, LocatedTag? parent)
     {
         public Tag Opening { get; } = opening;
-        public RichTagDefinition? StructuralDefinition { get; } = structuralDefinition;
         public LocatedTag? Parent { get; set; } = parent;
         public List<LocatedTag> SubTags { get; } = [];
         public RichTagContent? Content { get; set; }
@@ -229,10 +225,8 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 }
                 continue;
             }
-            var structuralParent = open.Count > 0 ? open.Peek() : null;
-            _catalog.TryGetStructural(tag.Name, structuralParent?.StructuralDefinition,
-                out var definition);
-            var located = new LocatedTag(tag, structuralParent, definition);
+            _catalog.TryGetStructural(tag.Name, out var definition);
+            var located = new LocatedTag(tag, open.Count > 0 ? open.Peek() : null);
             if (tag.SelfClosing || definition?.Role == RichTagRole.Marker)
             {
                 located.Complete = true;
@@ -403,7 +397,9 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 cursor = located.End;
                 continue;
             }
-            if (!_catalog.TryGet(tag.Name, parentDefinition, out var definition))
+            if (!_catalog.TryGet(tag.Name, parentDefinition, out var definition) ||
+                definition.RequiredAncestors is { } required &&
+                    !HasRequiredAncestor(located.Parent, required))
             {
                 if (parentDefinition?.SupportedChildren is { Count: > 0 })
                 {
@@ -525,6 +521,17 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         }
         if (!PlainUntil(end) || !Flush(end)) return [];
         return result;
+    }
+
+    // Admission is separate from matching: rejected wrappers still own their
+    // structural descendants and cannot expose nested host commands.
+    private static bool HasRequiredAncestor(LocatedTag? parent,
+        IReadOnlySet<string> required)
+    {
+        for (var current = parent; current is not null; current = current.Parent)
+            if (required.Contains(current.Opening.Name))
+                return true;
+        return false;
     }
 
     // A single registry-driven dispatcher builds validated, source-addressed
