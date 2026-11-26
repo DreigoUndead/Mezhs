@@ -48,6 +48,19 @@ test("signed storage headers disallow credential, cookie and newline injection",
   }), /Unsafe signed transfer header/, "provider defaults cannot inject authorization");
 });
 
+test("provider-required signed headers override differently cased optional headers", () => {
+  const headers = safeTransferHeaders({
+    "X-MS-BLOB-TYPE": "PageBlob",
+    "X-MS-VERSION": "2099-01-01"
+  }, "application/octet-stream", policy);
+  // Fetch canonicalizes header names; case-distinct object keys would be
+  // combined into invalid comma-separated values instead of overridden.
+  const sent = new Headers(headers);
+  assert.equal(sent.get("x-ms-blob-type"), "BlockBlob");
+  assert.equal(sent.get("x-ms-version"), "2020-04-08");
+  assert.equal(Object.keys(headers).filter(x => x.toLowerCase() === "x-ms-blob-type").length, 1);
+});
+
 test("cross-origin upload streams bounded source without cookies or bearer credentials", async () => {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "mezhs-transfer-upload-"));
   const name = path.join(dir, "small.bin");
