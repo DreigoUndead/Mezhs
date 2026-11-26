@@ -893,6 +893,16 @@ var exceptionCases = new (string Name, string Source, bool Valid, string? Diagno
     ("Depth limit", string.Concat(Enumerable.Repeat("<box>", 34)) + "<SH>INERT</SH>" +
         string.Concat(Enumerable.Repeat("</box>", 34)) + "<SH>ROOT</SH>",
         false, "Document nesting exceeds limit.", null, []),
+    ("Over-depth SVG raw boundary cannot expose command", "<svg><SH>INERT</SH>" +
+        string.Concat(Enumerable.Repeat("<svg>", 33)) +
+        string.Concat(Enumerable.Repeat("</svg>", 33)) +
+        "</svg><SH>ROOT</SH>",
+        false, "Document nesting exceeds limit.", null, []),
+    ("Over-depth CodeBlock raw boundary cannot expose command", "<CodeBlock><ATTACH>INERT</ATTACH>" +
+        string.Concat(Enumerable.Repeat("<CodeBlock>", 33)) +
+        string.Concat(Enumerable.Repeat("</CodeBlock>", 33)) +
+        "</CodeBlock><SH>ROOT</SH>",
+        false, "Document nesting exceeds limit.", null, []),
     ("SVG element limit", "<svg>" +
         string.Concat(Enumerable.Repeat("<circle r=\"2\"/>", 251)) + "</svg><SH>ROOT</SH>",
         true, null, null, ["SH"]),
