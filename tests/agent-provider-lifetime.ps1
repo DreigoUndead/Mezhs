@@ -63,7 +63,7 @@ if (-not $browserSession.Contains('ForContext(chatId, ephemeral)')) {
 }
 if (-not $browserSession.Contains('_retainedChats.GetValueOrDefault(chatId) + 1') -or
     -not $browserSession.Contains('ReleaseContextBestEffortAsync(_transport, chatId)')) {
-    throw 'Agent retention must be counted and ordinary/cancelled contexts must be retired locally.'
+    throw 'Agent retention must be counted and context retirement must remain scoped to the conversation.'
 }
 $registry = Read-Source 'src\Mezhs.Api\Services\IntegrationRegistry.cs'
 if (-not $registry.Contains('Get(connectionId) is IConversationContextOwner owner') -or

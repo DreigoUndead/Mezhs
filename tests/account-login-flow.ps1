@@ -36,6 +36,7 @@ try
 {
     await TestSessionOwnershipAsync(Path.Combine(root, "ownership"));
     await TestContextLifetimeAsync(Path.Combine(root, "lifetimes"));
+    await TestWarmContextsAsync(Path.Combine(root, "warm-contexts"));
     await TestConcurrentLoginDoesNotBlockCancellationAsync(Path.Combine(root, "login-cancel"));
     await TestAnonymousDiagnosticsAsync(Path.Combine(root, "guests"));
     Console.WriteLine("PASS: T2 browser session ownership and diagnostics regressions");
@@ -222,8 +223,8 @@ static async Task TestSessionOwnershipAsync(string root)
         var stages = new List<IntegrationActivity>();
         var send = await Send(integration, reportActivity: stages.Add);
         Assert(send.Text == "ok", "normal sending failed after diagnostics and browser show");
-        Assert(stages.Take(2).Select(stage => stage.Detail).SequenceEqual(
-            ["Checking browser session.", "Browser session ready; preparing request."]),
+        Assert(stages.Take(3).Select(stage => stage.Detail).SequenceEqual(
+            ["Waiting for browser transport.", "Checking browser account authorization.", "Browser session ready; preparing request."]),
             "authenticated request did not report the expected session preparation stages");
         await integration.GetModelsAsync();
         Assert(host.Invocations[0].Operation == "$diagnostics/snapshot" &&
@@ -284,6 +285,92 @@ static async Task TestContextLifetimeAsync(string root)
     Assert(host.ReleasedContexts.Contains("cancelled-agent"),
         "Cancelled Agent context was not discarded before the send returned.");
     await owner.ReleaseConversationAsync("cancelled-agent");
+}
+
+static async Task TestWarmContextsAsync(string root)
+{
+    var host = new FakeHost(root, authorized: true) { BrowserIdleMinutes = 2 };
+    var clock = new ManualLifetimeClock();
+    var constructor = typeof(BrowserAccountSession).GetConstructors(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Single();
+    Func<bool, bool, BrowserTransportOptions> options = (show, auth) => new(root, "unused", show, auth);
+    await using var session = (BrowserAccountSession)constructor.Invoke([host, options, clock]);
+    Task<int> SendChat(string id) => session.UseAsync(static (_, _) => Task.FromResult(1), chatId: id);
+    bool Released(string id) => host.ReleasedContexts.Contains(id);
+    static TaskCompletionSource<bool> Signal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+    static async Task Eventually(Func<bool> condition, string message)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try { while (!condition()) await Task.Delay(10, timeout.Token); }
+        catch (OperationCanceledException) { throw new Exception(message); }
+    }
+
+    await SendChat("a");
+    await SendChat("b");
+    Assert(host.ReleasedContexts.IsEmpty, "Successful ordinary turns released their warm contexts.");
+    clock.Advance(TimeSpan.FromMinutes(1));
+    await SendChat("a");
+    var started = Signal();
+    var finish = Signal();
+    var peer = session.UseAsync(async (_, token) => { started.SetResult(true); return await finish.Task.WaitAsync(token); }, chatId: "peer");
+    await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    clock.Advance(TimeSpan.FromMinutes(1));
+    await Eventually(() => Released("b"), "Idle peer B was not independently expired.");
+    Assert(!Released("a") && !Released("peer"), "Stale timer released a renewed or active conversation.");
+    clock.Advance(TimeSpan.FromMinutes(1));
+    await Eventually(() => Released("a"), "Renewed A did not expire at its new deadline.");
+    Assert(!Released("peer") && host.ActiveTransports == 1, "Idle retirement disrupted an active peer.");
+    finish.SetResult(true);
+    await peer;
+
+    for (var i = 0; i < 8; i++) await SendChat($"cache-{i}");
+    Assert(Released("peer"), "The ninth idle window did not evict the oldest idle window.");
+    await SendChat("cache-0");
+    await SendChat("cache-8");
+    Assert(Released("cache-1") && !Released("cache-0"), "Cache eviction did not respect renewed activity.");
+    await session.RetainConversationAsync("cache-0");
+    await session.RetainConversationAsync("cache-0");
+    clock.Advance(TimeSpan.FromMinutes(2));
+    await Eventually(() => Enumerable.Range(2, 7).All(i => Released($"cache-{i}")), "Idle cache expiry was incomplete.");
+    Assert(!Released("cache-0"), "Idle expiry retired an Agent-retained context.");
+    await session.ReleaseConversationAsync("cache-0");
+    Assert(!Released("cache-0"), "First owner release retired a multiply retained context.");
+    await session.ReleaseConversationAsync("cache-0");
+    Assert(host.ReleasedContexts.Count(id => id == "cache-0") == 1, "Final owner release did not retire the context exactly once.");
+
+    await SendChat("failure");
+    try { await session.UseAsync<int>(static (_, _) => throw new InvalidOperationException("expected failure"), chatId: "failure"); throw new Exception("Failure was swallowed."); }
+    catch (InvalidOperationException ex) when (ex.Message == "expected failure") { }
+    Assert(Released("failure"), "Failed ordinary action retained its context.");
+
+    await session.RetainConversationAsync("active-agent");
+    var activeStarted = Signal();
+    var activeFinish = Signal();
+    var active = session.UseAsync(async (_, token) => { activeStarted.SetResult(true); return await activeFinish.Task.WaitAsync(token); }, chatId: "active-agent");
+    await activeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    await session.ReleaseConversationAsync("active-agent");
+    Assert(!Released("active-agent"), "Final Agent release retired a still-active context.");
+    activeFinish.SetResult(true);
+    await active;
+    Assert(Released("active-agent"), "Deferred Agent release was lost.");
+
+    await SendChat("cancel");
+    var cancelStarted = Signal();
+    using var cancellation = new CancellationTokenSource();
+    var cancelled = session.UseAsync<int>(async (_, token) => { cancelStarted.SetResult(true); await Task.Delay(Timeout.InfiniteTimeSpan, token); return 0; }, cancellation.Token, chatId: "cancel");
+    await cancelStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    cancellation.Cancel();
+    try { await cancelled; throw new Exception("Cancellation was swallowed."); } catch (OperationCanceledException) { }
+    Assert(Released("cancel"), "Cancelled warm context was not retired.");
+
+    await SendChat("host-idle");
+    clock.Advance(TimeSpan.FromMinutes(2));
+    await Eventually(() => host.ActiveTransports == 0, "Idle host did not shut down.");
+    await SendChat("replacement");
+    Assert(host.Initializations.Count == 2 && host.ActiveTransports == 1, "Idle host did not reinitialize correctly.");
+    await session.DisposeAsync();
+    clock.Advance(TimeSpan.FromMinutes(10));
+    Assert(host.ActiveTransports == 0 && !Released("replacement"), "Disposed host was touched by an obsolete idle timer.");
+    Console.WriteLine("PASS: bounded warm context cache, independent expiry, renewed activity, retained owners, failure/cancellation, and host disposal");
 }
 
 static async Task TestConcurrentLoginDoesNotBlockCancellationAsync(string root)
@@ -372,9 +459,66 @@ static void Assert(bool condition, string message)
     if (!condition) throw new InvalidOperationException(message);
 }
 
+sealed class ManualLifetimeClock : TimeProvider
+{
+    private readonly object _sync = new();
+    private readonly HashSet<ManualTimer> _timers = [];
+    private long _ticks;
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        var timer = new ManualTimer(this, callback, state);
+        timer.Change(dueTime, period);
+        return timer;
+    }
+
+    public void Advance(TimeSpan duration)
+    {
+        ManualTimer[] due;
+        lock (_sync)
+        {
+            _ticks += duration.Ticks;
+            due = _timers.Where(timer => timer.Due <= _ticks).ToArray();
+            foreach (var timer in due) _timers.Remove(timer);
+        }
+        foreach (var timer in due) timer.Fire();
+    }
+
+    private sealed class ManualTimer(ManualLifetimeClock clock, TimerCallback callback, object? state) : ITimer
+    {
+        private bool _disposed;
+        public long Due { get; private set; }
+        public bool Change(TimeSpan dueTime, TimeSpan period)
+        {
+            if (period != Timeout.InfiniteTimeSpan) throw new NotSupportedException();
+            lock (clock._sync)
+            {
+                if (_disposed) return false;
+                clock._timers.Remove(this);
+                if (dueTime != Timeout.InfiniteTimeSpan)
+                {
+                    Due = clock._ticks + dueTime.Ticks;
+                    clock._timers.Add(this);
+                }
+                return true;
+            }
+        }
+        public void Fire() => callback(state);
+        public void Dispose()
+        {
+            lock (clock._sync)
+            {
+                _disposed = true;
+                clock._timers.Remove(this);
+            }
+        }
+        public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+    }
+}
+
 sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
 {
-    public int BrowserIdleMinutes => 0;
+    public int BrowserIdleMinutes { get; set; }
     public List<BrowserTransportOptions> Initializations { get; } = [];
     public List<(string Operation, string Arguments)> Invocations { get; } = [];
     public List<string> TurnPayloads { get; } = [];
@@ -382,7 +526,7 @@ sealed class FakeHost(string root, bool authorized) : IBrowserIntegrationHost
     public int PromptCount { get; set; }
     public int ActiveTransports { get; set; }
     public int ShowCount { get; set; }
-    public List<string> ReleasedContexts { get; } = [];
+    public System.Collections.Concurrent.ConcurrentQueue<string> ReleasedContexts { get; } = new();
     public bool HangNextPrompt { get; set; }
     public TaskCompletionSource<bool> PromptStarted { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -552,7 +696,7 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 
     public Task ReleaseContextAsync(string chatId, CancellationToken cancellationToken = default)
     {
-        host.ReleasedContexts.Add(chatId);
+        host.ReleasedContexts.Enqueue(chatId);
         return Task.CompletedTask;
     }
 

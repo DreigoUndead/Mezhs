@@ -16,6 +16,8 @@ Scope: ChatGPT Account sending, projects/models, request preparation, streamed r
 
 Out of scope: changing provider behavior merely to reduce line count; dropping files, project support, citations, reasoning/effort metadata, or cancellation; replacing genuine browser-owned ChatGPT security requirements; speculative provider frameworks; extra login/session ownership; altering concurrency guarantees; unrelated refactors; version/changelog/release updates.
 
+Owner-approved lifecycle correction: retain successful ordinary account conversation windows within the existing BrowserAccountSession owner. Preserve shared authentication, existing admission limits, Agent retention, guest ephemerality and scoped cancellation. This is an approved change within the existing task, not a restart of its workflow.
+
 ## Why
 
 The v2 architecture's typed authenticated HTTP executor serves models and, after the initial Development slice, paginated projects. Message submission still follows a second, large legacy JavaScript protocol implementation. This is a poor template for adding browser integrations: the framework should own repeatable browser HTTP mechanics and provider code should mostly map private API contracts. **The owner clarified that the most important result is eliminating the majority of provider JavaScript and standardizing integrations, even when required C# DTO/protocol code means the total line count does not halve immediately.** Reducing total provider-specific code remains a valuable secondary measure, not a reason to leave a complete protocol in JavaScript.
@@ -41,6 +43,8 @@ Measured baseline on the parent at `b8f25cf` (physical lines, including blanks/c
 - [ ] Independent Plan Review PASS precedes development; independent Code Review PASS and independent Testing PASS follow development. Material corrections or blocking failures require a fresh independent verification of the affected role.
 - [ ] Final work is committed/pushed only on `chatgpt-account-protocol-minimization`, reviewed against `integration-architecture-v2`, and **merged into `integration-architecture-v2` only after the owner's explicit approval**. Do not merge into `main`.
 
+- [ ] Successful ordinary account conversation windows are reused until their independent idle deadline or bounded idle-cache eviction. Active and Agent-retained contexts must not be evicted; cancellation and failure retire affected contexts without disrupting peers. Host disposal invalidates pending expiry work. Zero idleMinutes disables ordinary context caching without changing the existing host shutdown setting.
+
 ## How
 
 1. **Measure first, then simplify by ownership.** Inventory every JS operation in `account-messages.js`, `account-results.js`, `account-stream.js`, `account-transport.js`, `account-files.js`, `account-models.js`, and the account portion of `entry.js`. Map each operation to existing typed HTTP, browser transport, session or provider-owned behavior. Record line and dependency counts before implementing changes.
@@ -49,6 +53,8 @@ Measured baseline on the parent at `b8f25cf` (physical lines, including blanks/c
 4. **Reuse only real cross-provider mechanics.** Shared HTTP execution, bounded streaming framing, safe file transfers, cancellation and polling cadence can be shared when actually transport-agnostic. ChatGPT model catalog shape, message tree, citation references, Sentinel proof flow, signed upload protocol and other provider-specific mappings must not be placed in shared libraries merely to meet the line target. Count one-provider-only helpers in the account total.
 5. **Respect existing guarantees.** Account-scoped auth and per-chat context remain in existing browser bases. Do not introduce connection-global model-selection state or hidden retries; durable message IDs are created once by Core. The baseline still performs ChatGPT's account-level `setModelPreference` PATCH before sending. Treat that provider-side mutation as existing behavior, not redundant local state: preserve it unless isolated live tests establish that removing it retains model/effort selection, including two overlapping conversations with different selections. If that cannot be verified, retain the mutation and report the unverified concurrent-model limitation; do not add a global model lock or assert independent served-model selection. Do not loosen security restrictions, replay semantics or context isolation.
 6. **Complexity stop:** The owner authorizes a *bounded extension of the existing* HTTP/streaming/browser bridge to remove majority-JS duplication. Stop only if it would require another credential/session owner, a second generic client, unbounded response buffering or polling, weakened streaming/attachment/security guarantees, or disproportionate shared-only-for-ChatGPT code; present concrete alternatives and cost. Missing the former 900-line secondary target alone is not a blocker when the new majority-JS and reusable-integration acceptance criteria are met.
+
+Conversation-window lifetime: use the existing session state gate and per-ChatId transport views. Keep at most eight idle ordinary contexts per connection, expire using the configured idleMinutes duration, and evict the oldest idle context when full. Do not add provider-specific session owners or change native request preparation.
 
 ## Steps
 
@@ -75,6 +81,8 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 - Build the canonical .NET rich-UI test project explicitly before Node rich-UI tests to avoid stale fixture DLLs where affected.
 - Real provider testing, if authorized and available, must use an isolated MEZS instance/profile and separate storage as `.agents/mezhs.md` requires; never connect a test instance to the owner's active profile or copy it directly; a disposable VSS snapshot clone requires explicit owner authorization and the safeguards in `.agents/testing.md`. State exactly what was/was not tested.
 - Before merge, compare latest `integration-architecture-v2` and rerun impacted checks after reconciliation. Confirm PR base/destination is `integration-architecture-v2`, not `main`; record approval and final parent commit.
+
+- Exercise warm-context reuse, independent expiry during peer activity, refreshed deadlines, bounded eviction, zero-idle behavior, Agent reference counts, failed/cancelled sends and host disposal/recreation using deterministic time in the account-session harness.
 
 ## Changes
 
@@ -829,3 +837,13 @@ No production lifecycle change in this investigation. Step 4 remains FAIL; mater
 
 **Workflow disposition:** Existing Development and Code Review records are historical evidence only. Step 4 remains **FAIL**, so no Deploy, merge or release is permitted. If unresolved provider-native dependencies require altering accepted guarantees or implementing the proposed lifecycle design, consult the owner, update active plan sections and repeat impacted independent reviews under `.agents/workflow.md`. Every subsequent agent must fetch the latest `chatgpt-account-protocol-minimization` branch, read and follow its `.agents/workflow.md`, and pass that requirement onward. The sole authorized eventual merge destination is `integration-architecture-v2`, after explicit owner approval; never `main`.
 
+
+### 2026-11-26 - Owner-approved conversation-window lifecycle correction
+
+**Authority:** Owner explicitly approved implementation within the existing task and direct handoff to independent Code Review, without restarting the workflow. The prior Plan Review PASS remains recorded.
+
+**Implementation:** BrowserAccountSession retains successful ordinary account contexts using its existing state gate. Eight idle contexts maximum per account connection, least-recently-used eviction, independent expiry using transport.idleMinutes. Zero disables ordinary caching while preserving existing host shutdown semantics. Active and explicitly retained contexts are excluded from cache eviction. Failed/cancelled contexts retire after final active use; final Agent owner release is deferred when a send is still active. Guest ephemerality and provider-native request preparation are unchanged. No additional session owner or admission scheduler.
+
+**Developer verification:** Browser integration Release build PASS, zero warnings/errors. Account-session ownership harness and full account-login-flow PASS, including deterministic idle clock, independent expiry during peer activity, renewal, bounded eviction, retained owners, failure/cancellation and host shutdown/recreation. Existing progress assertion reproduced failing on unmodified 4b8ffb63; updated to reflect the existing production progress sequence. Electron conversation/provider operations 20/20 PASS. Agent provider lifetime PASS. Root Node suite across 24 test files and integration contracts probe exited successfully. Full Release solution and both frontend builds PASS, zero errors, one pre-existing WhatsApp CS0114 warning. npm reported dependency vulnerabilities and install-script warnings; no dependency changes made.
+
+**Limitations:** The running owner runtime has not been restarted or tested with this implementation. Automated lifecycle checks do not establish resolution of the intermittent first-turn provider preparation failure. The eight-idle-context limit is a developer-selected resource bound; transport context release remains best effort. Independent Code Review and Testing are required before approval/merge. No deployment or merge.

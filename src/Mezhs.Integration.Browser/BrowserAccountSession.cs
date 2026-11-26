@@ -8,7 +8,9 @@ namespace Mezhs.Integrations.Browser;
 /// </summary>
 public sealed class BrowserAccountSession : IAsyncDisposable
 {
+    private const int MaxIdleContexts = 8;
     private readonly IBrowserIntegrationHost _host;
+    private readonly TimeProvider _timeProvider;
     private readonly Func<bool, bool, BrowserTransportOptions> _options;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly SemaphoreSlim _loginGate = new(1, 1);
@@ -17,14 +19,22 @@ public sealed class BrowserAccountSession : IAsyncDisposable
     private Task? _idleTask;
     private int _activeUses;
     private readonly Dictionary<string, int> _retainedChats = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _activeChats = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IdleContext> _idleContexts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _discardChats = new(StringComparer.OrdinalIgnoreCase);
+    private long _idleSequence;
     private bool _disposed;
+
+    private sealed record IdleContext(long Sequence, CancellationTokenSource Cancellation);
 
     internal BrowserAccountSession(
         IBrowserIntegrationHost host,
-        Func<bool, bool, BrowserTransportOptions> options)
+        Func<bool, bool, BrowserTransportOptions> options,
+        TimeProvider? timeProvider = null)
     {
         _host = host;
         _options = options;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public Task<TResult> UseAsync<TResult>(
@@ -93,6 +103,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         {
             ThrowIfDisposed();
             _retainedChats[chatId] = _retainedChats.GetValueOrDefault(chatId) + 1;
+            CancelIdleContext(chatId);
             CancelIdle(); // Keep the same authenticated context through Agent shell/wait cycles.
         }
         finally { _gate.Release(); }
@@ -112,7 +123,9 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             _retainedChats.Remove(chatId);
             try
             {
-                if (_transport is not null)
+                if (_activeChats.ContainsKey(chatId))
+                    _discardChats.Add(chatId);
+                else if (_transport is not null)
                     await ReleaseContextBestEffortAsync(_transport, chatId);
             }
             finally
@@ -143,6 +156,11 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             await EnsureTransportAsync(cancellationToken);
             transport = _transport!;
             _activeUses++; // Keep the shared host alive, including during interactive login.
+            if (!ephemeral && chatId is not null)
+            {
+                CancelIdleContext(chatId);
+                _activeChats[chatId] = _activeChats.GetValueOrDefault(chatId) + 1;
+            }
         }
         finally
         {
@@ -150,8 +168,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             _gate.Release();
         }
 
-        var cancelled = false;
-        var contextReady = false;
+        var succeeded = false;
         try
         {
             // Do not hold the shared transport lock while the user signs in.
@@ -159,27 +176,42 @@ public sealed class BrowserAccountSession : IAsyncDisposable
                 await EnsureAuthorizedForUseAsync(transport, interactive, cancellationToken, reportStage);
             cancellationToken.ThrowIfCancellationRequested();
             var contextTransport = chatId is null ? transport : transport.ForContext(chatId, ephemeral);
-            contextReady = true;
             reportStage?.Invoke("Browser session ready; preparing request.");
-            return await action(contextTransport, cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            cancelled = true;
-            throw;
+            var result = await action(contextTransport, cancellationToken);
+            succeeded = true;
+            return result;
         }
         finally
         {
             await _gate.WaitAsync();
             try
             {
-                // Ordinary account turns do not keep Chromium windows indefinitely.
-                // A cancelled send must discard even an Agent-retained context before
-                // a later explicit same-chat send can enter MessageService.
-                if (contextReady && !ephemeral && chatId is not null &&
-                    (cancelled || !_retainedChats.ContainsKey(chatId)) &&
-                    _transport is not null)
-                    await ReleaseContextBestEffortAsync(_transport, chatId);
+                // MessageService owns same-chat send ordering; track active use here only
+                // to prevent lifetime transitions from retiring an in-use context.
+                if (!ephemeral && chatId is not null)
+                {
+                    if (!succeeded || cancellationToken.IsCancellationRequested)
+                        _discardChats.Add(chatId);
+                    var remaining = _activeChats[chatId] - 1;
+                    if (remaining != 0) _activeChats[chatId] = remaining;
+                    else
+                    {
+                        _activeChats.Remove(chatId);
+                        var discard = _discardChats.Remove(chatId);
+                        if (!_disposed && ReferenceEquals(_transport, transport))
+                        {
+                            if (discard)
+                                await ReleaseContextBestEffortAsync(transport, chatId);
+                            else if (!_retainedChats.ContainsKey(chatId))
+                            {
+                                if (_host.BrowserIdleMinutes > 0)
+                                    await KeepIdleContextAsync(transport, chatId);
+                                else
+                                    await ReleaseContextBestEffortAsync(transport, chatId);
+                            }
+                        }
+                    }
+                }
                 _activeUses--;
                 if (!_disposed && _activeUses == 0) ScheduleIdle();
             }
@@ -237,6 +269,58 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         }
     }
 
+    // All cache mutations occur under _gate, including expiry and LRU eviction.
+    private async Task KeepIdleContextAsync(IChatBrowserTransport transport, string chatId)
+    {
+        CancelIdleContext(chatId);
+        if (_idleContexts.Count >= MaxIdleContexts)
+        {
+            var oldest = _idleContexts.MinBy(pair => pair.Value.Sequence).Key;
+            CancelIdleContext(oldest);
+            await ReleaseContextBestEffortAsync(transport, oldest);
+        }
+        var idle = new IdleContext(++_idleSequence, new CancellationTokenSource());
+        _idleContexts.Add(chatId, idle);
+        _ = ExpireContextAsync(transport, chatId, idle);
+    }
+
+    private async Task ExpireContextAsync(IChatBrowserTransport transport, string chatId, IdleContext idle)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMinutes(_host.BrowserIdleMinutes), _timeProvider, idle.Cancellation.Token);
+            await _gate.WaitAsync(idle.Cancellation.Token);
+            try
+            {
+                if (!_disposed && ReferenceEquals(_transport, transport) &&
+                    _idleContexts.TryGetValue(chatId, out var current) && ReferenceEquals(current, idle))
+                {
+                    _idleContexts.Remove(chatId);
+                    await ReleaseContextBestEffortAsync(transport, chatId);
+                }
+            }
+            finally { _gate.Release(); }
+        }
+        catch (OperationCanceledException) when (idle.Cancellation.IsCancellationRequested) { }
+        finally
+        {
+            await _gate.WaitAsync();
+            try { idle.Cancellation.Dispose(); }
+            finally { _gate.Release(); }
+        }
+    }
+
+    private void CancelIdleContext(string chatId)
+    {
+        if (_idleContexts.Remove(chatId, out var idle)) idle.Cancellation.Cancel();
+    }
+
+    private void CancelAllIdleContexts()
+    {
+        foreach (var idle in _idleContexts.Values) idle.Cancellation.Cancel();
+        _idleContexts.Clear();
+    }
+
     private void ScheduleIdle()
     {
         CancelIdle();
@@ -251,13 +335,14 @@ public sealed class BrowserAccountSession : IAsyncDisposable
     {
         try
         {
-            await Task.Delay(TimeSpan.FromMinutes(_host.BrowserIdleMinutes), cancellation.Token);
+            await Task.Delay(TimeSpan.FromMinutes(_host.BrowserIdleMinutes), _timeProvider, cancellation.Token);
             await _gate.WaitAsync(cancellation.Token);
             try
             {
                 if (ReferenceEquals(_idleCancellation, cancellation) &&
                     _activeUses == 0 && _retainedChats.Count == 0)
                 {
+                    CancelAllIdleContexts();
                     var transport = _transport;
                     _transport = null;
                     if (transport is not null) await transport.DisposeAsync();
@@ -268,12 +353,17 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         catch (OperationCanceledException) { }
         finally
         {
-            if (ReferenceEquals(_idleCancellation, cancellation))
+            await _gate.WaitAsync();
+            try
             {
-                _idleCancellation = null;
-                _idleTask = null;
+                if (ReferenceEquals(_idleCancellation, cancellation))
+                {
+                    _idleCancellation = null;
+                    _idleTask = null;
+                }
+                cancellation.Dispose();
             }
-            cancellation.Dispose();
+            finally { _gate.Release(); }
         }
     }
 
@@ -281,8 +371,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
     {
         var cancellation = _idleCancellation;
         _idleCancellation = null;
-        try { cancellation?.Cancel(); }
-        catch (ObjectDisposedException) { }
+        cancellation?.Cancel();
     }
 
     private void ThrowIfDisposed()
@@ -292,14 +381,15 @@ public sealed class BrowserAccountSession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_disposed) return;
-        _disposed = true;
-        var idleTask = _idleTask;
-        CancelIdle();
-        if (idleTask is not null) await idleTask;
+        Task? idleTask;
         await _gate.WaitAsync();
         try
         {
+            if (_disposed) return;
+            _disposed = true;
+            idleTask = _idleTask;
+            CancelIdle();
+            CancelAllIdleContexts();
             var transport = _transport;
             _transport = null;
             if (transport is not null) await transport.DisposeAsync();
@@ -309,5 +399,6 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             _gate.Release();
             // Leave semaphore valid for any already-returning in-flight calls during shutdown.
         }
+        if (idleTask is not null) await idleTask;
     }
 }
