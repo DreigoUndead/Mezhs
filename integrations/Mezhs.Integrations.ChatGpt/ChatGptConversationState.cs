@@ -81,11 +81,14 @@ internal sealed class ChatGptExecution
         if (!Tools.Contains(value, StringComparer.Ordinal)) Tools.Add(value);
     }
 
-    public void ObserveMetadata(JsonElement metadata)
+    public void ObserveMetadata(JsonElement metadata, bool includeModel = true)
     {
         var model = ChatGptJson.String(metadata, "resolved_model_slug", "model_slug");
-        if (model is not null) Model ??= model;
-        ThinkingEffort ??= ChatGptJson.String(metadata, "thinking_effort");
+        if (includeModel)
+        {
+            if (model is not null) Model ??= model;
+            ThinkingEffort ??= ChatGptJson.String(metadata, "thinking_effort");
+        }
         ReasoningStatus ??= ChatGptJson.String(metadata, "reasoning_status");
         var start = ChatGptJson.Number(metadata, "reasoning_start_time");
         var end = ChatGptJson.Number(metadata, "reasoning_end_time");
@@ -111,7 +114,8 @@ internal sealed class ChatGptExecution
             AddTool(ChatGptJson.String(metadata, "tool_name"));
         if (role == "assistant")
         {
-            ObserveMetadata(metadata);
+            ObserveMetadata(metadata, !ChatGptJson.True(metadata, "is_visually_hidden_from_conversation") &&
+                ChatGptJson.Number(message, "weight") != 0);
             if (ChatGptJson.String(ChatGptJson.Get(message, "content"), "content_type") ==
                 "reasoning_recap") ReasoningObserved = true;
         }
@@ -327,6 +331,18 @@ internal static class ChatGptConversationState
             .FirstOrDefault(IsVisibleFinal);
         if (assistant.ValueKind == JsonValueKind.Object)
         {
+            // The visible final reply is authoritative; hidden or tool activity must not
+            // determine its reported model or thinking effort.
+            var finalMetadata = ChatGptJson.Get(assistant, "metadata");
+            var finalModel = ChatGptJson.String(finalMetadata, "resolved_model_slug", "model_slug");
+            if (finalModel is not null)
+            {
+                resultExecution.Model = finalModel;
+                if (ChatGptJson.String(finalMetadata, "thinking_effort") is { } finalEffort)
+                    resultExecution.ThinkingEffort = finalEffort;
+            }
+            else if (ChatGptJson.String(finalMetadata, "thinking_effort") is { } finalEffort)
+                resultExecution.ThinkingEffort = finalEffort;
             var files = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var message in messages.Take(messages.Count - 1))
                 CollectFileRefs(message, files);

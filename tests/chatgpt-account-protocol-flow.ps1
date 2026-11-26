@@ -20,6 +20,7 @@ using Mezhs.Integrations.ChatGpt;
 using Mezhs.Integrations.Browser;
 
 await TestNewChatMetadataAndCitations();
+await TestVisibleFinalModelMetadataPrecedence();
 await TestInaccessibleContinuationRestoration();
 await TestLargeConversationPreflight();
 await TestNativePreparationFailureIsNotSubmission();
@@ -66,6 +67,19 @@ static async Task TestNewChatMetadataAndCitations()
         "stream reasoning metadata not merged");
     Verify(activities.Any(a => a.Detail?.Contains("tools web.run") == true),
         "stream tool usage metadata not merged");
+}
+
+static async Task TestVisibleFinalModelMetadataPrecedence()
+{
+    var host = new FakeHost { ConflictingAssistantModels = true };
+    await using var integration = NewIntegration(host);
+    var result = await integration.PromptAsync(Chat(),
+        new PromptRequest(integration.CreateMessageId(), "test model attribution",
+            "requested-model::thinking-effort=extended", []));
+    Verify(result.MessageId == "assistant-final", "visible final reply was not selected");
+    Verify(result.Model == "served-model::thinking-effort=high",
+        "hidden, zero-weight or analysis metadata displaced visible final model/effort");
+    Verify(host.Posts == 1, "model attribution caused a duplicate submission");
 }
 
 static async Task TestInaccessibleContinuationRestoration()
@@ -281,7 +295,7 @@ sealed class FakeHost : IBrowserIntegrationHost
     public int BrowserIdleMinutes => 0;
     public bool InaccessibleFirst, LargeContinuation, FailPost, InterruptAfterId,
         AuthorizationPostFailure, NativePrepareFailure, WithFiles, MalformedEvent, MisleadingProcessing,
-        SandboxOutput, SandboxFailure;
+        SandboxOutput, SandboxFailure, ConflictingAssistantModels;
     public string? DownloadPath, SubmittedBody, SubmittedMessageId, SubmittedNativeHook;
     public int Posts;
     public List<HttpTransportRequest> Calls { get; } = [];
@@ -415,7 +429,20 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
             id = "analysis", author = new { role = "assistant" }, channel = "analysis",
             status = "finished_successfully",
             content = new { content_type = "text", parts = new [] { "Analysis summary" } },
-            metadata = new { tool_name = "web.run" }
+            metadata = new { tool_name = "web.run", model_slug = host.ConflictingAssistantModels ? "wrong-analysis-model" : null, thinking_effort = host.ConflictingAssistantModels ? "minimal" : null }
+        };
+        object hidden = new {
+            id = "assistant-hidden", author = new { role = "assistant" }, channel = "final",
+            status = "finished_successfully",
+            content = new { content_type = "text", parts = new [] { "Hidden response" } },
+            metadata = new { model_slug = "wrong-hidden-model", thinking_effort = "low",
+                is_visually_hidden_from_conversation = true }
+        };
+        object zeroWeight = new {
+            id = "assistant-zero-weight", author = new { role = "assistant" }, channel = "final",
+            status = "finished_successfully", weight = 0,
+            content = new { content_type = "text", parts = new [] { "Suppressed response" } },
+            metadata = new { model_slug = "wrong-zero-weight-model", thinking_effort = "minimal" }
         };
         object m3 = new {
             id = host.SubmittedMessageId, author = new { role = "user" },
@@ -424,8 +451,10 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
             metadata = new { resolved_model_slug = "served-model" }
         };
         return JsonSerializer.Serialize(new {
-            conversation_id = "conv-1", current_node = "assistant-final",
+            conversation_id = "conv-1", current_node = host.ConflictingAssistantModels ? "assistant-zero-weight" : "assistant-final",
             mapping = new Dictionary<string,object> {
+                ["assistant-zero-weight"] = new { parent = "assistant-hidden", message = zeroWeight },
+                ["assistant-hidden"] = new { parent = "assistant-final", message = hidden },
                 ["assistant-final"] = new { parent = "analysis", message = m1 },
                 ["analysis"] = new { parent = "user", message = m2 },
                 ["user"] = new { parent = (string?)null, message = m3 }
