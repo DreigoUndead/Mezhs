@@ -14,9 +14,11 @@ public sealed record RichTagContent(
     int Depth);
 
 public enum RichTagRole { Container, Leaf, OpaqueLiteral, RawEditor, Command, Marker }
-// SupportedChildren is the complete child policy:
-// null = ordinary registered UI children; empty = opaque/no nested tags;
-// explicit IDs = only those children (including contextual name variants).
+// SupportedChildren controls a parent's direct registered UI children:
+// null = normal children, empty = no children, explicit names = only those names.
+// RequiredAncestors independently limits where a uniquely named tag may occur:
+// null = unrestricted; nonempty names = at least one structural ancestor matches.
+// Eligibility never changes a tag's structural role or its source boundaries.
 public sealed record RichTagDefinition(
     string Name,
     RichTagRole Role,
@@ -28,89 +30,60 @@ public sealed record RichTagDefinition(
     public static readonly IReadOnlySet<string> NoChildren =
         new HashSet<string>(StringComparer.Ordinal);
 
-    // Only variants explicitly listed by their parent can be nested-only.
-    // Key distinguishes equal surface names such as UI text and SVG text.
-    public string? Id { get; init; }
-    public string Key => Id ?? Name;
-    public bool AtRoot { get; init; } = true;
+    public IReadOnlySet<string>? RequiredAncestors { get; init; }
     public bool Inline { get; init; }
     public bool Interactive { get; init; }
 }
 
 // A parser instance uses one immutable catalog. An Agent host can extend the
 // UI definitions without changing or mutating the reusable Core catalog.
+// One source name has exactly one structural definition in each composed catalog.
 public sealed class RichTagCatalog
 {
-    private readonly IReadOnlyDictionary<string, RichTagDefinition[]> _tags;
+    private readonly IReadOnlyDictionary<string, RichTagDefinition> _tags;
 
     public RichTagCatalog(IEnumerable<RichTagDefinition> tags)
     {
         var entries = tags.ToArray();
-        _tags = entries.GroupBy(tag => tag.Name, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group =>
-            {
-                var variants = group.ToArray();
-                if (variants.Select(tag => tag.Key).Distinct(StringComparer.Ordinal).Count()
-                    != variants.Length)
-                    throw new ArgumentException($"Duplicate tag registration: {group.Key}.");
-                return variants;
-            }, StringComparer.Ordinal);
-
-        // Misnamed explicit children should fail at registration, not silently
-        // make a control unusable or weaken a parent's safety boundary.
-        var knownIds = entries.Select(tag => tag.Key).ToHashSet(StringComparer.Ordinal);
+        var byName = new Dictionary<string, RichTagDefinition>(StringComparer.Ordinal);
         foreach (var tag in entries)
+            if (!byName.TryAdd(tag.Name, tag))
+                throw new ArgumentException($"Duplicate tag registration: {tag.Name}.");
+        _tags = byName;
+
+        // Parent/ancestor contracts reference unique, registered source names.
+        foreach (var tag in entries)
+        {
             if (tag.SupportedChildren is { } children &&
-                children.Any(id => !knownIds.Contains(id)))
-                throw new ArgumentException($"Unknown supported child in {tag.Key}.");
+                children.Any(name => !byName.ContainsKey(name)))
+                throw new ArgumentException($"Unknown supported child in {tag.Name}.");
+            if (tag.RequiredAncestors is { } required &&
+                (required.Count == 0 || required.Any(name => !byName.ContainsKey(name))))
+                throw new ArgumentException($"Invalid required ancestor in {tag.Name}.");
+        }
     }
 
     public RichTagCatalog With(IEnumerable<RichTagDefinition> additional) =>
-        new(_tags.Values.SelectMany(variants => variants).Concat(additional));
+        new(_tags.Values.Concat(additional));
 
-    // Structural matching must recognize registered opaque/leaf forms even
-    // where the tag is not eligible for display. Eligibility is checked later.
-    public bool TryGetStructural(string name, out RichTagDefinition definition)
-    {
-        if (_tags.TryGetValue(name, out var variants))
-        {
-            definition = variants[0];
-            return true;
-        }
-        definition = null!;
-        return false;
-    }
-
-    // A nested-only variant can share a source name with a root tag but have
-    // different structural semantics (for example container versus raw editor).
-    // Resolve the parent's declared variant before falling back to a structural
-    // boundary for disallowed or unknown children.
-    public bool TryGetStructural(string name, RichTagDefinition? parent,
-        out RichTagDefinition definition) =>
-        TryGet(name, parent, out definition) || TryGetStructural(name, out definition);
+    // Structural lookup deliberately ignores contextual admission. Even a
+    // forbidden wrapper must keep its exact boundary and shield host commands.
+    public bool TryGetStructural(string name, out RichTagDefinition definition) =>
+        _tags.TryGetValue(name, out definition!);
 
     public bool TryGet(string name, out RichTagDefinition definition) =>
-        TryGet(name, null, out definition);
+        TryGetStructural(name, out definition);
 
-    public bool TryGet(string name, RichTagDefinition? parent, out RichTagDefinition definition)
+    // Parent eligibility does not override or select a tag definition.
+    // RequiredAncestors is checked against the complete structural parent
+    // chain by RichDocumentParser only after structural matching.
+    public bool TryGet(string name, RichTagDefinition? parent,
+        out RichTagDefinition definition)
     {
-        definition = null!;
-        if (!_tags.TryGetValue(name, out var variants)) return false;
-
-        RichTagDefinition? selected;
-        if (parent is null)
-            selected = variants.FirstOrDefault(tag => tag.AtRoot);
-        else if (parent.SupportedChildren is { Count: 0 })
-            selected = null;
-        else if (parent.SupportedChildren is { } supported)
-            selected = variants.FirstOrDefault(tag =>
-                tag.AllowAsChild && supported.Contains(tag.Key));
-        else
-            selected = variants.FirstOrDefault(tag => tag.AtRoot && tag.AllowAsChild);
-
-        if (selected is null) return false;
-        definition = selected;
-        return true;
+        if (!TryGetStructural(name, out definition)) return false;
+        return parent is null ||
+            definition.AllowAsChild && (parent.SupportedChildren is null ||
+                parent.SupportedChildren.Contains(name));
     }
 }
 
