@@ -402,15 +402,16 @@ var customInlinePass = customUi.Document.Valid && customUi.Commands.Count == 0 &
 Console.WriteLine($"{(customInlinePass ? "PASS" : "FAIL")}: Registered inline control requires no parser special case");
 if (!customInlinePass) failures++;
 
-// A nested-only inline variant must keep its registered phrasing metadata
-// during normalization, even though its surface name is not root-eligible.
+// An ancestor-constrained inline tag must retain its registered phrasing metadata
+// during normalization, even though it is not root-eligible.
 var contextualInlineCatalog = RichTagRegistry.Ui.With([
     new RichTagDefinition("parent-inline", RichTagRole.Container, null,
         new HashSet<string>(["nested-phrase"], StringComparer.Ordinal), AllowAsChild: true)
         { Inline = true },
     new RichTagDefinition("nested-phrase", RichTagRole.Container, null,
         SupportedChildren: null, AllowAsChild: true)
-        { AtRoot = false, Inline = true }
+        { RequiredAncestors = new HashSet<string>(["parent-inline"], StringComparer.Ordinal),
+            Inline = true }
 ]);
 var contextualInline = new RichDocumentParser(contextualInlineCatalog).Parse(
     "<parent-inline>before <nested-phrase>inside</nested-phrase> after</parent-inline>");
@@ -439,7 +440,8 @@ var constrainedCatalog = Registry.RichTags.With([
     new RichTagDefinition("restricted", RichTagRole.Container, null,
         new HashSet<string>(["allowed"], StringComparer.Ordinal), AllowAsChild: true),
     new RichTagDefinition("allowed", RichTagRole.Container, null,
-        SupportedChildren: null, AllowAsChild: true) { AtRoot = false }
+        SupportedChildren: null, AllowAsChild: true)
+        { RequiredAncestors = new HashSet<string>(["restricted"], StringComparer.Ordinal) }
 ]);
 var allowedChild = new RichDocumentParser(constrainedCatalog).Parse(
     "<restricted><allowed>yes</allowed><SH>INERT</SH></restricted><SH>ROOT</SH>");
@@ -474,33 +476,56 @@ var nestedOnlyAtRootPass = nestedOnlyAtRoot.Document.Valid &&
 Console.WriteLine($"{(nestedOnlyAtRootPass ? "PASS" : "FAIL")}: Nested-only definitions cannot render at document root");
 if (!nestedOnlyAtRootPass) failures++;
 
-// Structural matching must use the parent-selected variant, not the first
-// registration for a surface name. An opaque root tag and a nested container
-// with the same spelling must retain their different body semantics.
-var roleVariantCatalog = Registry.RichTags.With([
-    new RichTagDefinition("dual-role", RichTagRole.RawEditor, null,
-        RichTagDefinition.NoChildren, AllowAsChild: true),
-    new RichTagDefinition("dual-role", RichTagRole.Container, null,
-        SupportedChildren: null, AllowAsChild: true)
-        { Id = "dual-role:nested", AtRoot = false },
-    new RichTagDefinition("dual-host", RichTagRole.Container, null,
-        new HashSet<string>(["dual-role:nested"], StringComparer.Ordinal),
-        AllowAsChild: true)
+// Context eligibility uses any matching structural ancestor, including
+// ancestors above a normal or unsupported intermediate wrapper.
+var ancestorsCatalog = Registry.RichTags.With([
+    new RichTagDefinition("ancestor-a", RichTagRole.Container, null, null, true),
+    new RichTagDefinition("ancestor-b", RichTagRole.Container, null, null, true),
+    new RichTagDefinition("ancestor-dependent", RichTagRole.Container, null, null, true)
+    {
+        RequiredAncestors = new HashSet<string>(["ancestor-a", "ancestor-b"], StringComparer.Ordinal)
+    }
 ]);
-var roleVariantResult = new RichDocumentParser(roleVariantCatalog).Parse(
-    "<dual-host><dual-role><text>nested</text></dual-role></dual-host>" +
-    "<dual-role><text>opaque</text></dual-role><SH>ROOT</SH>");
-var roleVariantPass = roleVariantResult.Document.Valid &&
-    roleVariantResult.Commands.Select(c => c.Body).SequenceEqual(["ROOT"]) &&
-    roleVariantResult.Document.Nodes.SelectMany(Walk).Any(n =>
-        n.Kind == "element" && n.Name == "dual-role" &&
-        n.Children?.SelectMany(Walk).Any(child =>
-            child.Kind == "element" && child.Name == "text") == true) &&
-    roleVariantResult.Document.Nodes.Any(n =>
-        n.Kind == "raw" && n.Name == "dual-role" &&
-        n.Text == "<text>opaque</text>");
-Console.WriteLine($"{(roleVariantPass ? "PASS" : "FAIL")}: Same-name contextual variants preserve container and opaque structural roles");
-if (!roleVariantPass) failures++;
+var ancestry = new RichDocumentParser(ancestorsCatalog).Parse(
+    "<ancestor-a><box><ancestor-dependent><text>nested</text></ancestor-dependent></box></ancestor-a>" +
+    "<ancestor-b><Widget><ancestor-dependent>also nested</ancestor-dependent></Widget></ancestor-b>" +
+    "<box><ancestor-dependent>missing ancestor</ancestor-dependent></box>" +
+    "<ancestor-dependent><SH>INERT</SH></ancestor-dependent><SH>ROOT</SH>");
+var ancestryNodes = ancestry.Document.Nodes.SelectMany(Walk).ToArray();
+var ancestryPass = ancestry.Document.Valid &&
+    ancestry.Commands.Select(c => c.Body).SequenceEqual(["ROOT"]) &&
+    ancestryNodes.Count(n => n.Kind == "element" && n.Name == "ancestor-dependent") == 2 &&
+    ancestryNodes.Count(n => n.Kind == "unknown" && n.Name == "ancestor-dependent") == 2 &&
+    ancestryNodes.Any(n => n.Kind == "element" && n.Name == "ancestor-dependent" &&
+        n.Children?.SelectMany(Walk).Any(child => child.Kind == "element" && child.Name == "text") == true);
+Console.WriteLine($"{(ancestryPass ? "PASS" : "FAIL")}: Any required ancestor, transitive nesting, and inert rejected wrappers");
+if (!ancestryPass) failures++;
+
+var duplicateNameRejected = false;
+try
+{
+    _ = RichTagRegistry.Ui.With([
+        new RichTagDefinition("text", RichTagRole.RawEditor, null,
+            RichTagDefinition.NoChildren, true)
+    ]);
+}
+catch (ArgumentException) { duplicateNameRejected = true; }
+Console.WriteLine($"{(duplicateNameRejected ? "PASS" : "FAIL")}: Same-name definitions are forbidden");
+if (!duplicateNameRejected) failures++;
+
+var unknownRequiredAncestorRejected = false;
+try
+{
+    _ = RichTagRegistry.Ui.With([
+        new RichTagDefinition("orphan-child", RichTagRole.Container, null, null, true)
+        {
+            RequiredAncestors = new HashSet<string>(["missing-ancestor"], StringComparer.Ordinal)
+        }
+    ]);
+}
+catch (ArgumentException) { unknownRequiredAncestorRejected = true; }
+Console.WriteLine($"{(unknownRequiredAncestorRejected ? "PASS" : "FAIL")}: Required ancestor references must be registered");
+if (!unknownRequiredAncestorRejected) failures++;
 
 var invalidChildRegistrationRejected = false;
 try
