@@ -21,6 +21,11 @@ using Mezhs.Integrations.Browser;
 
 await TestNewChatMetadataAndCitations();
 await TestVisibleFinalModelMetadataPrecedence();
+await TestHiddenStreamMetadataExclusion(true, false);
+await TestHiddenStreamMetadataExclusion(false, true);
+await TestHiddenStreamMetadataExclusion(true, true);
+await TestHiddenStreamMetadataExclusion(false, false);
+await TestUserStreamMetadataExclusion();
 await TestInaccessibleContinuationRestoration();
 await TestLargeConversationPreflight();
 await TestNativePreparationFailureIsNotSubmission();
@@ -80,6 +85,26 @@ static async Task TestVisibleFinalModelMetadataPrecedence()
     Verify(result.Model == "served-model::thinking-effort=high",
         "hidden, zero-weight or analysis metadata displaced visible final model/effort");
     Verify(host.Posts == 1, "model attribution caused a duplicate submission");
+}
+
+static async Task TestHiddenStreamMetadataExclusion(bool hidden, bool zeroWeight)
+{
+    var host = new FakeHost { MissingFinalMetadata = true, HiddenStreamMetadata = true, HiddenStreamIsHidden = hidden, HiddenStreamIsZeroWeight = zeroWeight };
+    await using var integration = NewIntegration(host);
+    var result = await integration.PromptAsync(Chat(), new PromptRequest(integration.CreateMessageId(), "test hidden stream metadata", "requested-model", []));
+    Verify(result.MessageId == "assistant-final", "incorrect visible final selection");
+    var expected = hidden || zeroWeight ? "served-model::thinking-effort=high" : "early-stream-model::thinking-effort=minimal";
+    Verify(result.Model == expected, "stream visibility metadata rule failed: " + result.Model);
+    Verify(host.Posts == 1, "hidden stream attribution caused replay");
+}
+static async Task TestUserStreamMetadataExclusion()
+{
+    var host = new FakeHost { MissingFinalMetadata = true, UserStreamMetadata = true };
+    await using var integration = NewIntegration(host);
+    var result = await integration.PromptAsync(Chat(), new PromptRequest(integration.CreateMessageId(), "test user stream metadata", "requested-model", []));
+    Verify(result.MessageId == "assistant-final", "user stream test selected wrong reply");
+    Verify(result.Model == "served-model::thinking-effort=high", "user-authored stream metadata falsely attributed to served model: " + result.Model);
+    Verify(host.Posts == 1, "user stream metadata caused replay");
 }
 
 static async Task TestInaccessibleContinuationRestoration()
@@ -295,7 +320,7 @@ sealed class FakeHost : IBrowserIntegrationHost
     public int BrowserIdleMinutes => 0;
     public bool InaccessibleFirst, LargeContinuation, FailPost, InterruptAfterId,
         AuthorizationPostFailure, NativePrepareFailure, WithFiles, MalformedEvent, MisleadingProcessing,
-        SandboxOutput, SandboxFailure, ConflictingAssistantModels;
+        SandboxOutput, SandboxFailure, ConflictingAssistantModels, MissingFinalMetadata, HiddenStreamMetadata, HiddenStreamIsHidden, HiddenStreamIsZeroWeight, UserStreamMetadata;
     public string? DownloadPath, SubmittedBody, SubmittedMessageId, SubmittedNativeHook;
     public int Posts;
     public List<HttpTransportRequest> Calls { get; } = [];
@@ -366,6 +391,8 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
 
         void Event(string text) => reportEvent(JsonSerializer.SerializeToElement(text));
         Event("""{"type":"message_marker","marker":"cot_token","conversation_id":"conv-1"}""");
+        if (host.HiddenStreamMetadata) Event(JsonSerializer.Serialize(new { v = new { message = new { author = new { role = "assistant" }, weight = host.HiddenStreamIsZeroWeight ? 0 : 1, metadata = new { model_slug = "early-stream-model", thinking_effort = "minimal", is_visually_hidden_from_conversation = host.HiddenStreamIsHidden } } } }));
+        if (host.UserStreamMetadata) Event(JsonSerializer.Serialize(new { v = new { message = new { author = new { role = "user" }, metadata = new { model_slug = "wrong-user-model", thinking_effort = "minimal" } } } }));
         if (host.MalformedEvent)
             Event("{malformed-json");
         Event("""{"type":"message_marker","marker":"final_channel_token"}""");
@@ -420,7 +447,7 @@ sealed class FakeTransport(FakeHost host) : IChatBrowserTransport
                   "[backslash](sandbox:/mnt/data/a%5Cb) [nested escape](sandbox:/mnt/data/%252E%252E/x) " +
                   "[remote](https://example.org/a.txt)"
                 : "See " + marker + " and " + missing } },
-            metadata = new { model_slug = "served-model", thinking_effort = "high",
+            metadata = new { model_slug = host.MissingFinalMetadata ? null : "served-model", thinking_effort = host.MissingFinalMetadata ? null : "high",
                 content_references = new [] { new { matched_text = marker,
                     alt = "[Example](https://example.org)" } },
                 attachments = host.WithFiles ? new [] { new { id = "file-output", name = "answer.txt" } } : null }

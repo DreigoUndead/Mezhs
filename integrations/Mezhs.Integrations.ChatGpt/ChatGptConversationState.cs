@@ -124,7 +124,11 @@ internal sealed class ChatGptExecution
     public void ObserveStream(JsonElement value)
     {
         var metadata = ChatGptJson.Get(value, "metadata");
-        if (metadata.ValueKind == JsonValueKind.Object) ObserveMetadata(metadata);
+        // Message metadata must pass through ObserveMessage so hidden/zero-weight
+        // assistant nodes cannot contribute served-model or thinking-effort metadata.
+        if (metadata.ValueKind == JsonValueKind.Object &&
+            ChatGptJson.Get(value, "author").ValueKind != JsonValueKind.Object)
+            ObserveMetadata(metadata);
         ObserveMessage(value);
         if (ChatGptJson.String(value, "type") == "server_ste_metadata")
         {
