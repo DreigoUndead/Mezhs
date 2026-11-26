@@ -375,7 +375,7 @@ if (!separatedCatalogs) failures++;
 // belong exclusively to the trusted frontend component.
 var svgPolicies =
     RichTagRegistry.Ui.TryGet("svg", out var svgRoot) &&
-    svgRoot.AtRoot && svgRoot.Role == RichTagRole.RawEditor &&
+    svgRoot.RequiredAncestors is null && svgRoot.Role == RichTagRole.RawEditor &&
     svgRoot.SupportedChildren is { Count: 0 } &&
     svgRoot.AllowedAttributes is { } svgAttributes &&
     svgAttributes.SetEquals(["viewBox", "width", "height", "preserveAspectRatio", "role", "aria-label"]) &&
@@ -383,7 +383,7 @@ var svgPolicies =
     !RichTagRegistry.Ui.TryGet("path", out _) &&
     !RichTagRegistry.Ui.TryGet("rect", out _) &&
     RichTagRegistry.Ui.TryGet("text", out var regularText) &&
-    regularText.Key == "text";
+    regularText.Name == "text";
 Console.WriteLine($"{(svgPolicies ? "PASS" : "FAIL")}: SVG is an opaque registered control");
 if (!svgPolicies) failures++;
 
