@@ -18,7 +18,7 @@ internal static class ChatGptAccountFiles
     private const long MaxFileBytes = 100L * 1024 * 1024;
 
     public static async Task<IReadOnlyList<ChatGptUploadedFile>> UploadAsync(
-        BrowserHttpExecutor http, IChatBrowserTransport transport,
+        BrowserHttpExecutor http,
         IReadOnlyList<ChatGptInputFile> files, CancellationToken cancellationToken)
     {
         var uploads = new List<ChatGptUploadedFile>();
@@ -108,7 +108,7 @@ internal static class ChatGptAccountFiles
     }
 
     public static async Task<IReadOnlyList<BrowserArtifact>> DownloadAsync(
-        BrowserHttpExecutor http, IChatBrowserTransport transport,
+        BrowserHttpExecutor http,
         IReadOnlyDictionary<string, string> refs, string conversationId,
         string assistantMessageId, IReadOnlyList<string> sandboxPaths,
         Action<BrowserOperationProgress>? progress, CancellationToken cancellationToken)

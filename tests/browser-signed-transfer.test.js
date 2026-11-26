@@ -7,7 +7,7 @@ const path = require("node:path");
 const { executeBinaryTransfer, safeSignedUrl, safeTransferHeaders } = require("../electron/browser-transfer");
 
 const policy = {
-  origin: "https://chatgpt.com",
+  ...require("../integrations/Mezhs.Integrations.ChatGpt/browser/modules/entry.js").transfer,
   sameOriginDownload: async () => { throw Error("unexpected same-origin download"); }
 };
 const signed = "https://example.blob.core.windows.net/container/blob?sv=version&sig=private-signature";
@@ -22,9 +22,11 @@ test("signed destinations reject insecure schemes, credentials, arbitrary target
     "https://example.com/file",
     "https://example.blob.core.windows.net:8443/file",
     "https://example.blob.core.windows.net/file#fragment"
-  ]) assert.throws(() => safeSignedUrl(url, policy.origin));
-  assert.equal(safeSignedUrl(signed, policy.origin).hostname,
+  ]) assert.throws(() => safeSignedUrl(url, policy));
+  assert.equal(safeSignedUrl(signed, policy).hostname,
     "example.blob.core.windows.net");
+  assert.throws(() => safeSignedUrl(signed, { origin: policy.origin }),
+    /host policy/, "missing provider host policy fails closed");
 });
 
 test("signed storage headers disallow credential, cookie and newline injection", () => {
@@ -32,13 +34,18 @@ test("signed storage headers disallow credential, cookie and newline injection",
     { Authorization: "Bearer secret" },
     { Cookie: "secret" },
     { "x-ms-custom": "data\r\nAuthorization: secret" },
+    { "x-ms-": "empty-suffix" },
     { "x-other": "unexpected" },
     [1, 2]
-  ]) assert.throws(() => safeTransferHeaders(headers, "application/octet-stream"));
-  const headers = safeTransferHeaders({ "x-ms-meta-note": "safe" }, "image/png");
+  ]) assert.throws(() => safeTransferHeaders(headers, "application/octet-stream", policy));
+  const headers = safeTransferHeaders({ "x-ms-meta-note": "safe" }, "image/png", policy);
   assert.equal(headers["x-ms-blob-type"], "BlockBlob");
   assert.equal(headers["x-ms-meta-note"], "safe");
   assert.equal(headers["Content-Type"], "image/png");
+  assert.throws(() => safeTransferHeaders({}, "image/png", {
+    uploadHeaderPrefix: "x-ms-",
+    uploadHeaderDefaults: { Authorization: "secret" }
+  }), /Unsafe signed transfer header/, "provider defaults cannot inject authorization");
 });
 
 test("cross-origin upload streams bounded source without cookies or bearer credentials", async () => {

@@ -87,7 +87,7 @@ internal static class ChatGptAccountProtocol
         }
 
         progress?.Invoke(new("preparing", "Uploading files to ChatGPT."));
-        var uploads = await ChatGptAccountFiles.UploadAsync(http, transport, request.Files,
+        var uploads = await ChatGptAccountFiles.UploadAsync(http, request.Files,
             cancellationToken);
         var payload = BuildPayload(request, isNew, selection, uploads);
         var sessionId = Guid.NewGuid().ToString();
@@ -157,7 +157,7 @@ internal static class ChatGptAccountProtocol
         if (result.Files.Count > 0 || result.SandboxPaths.Count > 0)
         {
             progress?.Invoke(new("retrieving", "Downloading ChatGPT response attachments."));
-            artifacts = await ChatGptAccountFiles.DownloadAsync(http, transport,
+            artifacts = await ChatGptAccountFiles.DownloadAsync(http,
                 result.Files, conversationId, result.ParentMessageId, result.SandboxPaths,
                 progress, cancellationToken);
         }

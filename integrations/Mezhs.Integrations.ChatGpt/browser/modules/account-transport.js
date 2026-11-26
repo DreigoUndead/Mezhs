@@ -3,16 +3,10 @@ const ORIGIN = "https://chatgpt.com";
 const accountIds = new WeakMap();
 const API = Object.freeze({
   session: "/api/auth/session",
-  projects: "/backend-api/gizmos/snorlax/sidebar",
   models: "/backend-api/models?history_and_training_disabled=false",
-  modelPreference: "/backend-api/settings/user_last_used_model_config",
   conversation: "/backend-api/f/conversation",
   conversationPrepare: "/backend-api/f/conversation/prepare",
-  conversationInit: "/backend-api/conversation/init",
-  conversationById: id => `/backend-api/conversation/${encodeURIComponent(id)}`,
-  files: "/backend-api/files",
-  processFileUpload: "/backend-api/files/process_upload_stream",
-  fileDownload: id => `/backend-api/files/${encodeURIComponent(id)}/download`
+  conversationInit: "/backend-api/conversation/init"
 });
 
 async function webApiHeaders(session, endpoint, clientSessionId, extra = {}) {
@@ -31,13 +25,6 @@ async function webApiHeaders(session, endpoint, clientSessionId, extra = {}) {
   return headers;
 }
 
-function clientContext() {
-  return {
-    app_name: "chatgpt.com",
-    has_web_push_capabilities: false,
-    web_push_notification_permission: "default"
-  };
-}
 
 async function nativeChatRequirementsHeaders(window, session, token) {
   const accountId = accountIds.get(session) || null;
@@ -397,11 +384,6 @@ function parseRetryAfterMs(value) {
   return Number.isNaN(date) ? null : Math.max(0, date - Date.now());
 }
 
-function isConversationUnavailable(error, conversationId) {
-  return error?.status === 404 &&
-    error?.endpoint === API.conversationById(conversationId) &&
-    error?.providerCode === "conversation_inaccessible";
-}
 
 async function apiJson(session, token, endpoint, options = {}) {
   const response = await apiFetch(session, token, endpoint, options);
@@ -474,4 +456,4 @@ async function nativeAccountTurnHeaders({ window, session, args, endpoint, signa
   return headers;
 }
 
-module.exports = { ORIGIN, API, accessToken, requireToken, webApiHeaders, clientContext, nativeChatRequirementsHeaders, apiFetch, apiJson, isConversationUnavailable, parseRetryAfterMs, nativeAccountTurnHeaders };
+module.exports = { ORIGIN, API, accessToken, requireToken, webApiHeaders, nativeChatRequirementsHeaders, apiFetch, nativeAccountTurnHeaders };

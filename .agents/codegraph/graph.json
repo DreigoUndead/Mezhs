@@ -6509,6 +6509,14 @@
       "raw": "../electron/browser-transfer"
     },
     {
+      "from": 301,
+      "to": {
+        "type": "file",
+        "path": 52
+      },
+      "raw": "../integrations/Mezhs.Integrations.ChatGpt/browser/modules/entry.js"
+    },
+    {
       "from": 302,
       "to": {
         "type": "external",

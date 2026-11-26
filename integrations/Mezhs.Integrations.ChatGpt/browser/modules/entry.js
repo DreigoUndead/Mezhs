@@ -8,6 +8,17 @@ module.exports = {
   // provider code supplies only the origin and authenticated fetch semantics.
   transfer: {
     origin: ORIGIN,
+    // Only ChatGPT's known signed storage destinations may be accessed.
+    signedHostSuffixes: [
+      "blob.core.windows.net", "blob.core.usgovcloudapi.net",
+      "blob.core.chinacloudapi.cn", "oaiusercontent.com",
+      "openai.com", "chatgpt.com"
+    ],
+    uploadHeaderPrefix: "x-ms-",
+    uploadHeaderDefaults: {
+      "x-ms-blob-type": "BlockBlob",
+      "x-ms-version": "2020-04-08"
+    },
     async sameOriginDownload(session, url, signal) {
       const token = await requireToken(session);
       return session.fetch(url, {
