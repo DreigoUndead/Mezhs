@@ -287,6 +287,15 @@ public sealed class ChatStore(MezhsOptions options)
             .ThenBy(message => message.MessageId, StringComparer.Ordinal)
             .ToArray();
 
+    public static string? GetTitleFromPrompt(string? prompt)
+    {
+        if (prompt is null) return null;
+        var prefix = prompt.AsSpan(0, Math.Min(prompt.Length, 200));
+        var newline = prefix.IndexOfAny('\r', '\n');
+        var title = (newline < 0 ? prefix : prefix[..newline]).Trim();
+        return title.IsEmpty ? null : title.ToString();
+    }
+
     public ChatListState? TryGetListState(string chatId)
     {
         var chat = GetChat(chatId);
@@ -301,7 +310,7 @@ public sealed class ChatStore(MezhsOptions options)
             if (message.Role == "user" && IsEarlier(message, firstUser)) firstUser = message;
         }
 
-        var title = string.IsNullOrWhiteSpace(chat.Title) ? ChatTitle.FromPrompt(firstUser?.Content) : chat.Title;
+        var title = string.IsNullOrWhiteSpace(chat.Title) ? GetTitleFromPrompt(firstUser?.Content) : chat.Title;
         return new ChatListState(latest?.ConnectionId, title);
     }
 

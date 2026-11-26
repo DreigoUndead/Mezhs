@@ -99,9 +99,9 @@ try
         Serialize(legacyReply) + "\n");
 
     foreach (var separator in new[] { "\r\n", "\n", "\r" })
-        Check(ChatTitle.FromPrompt("First line" + separator + "ignored") == "First line", "Automatic title included a subsequent line.");
-    Check(ChatTitle.FromPrompt(new string('x', 250)) == new string('x', 200), "Automatic title exceeded the rename limit.");
-    Check(ChatTitle.FromPrompt("\nSecond line") is null, "Blank first line used later content.");
+        Check(ChatStore.GetTitleFromPrompt("First line" + separator + "ignored") == "First line", "Automatic title included a subsequent line.");
+    Check(ChatStore.GetTitleFromPrompt(new string('x', 250)) == new string('x', 200), "Automatic title exceeded the rename limit.");
+    Check(ChatStore.GetTitleFromPrompt("\nSecond line") is null, "Blank first line used later content.");
 
     var store = Open(mainRoot);
     Check(store.GetChats().Count == 2, "Migration did not import both layouts.");
