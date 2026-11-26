@@ -178,9 +178,11 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
     // not grant any tag authority: unknown, excluded and opaque wrappers still
     // form boundaries before semantic discovery decides what to render.
     // Parent links are private to parsing; no such links or handlers reach JSON.
-    private sealed class LocatedTag(Tag opening, LocatedTag? parent)
+    private sealed class LocatedTag(Tag opening, LocatedTag? parent,
+        RichTagDefinition? structuralDefinition)
     {
         public Tag Opening { get; } = opening;
+        public RichTagDefinition? StructuralDefinition { get; } = structuralDefinition;
         public LocatedTag? Parent { get; set; } = parent;
         public List<LocatedTag> SubTags { get; } = [];
         public RichTagContent? Content { get; set; }
@@ -227,8 +229,10 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
                 }
                 continue;
             }
-            _catalog.TryGetStructural(tag.Name, out var definition);
-            var located = new LocatedTag(tag, open.Count > 0 ? open.Peek() : null);
+            var structuralParent = open.Count > 0 ? open.Peek() : null;
+            _catalog.TryGetStructural(tag.Name, structuralParent?.StructuralDefinition,
+                out var definition);
+            var located = new LocatedTag(tag, structuralParent, definition);
             if (tag.SelfClosing || definition?.Role == RichTagRole.Marker)
             {
                 located.Complete = true;
