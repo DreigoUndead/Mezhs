@@ -419,7 +419,7 @@ var contextualInlinePass = contextualInline.Document.Valid &&
     contextualInline.Document.Nodes.SelectMany(Walk).Any(n =>
         n.Kind == "element" && n.Name == "nested-phrase" &&
         n.Children?.SelectMany(Walk).Any(c => c.Text == "inside") == true);
-Console.WriteLine($"{(contextualInlinePass ? "PASS" : "FAIL")}: Nested-only inline metadata survives normalization");
+Console.WriteLine($"{(contextualInlinePass ? "PASS" : "FAIL")}: Ancestor-restricted inline metadata survives normalization");
 if (!contextualInlinePass) failures++;
 
 // Raw SVG content travels as data, not executable Agent sub-tags.
@@ -449,7 +449,7 @@ var allowedChildPass = allowedChild.Document.Valid &&
     allowedChild.Commands.Select(c => c.Body).SequenceEqual(["ROOT"]) &&
     allowedChild.Document.Nodes.SelectMany(Walk).Any(n => n.Name == "allowed" &&
         n.Children?.SelectMany(Walk).Any(c => c.Text == "yes") == true);
-Console.WriteLine($"{(allowedChildPass ? "PASS" : "FAIL")}: Explicit parent child IDs admit registered nested-only tags");
+Console.WriteLine($"{(allowedChildPass ? "PASS" : "FAIL")}: Explicit parent child names admit registered ancestry-restricted tags");
 if (!allowedChildPass) failures++;
 
 var deniedChild = new RichDocumentParser(constrainedCatalog).Parse(
@@ -473,7 +473,7 @@ var nestedOnlyAtRoot = new RichDocumentParser(constrainedCatalog).Parse(
 var nestedOnlyAtRootPass = nestedOnlyAtRoot.Document.Valid &&
     nestedOnlyAtRoot.Commands.Select(c => c.Body).SequenceEqual(["ROOT"]) &&
     nestedOnlyAtRoot.Document.Nodes.Any(n => n.Kind == "unknown" && n.Name == "allowed");
-Console.WriteLine($"{(nestedOnlyAtRootPass ? "PASS" : "FAIL")}: Nested-only definitions cannot render at document root");
+Console.WriteLine($"{(nestedOnlyAtRootPass ? "PASS" : "FAIL")}: Ancestor-restricted definitions cannot render at document root");
 if (!nestedOnlyAtRootPass) failures++;
 
 // Context eligibility uses any matching structural ancestor, including
@@ -526,6 +526,20 @@ try
 catch (ArgumentException) { unknownRequiredAncestorRejected = true; }
 Console.WriteLine($"{(unknownRequiredAncestorRejected ? "PASS" : "FAIL")}: Required ancestor references must be registered");
 if (!unknownRequiredAncestorRejected) failures++;
+
+var emptyRequiredAncestorsRejected = false;
+try
+{
+    _ = RichTagRegistry.Ui.With([
+        new RichTagDefinition("never-allowed", RichTagRole.Container, null, null, true)
+        {
+            RequiredAncestors = new HashSet<string>(StringComparer.Ordinal)
+        }
+    ]);
+}
+catch (ArgumentException) { emptyRequiredAncestorsRejected = true; }
+Console.WriteLine($"{(emptyRequiredAncestorsRejected ? "PASS" : "FAIL")}: Empty required ancestor sets are invalid");
+if (!emptyRequiredAncestorsRejected) failures++;
 
 var invalidChildRegistrationRejected = false;
 try
