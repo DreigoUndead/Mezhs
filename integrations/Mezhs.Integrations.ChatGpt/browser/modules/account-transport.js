@@ -125,7 +125,7 @@ async function nativeChatRequirementsHeaders(window, session, token) {
         ]) {
           let source;
           try { source = new URL(raw, "https://chatgpt.com/"); } catch { continue; }
-          if (!/\.js$/i.test(source.pathname)) continue;
+          if (!source.pathname.toLowerCase().endsWith(".js")) continue;
           jsMask |= source.origin !== "https://chatgpt.com" ? 4
             : source.pathname.startsWith("/cdn/assets/") ? 1 : 2;
         }

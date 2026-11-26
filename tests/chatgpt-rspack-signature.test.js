@@ -155,6 +155,27 @@ test("failed discovery reports only fixed asset categories from the current rend
   assert.equal(calls.length, 0, "no Sentinel request without verified provider");
 });
 
+test("native runtime diagnostics do not classify non-JavaScript suffixes as scripts", async () => {
+  const { window, calls, imports } = testBrowser({
+    resourceNames: [
+      "https://chatgpt.com/cdn/assets/not-a-script-jsonjs",
+      "https://chatgpt.com/other/not-a-script-xjs"
+    ],
+    scriptNames: ["https://untrusted.example/not-a-script-xjs"]
+  });
+  await assert.rejects(
+    getNativeHeaders(window, {}, "synthetic-secret"),
+    error => {
+      assert.match(error.message, /jsMask=0/);
+      assert.match(error.message, /not observed in this document/);
+      assert.doesNotMatch(error.message, /synthetic-secret/);
+      return true;
+    }
+  );
+  assert.equal(imports.length, 0);
+  assert.equal(calls.length, 0);
+});
+
 test("native requirements discovery supports semantic fallback after module renames", async () => {
   const { window } = testBrowser({
     requirements: { token: "issued" },
