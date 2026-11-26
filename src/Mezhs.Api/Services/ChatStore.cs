@@ -255,7 +255,11 @@ public sealed class ChatStore(MezhsOptions options)
                 ?? throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
             var previous = chat.Title;
             chat.Title = title;
-            try { SaveChat(chat, touchActivity: false); }
+            try
+            {
+                using var connection = _database.Open();
+                UpdateChat(connection, null, chat);
+            }
             catch { chat.Title = previous; throw; }
             return chat;
         }
@@ -337,14 +341,14 @@ public sealed class ChatStore(MezhsOptions options)
                 active.MessageId, active.Status, active.Activity, active.ActivityDetail, active.ActivityAt));
     }
 
-    public void SaveChat(ChatRecord chat, bool touchActivity = true)
+    public void SaveChat(ChatRecord chat)
     {
         lock (_writeLock)
         {
             if (!_chats.ContainsKey(chat.ChatId))
                 throw new ResourceNotFoundException($"Chat '{chat.ChatId}' was not found.");
             var previousUpdatedAt = chat.UpdatedAt;
-            if (touchActivity) chat.UpdatedAt = DateTimeOffset.UtcNow;
+            chat.UpdatedAt = DateTimeOffset.UtcNow;
             try
             {
                 using var connection = _database.Open();
