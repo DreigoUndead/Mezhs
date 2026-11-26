@@ -98,6 +98,11 @@ try
     Write(Path.Combine(Path.GetDirectoryName(legacyFile)!, "messages.jsonl"),
         Serialize(legacyReply) + "\n");
 
+    foreach (var separator in new[] { "\r\n", "\n", "\r" })
+        Check(ChatStore.GetTitleFromPrompt("First line" + separator + "ignored") == "First line", "Automatic title included a subsequent line.");
+    Check(ChatStore.GetTitleFromPrompt(new string('x', 250)) == new string('x', 200), "Automatic title exceeded the rename limit.");
+    Check(ChatStore.GetTitleFromPrompt("\nSecond line") is null, "Blank first line used later content.");
+
     var store = Open(mainRoot);
     Check(store.GetChats().Count == 2, "Migration did not import both layouts.");
     Check(store.GetCategories().Single().Name == "Project", "Category lost on migration.");
@@ -171,6 +176,16 @@ try
     };
     store.SaveMessage(appended);
     store.RenameChat(modern.ChatId, "SQLite rename");
+    var orderBeforeRename = store.GetChats().Select(c => c.ChatId).ToArray();
+    var olderTimestamp = store.GetChat(legacy.ChatId)!.UpdatedAt;
+    store.RenameChat(legacy.ChatId, "Older renamed");
+    Check(store.GetChats().Select(c => c.ChatId).SequenceEqual(orderBeforeRename) &&
+        store.GetChat(legacy.ChatId)!.UpdatedAt == olderTimestamp && loaded.UpdatedAt == beforeFailedTouch,
+        "Renaming changed activity or list order.");
+    var reopened = Open(mainRoot);
+    Check(reopened.GetChats().Select(c => c.ChatId).SequenceEqual(orderBeforeRename) &&
+        reopened.GetChat(legacy.ChatId)!.UpdatedAt == olderTimestamp && reopened.GetChat(legacy.ChatId)!.Title == "Older renamed",
+        "Rename or preserved activity did not survive reopening.");
     store.RenameCategory(category.CategoryId, "Renamed project");
     Check(!File.ReadAllText(modernFile).Contains("SQLite rename"),
         "New chat state unexpectedly wrote the legacy backup.");
@@ -179,6 +194,19 @@ try
     Check(store.GetChats().All(item => item.CategoryId is null),
         "Category removal did not unassign all chats.");
     var made = store.CreateChat(null);
+    store.SaveMessage(new StoredMessage
+    {
+        MessageId = "msg_first_title", ChatId = made.ChatId, ConnectionId = "mock",
+        Role = "user", Content = "First prompt\r\nNot in title", CreatedAt = now
+    });
+    store.SaveMessage(new StoredMessage
+    {
+        MessageId = "msg_second_title", ChatId = made.ChatId, ConnectionId = "mock",
+        Role = "user", Content = "Later prompt", CreatedAt = now.AddMinutes(1)
+    });
+    Check(store.TryGetListState(made.ChatId)?.Title == "First prompt", "Chat list title did not use only the first prompt line.");
+    var chatService = new ChatService(store, null!);
+    Check(chatService.Get(made.ChatId).Title == "First prompt", "Core API title did not use only the first prompt line.");
 
     // Local deletion is atomic even when the SQLite statement fails mid-batch.
     using (var connection = new SqliteDatabase(Path.Combine(mainRoot, "chats.sqlite")).Open())

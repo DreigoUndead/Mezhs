@@ -2,6 +2,20 @@
 
 This changelog records project releases. One approved implementation merge creates one release version. Earlier work is recorded in Git history.
 
+## [0.10.1] - 2026-11-27
+
+### Fixed
+- Generate chat and agent titles from only the first line of the first prompt, retaining the 200-character limit.
+- Allow insertion anywhere within a full rename field by discarding excess trailing characters while preserving the caret.
+- Preserve conversation activity timestamps and list positions when renaming chats or agents.
+
+### Verification and approval
+- Owner explicitly approved merging task revision `0b42d877e4931591b9d324cf0d068dffa38afed9` on 2026-11-27 under the Small / low-risk one-agent workflow.
+- Final implementation passed Batman self-review, SQLite persistence tests, Agent API smoke tests, architecture checks, three Chromium browser scenarios and the full Release solution build.
+
+### Known limitations
+- The existing group-deletion browser focus-restoration assertion failed in an earlier local check, including without the new rename scenario. Hosted CI and authenticated live-provider testing were not verified. Existing dependency audit findings and the unrelated WhatsApp CS0114 warning remain.
+
 ## [0.10.0] - 2026-11-23
 
 ### Changed

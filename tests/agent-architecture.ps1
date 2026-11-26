@@ -84,7 +84,7 @@ Assert ($program -match '/v1/agent-chats/\{chatId\}/runtime' -and $program -matc
 Assert ($program -notmatch 'messages\.ActiveMessage\.Analysis' -and $agentWebApp -notmatch 'activity\.analysis') "Agent runtime polling still transports the growing model analysis payload."
 Assert ($chatStore -match 'GetRuntimeState' -and $chatStore -match 'foreach \(var message in _messages\.Values\)') "Chat runtime polling is not a lightweight in-memory state read."
 Assert ($store -match 'GetFirstRootExecutionRequest' -and $store -match 'substr\(Request, 1, 200\)' -and $program -match 'GetFirstRootExecutionRequest\(record\.ChatId\)') "Agent chat list still loads an unbounded execution request just to derive the title."
-Assert ($chatStore -match 'TryGetListState' -and $chatStore -match 'Length: > 200' -and $program -match 'chats\.TryGetListState\(record\.ChatId\)') "Agent chat list still materializes unbounded transcript content for sidebar metadata."
+Assert ($chatStore -match 'TryGetListState' -and $chatStore -match 'GetTitleFromPrompt' -and $chatStore -match 'Math\.Min\(prompt\.Length, 200\)' -and $program -match 'chats\.TryGetListState\(record\.ChatId\)') "Agent chat list still materializes unbounded transcript content for sidebar metadata."
 Assert ($executorStore -match 'ListStates' -and $executorStore -match 'SELECT Id, Status, CompletedAt, RestartedAsId') "Executor polling still requires full execution payload reads."
 
 Assert ($sqlite -match 'class SqliteDatabase' -and $sqlite -match 'journal_mode\s*=\s*WAL' -and $sqlite -match 'busy_timeout\s*=' -and $sqlite -match 'Pooling\s*=\s*true' -and $sqlite -match 'EnsureColumn' -and $sqlite -match 'DropColumnIfExists') "Shared SQLite foundation does not own common path/connection/migration mechanics."

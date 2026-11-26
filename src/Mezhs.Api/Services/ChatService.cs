@@ -49,7 +49,7 @@ public sealed class ChatService(
             ?? messages.LastOrDefault()?.ConnectionId
             ?? string.Empty;
         var title = chat.Title ??
-            messages.FirstOrDefault(message => message.Role == "user")?.Content ??
+            ChatStore.GetTitleFromPrompt(messages.FirstOrDefault(message => message.Role == "user")?.Content) ??
             "New chat";
         return new ApiChat(
             chat.ChatId,

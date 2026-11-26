@@ -260,6 +260,83 @@ setTimeout(run, 100);
 `.replace("__MEZHS_TITLE_SOURCE__", JSON.stringify(titleSource))
   .replace("__MEZHS_TITLE_DOCUMENT__", JSON.stringify(titleDocument));
 
+const renameSource = String.raw`
+import React from "react";
+import { createRoot } from "react-dom/client";
+import MezhsChatApp from "./node_modules/@mezhs/web-lib/src/MezhsChatApp";
+import "./node_modules/@mezhs/web-lib/src/styles.css";
+
+const now = "2026-11-10T10:00:00Z";
+const makeChat = (id, title) => ({
+  chatId: id, title, categoryId: "group-a", connectionId: "no-provider",
+  createdAt: now, updatedAt: now,
+});
+let categories = [{ categoryId: "group-a", name: "Alpha", color: "#abcdef", createdAt: now }];
+let chats = [makeChat("chat-a", "First chat"), makeChat("chat-b", "Second chat")];
+const json = value => Promise.resolve(new Response(JSON.stringify(value), {
+  status: 200, headers: { "Content-Type": "application/json" },
+}));
+window.fetch = (url, init = {}) => {
+  const endpoint = new URL(String(url), location.href).pathname;
+  const method = String(init?.method || "GET").toUpperCase();
+  if (endpoint === "/health") return json({ status: "ok" });
+  if (endpoint === "/v1/connections" && method === "GET") return json([]);
+  if (endpoint === "/v1/categories" && method === "GET") return json(categories);
+  if (endpoint === "/v1/chats" && method === "GET") return json(chats);
+  if (endpoint === "/v1/chats/chat-b" && method === "PATCH") {
+    chats[1].title = JSON.parse(init.body).title;
+    return json(chats[1]);
+  }
+  throw new Error("Unexpected request: " + method + " " + endpoint);
+};
+
+createRoot(document.getElementById("root")).render(<MezhsChatApp apiBaseUrl="http://test-api" />);
+
+const sleep = duration => new Promise(resolve => setTimeout(resolve, duration));
+async function settle(duration = 60) { await sleep(duration); }
+function check(value, message) { if (!value) throw Error(message); }
+const waitFor = async (predicate, label) => {
+  for (let i = 0; i < 50; i++) {
+    if (predicate()) return;
+    await settle(30);
+  }
+  throw Error("Timed out waiting for " + label);
+};
+const report = (status, message) => {
+  const node = document.createElement("pre");
+  node.id = "browser-results";
+  node.setAttribute("data-state", status);
+  node.textContent = message;
+  document.body.appendChild(node);
+};
+async function run() {
+  const steps = [];
+  try {
+    await waitFor(() => document.querySelectorAll(".chat-row").length === 2, "initial chat inventory");
+    document.querySelectorAll(".chat-options")[1].click();
+    await settle();
+    const rename = document.querySelector(".base-chat-menu-title");
+    rename.focus(); rename.select(); document.execCommand("insertText", false, "a".repeat(199) + "z");
+    rename.setSelectionRange(0, 0); document.execCommand("insertText", false, "X");
+    check(rename.value === "X" + "a".repeat(199) && rename.selectionStart === 1, "Prefix insertion or caret failed");
+    rename.setSelectionRange(2, 2); document.execCommand("insertText", false, "Y");
+    const expected = "XaY" + "a".repeat(197);
+    check(rename.value === expected && rename.selectionStart === 3, "Middle insertion or caret failed");
+    rename.setSelectionRange(200, 200); document.execCommand("insertText", false, "Z");
+    check(rename.value === expected && rename.selectionStart === 200, "End insertion was not discarded");
+    rename.blur(); await waitFor(() => chats[1].title === expected, "rename saved");
+    await settle();
+    check(document.querySelectorAll(".chat-title")[1].textContent === expected, "Renamed chat changed position");
+    document.querySelectorAll(".chat-options")[1].click();
+    steps.push("rename-tail-truncation");
+    report("pass", steps.join(", "));
+  } catch (error) {
+    report("fail", String(error?.stack || error));
+  }
+}
+setTimeout(run, 80);
+`;
+
 const chromeCandidates = [
   process.env.CHROME_BIN,
   process.env.PROGRAMFILES && path.join(process.env.PROGRAMFILES, 'Google', 'Chrome', 'Application', 'chrome.exe'),
@@ -271,12 +348,12 @@ const chromeCandidates = [
 ];
 const chrome = chromeCandidates.find(candidate => candidate && fs.existsSync(candidate));
 
-test("real Chromium rendering: drafts, scroll transitions, controls and title layout", { timeout: 70000 }, () => {
+function runBrowser(source, sourcefile, prefix, virtualTimeBudget = 12000) {
   assert.ok(chrome, 'A real Chromium browser is required for this regression test');
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "mezhs-chat-ui-"));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   try {
     const result = esbuild.buildSync({
-      stdin: { contents: appSource, resolveDir: frontend, sourcefile: "chat-ui-harness.tsx", loader: "tsx" },
+      stdin: { contents: source, resolveDir: frontend, sourcefile, loader: "tsx" },
       bundle: true, format: "iife", platform: "browser", jsx: "automatic", preserveSymlinks: true,
       write: false, outdir: temp,
     });
@@ -290,7 +367,7 @@ test("real Chromium rendering: drafts, scroll transitions, controls and title la
     const invocation = spawnSync(chrome, [
       "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-background-networking",
       "--no-first-run", `--user-data-dir=${path.join(temp, "profile")}`,
-      "--virtual-time-budget=12000", "--dump-dom", "file:///" + path.join(temp, "index.html").replace(/\\/g, "/"),
+      "--virtual-time-budget=" + virtualTimeBudget, "--dump-dom", "file:///" + path.join(temp, "index.html").replace(/\\/g, "/"),
     ], { timeout: 60000, encoding: "utf8", maxBuffer: 12 * 1024 * 1024 });
     assert.equal(invocation.status, 0, `Chrome exited unsuccessfully: ${invocation.error || invocation.stderr}`);
     const dom = invocation.stdout;
@@ -298,19 +375,29 @@ test("real Chromium rendering: drafts, scroll transitions, controls and title la
     const report = /<pre id="browser-results" data-state="([^"]+)">([^<]*)<\/pre>/.exec(dom);
     assert.ok(report, `Browser result was malformed: ${dom.slice(-2000)}`);
     assert.equal(report[1], "pass", report[2]);
-    assert.match(report[2], /equal-length-content-invalidates/);
-    assert.match(report[2], /inline-rich-title/);
-    assert.match(report[2], /provisional-rich-title-inert/);
-    for (const scenario of [
-      "scoped-draft-isolation",
-      "pending-ownership-and-draft-handoff",
-      "failed-send-preserves-edits",
-      "resize-preserves-manual-and-bottom-follow",
-      "attachment-revision-invalidates",
-      "execution-revision-invalidates",
-      "delayed-history-restores-only-after-ready",
-    ]) assert.ok(report[2].includes(scenario), "Missing Chromium scenario: " + scenario);
+    return report[2];
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
+}
+
+test("real Chromium rendering: drafts, scroll transitions, controls and title layout", { timeout: 70000 }, () => {
+  const report = runBrowser(appSource, "chat-ui-harness.tsx", "mezhs-chat-ui-");
+  assert.match(report, /equal-length-content-invalidates/);
+  assert.match(report, /inline-rich-title/);
+  assert.match(report, /provisional-rich-title-inert/);
+  for (const scenario of [
+    "scoped-draft-isolation",
+    "pending-ownership-and-draft-handoff",
+    "failed-send-preserves-edits",
+    "resize-preserves-manual-and-bottom-follow",
+    "attachment-revision-invalidates",
+    "execution-revision-invalidates",
+    "delayed-history-restores-only-after-ready",
+  ]) assert.ok(report.includes(scenario), "Missing Chromium scenario: " + scenario);
+});
+
+test("Chromium chat rename: tail truncation, caret and list position", { timeout: 70000 }, () => {
+  const report = runBrowser(renameSource, "chat-rename-harness.tsx", "mezhs-chat-rename-", 15000);
+  assert.ok(report.includes("rename-tail-truncation"));
 });

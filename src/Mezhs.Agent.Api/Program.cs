@@ -319,7 +319,7 @@ static AgentChatView ToView(
         record.Paused,
         !string.IsNullOrWhiteSpace(savedTitle)
             ? savedTitle
-            : string.IsNullOrWhiteSpace(firstTask) ? chat?.Title : firstTask,
+            : firstTask is null ? chat?.Title : ChatStore.GetTitleFromPrompt(firstTask),
         chat?.ConnectionId,
         record.CreatedAt,
         lastActivity,

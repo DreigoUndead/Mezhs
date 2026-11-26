@@ -255,7 +255,11 @@ public sealed class ChatStore(MezhsOptions options)
                 ?? throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
             var previous = chat.Title;
             chat.Title = title;
-            try { SaveChat(chat); }
+            try
+            {
+                using var connection = _database.Open();
+                UpdateChat(connection, null, chat);
+            }
             catch { chat.Title = previous; throw; }
             return chat;
         }
@@ -287,6 +291,15 @@ public sealed class ChatStore(MezhsOptions options)
             .ThenBy(message => message.MessageId, StringComparer.Ordinal)
             .ToArray();
 
+    public static string? GetTitleFromPrompt(string? prompt)
+    {
+        if (prompt is null) return null;
+        var prefix = prompt.AsSpan(0, Math.Min(prompt.Length, 200));
+        var newline = prefix.IndexOfAny('\r', '\n');
+        var title = (newline < 0 ? prefix : prefix[..newline]).Trim();
+        return title.IsEmpty ? null : title.ToString();
+    }
+
     public ChatListState? TryGetListState(string chatId)
     {
         var chat = GetChat(chatId);
@@ -301,10 +314,8 @@ public sealed class ChatStore(MezhsOptions options)
             if (message.Role == "user" && IsEarlier(message, firstUser)) firstUser = message;
         }
 
-        var title = string.IsNullOrWhiteSpace(chat.Title) ? firstUser?.Content : chat.Title;
-        return new ChatListState(
-            latest?.ConnectionId,
-            title is { Length: > 200 } ? title[..200] : title);
+        var title = string.IsNullOrWhiteSpace(chat.Title) ? GetTitleFromPrompt(firstUser?.Content) : chat.Title;
+        return new ChatListState(latest?.ConnectionId, title);
     }
 
     public ChatRuntimeState GetRuntimeState(string chatId)

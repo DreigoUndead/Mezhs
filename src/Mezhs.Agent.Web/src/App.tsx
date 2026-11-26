@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Check, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import {
   apiJson,
+  readChatRenameValue,
   apiJsonOrEmpty,
   DraftChatComposer,
   ChatProviderRegistry,
@@ -1459,8 +1460,8 @@ useEffect(() => {
                 <div className="agent-chat-menu">
                   <input className="agent-chat-menu-title" type="text" autoFocus
                     aria-label={`Rename ${displayTitle(chat)}`} title="Rename agent"
-                    maxLength={200} value={chatRenameDraft}
-                    onChange={(event) => setChatRenameDraft(event.target.value)}
+                    value={chatRenameDraft}
+                    onChange={(event) => setChatRenameDraft(readChatRenameValue(event.currentTarget))}
                     onBlur={(event) => { void renameChat(chat, event.currentTarget.value); }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
