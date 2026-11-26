@@ -22,6 +22,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
     private readonly Dictionary<string, int> _activeChats = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IdleContext> _idleContexts = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _discardChats = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _pendingOwnerReleases = new(StringComparer.OrdinalIgnoreCase);
     private long _idleSequence;
     private bool _disposed;
 
@@ -103,6 +104,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
         {
             ThrowIfDisposed();
             _retainedChats[chatId] = _retainedChats.GetValueOrDefault(chatId) + 1;
+            _pendingOwnerReleases.Remove(chatId); // A successor owner cancels only deferred owner-release, not failures.
             CancelIdleContext(chatId);
             CancelIdle(); // Keep the same authenticated context through Agent shell/wait cycles.
         }
@@ -124,7 +126,7 @@ public sealed class BrowserAccountSession : IAsyncDisposable
             try
             {
                 if (_activeChats.ContainsKey(chatId))
-                    _discardChats.Add(chatId);
+                    _pendingOwnerReleases.Add(chatId);
                 else if (_transport is not null)
                     await ReleaseContextBestEffortAsync(_transport, chatId);
             }
@@ -198,9 +200,10 @@ public sealed class BrowserAccountSession : IAsyncDisposable
                     {
                         _activeChats.Remove(chatId);
                         var discard = _discardChats.Remove(chatId);
+                        var ownerReleased = _pendingOwnerReleases.Remove(chatId);
                         if (!_disposed && ReferenceEquals(_transport, transport))
                         {
-                            if (discard)
+                            if (discard || ownerReleased)
                                 await ReleaseContextBestEffortAsync(transport, chatId);
                             else if (!_retainedChats.ContainsKey(chatId))
                             {

@@ -353,6 +353,44 @@ static async Task TestWarmContextsAsync(string root)
     await active;
     Assert(Released("active-agent"), "Deferred Agent release was lost.");
 
+    await session.RetainConversationAsync("handoff");
+    var entered = Signal();
+    var finishHandoff = Signal();
+    var handoff = session.UseAsync(async (_, token) => { entered.SetResult(true); return await finishHandoff.Task.WaitAsync(token); }, chatId: "handoff");
+    await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    await session.ReleaseConversationAsync("handoff");
+    await session.RetainConversationAsync("handoff");
+    finishHandoff.SetResult(true);
+    await handoff;
+    Assert(!Released("handoff"), "Successor owner context discarded by preceding owner.");
+    await session.ReleaseConversationAsync("handoff");
+    Assert(host.ReleasedContexts.Count(id => id == "handoff") == 1, "Successor final release was not unique.");
+    // A successor owner cannot suppress the discard required by a failed active send.
+    await session.RetainConversationAsync("handoff-failure");
+    var failureEntered = Signal();
+    var finishFailure = Signal();
+    var failedHandoff = session.UseAsync<int>(async (_, token) => { failureEntered.SetResult(true); await finishFailure.Task.WaitAsync(token); throw new InvalidOperationException("expected handoff failure"); }, chatId: "handoff-failure");
+    await failureEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    await session.ReleaseConversationAsync("handoff-failure");
+    await session.RetainConversationAsync("handoff-failure");
+    finishFailure.SetResult(true);
+    try { await failedHandoff; throw new Exception("Failure was swallowed."); }
+    catch (InvalidOperationException ex) when (ex.Message == "expected handoff failure") { }
+    Assert(Released("handoff-failure"), "A new owner suppressed the required failed-send context discard.");
+    await session.ReleaseConversationAsync("handoff-failure");
+    // A successor retain cannot override mandatory cancellation cleanup.
+    await session.RetainConversationAsync("handoff-cancel");
+    var cancellationEntered = Signal();
+    using var handoffCancelToken = new CancellationTokenSource();
+    var cancellationHandoff = session.UseAsync<int>(async (_, token) => { cancellationEntered.SetResult(true); await Task.Delay(Timeout.InfiniteTimeSpan, token); return 0; }, handoffCancelToken.Token, chatId: "handoff-cancel");
+    await cancellationEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    await session.ReleaseConversationAsync("handoff-cancel");
+    await session.RetainConversationAsync("handoff-cancel");
+    handoffCancelToken.Cancel();
+    try { await cancellationHandoff; throw new Exception("Cancellation was swallowed."); }
+    catch (OperationCanceledException) { }
+    Assert(Released("handoff-cancel"), "A successor retained a cancelled browser context.");
+    await session.ReleaseConversationAsync("handoff-cancel");
     await SendChat("cancel");
     var cancelStarted = Signal();
     using var cancellation = new CancellationTokenSource();
