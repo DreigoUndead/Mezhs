@@ -46,7 +46,10 @@ function safeTransferHeaders(input, contentType, policy) {
         typeof value !== "string" || value.length > 4096 ||
         /[\r\n]/.test(value))
       throw new Error("Unsafe signed transfer header.");
-    output[name] = value;
+    // HTTP field names are case-insensitive. Canonicalize before provider
+    // defaults override optional signed headers; otherwise Fetch may join
+    // differently cased duplicates into an invalid combined value.
+    output[name.toLowerCase()] = value;
   };
   for (const [name, value] of Object.entries(input || {})) add(name, value);
   // Provider-required values override optional signed-upload headers.
