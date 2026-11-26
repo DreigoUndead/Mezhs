@@ -22,16 +22,32 @@ Parsing only discovers/normalizes data and builds host-only command candidates. 
 - `src/Mezhs.Web.Lib/src/RichDocumentView.tsx`, `MarkdownContent.tsx`, `rich-elements/*`: typed frontend document with known component map. `RichActionContext.ts` and `rich-elements/Question.tsx` already support limited local state and a host-authorized new-turn action.
 - Tests: `tests/Mezhs.RichUi.TestApp/Program.cs`, `tests/rich-model-ui-rendering.test.cjs`, `tests/agent-protocol-result.ps1`, `tests/agent-web-shared-ui.ps1`, relevant Agent architecture/safety fixtures. Existing tests contain both older and now superseded ancestry expectations; update them deliberately.
 
-## Parent-defined child policy (2026-11-24 owner correction)
+## Unique tag identity and ancestor eligibility (2026-11-26 owner decision)
 
-The implemented tag contract supersedes the earlier conceptual `SearchNested`
-and `AllowAsNested` fields below. A `RichTagDefinition.SupportedChildren`
-set defines how children are admitted: `null` means ordinary registered UI
-children, an empty set means opaque/no MEŽS children, and explicit registered
-tag IDs mean only the listed MEŽS children. Nested-only variants set
-`AtRoot=false` and can use a distinct `Id` for surface-name collisions.
-The shared structural finder still recognizes complete excluded wrappers,
-without promoting commands inside them.
+One registered MEŽS source name has one structural definition per composed
+`RichTagCatalog`. Duplicate names, including a raw-root/container-nested
+combination, are invalid at registration. Different functions require
+different tag names. No contextual variants, `Id`/`Key`, parent overrides
+or `AtRoot` flag are retained.
+
+A tag can declare optional `RichTagDefinition.RequiredAncestors`:
+`null` accepts any location; a nonempty set of registered tag names
+requires at least one name among its **structural ancestors**, direct or
+indirect. The document root has no ancestors and therefore cannot admit a
+restricted tag. This is checked **after** structural discovery; no
+registration or eligibility test may suppress containment of a complete
+excluded wrapper. The owner chose any-ancestor matching, not direct-parent
+matching. Registered ancestor references and uniqueness are verified when
+composing a catalog.
+
+The existing `SupportedChildren` declaration remains a separate direct-child
+rule: `null` means ordinary registered UI children, empty means opaque/no
+MEŽS children, and an explicit name set admits only those direct children.
+`AllowAsChild=false` remains an independent Agent host-command restriction:
+root commands and root-`escape` direct commands use their existing
+authorization path, not the general presentation ancestor rule. The shared
+structural matcher always recognizes excluded and unknown wrappers so nested
+commands remain inert.
 
 **SVG exception (owner-approved 2026-11-24):** `svg` is one registered
 `RawEditor` with `SupportedChildren=empty`. It carries its bounded root
@@ -56,10 +72,10 @@ security boundary; build-time automatic file discovery was not introduced.
 
 The source-level contract is defined in `RichTagRegistry.cs`:
 
-- `RichTagDefinition` declares name, role, permitted attributes, `SupportedChildren`, root/nested eligibility, inline/interactive metadata and an optional registered `ProcessContent` callback.
+- `RichTagDefinition` declares a globally unique name within the catalog, role, permitted attributes, `SupportedChildren`, optional `RequiredAncestors`, inline/interactive metadata and an optional registered `ProcessContent` callback.
 - `RichTagContent` supplies validated data, original source/body spans, parent context, self-closing and root flags to handlers; handlers may emit candidates but never execute host side effects.
 - `RichTagCatalog` is immutable per host. Core uses `RichTagRegistry.Ui`; Agent composes its own commands from `Mezhs.Agent.Api/Commands/Registry.cs`. This keeps Agent capabilities out of Core.
-- `SupportedChildren`: null permits ordinary registered UI descendants; empty forbids MEŽS child processing (including opaque bodies); an explicit registered ID set restricts descendants. Nested-only variants use `AtRoot=false`. Avoid new generic parser name-specific exceptions when extending the catalog.
+- `SupportedChildren`: null permits ordinary registered UI direct children; empty forbids MEŽS child processing (including opaque bodies); an explicit registered name set restricts direct children. `RequiredAncestors` optionally restricts descendants by any ancestor name. No tag-name-specific parser cases or contextual variant selection.
 - The frontend `rich-elements/Registry.ts` statically binds approved tag symbols to locally imported TSX components and raw-editor factories. No model-controlled import paths, arbitrary JSX or dynamic host callbacks.
 
 `RichDocument` remains versioned serialized data (`version`, `valid`, `nodes`, `diagnostics`) with source spans and inert, bounded attributes. Private `Parent`/handler references and host-only command candidates must never be serialized to React. Preserve existing safe literal data representation and streaming fallback; change the protocol only if a justified, synchronized migration is approved.
@@ -69,7 +85,7 @@ Architectural acceptance includes a **one-more-instance exercise**: an ordinary 
 ## Discovery and processing
 
 1. `FindRootTags` is the shared structural matcher for normal parsing and bounded root-`escape` command discovery. Structural matching includes known and unknown wrappers, parent relationships, paired delimiters, self-closing tags and markers, even when a tag is not eligible for display/execution. Filtering only affects returned tags, never ancestry.
-2. `RenderChildren` consumes the located tree, applies `RichTagCatalog` parent eligibility (`SupportedChildren`, root/nested rules), produces Markdown/rich nodes and invokes the **single** `DispatchTag` for validated registered handlers. There is no separate public `FindTags` or `SearchNested` mechanism.
+2. `RenderChildren` consumes the located tree, applies direct-parent `SupportedChildren` and any-ancestor `RequiredAncestors` admission while retaining structurally located wrappers, produces Markdown/rich nodes and invokes the **single** `DispatchTag` for validated registered handlers. There is no separate public `FindTags` or `SearchNested` mechanism.
 3. Root-only executable tags are registered by the Agent host, never by Core. Their callbacks collect candidates with original spans and byte-exact bodies. The Agent command adapter and Interpreter authorize the batch and perform side effects only after full validation.
 4. `escape` is a registered opaque/literal MEŽS control. Its callback dispatches only **direct registered root-only handler tags** when the escape itself is at document root, using the same bounded structural finder. It does not name `SH`, `ATTACH` or `DONE` specifically. Nested escapes cannot promote commands. Non-command escape content remains muted literal display, omitting collected command spans.
 5. Other known opaque editors, SVG raw content and unknown/ineligible wrappers preserve nested command inertness. For raw editors, the C# structural matcher finds an outer boundary without interpreting the editor's embedded language. Embedded SVG geometry/attributes are validated and rendered only by trusted `Svg.tsx`; unsupported input is visibly inert.
