@@ -61,7 +61,7 @@ window.installActiveTurn = id => {
 const response = data => new Response(JSON.stringify(data), {
   status: 200, headers: { "Content-Type": "application/json" },
 });
-window.fetch = async input => {
+window.fetch = async (input, init = {}) => {
   const requestUrl = String(input);
   // App API uses root-relative paths; file:// pages resolve "/health" to "/C:/health".
   const pathname = requestUrl.startsWith("/")
@@ -79,6 +79,11 @@ window.fetch = async input => {
   }]);
   if (pathname === "/v1/categories") return response([]);
   if (pathname === "/v1/agent-chats") return response(window.fixtureChats);
+  if (pathname === "/v1/chats/chat-b" && init.method === "PATCH") {
+    const target = window.fixtureChats.find(item => item.chatId === "chat-b");
+    target.title = JSON.parse(init.body).title;
+    return response(target);
+  }
   const match = /^\/v1\/agent-chats\/([^/]+)\/(messages|executions|runtime)$/.exec(pathname);
   if (match) {
     const id = decodeURIComponent(match[1]);
@@ -228,6 +233,22 @@ async function run() {
       "Provider waiting must remain Agent Running, not admission Waiting");
     checked.push("capacity-spacing-provider-separation");
 
+    row("chat-b").querySelector(".agent-chat-menu-toggle").click();
+    await sleep(100);
+    const rename = document.querySelector(".agent-chat-menu-title");
+    const full = "a".repeat(199) + "z";
+    rename.focus(); rename.select(); document.execCommand("insertText", false, full);
+    rename.setSelectionRange(0, 0); document.execCommand("insertText", false, "X");
+    requireCondition(rename.value === "X" + "a".repeat(199) && rename.selectionStart === 1, "Prefix insertion or caret failed");
+    rename.setSelectionRange(2, 2); document.execCommand("insertText", false, "Y");
+    const expected = "XaY" + "a".repeat(197);
+    requireCondition(rename.value === expected && rename.selectionStart === 3, "Middle insertion or caret failed");
+    rename.setSelectionRange(200, 200); document.execCommand("insertText", false, "Z");
+    requireCondition(rename.value === expected && rename.selectionStart === 200, "End insertion was not discarded");
+    rename.blur();
+    await until(() => window.fixtureChats[1].title === expected, "rename saved");
+    checked.push("rename-tail-truncation");
+
     const result = document.createElement("pre");
     result.id = "agent-status-browser-results";
     result.dataset.status = "pass";
@@ -310,7 +331,7 @@ test("Agent status: compact label, unread completion and read-on-open in real Ch
     const report = /<pre id="agent-status-browser-results" data-status="([^"]+)">([^<]*)<\/pre>/.exec(result.stdout);
     assert.ok(report, "Browser did not report: " + result.stdout.slice(-1500) + " " + result.stderr);
     assert.equal(report[1], "pass", report[2]);
-    for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution", "waiting-orange-running-recovery", "capacity-spacing-provider-separation", "draft-skips-long-transcript", "draft-does-not-render-app", "unchanged-chat-poll-skips-transcript", "message-update-refreshes-transcript"])
+    for (const expected of ["compact-hover-focus", "blue-to-green-on-open", "selected-auto-read", "new-unselected-execution", "waiting-orange-running-recovery", "capacity-spacing-provider-separation", "draft-skips-long-transcript", "draft-does-not-render-app", "unchanged-chat-poll-skips-transcript", "message-update-refreshes-transcript", "rename-tail-truncation"])
       assert.ok(report[2].includes(expected), "Missing scenario " + expected);
   } finally {
     fs.rmSync(folder, { recursive: true, force: true });

@@ -1,3 +1,4 @@
+import { readChatRenameValue } from "./chatRename";
 import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Check, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { apiJson, apiJsonOrEmpty, useApiAvailability } from "./api";
@@ -895,8 +896,8 @@ useEffect(() => () => providerRegistry.current.dispose(), []);
                   <div className="chat-options-menu">
                     <input type="text" className="base-chat-menu-title" autoFocus
                       aria-label={`Rename ${chat.title}`} title="Rename conversation"
-                      maxLength={200} value={chatRenameDraft}
-                      onChange={(event) => setChatRenameDraft(event.target.value)}
+                      value={chatRenameDraft}
+                      onChange={(event) => setChatRenameDraft(readChatRenameValue(event.currentTarget))}
                       onBlur={(event) => { void renameChat(chat, event.currentTarget.value); }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {

@@ -25,3 +25,5 @@ export { ChatProviderRegistry } from "./providers/registry";
 export * from "./providers/contracts";
 
 export { useConversationPending } from './useConversationPending';
+
+export { readChatRenameValue } from "./chatRename";

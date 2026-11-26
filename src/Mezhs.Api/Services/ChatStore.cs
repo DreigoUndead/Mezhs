@@ -255,7 +255,7 @@ public sealed class ChatStore(MezhsOptions options)
                 ?? throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
             var previous = chat.Title;
             chat.Title = title;
-            try { SaveChat(chat); }
+            try { SaveChat(chat, touchActivity: false); }
             catch { chat.Title = previous; throw; }
             return chat;
         }
@@ -301,10 +301,8 @@ public sealed class ChatStore(MezhsOptions options)
             if (message.Role == "user" && IsEarlier(message, firstUser)) firstUser = message;
         }
 
-        var title = string.IsNullOrWhiteSpace(chat.Title) ? firstUser?.Content : chat.Title;
-        return new ChatListState(
-            latest?.ConnectionId,
-            title is { Length: > 200 } ? title[..200] : title);
+        var title = string.IsNullOrWhiteSpace(chat.Title) ? ChatTitle.FromPrompt(firstUser?.Content) : chat.Title;
+        return new ChatListState(latest?.ConnectionId, title);
     }
 
     public ChatRuntimeState GetRuntimeState(string chatId)
@@ -330,14 +328,14 @@ public sealed class ChatStore(MezhsOptions options)
                 active.MessageId, active.Status, active.Activity, active.ActivityDetail, active.ActivityAt));
     }
 
-    public void SaveChat(ChatRecord chat)
+    public void SaveChat(ChatRecord chat, bool touchActivity = true)
     {
         lock (_writeLock)
         {
             if (!_chats.ContainsKey(chat.ChatId))
                 throw new ResourceNotFoundException($"Chat '{chat.ChatId}' was not found.");
             var previousUpdatedAt = chat.UpdatedAt;
-            chat.UpdatedAt = DateTimeOffset.UtcNow;
+            if (touchActivity) chat.UpdatedAt = DateTimeOffset.UtcNow;
             try
             {
                 using var connection = _database.Open();

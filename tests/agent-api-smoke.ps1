@@ -219,6 +219,18 @@ try {
         throw "Agent chat list/detail status mismatch: expected=$($completed.executionId); listStatus=$($listedAgent.executionStatus); listId=$($listedAgent.executionStatusId); detailStatus=$($singleAgent.executionStatus); detailId=$($singleAgent.executionStatusId); matchingCount=$($listedAgents.Count); listCount=$(@($agentList).Count)."
     }
 
+    $olderAgentUri = "http://127.0.0.1:5199/v1/agent-chats/$($preservedResult.chatId)"
+    $olderCoreUri = "http://127.0.0.1:5199/v1/chats/$($preservedResult.chatId)"
+    $olderAgent = Invoke-RestMethod -Uri $olderAgentUri
+    $olderCore = Invoke-RestMethod -Uri $olderCoreUri
+    if ($olderAgent.title -cne "2. First step") { throw "Agent title included text beyond the first prompt line." }
+    $beforeRename = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats"
+    Invoke-RestMethod -Method Patch -Uri $olderCoreUri -ContentType "application/json" -Body (ConvertTo-Json @{ title = "Renamed older agent" }) | Out-Null
+    $renamedAgent = Invoke-RestMethod -Uri $olderAgentUri
+    $renamedCore = Invoke-RestMethod -Uri $olderCoreUri
+    $afterRename = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats"
+    if ($renamedAgent.title -cne "Renamed older agent" -or $renamedCore.title -cne $renamedAgent.title -or $renamedAgent.updatedAt -ne $olderAgent.updatedAt -or $renamedCore.updatedAt -ne $olderCore.updatedAt -or ($beforeRename.chatId -join ",") -ne ($afterRename.chatId -join ",")) { throw "Agent rename changed activity, list order or title consistency." }
+
     $initialMessages = Invoke-RestMethod -Uri "http://127.0.0.1:5199/v1/agent-chats/$($completed.chatId)/messages"
     $initialUserMessage = @($initialMessages | Where-Object { $_.role -eq "user" })[-1]
     if ($completed.connectionId -ne "test" -or
