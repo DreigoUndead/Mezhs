@@ -474,6 +474,34 @@ var nestedOnlyAtRootPass = nestedOnlyAtRoot.Document.Valid &&
 Console.WriteLine($"{(nestedOnlyAtRootPass ? "PASS" : "FAIL")}: Nested-only definitions cannot render at document root");
 if (!nestedOnlyAtRootPass) failures++;
 
+// Structural matching must use the parent-selected variant, not the first
+// registration for a surface name. An opaque root tag and a nested container
+// with the same spelling must retain their different body semantics.
+var roleVariantCatalog = Registry.RichTags.With([
+    new RichTagDefinition("dual-role", RichTagRole.RawEditor, null,
+        RichTagDefinition.NoChildren, AllowAsChild: true),
+    new RichTagDefinition("dual-role", RichTagRole.Container, null,
+        SupportedChildren: null, AllowAsChild: true)
+        { Id = "dual-role:nested", AtRoot = false },
+    new RichTagDefinition("dual-host", RichTagRole.Container, null,
+        new HashSet<string>(["dual-role:nested"], StringComparer.Ordinal),
+        AllowAsChild: true)
+]);
+var roleVariantResult = new RichDocumentParser(roleVariantCatalog).Parse(
+    "<dual-host><dual-role><text>nested</text></dual-role></dual-host>" +
+    "<dual-role><text>opaque</text></dual-role><SH>ROOT</SH>");
+var roleVariantPass = roleVariantResult.Document.Valid &&
+    roleVariantResult.Commands.Select(c => c.Body).SequenceEqual(["ROOT"]) &&
+    roleVariantResult.Document.Nodes.SelectMany(Walk).Any(n =>
+        n.Kind == "element" && n.Name == "dual-role" &&
+        n.Children?.SelectMany(Walk).Any(child =>
+            child.Kind == "element" && child.Name == "text") == true) &&
+    roleVariantResult.Document.Nodes.Any(n =>
+        n.Kind == "raw" && n.Name == "dual-role" &&
+        n.Text == "<text>opaque</text>");
+Console.WriteLine($"{(roleVariantPass ? "PASS" : "FAIL")}: Same-name contextual variants preserve container and opaque structural roles");
+if (!roleVariantPass) failures++;
+
 var invalidChildRegistrationRejected = false;
 try
 {
