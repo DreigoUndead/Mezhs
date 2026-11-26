@@ -501,6 +501,16 @@ var ancestryPass = ancestry.Document.Valid &&
 Console.WriteLine($"{(ancestryPass ? "PASS" : "FAIL")}: Any required ancestor, transitive nesting, and inert rejected wrappers");
 if (!ancestryPass) failures++;
 
+// An incomplete ancestor must not grant admission after structural reparenting.
+var incompleteAncestry = new RichDocumentParser(ancestorsCatalog).Parse(
+    "<ancestor-a><ancestor-dependent><SH>INERT</SH></ancestor-dependent><SH>ROOT</SH>");
+var incompleteAncestryPass = incompleteAncestry.Document.Valid &&
+    incompleteAncestry.Commands.Select(c => c.Body).SequenceEqual(["ROOT"]) &&
+    incompleteAncestry.Document.Nodes.Any(n =>
+        n.Kind == "unknown" && n.Name == "ancestor-dependent");
+Console.WriteLine($"{(incompleteAncestryPass ? "PASS" : "FAIL")}: Incomplete parent cannot satisfy required ancestors");
+if (!incompleteAncestryPass) failures++;
+
 var duplicateNameRejected = false;
 try
 {
