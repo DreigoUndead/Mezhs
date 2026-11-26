@@ -78,7 +78,7 @@ SVG-specific grammar/limits are now validated by trusted `Svg.tsx` and SSR tests
 
 The earlier owner-acceptance blocker (missing generalized registered handler dispatch after a behavioral PASS) led to a return to Development and subsequent implementation changes; its rationale remains in `Changes`. The owner subsequently rejected contextual same-name variants and approved one definition per tag name with optional `RequiredAncestors`. The current intended implementation keeps one structural finder, Core/Agent catalog composition, registered callbacks, static frontend registry and frontend-owned SVG grammar.
 
-**Current state:** Fresh independent Step 4 review found a raw-editor depth-limit fail-open in application revision `07cdad15c6e74cc46b87cbe184fea706767bf30e`. The reviewer committed a parser correction and regression fixtures at `c56f191b938eaf10e219464bf13684233d102ab2`. This correction has only source-level readback verification, not the required new-revision runtime checks. Step 4 outcome is **FAIL (corrected, verification pending)**; after verification obtain a fresh independent Step 4 review, then Step 5 Testing. Deploy remains blocked without owner approval.
+**Current state:** Step 4 review #4 corrected a raw-editor depth-limit command-containment defect. Windows verification at application revision 248cd95441c2afaec1b37791e5d961d6d820bf48 passed. Because this reviewer changed implementation code, a fresh independent Step 4 review is mandatory before Step 5 Testing. No Deploy or merge authorization.
 
 ## Changes
 
@@ -485,3 +485,12 @@ The earlier owner-acceptance blocker (missing generalized registered handler dis
 **Verification:** independently re-fetched corrected source and test fixture and compared the branch against the reviewed revision: exactly the two expected implementation/test files changed. The GitHub combined statuses for `c56f191b` were empty. This environment lacks a Windows checkout, .NET SDK and PowerShell, and no current-revision C# test, Release build, Agent protocol, SSR/TS, or isolated Chromium execution can be asserted. Prior developer 146/146 parser and 48/48 SSR results applied to `07cdad15`, **not** these corrections.
 
 **Outcome: FAIL (correction committed; verification pending).** Run the plan's .NET parser, Release build, SSR/TypeScript, Agent/Executor and policy/architecture checks at `c56f191b` or a later identified final revision, including source worktree cleanliness/diff check. Then hand off to a **fresh independent Step 4 reviewer**; only a later PASS can advance to independent Step 5 Testing. No merge to `main`, release or Deploy authorization.
+
+
+### 2026-11-27 - Independent Step 4 correction verification
+
+**Application revision:** 248cd95441c2afaec1b37791e5d961d6d820bf48, Windows worktree D:/Projects/Mezhs-escape-execution.
+
+**Observed results:** execution 11251: C# parser 148/148 PASS, including both new over-depth SVG/SH and CodeBlock/ATTACH regressions, each invalid with zero command candidates. Execution 11252: SSR 48/48 PASS. Execution 11254: Release solution and Web/Agent Web TypeScript/Vite builds PASS, zero errors, one unrelated WhatsApp CS0114 warning and npm dependency audit warnings. Execution 11256: policy decoder PASS, Agent architecture PASS, Agent Web shared UI 19/19 PASS. Execution 11258: isolated Agent/Executor protocol PASS, including no shell or filesystem side effects from rejected batches. Execution 11250: clean synced worktree and git diff --check PASS.
+
+**Outcome:** FAIL, corrected and runtime-verified. Per .agents/code-review.md, hand off to a fresh independent Step 4 reviewer to inspect the complete corrected branch. Independent Step 5 Chromium and Testing remain pending. No merge to main, version bump or release authorization.
