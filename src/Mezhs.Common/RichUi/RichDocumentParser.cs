@@ -329,7 +329,11 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             else if (!found.SelfClosing)
             {
                 nested++;
-                if (nested > MaxDepth) return -1;
+                if (nested > MaxDepth)
+                {
+                    _failure = new ParseFailure("Document nesting exceeds limit.", Limit: true);
+                    return -1;
+                }
             }
         }
         return -1;
