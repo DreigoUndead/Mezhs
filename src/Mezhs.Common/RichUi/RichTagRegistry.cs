@@ -81,6 +81,14 @@ public sealed class RichTagCatalog
         return false;
     }
 
+    // A nested-only variant can share a source name with a root tag but have
+    // different structural semantics (for example container versus raw editor).
+    // Resolve the parent's declared variant before falling back to a structural
+    // boundary for disallowed or unknown children.
+    public bool TryGetStructural(string name, RichTagDefinition? parent,
+        out RichTagDefinition definition) =>
+        TryGet(name, parent, out definition) || TryGetStructural(name, out definition);
+
     public bool TryGet(string name, out RichTagDefinition definition) =>
         TryGet(name, null, out definition);
 
