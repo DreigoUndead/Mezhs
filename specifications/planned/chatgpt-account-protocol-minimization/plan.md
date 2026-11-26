@@ -93,6 +93,18 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 
 ## Changes
 
+### 2026-11-27 — Step 3 Code Review: signed header canonicalization (FAIL; independent rereview required)
+
+**Reviewed revision:** `185d9501420f6c185b858cbafc7f83e8cd985eb8` following the latest task-branch `.agents/workflow.md`, Code Review, Batman, and this plan. Examined the Step 2A browser transfer-policy change, provider policy and upload mapping, shared transport, account protocol, and relevant tests. Earlier automated tests and live-provider limits remain evidence for their own recorded revisions only.
+
+**Concrete finding:** In `electron/browser-transfer.js`, `safeTransferHeaders` inserted optional provider-supplied upload headers and mandatory defaults into a plain object under their original casing. Headers are case-insensitive on the wire; input `X-MS-BLOB-TYPE: PageBlob` followed by default `x-ms-blob-type: BlockBlob` produced two JavaScript keys which Fetch combines into `PageBlob, BlockBlob`. Thus the documented mandatory-default override was not enforced and real uploads with casing variants could fail. This behavior also existed before Step 2A, but is a concrete defect at the currently reviewed transfer boundary.
+
+**Correction:** Normalize allowed upload-header keys to lowercase before inserting optional values and provider defaults, retaining the existing namespace, value-length, newline and credential-header restrictions. Added a focused regression test using `Headers` to verify case-insensitive override of both required Azure headers and absence of duplicate header keys. Commits: `6b67b2427b286a1e242a171a0b0c8919a3975019` and `268ad0f7440716c616bfedf4ad25c2b6fe75a3fd` on the task branch. No second provider, new abstraction or account authentication change.
+
+**Verification and limits:** Re-read the pushed source and test from GitHub at `268ad0f7`. An isolated local Node `Headers` reproduction demonstrated the original combined value and the corrected normalization logic passed its focused assertions. This is **not** an execution of the repository's Node suites, .NET solution build, packaging/architecture harnesses, or authenticated Chromium test on the patched revision; those remain unverified in this reviewer environment. The review must not be recorded as PASS based on earlier developer checks. No owner storage or live profile was touched.
+
+**Outcome: FAIL.** Header behavior changed materially and requires a fresh independent Step 3 Code Review followed by Step 4 Testing, including the `tests/browser-signed-transfer.test.js` regression and relevant end-to-end checks. Successor agents must fetch the latest `chatgpt-account-protocol-minimization` branch and follow **that branch's** `.agents/workflow.md` and role instructions; pass the same requirement onward. The only eventual merge destination is `integration-architecture-v2` after explicit owner approval. Do not merge into `main` or release.
+
 ### 2026-11-27 - Development Step 2A: grounded browser reference cleanup (ready for independent Code Review)
 
 **Ownership correction:** Shared `electron/browser-transfer.js` owned signed binary transfer but hardcoded the ChatGPT storage host suffixes, Azure `x-ms-*` upload namespace and required Azure header values. `entry.js` now declares those provider values via `signedHostSuffixes`, `uploadHeaderPrefix`, and `uploadHeaderDefaults`; the existing shared executor enforces the declared policy and fails closed for absent or malformed policy. HTTPS host checks, bounded values/files, redirect rejection and no cross-origin credentials remain. A test denies an empty header suffix. No second provider, speculative framework, new HTTP client or session owner was added.
