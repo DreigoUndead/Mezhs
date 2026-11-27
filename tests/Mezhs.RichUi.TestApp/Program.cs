@@ -76,6 +76,9 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("SH is not a box child", "<box><SH>echo NO</SH></box>", true, []),
     ("ATTACH is not a text child", "<text>pre <ATTACH>file.txt</ATTACH> post</text>", true, []),
     ("Disallowed SH cannot close its parent", "<box><SH>inside </box> still inert</SH>outer</box>", true, []),
+    ("Comment fake closer cannot promote nested SH", "<box><!-- </box> --><SH>INERT</SH></box><SH>ROOT</SH>", true, ["SH"]),
+    ("CDATA fake closer cannot promote nested SH", "<box><![CDATA[ </box> ]]><SH>INERT</SH></box><SH>ROOT</SH>", true, ["SH"]),
+    ("Unknown wrapper comment fake closer cannot promote nested ATTACH", "<Widget><!-- </Widget> --><ATTACH>INERT.txt</ATTACH></Widget><SH>ROOT</SH>", true, ["SH"]),
     ("Root command after layout", "<box>layout</box><SH>echo YES</SH>", true, ["SH"]),
     ("Unmatched closing tag ignored", "before </SH> after", true, []),
     ("Empty SH parsed", "<SH></SH>", true, ["SH"]),
@@ -162,6 +165,7 @@ var escapeContexts = new (string Name, string Source, string[] Commands)[]
     ("Invalid escape inside raw editor stays inert", "<CodeBlock><escape onClick=\"invalid\"><SH>INERT</SH></escape></CodeBlock>", []),
     ("Invalid nested escape does not grant command authority", "<escape><escape onClick=\"invalid\"><SH>INERT</SH></escape><SH>DIRECT</SH></escape>", ["SH"]),
     ("Escape inside opaque editor nested through unknown", "<CodeBlock><Widget><escape><ATTACH>path.txt</ATTACH></escape></Widget></CodeBlock>", []),
+    ("Escape nested comment fake closer cannot promote SH", "<escape><Widget><!-- </Widget> --><SH>INERT</SH></Widget><SH>DIRECT</SH></escape>", ["SH"]),
 
     ("Escape nested under box inside escape", "<escape><box><escape><SH>INNER</SH></escape><SH>INERT</SH></box><SH>OUTER</SH></escape>", ["SH"]),
     ("Other nested parents stay inert", "<escape><box><SH>INERT</SH></box><SH>DIRECT</SH></escape>", ["SH"]),
