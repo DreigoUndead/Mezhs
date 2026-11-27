@@ -63,6 +63,12 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Escape nested known UI commands are inert", "<escape><box>raw <SH>NO</SH></box><SH>YES</SH></escape>", true, ["SH"]),
     ("Escape nested unknown UI commands are inert", "<escape><Widget><SH>NO</SH></Widget><SH>YES</SH></escape>", true, ["SH"]),
     ("Escape nested editor commands are inert", "<escape><CodeBlock><SH>NO</SH></CodeBlock><SH>YES</SH></escape>", true, ["SH"]),
+    ("Escape comment commands are inert, following direct command executes",
+        "<escape><!-- <SH>INERT</SH> --><SH>DIRECT</SH></escape>", true, ["SH"]),
+    ("Escape CDATA commands are inert, following direct command executes",
+        "<escape><![CDATA[<ATTACH>INERT</ATTACH>]]><SH>DIRECT</SH></escape>", true, ["SH"]),
+    ("Escape comment fake opener does not hide direct command",
+        "<escape><!-- <Widget> --><SH>DIRECT</SH></escape>", true, ["SH"]),
     ("Escape malformed nested UI and SVG keep commands inert", "<escape><box onClick=\"bad\"><SH>NO</SH></box><svg><SH>NO2</SH></svg><Widget><SH>NO3</SH></Widget><SH>YES</SH></escape>", true, ["SH"]),
     ("Escape incomplete SH is literal", "<escape>pre <SH>unclosed</escape>", true, []),
     ("Escape invalid shell attributes reject batch", "<escape><SH bad=\"value\">NO</SH></escape><SH>AFTER</SH>", false, []),
@@ -113,6 +119,10 @@ foreach (var (name, source, valid, commands) in checks)
     var pass = result.Document.Valid == valid && names.SequenceEqual(commands);
     if (name == "Multiline SH preserves body bytes")
         pass &= result.Commands.FirstOrDefault()?.Body == "\r\necho first\r\n<DONE>\r\n";
+    if (name is "Escape comment commands are inert, following direct command executes" or
+        "Escape CDATA commands are inert, following direct command executes" or
+        "Escape comment fake opener does not hide direct command")
+        pass &= result.Commands.Count == 1 && result.Commands[0].Body == "DIRECT";
     if (name == "Nested box and text")
         pass &= result.Document.Nodes.Any(n => n.Kind == "element" && n.Name == "box" &&
             n.Children?.Any(c => c.Kind == "paragraph" && c.Children?.Any(t =>
