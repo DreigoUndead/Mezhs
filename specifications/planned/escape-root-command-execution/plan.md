@@ -78,7 +78,7 @@ SVG-specific grammar/limits are now validated by trusted `Svg.tsx` and SSR tests
 
 The earlier owner-acceptance blocker (missing generalized registered handler dispatch after a behavioral PASS) led to a return to Development and subsequent implementation changes; its rationale remains in `Changes`. The owner subsequently rejected contextual same-name variants and approved one definition per tag name with optional `RequiredAncestors`. The current intended implementation keeps one structural finder, Core/Agent catalog composition, registered callbacks, static frontend registry and frontend-owned SVG grammar.
 
-**Current state:** Independent Step 4 Code Review #8 PASS on reviewed revision `96a6d003fddf62fad7a52a0324b697862f55e45e` (application revision `e1726447487e6972dee70dc693847462d292c5da`; the later change was plan-only). Independent Step 5 Testing, including isolated Chromium checks, is next. No Deploy or merge authorization.
+**Current state:** Independent Step 4 Code Review #8 PASS at `96a6d003fddf62fad7a52a0324b697862f55e45e`; independent Step 5 Testing PASS, including isolated Chromium and a test-only malicious SVG regression at `38b51359cb2a988ac2d1bd2e3870844959cd87ce`. No application source changed after verified application revision `e1726447487e6972dee70dc693847462d292c5da`. Step 6 has prepared release reference documentation on the task branch and is awaiting explicit owner merge approval. `main` remains untouched by this task.
 
 ## Changes
 
@@ -599,3 +599,15 @@ The earlier owner-acceptance blocker (missing generalized registered handler dis
 **Limitations:** Chromium ran against an isolated test harness with mocked API, not production services or the owners active browser. The results establish tested behavior and do not establish the historical incident cause. No blocking application defect was found. The initial local test-harness fixture-list edit was corrected before the regression was committed; final Chromium tests passed.
 
 **Outcome:** PASS. Independent Step 5 verification completed. Proceed to Step 6 Deploy for owner approval/reconciliation only. No merge to main, version change or release is authorized without explicit project-owner approval.
+
+### 2026-11-27 — Step 6 Deploy approval preparation
+
+**Status:** Awaiting explicit owner authorization. Independent Step 4 Code Review #8 and independent Step 5 Testing both PASS, documented above on their exact revisions. The final Step 5 commit `9e301f2d5ba6dad3c23d4cea43a15f2ee86fbd14` was plan-only after the test-only Chromium regression; no application source changed since the independently reviewed/tested application revision `e1726447487e6972dee70dc693847462d292c5da`.
+
+**Release reference alignment on task branch:** `710868dc` updated `docs/agent-tools.md` and `b756262f` updated `docs/supported-rich-ui.md` to document direct commands under root-level `escape`, inert nested wrappers, literal display boundaries, and frontend-owned SVG validation. These are documentation-only commits; no new runtime execution is attributed to them.
+
+**Release proposal:** Current `main` reports `VERSION=0.10.1`. Propose a **PATCH** release (`0.10.2` if main remains at 0.10.1) for the corrected rich-tag/escape behavior and registry architecture; recompute from main after owner approval. Release notes should record the canonical generic tag matcher/handlers and registry, unique-tag/`RequiredAncestors` contract, root-only direct-escape command behavior, safe frontend SVG ownership and malformed markup containment, plus verification results and limitations.
+
+**Integration risk:** GitHub comparison shows `main` ahead of the task branch by 12 commits; PR #74 currently reports `mergeable=false` without an independently confirmed root cause. Resolve/verify integration after approval; do not assume existing task-branch tests cover the merged revision. Remaining observations: Chromium used a mocked API and isolated profile; npm reported 5 and 3 dependency advisories, and the unrelated WhatsApp CS0114 build warning remains. No hosted CI success has been asserted for the latest doc-only head.
+
+**Approval boundary:** No `main` modification, plan archival, `VERSION`/`CHANGELOG.md` change, release tag or PR merge is authorized yet. Await owner approval of the specific task/PR candidate before finalization. If application code changes materially during reconciliation, repeat required verification and seek renewed approval.
