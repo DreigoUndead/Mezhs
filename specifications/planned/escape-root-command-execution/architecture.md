@@ -2,7 +2,7 @@
 
 Status: **design guideline / Development input**, not executable pseudocode.
 Parent plan: [plan.md](plan.md). Branch: `escape-root-command-execution`.
-Recorded: 2026-11-24. The task plan's active decisions are authoritative; verify the unmerged implementation against the actual source and tested SHA.
+Recorded: 2026-11-24; revised after 2026-11-27 owner architecture challenge. The active task plan is authoritative. Previous static-import/Common ownership descriptions below refer to superseded implementation until migrated and verified.
 
 ## Intent and boundaries
 
@@ -62,11 +62,11 @@ never discovers executable commands inside SVG.
 
 The Agent `CommandBatchAdapter` projects host candidates/visible content; it
 does not tokenize the source. Core uses the UI catalog, and Agent extends it
-immutably with host-only command definitions. The React frontend retains its
-separate statically imported, trusted component registry under
-`rich-elements/Registry.ts`, so a UI component does not change the generic
-`RichDocumentView`. This explicitly preserves the frontend import/DOM
-security boundary; build-time automatic file discovery was not introduced.
+immutably with host-only command definitions. The React frontend should replace manual `rich-elements/Registry.ts` imports/maps
+with **build-time** discovery of curated host-owned TSX files using a literal
+bounded directory glob or generated static manifest. The generic renderer
+resolves the already validated tag name from a safe own-key map. Runtime
+assistant-supplied import paths and arbitrary JSX remain forbidden.
 
 ## Tag registry and parsed shape
 
@@ -76,11 +76,11 @@ The source-level contract is defined in `RichTagRegistry.cs`:
 - `RichTagContent` supplies validated data, original source/body spans, parent context, self-closing and root flags to handlers; handlers may emit candidates but never execute host side effects.
 - `RichTagCatalog` is immutable per host. Core uses `RichTagRegistry.Ui`; Agent composes its own commands from `Mezhs.Agent.Api/Commands/Registry.cs`. This keeps Agent capabilities out of Core.
 - `SupportedChildren`: null permits ordinary registered UI direct children; empty forbids MEŽS child processing (including opaque bodies); an explicit registered name set restricts direct children. `RequiredAncestors` optionally restricts descendants by any ancestor name. No tag-name-specific parser cases or contextual variant selection.
-- The frontend `rich-elements/Registry.ts` statically binds approved tag symbols to locally imported TSX components and raw-editor factories. No model-controlled import paths, arbitrary JSX or dynamic host callbacks.
+- The frontend has a build-time generated, eagerly bundled map from a curated directory of host-owned TSX modules to symbolic names, including raw/literal controls; no manual imports/maps or generic renderer cases for a new control. No model-controlled import paths, arbitrary JSX or dynamic host callbacks.
 
 `RichDocument` remains versioned serialized data (`version`, `valid`, `nodes`, `diagnostics`) with source spans and inert, bounded attributes. Private `Parent`/handler references and host-only command candidates must never be serialized to React. Preserve existing safe literal data representation and streaming fallback; change the protocol only if a justified, synchronized migration is approved.
 
-Architectural acceptance includes a **one-more-instance exercise**: an ordinary UI tag changes only its C# definition, TSX implementation and trusted frontend binding (plus optional handler); an Agent command changes Agent registration/handler rather than the generic parser; an embedded language can remain opaque to MEŽS and be safely decoded by its owner. Review actual code and caller paths, not only test outcomes.
+Architectural acceptance includes a **one-more-instance exercise**: an ordinary UI tag changes only its C# definition, a TSX component file and optional registered function: **no** explicit frontend binding edit and no generic parser or renderer changes. An Agent command still needs explicit policy/Interpreter capability authorization if it adds a new privileged host effect; an embedded language stays opaque to MEŽS and is safely decoded by its trusted component. Review actual code/caller paths, not just test outcomes.
 
 ## Discovery and processing
 
@@ -114,7 +114,7 @@ Keep a serialized `RichDocument { version, valid, nodes, diagnostics }`. A `Rich
 
 Current API `ApiMessage.Document` / `ApiChatHistoryMessage.Document` already carries this document to both chat UIs. `MarkdownContent` uses `RichDocumentView` and shows source verbatim before a completed/validated document exists. Preserve that streaming/legacy fallback and the versioned payload contract. Existing Markdown normalization remains the sole interpretation layer for Markdown; do not parse arbitrary assistant JSX, execute JS or add a second React-side tag grammar.
 
-React uses a **static registry of imported host-owned components** keyed by symbolic name. The renderer looks up the validated key and maps only approved params into component props; do not use assistant-provided URLs/import paths or arbitrary DOM prop spread. Reuse current `rich-elements/Style.ts` bounded decoding for spacing, border, colors, layout, links, and the current `json:` literal value protocol unless a demonstrably necessary change is approved. Preserve safe SVG and unknown diagnostic fallback. `escape` displays muted literal source with executable spans omitted. Raw editors render raw inert content. Host-only commands do not mount as React controls.
+React uses a **build-time discovered, static bundle of trusted host-owned components** keyed by validated symbolic names; only vetted control files participate in the literal directory glob. The renderer looks up an own key and maps only approved params into component props; do not use assistant-provided URLs/import paths or arbitrary DOM prop spread. The direct `esbuild.buildSync` Node SSR tests will require a compatible compile-time manifest or migration to Vite-based transformation if using Vite's `import.meta.glob`. Reuse current `rich-elements/Style.ts` bounded decoding for spacing, border, colors, layout, links, and the current `json:` literal value protocol unless a demonstrably necessary change is approved. Preserve safe SVG and unknown diagnostic fallback. `escape` displays muted literal source with executable spans omitted. Raw editors render raw inert content. Host-only commands do not mount as React controls.
 
 Interactive components may own local React state (`Question.tsx` already does); host actions flow through `RichActionContext` or another explicitly approved host capability and require real user interaction. Model-provided attributes never become JS functions or privileged callbacks. If a richer generic action system would be needed, **leave it outside this refactor** unless already supported by the current safe finite grammar; do not infer permission from `Tag.Function`. Keep Agent transcript actions read-only where already enforced.
 
@@ -129,10 +129,10 @@ Interactive components may own local React state (`Question.tsx` already does); 
 
 ## Development sequence and migration
 
-1. Inspect current source and all relevant regression expectations. Decide the smallest compatible `TagDefinition` and `TagContent` forms, identify the shared matcher and the one dispatcher. Establish a baseline on the task worktree.
-2. Implement a reusable first-level finder with complete structural boundaries, source offsets and registry filters; add root/nested matching tests first. Replace `ReadChildren`/`ScanOpaqueContent` structural duplication and redundant close matching as a single cohesive migration, not a parallel indefinite codepath.
+1. Inspect actual Core/Agent project dependencies, tag/raw rendering paths, syntax readers, ownership and regression expectations. Prefer moving typed `RichDocument` contracts into `Mezhs.Api.Contracts`, parser/catalog/handlers into `Mezhs.Api`, Agent commands into `Mezhs.Agent.Api`, and TSX into `Mezhs.Web.Lib` without creating a new project or a dependency cycle. Decide the smallest compatible tag/content forms and establish a baseline.
+2. Refactor the existing finder into small readers for paired/self-closing tags and opaque comment/CDATA tokens, all feeding one bounded structural cursor/stack. Unify their use across rich and raw-editor boundary matching, without a second command parser. Keep root-comment Markdown compatibility. Retire unused `UnsafeRawTags` and the generic parser's hardcoded `DONE` invariant; confirm the Agent Interpreter enforces final/unique completion.
 3. Connect recursion, `Parent`, root-only escape handler and shared command candidate collector; align tests to the latest owner-approved matrix. Keep batch validation and policy untouched and prove invalid replies do not cause side effects.
-4. Preserve versioned `RichDocument` projection for Markdown, rich UI, CodeBlock/WritingBlock, Unknown and escape; represent SVG as a raw editor node interpreted by trusted TSX. Update C#/TS tests for that deliberate representation change, while retaining API/React safety.
+4. Preserve versioned `RichDocument` projection for Markdown, rich UI, CodeBlock/WritingBlock, Unknown and escape; represent SVG as an opaque raw editor. Make registered ordinary/raw/literal UI components use one generic renderer dispatch with no hardcoded `escape` name branch. Replace manual frontend registry imports through safe build-time discovery. Update C#/TS tests and the build harness accordingly; do not permit model-directed runtime import.
 5. Independently review architecture and security, run isolated live Agent/Executor and browser UI checks, fix identified issues, and update task plan with evidence. Remove obsolete helpers, tests and docs for superseded behavior; never leave both tag-discovery implementations behind.
 
 ## Verification matrix
@@ -151,4 +151,12 @@ Run tests against the **exact final revision**, not historical green output:
 
 This is now an **architectural/security-sensitive refactor**; its prior Small override applied only to the superseded narrow change. Require independent Plan Review before active Development, fresh Code Review and independent Testing; no Deploy without owner approval. A Developer may challenge implementation details under `.agents/batman.md`, but must not expand host authority or silently reverse the matrix.
 
-The branch already contains unmerged earlier attempts; those commits are evidence/history, not acceptance. The previous full test results at `fc586fba` do not prove current branch behavior. `main` has advanced independently; reconcile with the approved base as part of the task workflow, with no direct commits/merge to `main`. For rollback, keep the work isolated on this branch and revert task-specific refactor commits if necessary; do not alter runtime storage or API persistence format without separate approval.
+The branch already contains unmerged earlier attempts; those commits are evidence/history, not acceptance. Independent Step 4/5 PASS recorded on 2026-11-27 applies to the prior architecture and must be repeated on the forthcoming refactor. `main` has advanced independently; reconcile with the approved base as part of the task workflow, with no direct commits/merge to `main`. For rollback, keep the work isolated on this branch and revert task-specific refactor commits if necessary; do not alter runtime storage or API persistence format without separate approval.
+
+## 2026-11-27 owner re-evaluation — design boundary
+
+The request in MEŽS execution `exec_0276bf3123db4b05bda2388dd5dfad62` challenges (1) generic parser hardcoding, (2) mixing token syntaxes, (3) UI implementation located in `Mezhs.Common`, and (4) manual `Registry.ts` maintenance. This guideline now favors these corrections. **It does not claim they are implemented.** Step 6 is paused; no new runtime tests or architectural review PASS has been established.
+
+The security-critical counterpoint to splitting syntax into independent parsers is that each would need to duplicate wrapper containment logic, exactly the source of earlier fake-closer regressions. Use distinct **small token-reader methods** feeding one consistent stack and shared opaque boundary checks. The unused parser declaration `UnsafeRawTags`, generic `DONE` literal, name-specific `escape` view branch and handwritten TSX map are removable responsibilities; Markdown and the finite radio grammar are independently owned languages with deliberate integration points, not tag-specific parser branches.
+
+No project move is justified by taste alone. In this repository the API and Agent hosts are the actual C# rich-UI users, while API contracts need only wire DTOs, so the existing Api/Api.Contracts project boundary is a plausible target. Confirm dependency graph and test fixtures during migration; no cyclic reference or new general-purpose utility assembly. A frontend control file should export a single conventional adapter for either element or literal/raw content so a curated eager glob can bundle it without manual mapping; prevent unregistered names and model-controlled paths from triggering arbitrary components.
