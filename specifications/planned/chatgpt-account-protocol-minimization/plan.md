@@ -92,6 +92,17 @@ Only one active agent/chat may work on this task at a time. Use new independent 
 - Exercise warm-context reuse, independent expiry during peer activity, refreshed deadlines, bounded eviction, zero-idle behavior, Agent reference counts, failed/cancelled sends and host disposal/recreation using deterministic time in the account-session harness.
 
 ## Changes
+### 2026-11-27 - Development Step 2A follow-up: native JSON reader repository verification (complete; independent review required)
+
+**Revision and scope:** Verified fetched task-branch b56d52c74da96fdf6ec623920d6db5efa97b5c71 in an isolated clean Windows worktree; origin matched. Inspected the change against af7f2997 and confirmed provider-only bounded JSON-reader deduplication and the oversized HTTP 429 regression. No UI, shared framework, second-provider fixture or owner configuration changes.
+
+**Automated developer verification:** Node targeted batches PASS 45/45, 31/31 and 62/62 (138 test executions), covering account HTTP, streaming, signed transfer, provider operations, Sentinel/Rspack, typed feasibility, model mismatch, Electron lifecycle/events, Guest and Grok. Node syntax checks PASS. Release Mezhs.sln build PASS (zero errors, one pre-existing unrelated WhatsApp CS0114 warning); both frontends built. Typed C# account protocol, integration resources, architecture, account login/session ownership, cross-provider cancellation for eight integrations and browser limits configuration scripts PASS. Integration Contracts Probe PASS for all three groups. ChatGptPackagingProbe PASS for immutable resources, corrupted-resource rejection and 96 concurrent initializations. RichUi.TestApp Release build PASS. git diff --check PASS. Initial no-build probe failed only because its executable had not been built, and both probes passed after building.
+
+**Browser regression limitation:** The Chromium rich-UI combined run passed 45/46, with group-delete focus restoration failing; its standalone rerun passed 1/1; a serialized 46-test run again passed 45/46 with an Escape/cancel focus-restoration failure. The group-delete test and affected UI source are unchanged by this Step 2A diff, and historical independent review records also document intermittent focus failures. Cause is not established, no UI correction was made, and this failure is not represented as fixed or as a proven consequence of the JSON-reader change.
+
+**Disposition:** Developer repository verification of the Step 2A reader deduplication is complete, but no new authenticated live-provider send on this exact revision was performed. Previously observed first-turn runtime_not_observed remains unexplained; this code cleanup does not claim to resolve it. Fresh independent Step 3 Code Review and Step 4 Testing are still required, with actual limits documented. The next agent must fetch the latest task branch, follow that branch .agents/workflow.md and pass the same requirement onward. No Deploy, merge or release; only integration-architecture-v2 is an eligible eventual merge destination after explicit owner approval.
+
+
 
 ### 2026-11-27 — Step 2A follow-up: consolidate provider-native JSON reader (developer verification pending)
 
