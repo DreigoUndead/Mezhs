@@ -892,6 +892,12 @@ var exceptionCases = new (string Name, string Source, bool Valid, string? Diagno
         false, "DONE must be the final Agent command and occur once.", null, []),
     ("Duplicate DONE", "<SH>ROOT</SH><DONE><DONE>",
         false, "DONE must be the final Agent command and occur once.", null, []),
+    ("Unterminated comment in container rejects command batch",
+        "<box><!-- </box><SH>INERT</SH></box><SH>ROOT</SH>",
+        false, "Unterminated comment or CDATA within rich control.", null, []),
+    ("Unterminated CDATA in container rejects command batch",
+        "<box><![CDATA[ </box><ATTACH>INERT</ATTACH></box><SH>ROOT</SH>",
+        false, "Unterminated comment or CDATA within rich control.", null, []),
     ("Node limit", string.Concat(Enumerable.Repeat("<box />", 6001)) + "<SH>ROOT</SH>",
         false, "Document node limit exceeded.", null, []),
     ("Depth limit", string.Concat(Enumerable.Repeat("<box>", 34)) + "<SH>INERT</SH>" +
