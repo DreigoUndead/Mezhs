@@ -200,6 +200,26 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
         {
             var at = _source.IndexOf('<', cursor);
             if (at < 0 || at >= end) break;
+            // Only inside an already open MEŽS wrapper, comment and CDATA
+            // contents are opaque to structural matching. Otherwise a forged
+            // </parent> inside them could promote a nested host command.
+            // Preserve the existing root-level Markdown-comment command rule.
+            if (open.Count > 0 &&
+                (_source.AsSpan(at).StartsWith("<!--", StringComparison.Ordinal) ||
+                 _source.AsSpan(at).StartsWith("<![CDATA[", StringComparison.Ordinal)))
+            {
+                var comment = _source.AsSpan(at).StartsWith("<!--", StringComparison.Ordinal);
+                var terminator = comment ? "-->" : "]]>";
+                var stop = _source.IndexOf(terminator, at + (comment ? 4 : 9),
+                    StringComparison.Ordinal);
+                if (stop < 0 || stop + terminator.Length > end)
+                {
+                    _failure = new ParseFailure("Unterminated comment or CDATA within rich control.");
+                    break;
+                }
+                cursor = stop + terminator.Length;
+                continue;
+            }
             if (!TryTag(at, end, out var tag))
             {
                 cursor = at + 1;
