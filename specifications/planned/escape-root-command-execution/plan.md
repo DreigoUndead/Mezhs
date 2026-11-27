@@ -538,3 +538,19 @@ The earlier owner-acceptance blocker (missing generalized registered handler dis
 **Verification state:** Source edits and regression definitions are committed, but .NET parser execution, Node SSR, solution/TypeScript build, policy/architecture and isolated Agent/Executor tests have **not yet been rerun** at the corrected application SHA. Earlier `153/153` parser and `48/48` SSR results apply to `c79ee983` only. Run the required Windows verification matrix at an identified corrected SHA, inspect actual results, and obtain a fresh independent Step 4 Code Review after this functional correction. Step 5 isolated Chromium Testing is still required separately. Do not merge to main, change VERSION or release without owner approval.
 
 **Outcome:** **FAIL (corrected in source, verification pending)** under `.agents/code-review.md`.
+
+### 2026-11-27 — Step 4 review #6 correction verification (Windows)
+
+**Verified application revision:** `0dcd7a264fcb8b4e207dfd91bfa1806918138763` on the isolated task worktree `D:/Projects/Mezhs-escape-execution`. Execution `11303` fetched and fast-forwarded the branch from `7c7657ec`, confirmed exact `HEAD`, clean tracking status, and `git diff --check main...HEAD` PASS.
+
+**Observed execution evidence on that revision:**
+- `11304`: C# parser `dotnet run --project tests/Mezhs.RichUi.TestApp/Mezhs.RichUi.TestApp.csproj -c Release --nologo`: **156/156 PASS**; includes all three newly added root-escape comment/CDATA regressions (only one direct `SH` collected, exact `DIRECT` body), prior fake-closer containment, raw-editor depth limits, invalid batch fail-closed and zero parser first-chance exceptions in the invalid-input suite.
+- `11305`: React `node --test tests/rich-model-ui-rendering.test.cjs`: **48/48 PASS**; typed rendering, SVG safety and interactive-control host boundaries.
+- `11306`: `dotnet build Mezhs.sln -c Release --nologo -v minimal`: **PASS**, zero errors, one unrelated WhatsApp CS0114 warning; Web and Agent Web TypeScript/Vite production builds PASS. npm reported existing dependency audits (5 and 3 vulnerabilities across the two package sets) and esbuild install-script warnings; no dependency versions were modified.
+- `11307`: `tests/policy-decoder.ps1` **PASS**, `tests/agent-architecture.ps1` **PASS**, `tests/agent-web-shared-ui.ps1` **19/19 PASS**.
+- `11308`: isolated live `tests/agent-protocol-result.ps1`: **PASS**; root, Markdown-fence and direct root-escape shell execute once with durable evidence; nested/forbidden commands remain inert; rejected invalid/empty/disallowed/DONE-order batches produce no shell or filesystem side effects; multiple shell result order and continuation preserved.
+- `11309`: confirmed `HEAD=0dcd7a264fcb8b4e207dfd91bfa1806918138763`, clean tracking status and `git diff --check main...HEAD` **PASS**.
+
+**Scope of evidence:** These results verify the corrected application at `0dcd7a26`; they do not establish the historical incident's cause and do not replace independent Step 5 Chromium visual/action verification. This documentation-only successor does not change application code.
+
+**Workflow:** Step 4 review #6 remains **FAIL (corrected, runtime-verified)** because this reviewer modified the implementation. A fresh independent Step 4 reviewer must independently inspect the current branch using its own workflow and plan before any Step 5 Testing. No merge to `main`, VERSION change or release is authorized.
