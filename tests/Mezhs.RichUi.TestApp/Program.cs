@@ -101,6 +101,12 @@ var checks = new (string Name, string Source, bool Valid, string[] Commands)[]
     ("Bounded object literal border", "<box border={{size:2,color:\"danger\"}}>Red</box>", true, []),
     ("Unknown paired wrapper keeps nested SH inert", "<Widget>inert <SH>echo NO</SH></Widget><SH>echo YES</SH>", true, ["SH"]),
     ("Invalid CodeBlock attributes keep nested SH inert", "<CodeBlock invalid=\"bad\">raw <SH>echo NO</SH></CodeBlock><SH>echo YES</SH>", true, ["SH"]),
+    ("Unterminated raw editor SVG comment fails closed", "\u003Csvg\u003E\u003C!-- unclosed \u003CSH\u003EINNER\u003C/SH\u003E\u003C/svg\u003E\u003CSH\u003EOUTER\u003C/SH\u003E", false, []),
+    ("Unterminated raw editor SVG CDATA fails closed", "\u003Csvg\u003E\u003C![CDATA[ unclosed \u003CSH\u003EINNER\u003C/SH\u003E\u003C/svg\u003E\u003CSH\u003EOUTER\u003C/SH\u003E", false, []),
+    ("Unterminated raw editor CodeBlock CDATA fails closed", "\u003CCodeBlock\u003E\u003C![CDATA[ unclosed \u003CATTACH\u003EINNER\u003C/ATTACH\u003E\u003C/CodeBlock\u003E\u003CSH\u003EOUTER\u003C/SH\u003E", false, []),
+    ("Unterminated raw editor WritingBlock comment fails closed", "\u003CWritingBlock\u003E\u003C!-- unclosed \u003CSH\u003EINNER\u003C/SH\u003E\u003C/WritingBlock\u003E\u003CSH\u003EOUTER\u003C/SH\u003E", false, []),
+    ("Closed raw editor SVG comment retains independent SH", "\u003Csvg\u003E\u003C!-- \u003CSH\u003EINERT\u003C/SH\u003E --\u003E\u003C/svg\u003E\u003CSH\u003EOUTER\u003C/SH\u003E", true, ["SH"]),
+    ("Closed raw editor CodeBlock CDATA retains independent SH", "\u003CCodeBlock\u003E\u003C![CDATA[\u003CSH\u003EINERT\u003C/SH\u003E]]\u003E\u003C/CodeBlock\u003E\u003CSH\u003EOUTER\u003C/SH\u003E", true, ["SH"]),
     ("Markdown pipe table", "| A | B |\n|:---|---:|\n| One | 2 |", true, []),
 };
 var failures = 0;

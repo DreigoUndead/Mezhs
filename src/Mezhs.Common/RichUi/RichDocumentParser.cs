@@ -323,14 +323,22 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             if (_source.AsSpan(at).StartsWith("<!--", StringComparison.Ordinal))
             {
                 var stop = _source.IndexOf("-->", at + 4, StringComparison.Ordinal);
-                if (stop < 0 || stop + 3 > end) return -1;
+                if (stop < 0 || stop + 3 > end)
+                {
+                    _failure = new ParseFailure("Unterminated comment or CDATA within raw editor.");
+                    return -1;
+                }
                 cursor = stop + 3;
                 continue;
             }
             if (_source.AsSpan(at).StartsWith("<![CDATA[", StringComparison.Ordinal))
             {
                 var stop = _source.IndexOf("]]>", at + 9, StringComparison.Ordinal);
-                if (stop < 0 || stop + 3 > end) return -1;
+                if (stop < 0 || stop + 3 > end)
+                {
+                    _failure = new ParseFailure("Unterminated comment or CDATA within raw editor.");
+                    return -1;
+                }
                 cursor = stop + 3;
                 continue;
             }
