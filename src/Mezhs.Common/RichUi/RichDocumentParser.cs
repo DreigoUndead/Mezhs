@@ -191,7 +191,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
     // normal recursive rendering and for root escape command discovery. The
     // optional filter acts ONLY on returned roots, never on stack boundaries.
     private IReadOnlyList<LocatedTag> FindRootTags(int start, int end,
-        Func<LocatedTag, bool>? tagsSearch = null)
+        Func<LocatedTag, bool>? tagsSearch = null, bool insideRichAncestor = false)
     {
         var candidates = new List<LocatedTag>();
         var open = new Stack<LocatedTag>();
@@ -204,7 +204,7 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
             // contents are opaque to structural matching. Otherwise a forged
             // </parent> inside them could promote a nested host command.
             // Preserve the existing root-level Markdown-comment command rule.
-            if (open.Count > 0 &&
+            if ((insideRichAncestor || open.Count > 0) &&
                 (_source.AsSpan(at).StartsWith("<!--", StringComparison.Ordinal) ||
                  _source.AsSpan(at).StartsWith("<![CDATA[", StringComparison.Ordinal)))
             {
@@ -594,9 +594,14 @@ public sealed class RichDocumentParser(RichTagCatalog? catalog = null)
     // for registered direct root-only children. No command names are embedded.
     internal void DispatchDirectHandlers(RichTagContent parent)
     {
+        // The bounded body scan starts with an empty local tag stack, but its
+        // source is still inside a complete rich wrapper. Preserve that
+        // structural ancestry for comment/CDATA shielding; only the full
+        // document root keeps the legacy Markdown-comment command rule.
         var direct = FindRootTags(parent.BodySpan.Start, parent.BodySpan.End,
             located => _catalog.TryGet(located.Opening.Name, out var definition) &&
-                !definition.AllowAsChild && definition.ProcessContent is not null);
+                !definition.AllowAsChild && definition.ProcessContent is not null,
+            insideRichAncestor: true);
         foreach (var child in direct)
         {
             if (_failure is not null) return;
