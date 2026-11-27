@@ -220,7 +220,7 @@ async function readBoundedNativeJson(response, maxBytes = MAX_NATIVE_JSON_BYTES)
       if (done) { completed = true; break; }
       size += value.byteLength;
       if (size > maxBytes)
-      throw new Error(maxBytes === MAX_NATIVE_JSON_BYTES
+        throw new Error(maxBytes === MAX_NATIVE_JSON_BYTES
         ? "ChatGPT native JSON response exceeded 1 MiB."
         : "ChatGPT native error response exceeded 64 KiB.");
       body += decoder.decode(value, { stream: true });
