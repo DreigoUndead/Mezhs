@@ -206,7 +206,7 @@ async function nativeChatRequirementsHeaders(window, session, token) {
 // Bound it explicitly so a successful auth/prepare response cannot buffer
 // arbitrary bytes before the one-time conversation POST.
 const MAX_NATIVE_JSON_BYTES = 1024 * 1024;
-async function readBoundedNativeJson(response) {
+async function readBoundedNativeJson(response, maxBytes = MAX_NATIVE_JSON_BYTES) {
   const reader = response.body?.getReader?.();
   if (!reader)
     throw new Error("ChatGPT native JSON response requires an incremental body.");
@@ -219,8 +219,10 @@ async function readBoundedNativeJson(response) {
       const { value, done } = await reader.read();
       if (done) { completed = true; break; }
       size += value.byteLength;
-      if (size > MAX_NATIVE_JSON_BYTES)
-        throw new Error("ChatGPT native JSON response exceeded 1 MiB.");
+      if (size > maxBytes)
+      throw new Error(maxBytes === MAX_NATIVE_JSON_BYTES
+        ? "ChatGPT native JSON response exceeded 1 MiB."
+        : "ChatGPT native error response exceeded 64 KiB.");
       body += decoder.decode(value, { stream: true });
     }
     body += decoder.decode();
@@ -276,34 +278,15 @@ const INTEGRITY_STATE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 // explicitly validated provider code is needed for recovery decisions.
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
 async function safeProviderErrorCode(response) {
-  const reader = response.body?.getReader?.();
-  if (!reader) return null;
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  let body = "";
-  let length = 0;
-  let completed = false;
   try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) { completed = true; break; }
-      length += value.byteLength;
-      if (length > MAX_ERROR_BODY_BYTES) return null;
-      body += decoder.decode(value, { stream: true });
-    }
-    body += decoder.decode();
-    const parsed = JSON.parse(body);
+    const parsed = await readBoundedNativeJson(response, MAX_ERROR_BODY_BYTES);
     const code = parsed?.detail?.code ?? parsed?.code;
     return typeof code === "string" && /^[a-z0-9_-]{1,80}$/i.test(code)
       ? code : null;
   } catch {
-    // Invalid/malformed error bodies preserve HTTP status without exposing data.
+    // Invalid, oversized or malformed error bodies preserve HTTP status without
+    // exposing data. The bounded reader cancels incomplete response bodies.
     return null;
-  } finally {
-    if (!completed) {
-      try { await reader.cancel(); }
-      catch { /* Preserve the HTTP status and discard private response data. */ }
-    }
-    reader.releaseLock();
   }
 }
 
