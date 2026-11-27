@@ -511,3 +511,19 @@ The earlier owner-acceptance blocker (missing generalized registered handler dis
 **Verification state:** Independently fetched source and compared commits: exactly `RichDocumentParser.cs` and `tests/Mezhs.RichUi.TestApp/Program.cs` changed across the three correction commits. This environment has no installed .NET SDK/PowerShell or Windows worktree, and **no runtime test, build, or isolated Agent/Chromium PASS is claimed for the corrected revision**. The earlier Windows verification at `248cd954` predates this correction. Run the plan's C# parser, SSR/TypeScript, Release build, Agent architecture/policy/protocol and diff checks at one current revision; re-review independently afterward. Step 5 isolated Chromium remains separate.
 
 **Outcome:** **FAIL — corrected in source, verification pending.** A fresh independent Step 4 reviewer is required after actual correction verification; do not advance to Step 5 or merge/release `main` without the required approvals.
+
+### 2026-11-27 — Step 4 review #5 correction verification (Windows)
+
+**Verified application revision:** `c79ee9835b1c909444d33ba450ca9f896a1bd2da`, `escape-root-command-execution` worktree at `D:/Projects/Mezhs-escape-execution`. Fast-forward from `b06356cd` to this exact revision was confirmed by execution `11284`, `git rev-parse HEAD` by `11285`; working tree and tracking branch were clean in `11286`, and `git diff --check main...HEAD` passed in `11287`.
+
+**Observed verification on this revision:**
+- C# rich UI parser **153/153 PASS** (execution `11288`), including new comment/CDATA forged-closer and unterminated-section fail-closed cases, nested escape containment, earlier SVG/CodeBlock over-depth regressions, and no parser first-chance exceptions in tested invalid syntax.
+- React SSR **48/48 PASS** (execution `11289`), including trusted SVG decoding, inert editor contents, Markdown, questions and rendering safety.
+- Release solution build, Web and Agent Web TypeScript/Vite builds **PASS**, 0 errors, 1 existing unrelated WhatsApp CS0114 warning (execution `11290`).
+- Policy decoder **PASS** (`11291`), Agent architecture **PASS** (`11292`), shared Agent Web UI **19/19 PASS** (`11293`).
+- Isolated Agent/Executor protocol **PASS** (`11294`): direct inline/root-escape commands execute once with durable evidence, forbidden nesting remains inert, and invalid/disallowed/DONE-order batches produce no shell or filesystem side effects.
+
+**Limitations:** These tests support the corrected command-containment behavior but do not independently establish the original incident's root cause. npm audits reported 3 and 5 dependency vulnerabilities in frontend dependency sets, plus esbuild install-script warnings; no dependencies were changed. Independent Step 5 Chromium checks were not run as part of this Step 4 correction verification.
+
+**Workflow outcome:** Step 4 reviewer #5 remains **FAIL (corrected, runtime-verified)** because this reviewer changed implementation code. Per `.agents/code-review.md`, hand off to a **fresh independent Step 4 Code Reviewer** to inspect the complete corrected branch and issue an independent PASS/FAIL/BLOCKED result. Do not advance to Step 5, merge `main`, change VERSION or release without the required gates and owner approval.
+
