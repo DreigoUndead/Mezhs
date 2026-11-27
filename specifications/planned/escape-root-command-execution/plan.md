@@ -78,7 +78,7 @@ SVG-specific grammar/limits are now validated by trusted `Svg.tsx` and SSR tests
 
 The earlier owner-acceptance blocker (missing generalized registered handler dispatch after a behavioral PASS) led to a return to Development and subsequent implementation changes; its rationale remains in `Changes`. The owner subsequently rejected contextual same-name variants and approved one definition per tag name with optional `RequiredAncestors`. The current intended implementation keeps one structural finder, Core/Agent catalog composition, registered callbacks, static frontend registry and frontend-owned SVG grammar.
 
-**Current state:** Step 4 review #4 corrected a raw-editor depth-limit command-containment defect. Windows verification at application revision 248cd95441c2afaec1b37791e5d961d6d820bf48 passed. Because this reviewer changed implementation code, a fresh independent Step 4 review is mandatory before Step 5 Testing. No Deploy or merge authorization.
+**Current state:** Independent Step 4 Code Review #8 PASS on reviewed revision `96a6d003fddf62fad7a52a0324b697862f55e45e` (application revision `e1726447487e6972dee70dc693847462d292c5da`; the later change was plan-only). Independent Step 5 Testing, including isolated Chromium checks, is next. No Deploy or merge authorization.
 
 ## Changes
 
@@ -568,3 +568,17 @@ The earlier owner-acceptance blocker (missing generalized registered handler dis
 **Architecture and remaining gates:** Ordinary UI extension remains Core definition plus trusted frontend registration; Agent command definitions and execution authorization remain Agent-owned; SVG grammar remains trusted frontend-owned. This verifies the corrected cases, not the historical incident root cause. Independent Step 5 isolated Chromium tests are still pending.
 
 **Outcome: FAIL (corrected and verified).** This reviewer changed security-relevant parser behavior; a fresh independent Step 4 Code Reviewer is required before Step 5. No merge to main, version bump or release authorization.
+
+### 2026-11-27 - Independent Step 4 Code Review #8: PASS
+
+**Reviewed:** `96a6d003fddf62fad7a52a0324b697862f55e45e` on `escape-root-command-execution`; clean, tracking Windows worktree at `D:/Projects/Mezhs-escape-execution` (execution `11368`). The branch differs from the verified application revision `e1726447487e6972dee70dc693847462d292c5da` only by the plan documentation commit. `git diff --check main...HEAD` PASS.
+
+**Independent source review:** Inspected branch-specific workflow, Code Review and Batman guidance, plan/architecture, `RichDocumentParser` / `RichTagRegistry` / `RichTagHandlers`, Agent `Registry` / `CommandBatchAdapter` / `Interpreter`, typed document transport, `RichDocumentView` / trusted frontend component registry / `Svg.tsx`, and focused fixtures. No new blocking implementation issue identified. One structural `FindRootTags` performs containment before semantic admission, including disallowed/unknown/raw wrappers; unique names and registered `RequiredAncestors` are checked separately. Agent-only callbacks collect source-addressed candidates and the Interpreter owns batch policy/host execution. Only direct registered command children of a document-root `escape` are eligible; `DONE` remains final/unique; rejected batches have no side effects. The recent malformed raw-editor comment/CDATA containment correction is present.
+
+**Source-level extension exercise:** An ordinary registered UI tag needs its Core C# tag definition, trusted TSX control, and static `rich-elements/Registry.ts` binding (optional handler), not a generic parser/renderer case. A new Agent-only command needs the Agent command definition/handler and authorized Interpreter behavior; it does not change Core syntax. An opaque embedded control needs one raw-editor registration and trusted frontend-owned decoder/validation, not generic C# embedded-language sub-tags. No duplicated command scanner or new host action path identified.
+
+**Observed verification at the reviewed application contents:** `11369` C# parser **162/162 PASS**, including invalid raw-editor comment/CDATA failures returning zero candidates; `11371` React SSR **48/48 PASS**; `11372` Release solution build, Web and Agent Web TypeScript/Vite builds **PASS** (0 errors, one unrelated WhatsApp CS0114 warning); `11374` policy decoder **PASS**; `11375` Agent architecture **PASS**; `11376` Agent Web shared UI **19/19 PASS**; `11377` isolated Agent/Executor protocol **16 PASS**, demonstrating root/root-escape execution once with durable evidence, nested inertness, ordered results and no side effects on rejected batches. `11368` clean source and diff check PASS. These test results support corrected behavior but do not establish the original incident's historical cause.
+
+**Limitations:** Separate independent Step 5 isolated Chromium visual/action tests have not been performed during this review. npm audit reports existing dependency vulnerabilities (5 and 3 across the frontend projects) and esbuild script warnings; dependency changes are out of scope and no fix is claimed.
+
+**Outcome: PASS.** No implementation changes were needed in this review. Advance to fresh independent **Step 5 Testing** per `.agents/workflow.md` and the task plan. No modification or merge to `main`, version bump, release or deploy without explicit owner approval.
