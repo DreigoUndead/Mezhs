@@ -36,7 +36,7 @@ Pipe tables are part of the canonical Markdown interpretation layer, separate fr
 
 ## SVG
 
-Use only literal `svg` geometry with `g`, `rect`, `path`, `line`, `polyline`, `polygon`, `circle`, `ellipse`, `text`, or `tspan`. Geometry is bounded; script-capable tags, events, external resources, CSS and `url(...)` paint never mount as SVG. Invalid SVG subtrees are displayed as inert Unknown controls. No SVG loops or interpolated variables.
+Use only literal `svg` geometry with `g`, `rect`, `path`, `line`, `polyline`, `polygon`, `circle`, `ellipse`, `text`, or `tspan`. C# treats the `svg` body as opaque content; the trusted frontend SVG decoder validates the finite geometry grammar and resource limits. Script-capable tags, events, external resources, CSS and `url(...)` paint never mount as SVG. Invalid SVG subtrees are displayed as inert Unknown controls. No SVG loops or interpolated variables.
 
 ```mdx
 <svg viewBox="0 0 160 60" width="100%" aria-label="Simple diagram">
@@ -73,4 +73,8 @@ Hello,
 </WritingBlock>
 ```
 
-Known and unknown paired tags use position-independent balanced matching for containers; complete unknown tags are rendered with a visible diagnostic border, while an unmatched opener remains ordinary text. `SH` and `ATTACH` stay root-only opaque commands (`AllowAsChild=false`); `DONE` stays a root-only marker. No complete paired UI wrapper, including Unknown, can promote its nested commands to root authority. Complete commands in ordinary Markdown, including code fences, remain actionable. Agent policy, protocol validation and resource budgets remain enforced.
+## Escape and command containment
+
+A document-root `escape` renders ordinary body content as muted literal text. Registered Agent commands are eligible at document root **or directly inside a document-root `escape`**. Eligible command spans are removed from the escaped display text without changing their original command bodies. Commands inside nested `escape` tags, other rich UI wrappers (known, unknown or malformed), SVG or opaque raw editors are inert. A root-level `escape` containing a complete executable command example can execute it; avoid using it for such examples.
+
+Known and unknown paired tags use position-independent structural matching; complete unknown tags show a diagnostic border and an unmatched opener remains ordinary text. `SH` and `ATTACH` retain opaque command bodies, and `DONE` remains a marker with final/unique completion semantics. Complete commands in ordinary Markdown, including code fences, remain actionable at document root. The Agent Registry/Interpreter and policy still authorize commands and validate the whole batch; rendering cannot grant host authority.
