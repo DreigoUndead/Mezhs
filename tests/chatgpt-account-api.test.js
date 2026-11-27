@@ -245,6 +245,35 @@ test("provider streaming HTTP errors expose only bounded safe status fields", as
   assert.doesNotMatch(JSON.stringify(response), /private-provider-detail|conduit/);
 });
 
+test("oversized provider error JSON is bounded and releases the unread stream", async () => {
+  let cancelled = false;
+  let submitted = 0;
+  const actor = session(async url => {
+    const endpoint = new URL(String(url)).pathname;
+    if (endpoint === "/api/auth/session") return json({ accessToken: "token" });
+    if (endpoint === "/backend-api/f/conversation/prepare")
+      return json({ conduit_token: "conduit" });
+    if (endpoint === "/backend-api/f/conversation") {
+      submitted++;
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(64 * 1024 + 1).fill(65));
+        },
+        cancel() { cancelled = true; }
+      }), { status: 429, headers: { "content-type": "application/json" } });
+    }
+    throw new Error("Unexpected endpoint.");
+  });
+  const response = await executeBrowserHttp({
+    window: nativeWindow, session: actor, args: turnArgs, reportEvent: () => {}
+  }, chatgpt.http);
+  assert.equal(submitted, 1, "the failed conversation POST must not be replayed");
+  assert.equal(response.statusCode, 429);
+  assert.equal(response.providerCode, null);
+  assert.equal(response.body, "");
+  assert.equal(cancelled, true, "oversized provider error must cancel the unread body");
+});
+
 test("native auth and prepare JSON reject oversized success bodies before submission", async () => {
   for (const oversizedAt of ["/api/auth/session", "/backend-api/f/conversation/prepare"]) {
     let cancelled = false;
