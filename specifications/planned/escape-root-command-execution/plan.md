@@ -554,3 +554,17 @@ The earlier owner-acceptance blocker (missing generalized registered handler dis
 **Scope of evidence:** These results verify the corrected application at `0dcd7a26`; they do not establish the historical incident's cause and do not replace independent Step 5 Chromium visual/action verification. This documentation-only successor does not change application code.
 
 **Workflow:** Step 4 review #6 remains **FAIL (corrected, runtime-verified)** because this reviewer modified the implementation. A fresh independent Step 4 reviewer must independently inspect the current branch using its own workflow and plan before any Step 5 Testing. No merge to `main`, VERSION change or release is authorized.
+
+### 2026-11-27 - Independent Step 4 Code Review #7: FAIL (raw-editor containment corrected and verified)
+
+**Reviewed starting revision:** 2dcd8b60942ebeac8d21ce9c71c07ab10b8ac38d. Examined branch workflow, active plan, shared parser/catalog, Agent command authorization, frontend registry/SVG decoder, current tests and prior correction history.
+
+**P1 finding, reproduced:** FindOpaqueClosing returned -1 for unterminated HTML comments or CDATA inside raw editors without setting a fatal parse failure. The discarded opening boundary let complete nested command tags become document-root candidates. Before correction, malformed SVG/comment yielded valid=true with SH:INNER and SH:OUTER; malformed CodeBlock/CDATA yielded valid=true with ATTACH:INNER and SH:OUTER. These are parser outputs, not evidence of actual shell or attachment execution.
+
+**Correction:** Application commit e1726447487e6972dee70dc693847462d292c5da marks unterminated raw-editor comment/CDATA boundaries as fatal parse errors. Six C# regressions cover four malformed SVG/CodeBlock/WritingBlock cases and two correctly terminated editors followed by independently eligible root commands. The correction uses the shared structural matcher without a second command scanner or additional host authorization path.
+
+**Verification:** At corrected code contents: C# parser 162/162 PASS (MEZS 11342), React SSR 48/48 PASS (11343), Release solution and Web/Agent Web builds successful with zero errors and one existing unrelated WhatsApp CS0114 warning (11344 and clean post-commit Release build 11352), policy decoder PASS (11345), Agent architecture PASS (11346), Agent Web shared UI 19/19 PASS (11347), isolated Agent/Executor protocol 16 PASS and zero FAIL checks including no side effects for rejected batches (11348 and 11350). Post-commit targeted malformed-editor probes at e1726447 all returned invalid documents and zero command candidates (11352). Git diff --check passed.
+
+**Architecture and remaining gates:** Ordinary UI extension remains Core definition plus trusted frontend registration; Agent command definitions and execution authorization remain Agent-owned; SVG grammar remains trusted frontend-owned. This verifies the corrected cases, not the historical incident root cause. Independent Step 5 isolated Chromium tests are still pending.
+
+**Outcome: FAIL (corrected and verified).** This reviewer changed security-relevant parser behavior; a fresh independent Step 4 Code Reviewer is required before Step 5. No merge to main, version bump or release authorization.
