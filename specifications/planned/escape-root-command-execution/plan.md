@@ -582,3 +582,20 @@ The earlier owner-acceptance blocker (missing generalized registered handler dis
 **Limitations:** Separate independent Step 5 isolated Chromium visual/action tests have not been performed during this review. npm audit reports existing dependency vulnerabilities (5 and 3 across the frontend projects) and esbuild script warnings; dependency changes are out of scope and no fix is claimed.
 
 **Outcome: PASS.** No implementation changes were needed in this review. Advance to fresh independent **Step 5 Testing** per `.agents/workflow.md` and the task plan. No modification or merge to `main`, version bump, release or deploy without explicit owner approval.
+
+### 2026-11-27 - Independent Step 5 Testing PASS
+
+**Branch and revisions:** escape-root-command-execution; independently verified application at ac0dcf9ccfa155480b817029d532b1285b6e27d7 (application source unchanged since Step 4 reviewed e1726447487e6972dee70dc693847462d292c5da). Test-only Chromium regression commit 38b51359cb2a988ac2d1bd2e3870844959cd87ce; no application code changed.
+
+**Observed independent Step 5 checks:**
+- C# canonical parser: 162/162 PASS, zero parser first-chance exceptions (execution 11396); rechecked 162/162 PASS after test-only commit (11414). Covers root and root-escape eligibility, inert nested/unknown/invalid/raw boundaries, original spans, failed-closed malformed comments/CDATA, depth limits and final unique DONE.
+- React SSR: 48/48 PASS (11397), rechecked after test-only commit (11414). Covers finite trusted SVG decoding, malicious SVG rejection, diagnostics, Markdown and interactive host boundaries.
+- Real headless Chromium in a fresh temporary profile with mocked API (11398): 1/1 PASS, including native SVG geometry, rich controls, editor copy, readonly actions, draft/upload preservation, question isolation and chat/connection switching. A test-only malicious script SVG rejection assertion was added and passed (11411, 11413, 11414): inert diagnostic, no SVG/script DOM subtree and no script side effect. Temporary profile was cleaned by the test harness; the active owner profile/storage was not used.
+- Release solution plus Web and Agent Web TypeScript/Vite builds: PASS, 0 errors, one unrelated WhatsApp CS0114 warning (11399). npm audit reported 5 and 3 existing frontend dependency advisories and esbuild install-script warnings; no dependency upgrade was attempted.
+- Policy decoder PASS, Agent architecture PASS and shared Agent Web UI 19/19 PASS (11400).
+- Isolated live Agent/Executor protocol 16 checks PASS (11402), including direct root and root-escape SH exactly once with durable evidence, inert nested commands, rejected batches without shell/filesystem effects, ordered results and continuation.
+- Source extension-path check (11415): one FindRootTags and DispatchTag in shared parser; unique-name/ancestor catalog; Agent composes Core UI with command definitions; trusted React registry and SVG decoder are separate. Comparison from reviewed application e1726447 through test revision changed only plan documentation and Chromium test. git diff --check main...HEAD PASS and task worktree clean (11414).
+
+**Limitations:** Chromium ran against an isolated test harness with mocked API, not production services or the owners active browser. The results establish tested behavior and do not establish the historical incident cause. No blocking application defect was found. The initial local test-harness fixture-list edit was corrected before the regression was committed; final Chromium tests passed.
+
+**Outcome:** PASS. Independent Step 5 verification completed. Proceed to Step 6 Deploy for owner approval/reconciliation only. No merge to main, version change or release is authorized without explicit project-owner approval.
